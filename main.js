@@ -70,8 +70,6 @@ function syncAppHeight(){
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
   document.documentElement.style.setProperty('--mobile-frame-drop', mobileFrameDrop + 'px');
   document.documentElement.style.setProperty('--frameoff-scale', String(frameScale > 0 ? frameScale : 1));
-  document.body.style.height = viewportHeight + 'px';
-  document.body.style.minHeight = viewportHeight + 'px';
 }
 
 function isGifDataUrl(dataUrl){
