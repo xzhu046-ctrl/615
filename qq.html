@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>QQ</title>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<script src="../assetStore.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--b:#0a0a0a;--w:#fff;--off:#f7f7f7;--g:#888;--p:#eee;--bd:2px solid #0a0a0a;--sh:2px 2px 0 #0a0a0a;--font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif}
+body{font-family:var(--font);background:var(--off);color:var(--b);min-height:100vh;display:flex;flex-direction:column}
+.tabbar{display:flex;background:var(--w);border-bottom:var(--bd);padding:8px 10px 10px;gap:8px}
+.tab{flex:1;text-align:center;padding:11px 0;font-family:var(--fontd);font-weight:900;font-size:13px;cursor:pointer;border:1.5px solid var(--b);border-radius:14px;background:#f5f5f5;box-shadow:2px 2px 0 rgba(10,10,10,.9);transition:transform .12s ease,box-shadow .12s ease,background .12s ease}
+.tab.active{background:#6f6f6f;color:var(--w);box-shadow:3px 3px 0 rgba(10,10,10,.95)}
+.tab:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(10,10,10,.9)}
+.view{flex:1;overflow:hidden;display:none}
+.view.active{display:block}
+.list{list-style:none;padding:8px 10px 14px;display:flex;flex-direction:column;gap:8px}
+.item{display:flex;gap:12px;padding:12px 14px;background:var(--w);border:1.5px solid var(--b);border-radius:16px;cursor:pointer;align-items:center;position:relative;transition:transform .12s ease,box-shadow .12s ease,background .12s ease;box-shadow:2px 2px 0 rgba(10,10,10,.9)}
+.item:active{background:#f0f0f0;transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(10,10,10,.9)}
+.item.pinned{margin:2px 2px 0;padding:14px 14px 14px 16px;border:var(--bd);border-radius:20px;background:linear-gradient(180deg,#fff 0%,#f5f5f5 100%);box-shadow:4px 4px 0 var(--b)}
+.item.pinned + .item.pinned{margin-top:8px}
+.item.pinned::before{content:'';position:absolute;left:0;top:10px;bottom:10px;width:8px;border-radius:999px;background:var(--b)}
+.item.pinned .av{background:#fff;box-shadow:3px 3px 0 var(--b)}
+.item.pinned .name{display:flex;align-items:center;gap:8px}
+.pin-chip{display:inline-flex;align-items:center;justify-content:center;padding:3px 8px;border:var(--bd);border-radius:999px;background:var(--b);color:var(--w);font-size:9px;font-weight:900;letter-spacing:.04em;line-height:1;flex-shrink:0}
+.av{width:46px;height:46px;border-radius:12px;border:var(--bd);background:var(--p);display:flex;align-items:center;justify-content:center;font-size:22px;overflow:hidden;box-shadow:var(--sh);flex-shrink:0}
+.av img{width:100%;height:100%;object-fit:cover}
+.meta{flex:1;min-width:0}
+.name{font-family:var(--fontd);font-size:14px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.snip{font-size:12px;color:var(--g);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.badge{font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;border:1.5px solid var(--b);background:#f3f3f3;color:var(--b)}
+.item.pinned .badge{background:var(--w);color:var(--b)}
+.pin-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);display:none;align-items:center;justify-content:center;z-index:60;padding:20px}
+.pin-overlay.open{display:flex}
+.pin-card{width:min(280px,100%);background:var(--b);color:var(--w);border:2px solid var(--w);border-radius:18px;box-shadow:0 14px 30px rgba(0,0,0,.3), 4px 4px 0 #000;padding:16px 14px;display:flex;flex-direction:column;gap:14px;text-align:center}
+.pin-title{font-family:var(--fontd);font-size:16px;font-weight:900;line-height:1.4}
+.pin-actions{display:flex;gap:10px}
+.pin-btn{flex:1;padding:10px 0;border:var(--bd);border-radius:12px;background:var(--w);color:var(--b);font-family:var(--fontd);font-size:12px;font-weight:900;cursor:pointer;box-shadow:var(--sh)}
+.pin-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(12px);background:var(--b);color:var(--w);padding:9px 16px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;pointer-events:none;transition:opacity .22s ease,transform .22s ease;z-index:70}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.iframe-wrap{height:calc(100vh - 52px);border:none;width:100%;display:block}
+</style>
+</head>
+<body>
+  <div class="tabbar">
+    <div class="tab active" data-view="chatlist" onclick="switchTab('chatlist')">聊天</div>
+    <div class="tab" data-view="contacts" onclick="switchTab('contacts')">通讯录</div>
+  </div>
+
+  <div class="view active" id="chatlist">
+    <ul class="list" id="chatList"></ul>
+  </div>
+  <div class="view" id="contacts">
+    <iframe class="iframe-wrap" src="characters.html" frameborder="0"></iframe>
+  </div>
+  <div class="pin-overlay" id="pinOverlay" onclick="handlePinOverlayClick(event)">
+    <div class="pin-card">
+      <div class="pin-title" id="pinTitle">要置顶此聊天吗？</div>
+      <div class="pin-actions">
+        <button class="pin-btn" type="button" onclick="closePinConfirm()">取消</button>
+        <button class="pin-btn" type="button" onclick="confirmPinChat()">确认</button>
+      </div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script>
+var chars=[];
+var pinConfirmId = '';
+var pinConfirmMode = 'pin';
+var longPressTimer = null;
+var longPressTriggered = false;
+var activePressId = null;
+var toastTimer = null;
+var LONG_PRESS_MS = 420;
+var avatarAssetCache = {};
+
+function loadStoredAsset(key){
+  if(window.assetStore) return window.assetStore.load(key);
+  try{ return Promise.resolve(localStorage.getItem(key) || ''); }catch(e){ return Promise.resolve(''); }
+}
+
+function hydrateAvatarAssets(){
+  chars.forEach(function(c){
+    if(!c || !c.id) return;
+    loadStoredAsset('char_avatar_' + c.id).then(function(src){
+      if(src && avatarAssetCache[c.id] !== src){
+        avatarAssetCache[c.id] = src;
+        loadChars();
+      }
+    });
+  });
+}
+
+function getAvatarSrc(c){
+  if(!c) return '';
+  var ovr = avatarAssetCache[c.id];
+  if(ovr && ovr.startsWith('data:')) return ovr;
+  return c.imageData || '';
+}
+function slimChar(c){
+  if(!c) return null;
+  return {
+    id:c.id, name:c.name, description:c.description, avatar:c.avatar,
+    imageData:c.imageData,
+    personality:c.personality, scenario:c.scenario, system_prompt:c.system_prompt,
+    first_mes:c.first_mes, alternate_greetings:c.alternate_greetings,
+    tags:c.tags, character_version:c.character_version, spec:c.spec, creator:c.creator
+  };
+}
+function loadChars(){
+  try{ chars=JSON.parse(localStorage.getItem('characters')||'[]'); }catch(e){ chars=[]; }
+  renderList();
+}
+function getPinnedChatIds(){
+  try{
+    var ids = JSON.parse(localStorage.getItem('qq_pinned_chat_ids') || '[]');
+    return Array.isArray(ids) ? ids.filter(Boolean) : [];
+  }catch(e){
+    return [];
+  }
+}
+function setPinnedChatIds(ids){
+  localStorage.setItem('qq_pinned_chat_ids', JSON.stringify(ids));
+}
+function isChatPinned(id){
+  return getPinnedChatIds().indexOf(id) !== -1;
+}
+function pinChat(id){
+  var ids = getPinnedChatIds();
+  if(ids.indexOf(id) === -1){
+    ids.push(id);
+    setPinnedChatIds(ids);
+  }
+}
+function unpinChat(id){
+  var ids = getPinnedChatIds().filter(function(item){ return item !== id; });
+  setPinnedChatIds(ids);
+}
+function lastMsgOf(c){
+  try{
+    var saved=JSON.parse(localStorage.getItem('chat_'+c.id)||'null');
+    var msgs=(saved&&saved.messages)||[];
+    if(msgs.length) return normalizePreviewMessage(msgs[msgs.length-1]);
+  }catch(e){}
+  return {content:c.description||'', type:'text'};
+}
+
+function normalizeChatPreviewType(type){
+  if(type === 'voice_message' || type === 'voice') return 'voice';
+  if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
+  return 'text';
+}
+
+function normalizePreviewMessage(msg){
+  var next = msg && typeof msg === 'object' ? msg : { content:'', type:'text' };
+  var kind = normalizeChatPreviewType(next.type || 'text');
+  if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
+    try{
+      var parsed = JSON.parse(next.content);
+      if(parsed && typeof parsed === 'object' && parsed.content){
+        return { content: parsed.content, type: normalizeChatPreviewType(parsed.type || 'text') };
+      }
+    }catch(e){}
+  }
+  return { content: next.content || '', type: kind };
+}
+function renderList(){
+  var list=document.getElementById('chatList');
+  if(!chars.length){ list.innerHTML='<li class="item" style="justify-content:center;color:var(--g)">还没有联系人，去通讯录添加吧</li>'; return; }
+  var pinnedIds = getPinnedChatIds();
+  var sortedChars = chars.slice().sort(function(a,b){
+    var aPinned = pinnedIds.indexOf(a.id);
+    var bPinned = pinnedIds.indexOf(b.id);
+    if(aPinned !== -1 || bPinned !== -1){
+      if(aPinned === -1) return 1;
+      if(bPinned === -1) return -1;
+      return aPinned - bPinned;
+    }
+    return 0;
+  });
+  list.innerHTML = sortedChars.map(function(c){
+    var avSrc = getAvatarSrc(c);
+    var av = avSrc ? '<img src="'+avSrc+'">' : (c.avatar||'🌸');
+    var displayName = c.nickname || c.name || '未命名';
+    var last = lastMsgOf(c);
+    var snip = '';
+    var lastType = normalizeChatPreviewType(last && last.type);
+    if(lastType === 'voice') snip = '语音消息 ' + Math.max(1, Math.min(60, Math.ceil((last.content||'').length/6))) + "''";
+    else if(lastType === 'image') snip = '【图片】';
+    else snip = (last && last.content) ? last.content : '暂无消息';
+    var pinned = pinnedIds.indexOf(c.id) !== -1;
+    return '<li class="item' + (pinned ? ' pinned' : '') + '" data-chat-id="'+esc(c.id)+'">' +
+      '<div class="av">'+av+'</div>' +
+      '<div class="meta"><div class="name">'+esc(displayName)+(pinned ? '<span class="pin-chip">置顶</span>' : '')+'</div><div class="snip">'+esc(snip)+'</div></div>' +
+      '<div class="badge">进入</div>' +
+      '</li>';
+  }).join('');
+  bindListInteractions();
+}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function openChat(id){
+  var c = chars.find(function(x){return x.id===id;});
+  if(!c) return;
+  var slim = slimChar(c);
+  try { localStorage.setItem('activeCharacter', JSON.stringify(slim)); } catch(e){}
+  try { localStorage.setItem('pendingChatChar', JSON.stringify(slim)); } catch(e){}
+  var host = window.parent || window.top;
+  try { if(host && host.localStorage){ host.localStorage.setItem('activeCharacter', JSON.stringify(slim)); host.localStorage.setItem('pendingChatChar', JSON.stringify(slim)); } } catch(e){}
+  try { host?.postMessage({type:'SET_ACTIVE_CHARACTER', payload:slim}, '*'); } catch(e){}
+  try { host?.postMessage({type:'OPEN_CHAT_WITH', payload:slim}, '*'); } catch(e){}
+  try { if(typeof host?.openApp === 'function') host.openApp('chat'); } catch(e){}
+  // standalone fallback
+  if(!host || host === window){ window.location.href = 'chat.html'; }
+}
+function bindListInteractions(){
+  document.querySelectorAll('#chatList .item[data-chat-id]').forEach(function(item){
+    item.addEventListener('click', function(){
+      var id = item.dataset.chatId;
+      if(longPressTriggered){
+        longPressTriggered = false;
+        return;
+      }
+      openChat(id);
+    });
+    item.addEventListener('pointerdown', function(evt){
+      if(evt.pointerType === 'mouse' && evt.button !== 0) return;
+      clearLongPress();
+      activePressId = item.dataset.chatId;
+      longPressTimer = setTimeout(function(){
+        longPressTriggered = openPinConfirm(activePressId);
+      }, LONG_PRESS_MS);
+    });
+    ['pointerup','pointerleave','pointercancel'].forEach(function(name){
+      item.addEventListener(name, clearLongPress);
+    });
+  });
+}
+function clearLongPress(){
+  if(longPressTimer){
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+  activePressId = null;
+}
+function openPinConfirm(id){
+  if(!id) return false;
+  pinConfirmId = id;
+  pinConfirmMode = isChatPinned(id) ? 'unpin' : 'pin';
+  var title = document.getElementById('pinTitle');
+  if(title) title.textContent = pinConfirmMode === 'unpin' ? '要取消此聊天置顶吗？' : '要置顶此聊天吗？';
+  var overlay = document.getElementById('pinOverlay');
+  if(overlay) overlay.classList.add('open');
+  return true;
+}
+function closePinConfirm(){
+  pinConfirmId = '';
+  pinConfirmMode = 'pin';
+  var overlay = document.getElementById('pinOverlay');
+  if(overlay) overlay.classList.remove('open');
+}
+function handlePinOverlayClick(evt){
+  if(evt.target === evt.currentTarget) closePinConfirm();
+}
+function confirmPinChat(){
+  if(!pinConfirmId) return closePinConfirm();
+  var mode = pinConfirmMode;
+  if(mode === 'unpin'){
+    unpinChat(pinConfirmId);
+  }else{
+    pinChat(pinConfirmId);
+  }
+  closePinConfirm();
+  renderList();
+  showToast(mode === 'unpin' ? '已取消置顶' : '已置顶到最上面');
+}
+function showToast(text){
+  var toast = document.getElementById('toast');
+  if(!toast) return;
+  toast.textContent = text || '';
+  toast.classList.add('show');
+  if(toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){
+    toast.classList.remove('show');
+  }, 1600);
+}
+function switchTab(v){
+  document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('active', t.dataset.view===v);});
+  document.querySelectorAll('.view').forEach(function(s){s.classList.toggle('active', s.id===v);});
+}
+window.addEventListener('message', function(e){
+  var d=e.data||{};
+  if(d.type==='CHARACTER_IMPORTED'){ loadChars(); forward(d); }
+  if(d.type==='CHAT_UPDATED'){ loadChars(); forward(d); }
+  if(d.type==='SET_ACTIVE_CHARACTER' || d.type==='OPEN_CHAT_WITH' || d.type==='OPEN_APP_WITH'){ forward(d); }
+});
+function forward(msg){
+  try{ if(window.top && window.top!==window) window.top.postMessage(msg,'*'); }catch(e){}
+}
+loadChars();
+hydrateAvatarAssets();
+</script>
+</body>
+</html>
