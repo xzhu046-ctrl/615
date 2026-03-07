@@ -15,7 +15,9 @@
   --font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif;
   --chat-app-height:100dvh;
   --vv-top-offset:0px;
-  --vv-bottom-offset:0px
+  --vv-bottom-offset:0px;
+  --keyboard-inset:0px;
+  --composer-height:132px
 }
 html,body{width:100%;max-width:100vw;height:100%;overflow:hidden;overscroll-behavior:none}
 body{font-family:var(--font);background:var(--off);color:var(--b);width:100vw;max-width:100vw;height:var(--chat-app-height);min-height:var(--chat-app-height);display:flex;flex-direction:column;overflow:hidden;position:relative}
@@ -34,7 +36,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .hdr-icon-btn{width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;font-size:17px}
 
 /* ── Messages ── */
-.messages{flex:1;min-height:0;overflow-y:auto;padding:12px 12px max(8px, env(safe-area-inset-bottom), var(--vv-bottom-offset));display:flex;flex-direction:column;gap:8px;scrollbar-width:none}
+.messages{flex:1;min-height:0;overflow-y:auto;padding:12px 12px calc(var(--composer-height) + max(8px, env(safe-area-inset-bottom), var(--vv-bottom-offset)) + var(--keyboard-inset));display:flex;flex-direction:column;gap:8px;scrollbar-width:none}
 .messages::-webkit-scrollbar{display:none}
 .msg{display:flex;gap:8px;max-width:88%;animation:msgIn .2s ease-out}
 .msg.voice-msg{gap:8px}
@@ -108,7 +110,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .err-notice a{font-weight:800;cursor:pointer;text-decoration:underline;color:#c00}
 
 /* ── Input area ── */
-.chat-input-area{background:var(--w);border-top:var(--bd);padding:10px 12px calc(10px + max(env(safe-area-inset-bottom), var(--vv-bottom-offset)));display:flex;gap:8px;align-items:flex-end;flex-shrink:0;z-index:25;position:relative}
+.chat-input-area{background:var(--w);border-top:var(--bd);padding:10px 12px calc(10px + max(env(safe-area-inset-bottom), var(--vv-bottom-offset)));display:flex;gap:8px;align-items:flex-end;flex-shrink:0;z-index:35;position:fixed;left:0;right:0;bottom:var(--keyboard-inset)}
 .input-wrap{flex:1;background:var(--off);border:var(--bd);border-radius:16px;padding:9px 13px;display:flex;flex-direction:column;align-items:stretch;gap:7px;transition:none;box-shadow:3px 3px 0 var(--b)}
 .input-wrap:focus-within{box-shadow:3px 3px 0 var(--b)}
 #msg-input{flex:1;border:none;background:transparent;font-family:var(--font);font-size:13px;font-weight:600;color:var(--b);outline:none;resize:none;max-height:90px;line-height:1.5;-webkit-text-fill-color:currentColor;font-variant-emoji:text}
@@ -1584,11 +1586,21 @@ function syncChatViewport(){
   var vvTopOffset = Math.round(vv ? Math.max(0, vv.offsetTop || 0) : 0);
   var rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
   var keyboardLikelyOpen = rawBottomOffset > 120;
+  var keyboardInset = keyboardLikelyOpen ? rawBottomOffset : 0;
   var vvBottomOffset = keyboardLikelyOpen ? 0 : rawBottomOffset;
   var vh = vv ? (isStandalone ? (vv.height + vvTopOffset) : vv.height) : window.innerHeight;
   document.documentElement.style.setProperty('--chat-app-height', Math.round(vh) + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', vvBottomOffset + 'px');
+  document.documentElement.style.setProperty('--keyboard-inset', keyboardInset + 'px');
+  syncComposerMetrics();
+}
+
+function syncComposerMetrics(){
+  var composer = document.querySelector('.chat-input-area');
+  if(!composer) return;
+  var h = Math.round(composer.getBoundingClientRect().height || 0);
+  document.documentElement.style.setProperty('--composer-height', (h > 0 ? h : 132) + 'px');
 }
 
 function keepComposerVisible(){
@@ -1596,6 +1608,7 @@ function keepComposerVisible(){
   if(list){
     list.scrollTop = list.scrollHeight;
   }
+  syncComposerMetrics();
 }
 
 var _vo = document.getElementById('voiceOverlay');
@@ -2081,9 +2094,14 @@ window.addEventListener('focusin', function(e){
 window.addEventListener('pageshow', function(){
   syncChatViewport();
 });
+window.addEventListener('load', function(){
+  syncChatViewport();
+  syncComposerMetrics();
+});
 window.addEventListener('input', function(e){
   if(e.target && e.target.id === 'msg-input'){
     keepComposerVisible();
+    syncComposerMetrics();
   }
 }, true);
 if(window.visualViewport){
