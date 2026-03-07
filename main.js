@@ -54,7 +54,7 @@ function syncAppHeight(){
   const viewportHeight = Math.round(vv ? (vv.height + vv.offsetTop) : window.innerHeight);
   const viewportWidth = Math.round(vv ? vv.width : window.innerWidth);
   document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
-  const frameScale = Math.max(viewportWidth / 375, viewportHeight / 780);
+  const frameScale = Math.min(viewportWidth / 375, viewportHeight / 780);
   document.documentElement.style.setProperty('--frameoff-scale', String(frameScale > 0 ? frameScale : 1));
   document.body.style.height = viewportHeight + 'px';
   document.body.style.minHeight = viewportHeight + 'px';
@@ -1179,9 +1179,22 @@ const WALLPAPERS={
 };
 function setWallpaper(t){
   const el=document.getElementById('wallpaper-gradient');
-  if(WALLPAPERS[t]){ el.style.background=WALLPAPERS[t]; localStorage.setItem('wallpaper',t); removeStoredAsset('wallpaper_custom'); return; }
+  const frameBg = document.getElementById('frame-wallpaper');
+  const outer = document.querySelector('.phone-outer');
+  if(WALLPAPERS[t]){
+    const bg = WALLPAPERS[t];
+    el.style.background = bg;
+    if(frameBg) frameBg.style.background = bg;
+    if(outer) outer.style.background = bg;
+    localStorage.setItem('wallpaper',t);
+    removeStoredAsset('wallpaper_custom');
+    return;
+  }
   if(typeof t==='string' && (t.startsWith('data:') || t.startsWith('http'))){
-    el.style.background = `center / cover no-repeat url(${t})`;
+    const bg = `center / cover no-repeat url(${t})`;
+    el.style.background = bg;
+    if(frameBg) frameBg.style.background = bg;
+    if(outer) outer.style.background = bg;
     localStorage.setItem('wallpaper','custom');
     saveStoredAsset('wallpaper_custom', t);
     return;
