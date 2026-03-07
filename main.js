@@ -51,7 +51,7 @@ function applyPhoneFrameVisibility(visible, persist){
 
 function syncAppHeight(){
   const vv = window.visualViewport;
-  const viewportHeight = Math.round(vv ? (vv.height + vv.offsetTop) : window.innerHeight);
+  const viewportHeight = Math.round(vv ? vv.height : window.innerHeight);
   const viewportWidth = Math.round(vv ? vv.width : window.innerWidth);
   document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
   const frameScale = Math.min(viewportWidth / 375, viewportHeight / 780);
