@@ -64,8 +64,7 @@ function syncAppHeight(){
   document.documentElement.style.setProperty('--vv-bottom-offset', vvBottomOffset + 'px');
   const contentTopInset = isStandalone ? vvTopOffset : 0;
   const contentBottomInset = isStandalone ? vvBottomOffset : 0;
-  const isCoarseMobile = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-  const mobileFrameDrop = (isCoarseMobile && !isStandalone) ? 56 : 0;
+  const mobileFrameDrop = 0;
   const usableHeight = Math.max(1, viewportHeight - contentTopInset - contentBottomInset - mobileFrameDrop);
   const frameScale = Math.min(viewportWidth / 375, usableHeight / 780);
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
@@ -1356,7 +1355,6 @@ window.addEventListener('resize', ()=>{
 
 if(window.visualViewport){
   window.visualViewport.addEventListener('resize', syncAppHeight);
-  window.visualViewport.addEventListener('scroll', syncAppHeight);
 }
 
 restoreState();
