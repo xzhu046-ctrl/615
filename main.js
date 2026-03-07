@@ -53,7 +53,7 @@ function syncAppHeight(){
   const viewportHeight = Math.round(window.visualViewport ? window.visualViewport.height : window.innerHeight);
   const viewportWidth = Math.round(window.visualViewport ? window.visualViewport.width : window.innerWidth);
   document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
-  const frameScale = Math.min(viewportWidth / 375, viewportHeight / 780);
+  const frameScale = Math.max(viewportWidth / 375, viewportHeight / 780);
   document.documentElement.style.setProperty('--frameoff-scale', String(frameScale > 0 ? frameScale : 1));
   document.body.style.minHeight = viewportHeight + 'px';
 }
