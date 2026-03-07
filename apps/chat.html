@@ -486,6 +486,7 @@ var LONG_PRESS_MS = 420;
 var replyTargetId = null;
 var IMAGE_SNIPPET = '【图片】';
 var IMAGE_BUBBLE_URL = 'https://files.catbox.moe/6ruu03.jpeg';
+var BASE_VIEWPORT_HEIGHT = 0;
 
 function normalizeMessageType(type){
   if(type === 'voice_message' || type === 'voice') return 'voice';
@@ -1578,8 +1579,13 @@ function closeImageViewer(){
 }
 
 function syncChatViewport(){
-  var vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  var vv = window.visualViewport;
+  var vh = vv ? vv.height : window.innerHeight;
   document.documentElement.style.setProperty('--chat-app-height', Math.round(vh) + 'px');
+  // Keep a stable baseline to compute keyboard height in iframes.
+  if(!BASE_VIEWPORT_HEIGHT || vh > BASE_VIEWPORT_HEIGHT){
+    BASE_VIEWPORT_HEIGHT = Math.round(vh);
+  }
 }
 
 function keepComposerVisible(){
@@ -1587,7 +1593,9 @@ function keepComposerVisible(){
   var keyboard = 0;
   var input = document.getElementById('msg-input');
   if(window.visualViewport){
-    keyboard = Math.max(0, window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop);
+    var vv = window.visualViewport;
+    var baseline = BASE_VIEWPORT_HEIGHT || Math.round(vv.height);
+    keyboard = Math.max(0, baseline - vv.height - vv.offsetTop);
   }
   document.documentElement.style.setProperty('--kb-offset', Math.max(0, Math.round(keyboard)) + 'px');
   if(list){
@@ -2030,12 +2038,19 @@ document.addEventListener('input', function(e){
 }, true);
 
 window.addEventListener('resize', syncChatViewport);
-window.addEventListener('orientationchange', syncChatViewport);
+window.addEventListener('orientationchange', function(){
+  BASE_VIEWPORT_HEIGHT = 0;
+  syncChatViewport();
+});
 window.addEventListener('focusin', function(e){
   if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')) keepComposerVisible();
 });
 window.addEventListener('focusout', function(){
   document.documentElement.style.setProperty('--kb-offset', '0px');
+});
+window.addEventListener('pageshow', function(){
+  BASE_VIEWPORT_HEIGHT = 0;
+  syncChatViewport();
 });
 window.addEventListener('input', function(e){
   if(e.target && e.target.id === 'msg-input'){
