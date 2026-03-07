@@ -51,11 +51,13 @@ function applyPhoneFrameVisibility(visible, persist){
 
 function syncAppHeight(){
   const vv = window.visualViewport;
-  const viewportHeight = Math.round(vv ? vv.height : window.innerHeight);
+  const viewportHeight = Math.round(vv ? (vv.height + vv.offsetTop) : window.innerHeight);
   const viewportWidth = Math.round(vv ? vv.width : window.innerWidth);
   document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
   const frameScale = Math.min(viewportWidth / 375, viewportHeight / 780);
   document.documentElement.style.setProperty('--frameoff-scale', String(frameScale > 0 ? frameScale : 1));
+  document.body.style.height = viewportHeight + 'px';
+  document.body.style.minHeight = viewportHeight + 'px';
 }
 
 function isGifDataUrl(dataUrl){
