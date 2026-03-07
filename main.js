@@ -57,7 +57,8 @@ function syncAppHeight(){
   const rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
   const keyboardLikelyOpen = rawBottomOffset > 120;
   const vvBottomOffset = keyboardLikelyOpen ? 0 : rawBottomOffset;
-  const viewportHeight = Math.round(vv ? (isStandalone ? (vv.height + vvTopOffset) : vv.height) : window.innerHeight);
+  const vvHeight = Math.round(vv ? vv.height : window.innerHeight);
+  const viewportHeight = Math.round(isStandalone ? window.innerHeight : vvHeight);
   document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', vvBottomOffset + 'px');
