@@ -51,10 +51,24 @@ function applyPhoneFrameVisibility(visible, persist){
 
 function syncAppHeight(){
   const vv = window.visualViewport;
-  const viewportHeight = Math.round(vv ? vv.height : window.innerHeight);
+  const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
   const viewportWidth = Math.round(vv ? vv.width : window.innerWidth);
+  const vvTopOffset = Math.round(vv ? Math.max(0, vv.offsetTop || 0) : 0);
+  const rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
+  const keyboardLikelyOpen = rawBottomOffset > 120;
+  const vvBottomOffset = keyboardLikelyOpen ? 0 : rawBottomOffset;
+  const viewportHeight = Math.round(vv ? (isStandalone ? (vv.height + vvTopOffset) : vv.height) : window.innerHeight);
   document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
-  const frameScale = Math.min(viewportWidth / 375, viewportHeight / 780);
+  document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
+  document.documentElement.style.setProperty('--vv-bottom-offset', vvBottomOffset + 'px');
+  const contentTopInset = isStandalone ? vvTopOffset : 0;
+  const contentBottomInset = isStandalone ? vvBottomOffset : 0;
+  const isCoarseMobile = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  const mobileFrameDrop = isCoarseMobile ? 56 : 0;
+  const usableHeight = Math.max(1, viewportHeight - contentTopInset - contentBottomInset - mobileFrameDrop);
+  const frameScale = Math.min(viewportWidth / 375, usableHeight / 780);
+  document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
+  document.documentElement.style.setProperty('--mobile-frame-drop', mobileFrameDrop + 'px');
   document.documentElement.style.setProperty('--frameoff-scale', String(frameScale > 0 ? frameScale : 1));
   document.body.style.height = viewportHeight + 'px';
   document.body.style.minHeight = viewportHeight + 'px';
@@ -1039,6 +1053,8 @@ let currentApp=null;
 function renderApp(id){
   const a=APP_MAP[id]; if(!a) return;
   currentApp=id;
+  const outer = document.querySelector('.phone-outer');
+  if(outer) outer.classList.add('app-open');
   document.getElementById('app-title-label').textContent=a.title;
   document.getElementById('app-iframe').src=a.src;
   document.getElementById('app-container').classList.add('open');
@@ -1054,6 +1070,8 @@ function openApp(id) {
 function closeApp() {
   appStack.length = 0;
   currentApp = null;
+  const outer = document.querySelector('.phone-outer');
+  if(outer) outer.classList.remove('app-open');
   document.getElementById('app-container').classList.remove('open');
   document.getElementById('home-screen').classList.remove('hidden');
   try{
@@ -1181,11 +1199,18 @@ function setWallpaper(t){
   const el=document.getElementById('wallpaper-gradient');
   const frameBg = document.getElementById('frame-wallpaper');
   const outer = document.querySelector('.phone-outer');
+  const setGlobalBg = (bg)=>{
+    try{
+      document.body.style.background = bg;
+      document.documentElement.style.background = bg;
+    }catch(e){}
+  };
   if(WALLPAPERS[t]){
     const bg = WALLPAPERS[t];
     el.style.background = bg;
     if(frameBg) frameBg.style.background = bg;
     if(outer) outer.style.background = bg;
+    setGlobalBg(bg);
     localStorage.setItem('wallpaper',t);
     removeStoredAsset('wallpaper_custom');
     return;
@@ -1195,6 +1220,7 @@ function setWallpaper(t){
     el.style.background = bg;
     if(frameBg) frameBg.style.background = bg;
     if(outer) outer.style.background = bg;
+    setGlobalBg(bg);
     localStorage.setItem('wallpaper','custom');
     saveStoredAsset('wallpaper_custom', t);
     return;
