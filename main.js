@@ -1056,6 +1056,8 @@ function renderApp(id){
   currentApp=id;
   const outer = document.querySelector('.phone-outer');
   if(outer) outer.classList.add('app-open');
+  document.documentElement.classList.add('app-open-mode');
+  document.body.classList.add('app-open-mode');
   document.getElementById('app-title-label').textContent=a.title;
   document.getElementById('app-iframe').src=a.src;
   document.getElementById('app-container').classList.add('open');
@@ -1073,6 +1075,8 @@ function closeApp() {
   currentApp = null;
   const outer = document.querySelector('.phone-outer');
   if(outer) outer.classList.remove('app-open');
+  document.documentElement.classList.remove('app-open-mode');
+  document.body.classList.remove('app-open-mode');
   document.getElementById('app-container').classList.remove('open');
   document.getElementById('home-screen').classList.remove('hidden');
   try{
