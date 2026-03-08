@@ -1198,11 +1198,18 @@ function setWallpaper(t){
   const frameBg = document.getElementById('frame-wallpaper');
   const outer = document.querySelector('.phone-outer');
   const root = document.documentElement;
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
   const setGlobalBg = (bg)=>{
     try{
       document.body.style.background = bg;
       document.documentElement.style.background = bg;
       if(root) root.style.setProperty('--viewport-bg', bg);
+      if(themeMeta){
+        const color = (typeof bg === 'string' && (bg.startsWith('#') || bg.startsWith('rgb') || bg.startsWith('hsl')))
+          ? bg
+          : '#111111';
+        themeMeta.setAttribute('content', color);
+      }
     }catch(e){}
   };
   if(WALLPAPERS[t]){
