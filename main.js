@@ -1206,11 +1206,14 @@ function setWallpaper(t){
   const themeMeta = document.querySelector('meta[name="theme-color"]');
   const setGlobalBg = (bg)=>{
     try{
-      document.body.style.background = '';
-      document.documentElement.style.background = '';
-      if(root) root.style.setProperty('--viewport-bg', '#f7f7f7');
+      document.body.style.background = bg;
+      document.documentElement.style.background = bg;
+      if(root) root.style.setProperty('--viewport-bg', bg);
       if(themeMeta){
-        themeMeta.setAttribute('content', '#f7f7f7');
+        const color = (typeof bg === 'string' && (bg.startsWith('#') || bg.startsWith('rgb') || bg.startsWith('hsl')))
+          ? bg
+          : '#111111';
+        themeMeta.setAttribute('content', color);
       }
     }catch(e){}
   };
