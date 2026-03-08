@@ -268,6 +268,31 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .image-view-close:active{transform:translate(1px,1px);box-shadow:0 0 0}
 .image-view-paper{border:var(--bd);border-radius:18px;background:linear-gradient(180deg,#fff 0%,#f6f6f6 100%);padding:16px;box-shadow:inset 0 0 0 1px #dcdcdc}
 .image-view-text{font-size:13px;font-weight:700;line-height:1.75;color:var(--b);white-space:pre-wrap;word-break:break-word}
+.idcard-overlay{position:fixed;inset:0;background:rgba(0,0,0,.36);display:none;align-items:center;justify-content:center;z-index:240;padding:18px}
+.idcard-overlay.open{display:flex}
+.idcard-card{width:min(360px,100%);background:var(--off);border:var(--bd);border-radius:26px;box-shadow:var(--sh);padding:14px}
+.idcard-inner{border:var(--bd);border-radius:22px;background:var(--w);padding:12px;display:grid;grid-template-columns:132px 1fr;gap:12px}
+.idcard-left{display:flex;flex-direction:column;align-items:center;gap:8px}
+.idcard-avatar{width:120px;height:148px;border:var(--bd);border-radius:26px;background:var(--pale);box-shadow:var(--sh);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:50px;font-family:var(--fontd);font-weight:900}
+.idcard-avatar img{width:100%;height:100%;object-fit:cover}
+.idcard-name{min-width:96px;max-width:120px;border:var(--bd);border-radius:999px;background:var(--off);box-shadow:1px 1px 0 var(--b);padding:5px 10px;text-align:center;font-family:var(--fontd);font-size:13px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.idcard-right{display:flex;flex-direction:column;gap:10px}
+.idcard-pill{align-self:flex-start;border:var(--bd);border-radius:999px;background:var(--off);box-shadow:1px 1px 0 var(--b);padding:5px 14px;font-family:var(--fontd);font-size:15px;font-weight:900}
+.idcard-lines{display:flex;flex-direction:column;gap:6px;min-height:86px}
+.idcard-line{border-bottom:2px solid #1d1d1d;padding-bottom:4px;font-size:12px;line-height:1.4;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.idcard-line.muted{color:#777;font-weight:600}
+.idcard-bar-wrap{margin-top:auto;border:var(--bd);border-radius:14px;background:#fff;padding:8px 9px 6px;box-shadow:1px 1px 0 var(--b)}
+.idcard-bar{height:46px;border-radius:6px;background:
+  repeating-linear-gradient(
+    90deg,
+    #0a0a0a 0 2px,
+    #ffffff 2px 5px,
+    #0a0a0a 5px 9px,
+    #ffffff 9px 12px,
+    #0a0a0a 12px 13px,
+    #ffffff 13px 15px
+  )}
+.idcard-code{margin-top:6px;text-align:center;font-family:var(--fontd);font-size:16px;font-weight:900;letter-spacing:.08em}
 
 #char-img-input,#user-img-input{display:none}
 </style>
@@ -275,7 +300,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 <body>
 
 <div class="chat-header">
-  <div class="hdr-avatar" id="hdrAvatar" onclick="openChatSettings()">🌸</div>
+  <div class="hdr-avatar" id="hdrAvatar" onclick="openIdentityCard()">🌸</div>
   <div class="hdr-info" onclick="openChatSettings()">
     <div class="hdr-name" id="hdrName">选择一个角色</div>
     <div class="hdr-model" id="hdrModel">未设置 API</div>
@@ -439,6 +464,27 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
     </div>
     <div class="image-view-paper">
       <div class="image-view-text" id="imageViewText"></div>
+    </div>
+  </div>
+</div>
+
+<div class="idcard-overlay" id="identityCardOverlay">
+  <div class="idcard-card">
+    <div class="idcard-inner">
+      <div class="idcard-left">
+        <div class="idcard-avatar" id="idcAvatar">AI</div>
+        <div class="idcard-name" id="idcName">CHAR</div>
+      </div>
+      <div class="idcard-right">
+        <div class="idcard-pill">基本信息</div>
+        <div class="idcard-lines" id="idcLines">
+          <div class="idcard-line muted">暂无信息</div>
+        </div>
+        <div class="idcard-bar-wrap">
+          <div class="idcard-bar"></div>
+          <div class="idcard-code" id="idcCode">CHAR000</div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1970,6 +2016,10 @@ var _ivo = document.getElementById('imageViewOverlay');
 if(_ivo){
   _ivo.addEventListener('click', function(e){ if(e.target === _ivo) closeImageViewer(); });
 }
+var _idco = document.getElementById('identityCardOverlay');
+if(_idco){
+  _idco.addEventListener('click', function(e){ if(e.target === _idco) closeIdentityCard(); });
+}
 var _gc = document.getElementById('greetingConfirm');
 if(_gc){
   _gc.addEventListener('click', function(e){ if(e.target === _gc) cancelGreetingChange(); });
@@ -2043,6 +2093,82 @@ function getCharAvatarHTML() {
   if (!character) return '🌸';
   if (character.imageData) return '<img src="' + character.imageData + '">';
   return esc(character.avatar || '🌸');
+}
+
+function getIdentityCode(){
+  if(!character) return 'CHAR000';
+  var seed = String(character.id || character.name || 'CHAR').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  if(!seed) seed = 'CHAR';
+  return (seed + 'X12').slice(0, 10);
+}
+
+function extractPersonaBasicInfo(persona){
+  var txt = String(persona || '').trim();
+  if(!txt) return ['生日：未设置', '星座：未设置', '性格：待补充'];
+  function pick(patterns){
+    for(var i=0;i<patterns.length;i++){
+      var m = txt.match(patterns[i]);
+      if(m && m[1]) return String(m[1]).trim();
+    }
+    return '';
+  }
+  var birthday = pick([/生日[：:\s]*([^\n，。；;]+)/i, /born[^\n:：]*[：:\s]*([^\n,.;，。；;]+)/i]);
+  var zodiac = pick([/星座[：:\s]*([^\n，。；;]+)/i, /zodiac[：:\s]*([^\n,.;，。；;]+)/i]);
+  var age = pick([/年龄[：:\s]*([^\n，。；;]+)/i, /age[：:\s]*([^\n,.;，。；;]+)/i]);
+  var job = pick([/职业[：:\s]*([^\n，。；;]+)/i, /身份[：:\s]*([^\n，。；;]+)/i, /job[：:\s]*([^\n,.;，。；;]+)/i, /occupation[：:\s]*([^\n,.;，。；;]+)/i]);
+  var traits = pick([/性格[：:\s]*([^\n，。；;]+)/i, /特点[：:\s]*([^\n，。；;]+)/i, /personality[：:\s]*([^\n,.;，。；;]+)/i]);
+  var lines = [];
+  if(birthday) lines.push('生日：' + birthday);
+  if(zodiac) lines.push('星座：' + zodiac);
+  if(age) lines.push('年龄：' + age);
+  if(job) lines.push('身份：' + job);
+  if(traits) lines.push('性格：' + traits);
+  if(!lines.length){
+    lines = txt.split(/[\n。；;]+/).map(function(s){ return s.trim(); }).filter(Boolean).slice(0,3).map(function(s){ return '资料：' + s; });
+  }
+  if(!lines.length) lines = ['生日：未设置','星座：未设置','性格：待补充'];
+  return lines.slice(0,4);
+}
+
+function resolveCharAvatarDataUrl(){
+  if(!character) return Promise.resolve('');
+  var fallback = (character.imageData && String(character.imageData).startsWith('data:')) ? character.imageData : '';
+  return loadStoredAsset('char_avatar_' + character.id).then(function(ovr){
+    if(ovr && String(ovr).startsWith('data:')) return ovr;
+    return fallback;
+  }).catch(function(){ return fallback; });
+}
+
+function openIdentityCard(){
+  if(!character){ toast('请先在通讯录选择角色'); return; }
+  var overlay = document.getElementById('identityCardOverlay');
+  if(!overlay) return;
+  var name = (character.name || 'CHAR').trim() || 'CHAR';
+  var persona = character.personality || character.description || '';
+  document.getElementById('idcName').textContent = name;
+  document.getElementById('idcCode').textContent = getIdentityCode();
+  var lines = extractPersonaBasicInfo(persona);
+  document.getElementById('idcLines').innerHTML = lines.map(function(line){
+    return '<div class="idcard-line">' + esc(line) + '</div>';
+  }).join('');
+  var avatarEl = document.getElementById('idcAvatar');
+  avatarEl.textContent = (character.avatar || 'AI').slice(0,2);
+  resolveCharAvatarDataUrl().then(function(src){
+    if(src){
+      avatarEl.innerHTML = '<img src="' + src + '" alt="char">';
+      return;
+    }
+    if(character.imageData){
+      avatarEl.innerHTML = '<img src="' + character.imageData + '" alt="char">';
+      return;
+    }
+    avatarEl.textContent = (character.avatar || 'AI').slice(0,2);
+  });
+  overlay.classList.add('open');
+}
+
+function closeIdentityCard(){
+  document.getElementById('identityCardOverlay')?.classList.remove('open');
 }
 
 function hideParentTopbarForSettings(){
