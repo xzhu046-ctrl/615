@@ -49,22 +49,25 @@ function applyPhoneFrameVisibility(visible, persist){
   }
 }
 
+function isStandaloneMode(){
+  return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+}
+
 function syncAppHeight(){
   const vv = window.visualViewport;
-  const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
-  const viewportWidth = Math.round(vv ? vv.width : window.innerWidth);
+  const isStandalone = isStandaloneMode();
+  const viewportWidth = Math.round(isStandalone ? window.innerWidth : (vv ? vv.width : window.innerWidth));
   const vvTopOffset = Math.round(vv ? Math.max(0, vv.offsetTop || 0) : 0);
   const rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
   const keyboardLikelyOpen = rawBottomOffset > 120;
   const vvBottomOffset = keyboardLikelyOpen ? 0 : rawBottomOffset;
-  const vvHeight = Math.round(vv ? vv.height : window.innerHeight);
-  const viewportHeight = Math.round(isStandalone ? window.innerHeight : vvHeight);
+  const viewportHeight = Math.round(window.innerHeight);
   document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', vvBottomOffset + 'px');
-  const contentTopInset = isStandalone ? vvTopOffset : 0;
+  const contentTopInset = isStandalone ? 0 : vvTopOffset;
   const contentBottomInset = isStandalone ? vvBottomOffset : 0;
-  const mobileFrameDrop = isStandalone ? 18 : 0;
+  const mobileFrameDrop = isStandalone ? 8 : 0;
   const usableHeight = Math.max(1, viewportHeight - contentTopInset - contentBottomInset - mobileFrameDrop);
   const frameScale = Math.min(viewportWidth / 375, usableHeight / 780);
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
@@ -1309,6 +1312,8 @@ function setWidgetCharacter(c){
 }
 
 function restoreState(){
+  const safeAreaCover = document.querySelector('.ios-safe-area-cover');
+  if(safeAreaCover) safeAreaCover.remove();
   compactCharKey('activeCharacter');
   compactCharKey('pendingChatChar');
   bindTextNormalization();
@@ -1358,7 +1363,10 @@ window.addEventListener('resize', ()=>{
 });
 
 if(window.visualViewport){
-  window.visualViewport.addEventListener('resize', syncAppHeight);
+  window.visualViewport.addEventListener('resize', ()=>{
+    if(isStandaloneMode()) return;
+    syncAppHeight();
+  });
 }
 
 restoreState();
