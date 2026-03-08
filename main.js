@@ -1197,10 +1197,12 @@ function setWallpaper(t){
   const el=document.getElementById('wallpaper-gradient');
   const frameBg = document.getElementById('frame-wallpaper');
   const outer = document.querySelector('.phone-outer');
+  const root = document.documentElement;
   const setGlobalBg = (bg)=>{
     try{
       document.body.style.background = bg;
       document.documentElement.style.background = bg;
+      if(root) root.style.setProperty('--viewport-bg', bg);
     }catch(e){}
   };
   if(WALLPAPERS[t]){
