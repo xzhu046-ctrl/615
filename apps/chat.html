@@ -47,6 +47,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg.user .msg-main{align-items:flex-end}
 .msg.ai .msg-main{align-items:flex-start}
 .msg-read{font-size:9px;line-height:1;color:#8a8a8a;font-weight:800;padding:0 4px;margin-top:4px}
+.msg.user .msg-read{margin-top:1px}
 .msg.select-mode{max-width:100%;cursor:pointer}
 .msg.selected .msg-bubble{outline:2px solid var(--b);outline-offset:2px}
 .msg-bubble{padding:10px 12px;border-radius:16px;font-size:13px;line-height:1.5;font-weight:600;max-width:100%;white-space:pre-wrap;word-break:break-word;min-height:40px;display:flex;align-items:center;transition:transform .08s linear}
@@ -541,14 +542,18 @@ function getMomentsAiName(){
 }
 
 function getMomentsAiAvatar(){
+  if(character && character.imageData && String(character.imageData).startsWith('data:')) return String(character.imageData);
   var id = character && character.id ? character.id : '';
   if(id){
     try{
       var localAvatar = localStorage.getItem('char_avatar_' + id) || '';
-      if(localAvatar) return localAvatar;
+      if(localAvatar && (localAvatar.startsWith('data:') || localAvatar.startsWith('http') || localAvatar.startsWith('blob:') || localAvatar.startsWith('/'))) return localAvatar;
     }catch(e){}
   }
-  if(character && character.avatar) return String(character.avatar);
+  if(character && character.avatar){
+    var av = String(character.avatar);
+    if(av.startsWith('data:') || av.startsWith('http') || av.startsWith('blob:') || av.startsWith('/')) return av;
+  }
   return '';
 }
 
@@ -742,7 +747,7 @@ function maybeRunAiMomentsFromChat(text, msgType){
       name: aiName,
       avatar: aiAvatar,
       replyToName: replyTarget,
-      text: makeNaturalMomentComment(seed, aiLine),
+      text: makeNaturalMomentComment(latest.text || latest.imageText || seed, latest.text || latest.imageText || aiLine),
       at: Date.now()
     });
     latest.comments = comments;
@@ -1026,8 +1031,9 @@ function removeMessagesByIds(ids){
 }
 function deleteActiveMessage(){
   if(!activeActionMessageId) return;
+  var targetId = activeActionMessageId;
   closeMessageActions();
-  var removed = removeMessagesByIds([activeActionMessageId]);
+  var removed = removeMessagesByIds([targetId]);
   toast(removed ? '消息已删除' : '未找到消息');
 }
 function beginEditMessage(){
