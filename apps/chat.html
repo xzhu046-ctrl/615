@@ -536,6 +536,18 @@ function getMomentsAiName(){
   return 'AI';
 }
 
+function getMomentsAiAvatar(){
+  var id = character && character.id ? character.id : '';
+  if(id){
+    try{
+      var localAvatar = localStorage.getItem('char_avatar_' + id) || '';
+      if(localAvatar) return localAvatar;
+    }catch(e){}
+  }
+  if(character && character.avatar) return String(character.avatar);
+  return '';
+}
+
 function getLatestMoment(posts){
   if(!Array.isArray(posts) || !posts.length) return null;
   return posts.slice().sort(function(a,b){ return (b.createdAt || 0) - (a.createdAt || 0); })[0];
@@ -578,15 +590,19 @@ function truncateMomentText(value, max){
   return text.slice(0, Math.max(0, max - 1)) + '…';
 }
 
-function makeAiMomentComment(seed){
-  var t = truncateMomentText(seed, 34);
-  if(!t) return '这条想记录下来。';
-  return t.length <= 6 ? (t + '，记下了。') : t;
+function makeMomentLineFromAi(aiText, fallback, max){
+  var raw = String(aiText || '').replace(/\s+/g, ' ').trim();
+  if(!raw) raw = String(fallback || '').replace(/\s+/g, ' ').trim();
+  if(!raw) return '这条想记下来。';
+  var first = raw.split(/[。！？!?]/)[0].trim();
+  if(first.length >= 4) raw = first;
+  return truncateMomentText(raw, max || 42);
 }
 
 function maybeRunAiMomentsFromChat(text, msgType){
   var now = Date.now();
   var aiName = getMomentsAiName();
+  var aiAvatar = getMomentsAiAvatar();
   var sig = getSignalsForMoments(text, msgType);
   var pending = momentsIntentFromUser;
   if(pending && (now - pending.ts > 5 * 60 * 1000)) pending = null;
@@ -610,10 +626,11 @@ function maybeRunAiMomentsFromChat(text, msgType){
   if(!Array.isArray(posts)) return;
   var changed = false;
   var seed = truncateMomentText((pending && pending.seedText) || sig.shortText, 80);
+  var aiLine = makeMomentLineFromAi(text, seed, 48);
 
   function addPost(){
     var hasImage = msgType === 'image' || sig.imageHint || (pending && pending.imageHint);
-    var content = seed || '想把这一刻记下来。';
+    var content = aiLine || seed || '想把这一刻记下来。';
     posts.push({
       id: 'post_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       type: hasImage ? 'dynamic' : 'say',
@@ -622,7 +639,8 @@ function maybeRunAiMomentsFromChat(text, msgType){
       createdAt: Date.now(),
       comments: [],
       likes: [],
-      authorName: aiName
+      authorName: aiName,
+      authorAvatar: aiAvatar
     });
     changed = true;
   }
@@ -654,8 +672,9 @@ function maybeRunAiMomentsFromChat(text, msgType){
     comments.push({
       id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       name: aiName,
+      avatar: aiAvatar,
       replyToName: replyTarget,
-      text: makeAiMomentComment(seed),
+      text: makeMomentLineFromAi(text, seed, 36),
       at: Date.now()
     });
     latest.comments = comments;
