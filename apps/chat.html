@@ -556,8 +556,14 @@ function getLatestMoment(posts){
 function getSignalsForMoments(text, msgType){
   var raw = String(text || '');
   var lower = raw.toLowerCase();
+  var wantsPostSay = /(发(一条|个)?说说|发(一条|个)?朋友圈|写(一条|个)?说说|记录(到)?朋友圈|发圈|po(一条)?|post(一条)?)/i.test(raw);
+  var wantsPostDynamic = /(发(一条|个)?动态|发个动态|po动态|post动态)/i.test(raw);
+  var wantsPostAny = wantsPostSay || wantsPostDynamic;
   return {
-    wantsMoments: /(朋友圈|发圈|说说|动态|moments)/i.test(raw),
+    mentionsMoments: /(朋友圈|moments|说说|动态)/i.test(raw),
+    wantsPostSay: wantsPostSay,
+    wantsPostDynamic: wantsPostDynamic,
+    wantsPostAny: wantsPostAny,
     wantsLike: /(点赞|点个赞|赞一下|like)/i.test(raw),
     wantsComment: /(评论|留言)/i.test(raw),
     wantsReply: /(回复|回他|回她|回一下)/i.test(raw),
@@ -570,10 +576,12 @@ function getSignalsForMoments(text, msgType){
 
 function captureUserMomentIntent(text, msgType){
   var sig = getSignalsForMoments(text, msgType);
-  if(!(sig.wantsMoments || sig.wantsLike || sig.wantsComment || sig.wantsReply || sig.emotional || sig.imageHint)) return;
+  if(!(sig.wantsPostAny || sig.wantsLike || sig.wantsComment || sig.wantsReply || sig.emotional || sig.imageHint || sig.mentionsMoments)) return;
   momentsIntentFromUser = {
     ts: Date.now(),
-    wantsMoments: sig.wantsMoments,
+    wantsPostSay: sig.wantsPostSay,
+    wantsPostDynamic: sig.wantsPostDynamic,
+    wantsPostAny: sig.wantsPostAny,
     wantsLike: sig.wantsLike,
     wantsComment: sig.wantsComment,
     wantsReply: sig.wantsReply,
@@ -609,16 +617,21 @@ function maybeRunAiMomentsFromChat(text, msgType){
   momentsIntentFromUser = null;
 
   var forceActions = [];
+  var forcedPostType = '';
   if(pending){
     if(pending.wantsLike) forceActions.push('like');
     if(pending.wantsComment) forceActions.push('comment');
     if(pending.wantsReply) forceActions.push('reply');
-    if(pending.wantsMoments || pending.emotional || pending.imageHint) forceActions.push('post');
+    if(pending.wantsPostAny || pending.emotional || pending.imageHint) forceActions.push('post');
+    if(pending.wantsPostDynamic) forcedPostType = 'dynamic';
+    else if(pending.wantsPostSay) forcedPostType = 'say';
   }
   if(sig.wantsLike) forceActions.push('like');
   if(sig.wantsComment) forceActions.push('comment');
   if(sig.wantsReply) forceActions.push('reply');
-  if(sig.wantsMoments) forceActions.push('post');
+  if(sig.wantsPostAny) forceActions.push('post');
+  if(sig.wantsPostDynamic) forcedPostType = 'dynamic';
+  else if(sig.wantsPostSay && !forcedPostType) forcedPostType = 'say';
 
   if(!forceActions.length && now - momentsLastActionAt < 12000) return;
 
@@ -627,13 +640,24 @@ function maybeRunAiMomentsFromChat(text, msgType){
   var changed = false;
   var seed = truncateMomentText((pending && pending.seedText) || sig.shortText, 80);
   var aiLine = makeMomentLineFromAi(text, seed, 48);
+  var onlySocialAction = (forceActions.indexOf('like') !== -1 || forceActions.indexOf('comment') !== -1 || forceActions.indexOf('reply') !== -1) && forceActions.indexOf('post') === -1;
+
+  function inferPostType(){
+    if(forcedPostType) return forcedPostType;
+    if(msgType === 'image') return 'dynamic';
+    if(sig.wantsPostDynamic) return 'dynamic';
+    if(sig.wantsPostSay) return 'say';
+    if(sig.imageHint) return 'dynamic';
+    return Math.random() < 0.45 ? 'dynamic' : 'say';
+  }
 
   function addPost(){
-    var hasImage = msgType === 'image' || sig.imageHint || (pending && pending.imageHint);
+    var postType = inferPostType();
+    var hasImage = postType === 'dynamic';
     var content = aiLine || seed || '想把这一刻记下来。';
     posts.push({
       id: 'post_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-      type: hasImage ? 'dynamic' : 'say',
+      type: postType,
       text: content,
       imageText: hasImage ? content : '',
       createdAt: Date.now(),
@@ -682,6 +706,7 @@ function maybeRunAiMomentsFromChat(text, msgType){
   }
 
   var shouldPostByMood = !forceActions.length && (sig.emotional || sig.imageHint) && Math.random() < 0.36;
+  if(onlySocialAction) shouldPostByMood = false;
   if(shouldPostByMood) forceActions.push('post');
   if(!forceActions.length && posts.length && Math.random() < 0.16) forceActions.push('like');
   if(!forceActions.length) return;
@@ -1365,6 +1390,9 @@ function buildSystemPrompt() {
   var replyGuide = [
     '【聊天风格补充】',
     '请像真人聊天一样自然回复，不要太像客服。',
+    '你可以执行朋友圈动作（发说说、发动态、点赞、评论、回复评论），不要说“我不能/没法发朋友圈”。',
+    '如果你决定执行朋友圈动作，请在话术里与动作一致：点赞就说点赞，评论就说评论，发说说/发动态就明确区分，不要把“点赞”伪装成一条说说。',
+    '当你准备“发布”时，要像真人自己判断发说说还是发动态：有画面感/图片语境优先动态，纯文字感受优先说说。',
     '只有在上下文非常合适时，才偶尔引用一条历史消息增强活人感；大多数时候正常回复即可。',
     '如果你要引用，请只在单条 JSON 对象里额外带 reply_to 和 reply_role；如果不引用，就输出普通内容，不必强行使用 JSON。',
     '一旦你选择语音或图片消息，必须严格输出 JSON，不能把特殊格式写成普通文本描述。',
