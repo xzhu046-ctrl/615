@@ -66,8 +66,8 @@ function syncAppHeight(){
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', vvBottomOffset + 'px');
   const contentTopInset = isStandalone ? 0 : vvTopOffset;
-  const contentBottomInset = isStandalone ? vvBottomOffset : 0;
-  const mobileFrameDrop = isStandalone ? 11 : 0;
+  const contentBottomInset = 0;
+  const mobileFrameDrop = isStandalone ? 14 : 0;
   const usableHeight = Math.max(1, viewportHeight - contentTopInset - contentBottomInset - mobileFrameDrop);
   const frameScale = Math.min(viewportWidth / 375, usableHeight / 780);
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
