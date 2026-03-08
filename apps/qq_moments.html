@@ -30,6 +30,9 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 .tiny-btn{border:var(--bd);background:rgba(255,255,255,.94);border-radius:12px;box-shadow:var(--sh);width:38px;height:38px;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .tiny-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
 .tiny-btn svg{width:20px;height:20px;display:block;fill:#0a0a0a}
+.hero-name-bubble{position:absolute;right:118px;bottom:22px;max-width:168px;padding:6px 10px;border:var(--bd);border-radius:12px;background:rgba(255,255,255,.96);box-shadow:var(--sh);font-family:var(--fontd);font-size:12px;font-weight:900;line-height:1.2;color:var(--b);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero-name-bubble::after{content:'';position:absolute;right:-9px;top:50%;width:12px;height:12px;background:rgba(255,255,255,.96);border-top:var(--bd);border-right:var(--bd);transform:translateY(-50%) rotate(45deg)}
+.hero-name-bubble:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
 .hero-avatar{position:absolute;right:12px;bottom:-28px;width:98px;height:98px;border:var(--bd);border-radius:22px;background:center/cover no-repeat #efefef;box-shadow:3px 3px 0 #0a0a0a;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden}
 .hero-avatar::after{content:'+';font-family:var(--fontd);font-size:26px;font-weight:900;color:#111}
 .hero-avatar.has-image::after{content:''}
@@ -109,6 +112,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z"/></svg>
           </button>
         </div>
+        <button class="hero-name-bubble" id="heroNameBubble" type="button" onclick="openBubbleNameEditor(event)">@我哥天下第一好</button>
         <button class="hero-avatar" id="heroAvatar" type="button" title="更换头像" onclick="pickHeroAvatar(event)"></button>
       </div>
       <div class="hero-sign-wrap">
@@ -136,6 +140,16 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
       </div>
     </div>
   </div>
+  <div class="overlay" id="bubbleNameOverlay">
+    <div class="modal">
+      <div class="modal-title">编辑气泡名字</div>
+      <textarea id="bubbleNameInput" maxlength="22" placeholder="输入昵称..."></textarea>
+      <div class="footer-actions">
+        <button class="footer-btn" type="button" onclick="closeBubbleNameEditor()">取消</button>
+        <button class="footer-btn black" type="button" onclick="confirmBubbleName()">确定</button>
+      </div>
+    </div>
+  </div>
 
   <div class="image-view-overlay" id="imageViewOverlay">
     <div class="image-view-card">
@@ -158,6 +172,7 @@ const STORAGE_POSTS = 'qq_moments_posts';
 const STORAGE_BG = 'qq_moments_hero_bg';
 const STORAGE_AVATAR = 'qq_moments_hero_avatar';
 const STORAGE_SIGN = 'qq_moments_signature';
+const STORAGE_BUBBLE_NAME = 'qq_moments_bubble_name';
 const STORAGE_BG_ASSET = 'qq_moments_hero_bg_asset';
 const STORAGE_AVATAR_ASSET = 'qq_moments_hero_avatar_asset';
 const IMAGE_CARD_BG = 'https://files.catbox.moe/6ruu03.jpeg';
@@ -243,7 +258,11 @@ function renderFeed(){
       + (post.type === 'dynamic' && post.imageText ? '<button class="image-card-button" type="button" data-post-id="' + esc(post.id) + '"></button>' : '')
       + '<div class="comment-box">'
       + '<div class="comment-list">'
-      + (comments.length ? comments.map((c)=>'<div class="comment-item">' + esc(c.text) + '</div>').join('') : '<div class="comment-item">还没有评论，快来抢沙发。</div>')
+      + (comments.length ? comments.map((c)=>{
+          const name = esc((c && c.name) || '@我哥天下第一好');
+          const text = esc(typeof c === 'string' ? c : ((c && c.text) || ''));
+          return '<div class="comment-item"><strong>' + name + '</strong>：' + text + '</div>';
+        }).join('') : '<div class="comment-item">还没有评论，快来抢沙发。</div>')
       + '</div>'
       + '<div class="comment-input-row">'
       + '<input class="comment-input" id="comment-' + esc(post.id) + '" maxlength="120" placeholder="写评论...">'
@@ -273,7 +292,8 @@ function addComment(postId){
   const idx = posts.findIndex((p)=>p.id === postId);
   if(idx === -1) return;
   const comments = Array.isArray(posts[idx].comments) ? posts[idx].comments : [];
-  comments.push({ id: 'c_' + Date.now(), text: text, at: Date.now() });
+  const bubbleName = (localStorage.getItem(STORAGE_BUBBLE_NAME) || '@我哥天下第一好').trim() || '@我哥天下第一好';
+  comments.push({ id: 'c_' + Date.now(), name: bubbleName, text: text, at: Date.now() });
   posts[idx].comments = comments;
   savePosts(posts);
   if(input) input.value = '';
@@ -322,6 +342,28 @@ function openSignatureEditor(){
   const current = localStorage.getItem(STORAGE_SIGN) || '在时间的尽头我们终将相遇';
   if(input) input.value = current;
   if(overlay) overlay.classList.add('open');
+}
+
+function openBubbleNameEditor(evt){
+  if(evt && evt.stopPropagation) evt.stopPropagation();
+  const overlay = document.getElementById('bubbleNameOverlay');
+  const input = document.getElementById('bubbleNameInput');
+  const current = localStorage.getItem(STORAGE_BUBBLE_NAME) || '@我哥天下第一好';
+  if(input) input.value = current;
+  if(overlay) overlay.classList.add('open');
+}
+
+function closeBubbleNameEditor(){
+  const overlay = document.getElementById('bubbleNameOverlay');
+  if(overlay) overlay.classList.remove('open');
+}
+
+function confirmBubbleName(){
+  const input = document.getElementById('bubbleNameInput');
+  const next = input ? String(input.value || '').trim() : '';
+  localStorage.setItem(STORAGE_BUBBLE_NAME, next || '@我哥天下第一好');
+  renderHero();
+  closeBubbleNameEditor();
 }
 
 function closeSignatureEditor(){
@@ -493,9 +535,11 @@ async function renderHero(){
   const bg = document.getElementById('heroBg');
   const av = document.getElementById('heroAvatar');
   const sig = document.getElementById('heroSignature');
+  const bubble = document.getElementById('heroNameBubble');
   const bgSrc = await resolveHeroSource(STORAGE_BG, STORAGE_BG_ASSET);
   const avSrc = await resolveHeroSource(STORAGE_AVATAR, STORAGE_AVATAR_ASSET);
   const sign = localStorage.getItem(STORAGE_SIGN) || '在时间的尽头我们终将相遇';
+  const bubbleName = localStorage.getItem(STORAGE_BUBBLE_NAME) || '@我哥天下第一好';
   if(heroBgObjectUrl && heroBgObjectUrl !== bgSrc){
     URL.revokeObjectURL(heroBgObjectUrl);
     heroBgObjectUrl = '';
@@ -517,6 +561,7 @@ async function renderHero(){
   currentHeroBgSrc = bgSrc || '';
   currentHeroAvatarSrc = avSrc || '';
   if(sig) sig.textContent = sign;
+  if(bubble) bubble.textContent = bubbleName;
   renderFeed();
 }
 
@@ -574,6 +619,12 @@ function bindInputs(){
   if(signatureOverlay){
     signatureOverlay.addEventListener('click', (evt)=>{
       if(evt.target === evt.currentTarget) closeSignatureEditor();
+    });
+  }
+  const bubbleNameOverlay = document.getElementById('bubbleNameOverlay');
+  if(bubbleNameOverlay){
+    bubbleNameOverlay.addEventListener('click', (evt)=>{
+      if(evt.target === evt.currentTarget) closeBubbleNameEditor();
     });
   }
 
