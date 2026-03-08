@@ -2130,7 +2130,8 @@ function getIdentityCode(){
 }
 
 function extractPersonaBasicInfo(persona){
-  var txt = String(persona || '').trim();
+  var rawPersona = String(persona || '');
+  var txt = rawPersona.trim();
   if(!txt) return ['性别：未设置', '年龄：未设置', '生日：未设置'];
   txt = txt
     .replace(/\r/g, '\n')
@@ -2138,8 +2139,7 @@ function extractPersonaBasicInfo(persona){
     .replace(/（/g, '(')
     .replace(/）/g, ')')
     .replace(/，/g, ',')
-    .replace(/。/g, '.')
-    .replace(/\s+/g, ' ');
+    .replace(/。/g, '.');
   var lower = txt.toLowerCase();
   var lines = txt.split(/\n+/).map(function(line){ return line.trim(); }).filter(Boolean);
   function firstLineByKeywords(keys){
@@ -2173,8 +2173,8 @@ function extractPersonaBasicInfo(persona){
   function normalizeGender(value){
     var v = String(value || '').toLowerCase();
     if(!v) return '未设置';
-    if(/(female|girl|woman|she|her|女士|女生|女性|女的|\b女\b)/.test(v)) return '女性';
-    if(/(male|boy|man|he|him|先生|男生|男性|男的|\b男\b)/.test(v)) return '男性';
+    if(/(female|girl|woman|she|her|女士|女生|女性|女的|女)/.test(v)) return '女性';
+    if(/(male|boy|man|he|him|先生|男生|男性|男的|男)/.test(v)) return '男性';
     return '未设置';
   }
   function normalizeAge(value){
@@ -2228,17 +2228,34 @@ function extractPersonaBasicInfo(persona){
   ], birthdayLine || lower);
 
   var genderRaw = extractFromKV(genderLine || txt, ['gender','sex','性别']);
+  if(!genderRaw){
+    var gkv = txt.match(/(?:^|[\n\r])\s*(?:[-*]\s*)?(?:gender|sex|性别)\s*[:=]\s*([^\n\r,;]+)/im);
+    if(gkv && gkv[1]) genderRaw = gkv[1].trim();
+  }
   if(!genderRaw) genderRaw = pick([
-    /\b(男的|女的|男|女|male|female|boy|girl|man|woman)\b/i,
+    /(男的|女的|男|女|male|female|boy|girl|man|woman)/i,
     /\b(i am|i'm)\s+(male|female|a man|a woman|a boy|a girl)\b/i,
     /\b(he\/him|she\/her)\b/i
   ], genderLine || lower);
+  if(!genderRaw){
+    var gHard = rawPersona.match(/(?:gender|sex|性别)\s*[:：=]\s*(男的|女的|男|女|male|female|boy|girl|man|woman)/i);
+    if(gHard && gHard[1]) genderRaw = gHard[1].trim();
+  }
 
   var ageRaw = extractFromKV(ageLine || txt, ['age','年龄']);
   if(!ageRaw) ageRaw = pick([
     /(\d{1,3}\s*(?:岁|yo|y\/o|years?\s*old|yrs?\s*old))/i,
     /\b(?:i am|i'm)\s+(\d{1,3})\b/i
   ], ageLine || lower);
+  if(!ageRaw){
+    var aHard = rawPersona.match(/(?:age|年龄)\s*[:：=]\s*(\d{1,3})/i);
+    if(aHard && aHard[1]) ageRaw = aHard[1].trim();
+  }
+
+  if(!birthdayRaw){
+    var bHard = rawPersona.match(/(?:birthday|birth\s*date|dob|born|生日|出生日期)\s*[:：=]\s*([^\n\r,;]+)/i);
+    if(bHard && bHard[1]) birthdayRaw = bHard[1].trim();
+  }
 
   var info = [
     '性别：' + normalizeGender(genderRaw),
