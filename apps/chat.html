@@ -610,6 +610,20 @@ function makeMomentLineFromAi(aiText, fallback, max){
   return truncateMomentText(raw, max || 42);
 }
 
+function buildMomentPostContent(seed, aiText){
+  var s = String(seed || '').replace(/\s+/g, ' ').trim();
+  var a = String(aiText || '').replace(/\s+/g, ' ').trim();
+  s = s.replace(/^(请|帮我|你|麻烦|可以|能不能)?\s*(发|写|来一条|整一条)?\s*(个|一条)?\s*(说说|动态|朋友圈)\s*/,'').trim();
+  s = s.replace(/^(点赞|评论|回复)\s*/,'').trim();
+  if(s && s.length >= 4) return truncateMomentText(s, 42);
+  if(a){
+    var first = a.split(/[。！？!?]/)[0].trim();
+    if(first.length >= 4) return truncateMomentText(first, 42);
+  }
+  var pool = ['想把这一刻留住。','把心情悄悄记下来。','今天也值得被认真记录。','有一点小感触，记在这里。'];
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 function maybeRunAiMomentsFromChat(text, msgType){
   var now = Date.now();
   var aiName = getMomentsAiName();
@@ -644,6 +658,7 @@ function maybeRunAiMomentsFromChat(text, msgType){
   var seed = truncateMomentText((pending && pending.seedText) || sig.shortText, 80);
   var aiLine = makeMomentLineFromAi(text, seed, 48);
   var onlySocialAction = (forceActions.indexOf('like') !== -1 || forceActions.indexOf('comment') !== -1 || forceActions.indexOf('reply') !== -1) && forceActions.indexOf('post') === -1;
+  var explicitPostRequest = !!((pending && pending.wantsPostAny) || sig.wantsPostAny);
 
   function inferPostType(){
     if(forcedPostType) return forcedPostType;
@@ -657,7 +672,7 @@ function maybeRunAiMomentsFromChat(text, msgType){
   function addPost(){
     var postType = inferPostType();
     var hasImage = postType === 'dynamic';
-    var content = aiLine || seed || '想把这一刻记下来。';
+    var content = explicitPostRequest ? buildMomentPostContent(seed, aiLine) : (buildMomentPostContent(seed, aiLine));
     posts.push({
       id: 'post_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       type: postType,
@@ -1388,15 +1403,17 @@ function buildSystemPrompt() {
     userPersona: userPersona,
     greeting: curGreeting,
     msgMin: character ? (character.msgMin || 1) : 1,
-    msgMax: character ? (character.msgMax || 3) : 3
+    msgMax: character ? (character.msgMax || 3) : 3,
+    momentsPolicy: [
+      '你具备朋友圈互动能力（发说说、发动态、点赞、评论、回复评论），不要说“我不能/没法发朋友圈”。',
+      '你可以自主决定是否发朋友圈：不需要用户每次明确要求；当聊天出现有感触、值得记录或有画面感的瞬间时，可以偶尔主动发一条，但不要频繁刷屏。',
+      '请区分动作：点赞是点赞，评论是评论，回复是回复；不要把“点赞/评论”误发成说说或动态。',
+      '发布时自行判断类型：有图片或画面感优先动态，偏文字心情优先说说。'
+    ].join('\n')
   }) : '');
   var replyGuide = [
     '【聊天风格补充】',
     '请像真人聊天一样自然回复，不要太像客服。',
-    '你具备朋友圈互动能力（发说说、发动态、点赞、评论、回复评论），不要说“我不能/没法发朋友圈”。',
-    '你可以自主决定是否发朋友圈：不需要用户每次明确要求；当聊天里出现有感触、值得记录、或有画面感的瞬间时，可以偶尔主动发一条，但不要频繁刷屏。',
-    '请区分动作：点赞是点赞，评论是评论，回复是回复；不要把“点赞”或“评论”误发成一条说说。',
-    '当你准备发布时，自己判断发说说还是动态：有图片/画面感优先动态，偏文字感受优先说说。',
     '只有在上下文非常合适时，才偶尔引用一条历史消息增强活人感；大多数时候正常回复即可。',
     '如果你要引用，请只在单条 JSON 对象里额外带 reply_to 和 reply_role；如果不引用，就输出普通内容，不必强行使用 JSON。',
     '一旦你选择语音或图片消息，必须严格输出 JSON，不能把特殊格式写成普通文本描述。',
@@ -2122,37 +2139,6 @@ function sleep(ms){
   return new Promise(function(resolve){ setTimeout(resolve, ms); });
 }
 
-function getTypingCharDelay(ch){
-  if(/[，。！？；：,.!?;:]/.test(ch)) return 90 + Math.floor(Math.random()*110);
-  if(/\s/.test(ch)) return 18 + Math.floor(Math.random()*28);
-  return 20 + Math.floor(Math.random()*55);
-}
-
-function setBubbleTextPreserveReply(bubble, text){
-  if(!bubble) return;
-  var reply = bubble.querySelector('.reply-snippet');
-  if(reply){
-    while(reply.nextSibling) bubble.removeChild(reply.nextSibling);
-    bubble.appendChild(document.createTextNode(text));
-    return;
-  }
-  bubble.textContent = text;
-}
-
-async function animateAssistantTextMessage(msgId, text){
-  var bubble = document.querySelector('.msg.ai[data-msg-id="' + msgId + '"] .msg-bubble');
-  if(!bubble) return;
-  var finalText = String(text || '(空消息)');
-  setBubbleTextPreserveReply(bubble, '');
-  var out = '';
-  for(var i = 0; i < finalText.length; i++){
-    out += finalText[i];
-    setBubbleTextPreserveReply(bubble, out);
-    keepComposerVisible();
-    await sleep(getTypingCharDelay(finalText[i]));
-  }
-}
-
 async function deliverAiReply(text){
   var minN = character && character.msgMin ? character.msgMin : 1;
   var maxN = character && character.msgMax ? character.msgMax : 3;
@@ -2248,11 +2234,7 @@ async function deliverAiReply(text){
     chatLog.push(entry);
     addMessage('ai', p.text, true, t, entry.id);
     maybeRunAiMomentsFromChat(p.text, t);
-    if(t === 'text'){
-      await animateAssistantTextMessage(entry.id, p.text);
-    }else{
-      await sleep(220 + Math.floor(Math.random()*200));
-    }
+    await sleep(130 + Math.floor(Math.random()*120));
     if(i < parts.length - 1){
       await sleep(170 + Math.floor(Math.random()*260));
     }

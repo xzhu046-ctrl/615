@@ -13,7 +13,8 @@ class PromptManager {
       userPersona = '',
       greeting = '',
       msgMin = 1,
-      msgMax = 3
+      msgMax = 3,
+      momentsPolicy = ''
     } = ctx;
 
     const wb = worldBook || '(当前无特殊世界观设定，以现实逻辑为准)';
@@ -40,6 +41,9 @@ ${greeting || '（未设置开场白，延续 persona 的语气即可）'}
 ${wb}
 
 ${up}
+
+${momentsPolicy ? `## 朋友圈行为
+${momentsPolicy}` : ''}
 
 ## 回复格式要求（严格根据用户话术实时反应）
 - 必须先理解用户最新消息的内容、情绪、潜台词，再决定介质与条数；确保回应紧扣用户信息，而非自说自话。
