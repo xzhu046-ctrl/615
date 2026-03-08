@@ -709,8 +709,8 @@ function getActiveCharacterData(){
 }
 
 function getChatUserName(charId){
-  if(!charId) return '未设置名字';
-  return (localStorage.getItem('user_name_' + charId) || '').trim() || '未设置名字';
+  if(!charId) return 'USER';
+  return (localStorage.getItem('user_name_' + charId) || '').trim() || 'USER';
 }
 
 function getChatUserAvatar(charId){
@@ -724,7 +724,7 @@ function renderBondWidget(character){
   const userName = document.getElementById('bond-user-name');
   const charAvatar = document.getElementById('bond-char-avatar');
   const userAvatar = document.getElementById('bond-user-avatar');
-  if(charName) charName.textContent = c ? (c.nickname || c.name || '未选择角色') : '未选择角色';
+  if(charName) charName.textContent = c ? (c.nickname || c.name || 'CHAR') : 'CHAR';
   if(userName) userName.textContent = getChatUserName(c && c.id);
   if(charAvatar){
     const applyCharAvatar = (override)=>{
@@ -778,6 +778,21 @@ function onBondAvatarTap(e, role){
   if(bondAvatarLongPressFired && bondAvatarLongPressRole === role){
     bondAvatarLongPressFired = false;
     bondAvatarLongPressRole = '';
+    return;
+  }
+  const active = getActiveCharacterData();
+  if(!active || !active.id){
+    openApp('characters');
+    return;
+  }
+  openApp('chat');
+}
+
+function onBondNameTap(e, role){
+  if(e && e.stopPropagation) e.stopPropagation();
+  const active = getActiveCharacterData();
+  if(!active || !active.id){
+    openApp('characters');
     return;
   }
   openApp('chat');
