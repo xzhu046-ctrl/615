@@ -6,12 +6,14 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&display=swap" rel="stylesheet">
+<script src="../assetStore.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --b:#0a0a0a;--w:#fff;--off:#f7f7f7;--g:#6f6f6f;
   --bd:2px solid #0a0a0a;--sh:2px 2px 0 #0a0a0a;
   --font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif;
+  --safe-top:max(env(safe-area-inset-top),0px);
 }
 body{font-family:var(--font);background:var(--off);color:var(--b);min-height:100vh;display:flex;flex-direction:column;overflow:hidden}
 button,input,textarea{font-family:inherit;color:inherit}
@@ -19,7 +21,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 
 .main{position:relative;flex:1;min-height:0;overflow:hidden}
 
-.hero{position:absolute;left:10px;right:10px;top:10px;z-index:10;border:var(--bd);border-radius:24px;overflow:hidden;background:linear-gradient(180deg,#f8f8f8 0%,#ececec 100%);box-shadow:3px 3px 0 #0a0a0a}
+.hero{position:absolute;left:10px;right:10px;top:calc(10px + var(--safe-top));z-index:10;border:var(--bd);border-radius:24px;overflow:hidden;background:linear-gradient(180deg,#f8f8f8 0%,#ececec 100%);box-shadow:3px 3px 0 #0a0a0a}
 .hero-bg{height:188px;background:center/cover no-repeat #d9d9d9;position:relative}
 .hero-bg::after{content:'+';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-family:var(--fontd);font-size:34px;font-weight:900;line-height:1;color:#111;pointer-events:none;text-shadow:0 1px 0 rgba(255,255,255,.75)}
 .hero-bg.has-image::after{opacity:.78}
@@ -33,7 +35,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 .hero-sign-wrap{display:flex;align-items:center;justify-content:flex-start;gap:10px;padding:16px 122px 14px 14px;background:rgba(255,255,255,.95);border-top:var(--bd)}
 .hero-sign{font-family:'Zhi Mang Xing',cursive;font-size:20px;line-height:1.15;letter-spacing:.01em;word-break:break-word;cursor:pointer}
 
-.feed-wrap{position:absolute;left:10px;right:10px;top:290px;bottom:0;overflow:auto;padding-bottom:84px}
+.feed-wrap{position:absolute;left:10px;right:10px;top:calc(290px + var(--safe-top));bottom:0;overflow:auto;padding-bottom:84px}
 
 .feed{display:flex;flex-direction:column;gap:10px}
 .post{border:var(--bd);border-radius:20px;background:#fff;box-shadow:3px 3px 0 #0a0a0a;padding:12px;display:flex;flex-direction:column;gap:9px}
@@ -155,9 +157,12 @@ const STORAGE_POSTS = 'qq_moments_posts';
 const STORAGE_BG = 'qq_moments_hero_bg';
 const STORAGE_AVATAR = 'qq_moments_hero_avatar';
 const STORAGE_SIGN = 'qq_moments_signature';
+const STORAGE_BG_ASSET = 'qq_moments_hero_bg_asset';
+const STORAGE_AVATAR_ASSET = 'qq_moments_hero_avatar_asset';
 const IMAGE_CARD_BG = 'https://files.catbox.moe/6ruu03.jpeg';
 
 let toastTimer = null;
+let currentHeroAvatarSrc = '';
 let publishState = {
   mode: '',
   text: '',
@@ -430,16 +435,53 @@ function closeImageViewer(){
 }
 
 function getAvatarStyleValue(){
-  const src = localStorage.getItem(STORAGE_AVATAR) || '';
+  const src = currentHeroAvatarSrc || localStorage.getItem(STORAGE_AVATAR) || '';
   return src ? ('url(' + src + ') center/cover no-repeat') : '#eee';
 }
 
-function renderHero(){
+function loadStoredAsset(key){
+  if(window.assetStore) return window.assetStore.load(key);
+  try{ return Promise.resolve(localStorage.getItem(key) || ''); }catch(e){ return Promise.resolve(''); }
+}
+
+function saveStoredAsset(key, data){
+  if(window.assetStore) return window.assetStore.save(key, data);
+  try{
+    localStorage.setItem(key, data);
+    return Promise.resolve();
+  }catch(e){
+    return Promise.reject(e);
+  }
+}
+
+async function resolveHeroSource(legacyKey, assetKey){
+  const assetSrc = await loadStoredAsset(assetKey);
+  if(assetSrc) return assetSrc;
+  return localStorage.getItem(legacyKey) || '';
+}
+
+async function persistHeroUpload(legacyKey, assetKey, src){
+  try{
+    await saveStoredAsset(assetKey, src);
+    localStorage.removeItem(legacyKey);
+    return true;
+  }catch(e){
+    try{
+      localStorage.setItem(legacyKey, src);
+      return true;
+    }catch(err){
+      showToast('图片太大，保存失败');
+      return false;
+    }
+  }
+}
+
+async function renderHero(){
   const bg = document.getElementById('heroBg');
   const av = document.getElementById('heroAvatar');
   const sig = document.getElementById('heroSignature');
-  const bgSrc = localStorage.getItem(STORAGE_BG) || '';
-  const avSrc = localStorage.getItem(STORAGE_AVATAR) || '';
+  const bgSrc = await resolveHeroSource(STORAGE_BG, STORAGE_BG_ASSET);
+  const avSrc = await resolveHeroSource(STORAGE_AVATAR, STORAGE_AVATAR_ASSET);
   const sign = localStorage.getItem(STORAGE_SIGN) || '在时间的尽头我们终将相遇';
   if(bg){
     bg.style.backgroundImage = bgSrc ? ('url(' + bgSrc + ')') : 'none';
@@ -449,7 +491,9 @@ function renderHero(){
     av.style.backgroundImage = avSrc ? ('url(' + avSrc + ')') : 'none';
     av.classList.toggle('has-image', !!avSrc);
   }
+  currentHeroAvatarSrc = avSrc || '';
   if(sig) sig.textContent = sign;
+  renderFeed();
 }
 
 function readFileAsDataUrl(file, cb){
@@ -476,20 +520,22 @@ function bindInputs(){
   if(bgInput){
     bgInput.addEventListener('change', (evt)=>{
       const file = evt.target && evt.target.files ? evt.target.files[0] : null;
-      readFileAsDataUrl(file, (src)=>{
+      readFileAsDataUrl(file, async (src)=>{
         if(!src) return;
-        localStorage.setItem(STORAGE_BG, src);
-        renderHero();
+        const ok = await persistHeroUpload(STORAGE_BG, STORAGE_BG_ASSET, src);
+        evt.target.value = '';
+        if(ok) renderHero();
       });
     });
   }
   if(avInput){
     avInput.addEventListener('change', (evt)=>{
       const file = evt.target && evt.target.files ? evt.target.files[0] : null;
-      readFileAsDataUrl(file, (src)=>{
+      readFileAsDataUrl(file, async (src)=>{
         if(!src) return;
-        localStorage.setItem(STORAGE_AVATAR, src);
-        renderHero();
+        const ok = await persistHeroUpload(STORAGE_AVATAR, STORAGE_AVATAR_ASSET, src);
+        evt.target.value = '';
+        if(ok) renderHero();
       });
     });
   }
