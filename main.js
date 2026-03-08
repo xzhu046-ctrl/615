@@ -1196,7 +1196,6 @@ const WALLPAPERS={
 function setWallpaper(t){
   const el=document.getElementById('wallpaper-gradient');
   const frameBg = document.getElementById('frame-wallpaper');
-  const outer = document.querySelector('.phone-outer');
   const root = document.documentElement;
   const themeMeta = document.querySelector('meta[name="theme-color"]');
   const setGlobalBg = (bg)=>{
@@ -1216,7 +1215,6 @@ function setWallpaper(t){
     const bg = WALLPAPERS[t];
     el.style.background = bg;
     if(frameBg) frameBg.style.background = bg;
-    if(outer) outer.style.background = bg;
     setGlobalBg(bg);
     localStorage.setItem('wallpaper',t);
     removeStoredAsset('wallpaper_custom');
@@ -1226,7 +1224,6 @@ function setWallpaper(t){
     const bg = `center / cover no-repeat url(${t})`;
     el.style.background = bg;
     if(frameBg) frameBg.style.background = bg;
-    if(outer) outer.style.background = bg;
     setGlobalBg(bg);
     localStorage.setItem('wallpaper','custom');
     saveStoredAsset('wallpaper_custom', t);
