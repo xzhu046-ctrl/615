@@ -542,8 +542,21 @@ function getMomentsAiName(){
 }
 
 function getMomentsAiAvatar(){
+  var hdr = document.querySelector('#hdrAvatar img');
+  if(hdr && hdr.src) return hdr.src;
   if(character && character.imageData && String(character.imageData).startsWith('data:')) return String(character.imageData);
   var id = character && character.id ? character.id : '';
+  if(id){
+    try{
+      var chars = JSON.parse(localStorage.getItem('characters') || '[]');
+      var matched = Array.isArray(chars) ? chars.find(function(c){ return c && c.id === id; }) : null;
+      if(matched && matched.imageData && String(matched.imageData).startsWith('data:')) return String(matched.imageData);
+      if(matched && matched.avatar){
+        var ca = String(matched.avatar);
+        if(ca.startsWith('data:') || ca.startsWith('http') || ca.startsWith('blob:') || ca.startsWith('/')) return ca;
+      }
+    }catch(e){}
+  }
   if(id){
     try{
       var localAvatar = localStorage.getItem('char_avatar_' + id) || '';
@@ -593,6 +606,7 @@ function captureUserMomentIntent(text, msgType){
     wantsPostSay: sig.wantsPostSay,
     wantsPostDynamic: sig.wantsPostDynamic,
     wantsPostAny: sig.wantsPostAny,
+    mentionsMoments: sig.mentionsMoments,
     wantsLike: sig.wantsLike,
     wantsComment: sig.wantsComment,
     wantsReply: sig.wantsReply,
@@ -656,6 +670,16 @@ function makeNaturalMomentComment(seed, aiText){
   return truncateMomentText(base, 36);
 }
 
+function sanitizeAssistantTextForChat(raw){
+  var t = String(raw || '').trim();
+  if(!t) return t;
+  t = t.replace(/^\s*\[(朋友圈|说说|动态|评论|点赞|回复)\]\s*/ig, '');
+  t = t.replace(/^\s*(我来|我去|我会|我帮你)\s*(发|写|评论|点赞|回复)[^，。！？!?\n]*[，。！？!?\s]*/i, '');
+  t = t.replace(/我(没法|不能|无法)(发|写).{0,8}(朋友圈|说说|动态)/g, '我记下来了');
+  t = t.trim();
+  return t || '嗯，记下了。';
+}
+
 function maybeRunAiMomentsFromChat(text, msgType){
   var now = Date.now();
   var aiName = getMomentsAiName();
@@ -681,6 +705,9 @@ function maybeRunAiMomentsFromChat(text, msgType){
   if(sig.wantsPostAny) forceActions.push('post');
   if(sig.wantsPostDynamic) forcedPostType = 'dynamic';
   else if(sig.wantsPostSay && !forcedPostType) forcedPostType = 'say';
+  if(!forceActions.length && pending && pending.mentionsMoments && !pending.wantsLike && !pending.wantsComment && !pending.wantsReply){
+    if(Math.random() < 0.62) forceActions.push('post');
+  }
 
   if(!forceActions.length && now - momentsLastActionAt < 12000) return;
 
@@ -754,7 +781,7 @@ function maybeRunAiMomentsFromChat(text, msgType){
     changed = true;
   }
 
-  var shouldPostByMood = !forceActions.length && (sig.emotional || sig.reflective || sig.imageHint || (pending && (pending.emotional || pending.reflective))) && Math.random() < 0.56;
+  var shouldPostByMood = !forceActions.length && (sig.emotional || sig.reflective || sig.imageHint || (pending && (pending.emotional || pending.reflective))) && Math.random() < 0.68;
   if(onlySocialAction) shouldPostByMood = false;
   if(shouldPostByMood) forceActions.push('post');
   if(!forceActions.length && posts.length && Math.random() < 0.16) forceActions.push('like');
@@ -2310,6 +2337,9 @@ async function deliverAiReply(text){
   for(var i = 0; i < parts.length; i++){
     var p = parts[i];
     var t = normalizeMessageType(p.t || 'text');
+    if(t === 'text'){
+      p.text = sanitizeAssistantTextForChat(p.text);
+    }
     var entry = makeChatEntry('assistant', p.text, t);
     entry.replyToId = resolveReplyTargetId(p.replyTo, p.replyRole);
     chatLog.push(entry);
