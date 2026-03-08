@@ -1202,24 +1202,23 @@ const WALLPAPERS={
 };
 function setWallpaper(t){
   const el=document.getElementById('wallpaper-gradient');
+  const frameBg = document.getElementById('frame-wallpaper');
   const root = document.documentElement;
   const themeMeta = document.querySelector('meta[name="theme-color"]');
   const setGlobalBg = (bg)=>{
     try{
-      document.body.style.background = bg;
-      document.documentElement.style.background = bg;
-      if(root) root.style.setProperty('--viewport-bg', bg);
+      document.body.style.background = '';
+      document.documentElement.style.background = '';
+      if(root) root.style.setProperty('--viewport-bg', '#f7f7f7');
       if(themeMeta){
-        const color = (typeof bg === 'string' && (bg.startsWith('#') || bg.startsWith('rgb') || bg.startsWith('hsl')))
-          ? bg
-          : '#111111';
-        themeMeta.setAttribute('content', color);
+        themeMeta.setAttribute('content', '#f7f7f7');
       }
     }catch(e){}
   };
   if(WALLPAPERS[t]){
     const bg = WALLPAPERS[t];
-    el.style.background = bg;
+    if(el) el.style.background = 'transparent';
+    if(frameBg) frameBg.style.background = bg;
     setGlobalBg(bg);
     localStorage.setItem('wallpaper',t);
     removeStoredAsset('wallpaper_custom');
@@ -1227,7 +1226,8 @@ function setWallpaper(t){
   }
   if(typeof t==='string' && (t.startsWith('data:') || t.startsWith('http'))){
     const bg = `center / cover no-repeat url(${t})`;
-    el.style.background = bg;
+    if(el) el.style.background = 'transparent';
+    if(frameBg) frameBg.style.background = bg;
     setGlobalBg(bg);
     localStorage.setItem('wallpaper','custom');
     saveStoredAsset('wallpaper_custom', t);
