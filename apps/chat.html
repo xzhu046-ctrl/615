@@ -38,15 +38,15 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 /* ── Messages ── */
 .messages{flex:1;min-height:0;overflow-y:auto;padding:10px 12px calc(var(--composer-height) + max(4px, var(--vv-bottom-offset)) + var(--keyboard-inset));display:flex;flex-direction:column;gap:8px;scrollbar-width:none}
 .messages::-webkit-scrollbar{display:none}
-.msg{display:flex;gap:8px;max-width:88%;animation:msgIn .2s ease-out}
+.msg{display:flex;gap:8px;max-width:88%;animation:msgIn .34s cubic-bezier(.22,1.35,.35,1)}
 .msg.voice-msg{gap:8px}
-@keyframes msgIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes msgIn{0%{opacity:0;transform:translateY(9px) scale(.985)}65%{opacity:1;transform:translateY(-2px) scale(1.01)}100%{opacity:1;transform:translateY(0) scale(1)}}
 .msg.user{flex-direction:row-reverse;align-self:flex-end}
 .msg.ai{align-self:flex-start}
 .msg-main{display:flex;flex-direction:column;gap:2px;min-width:0;max-width:100%}
 .msg.user .msg-main{align-items:flex-end}
 .msg.ai .msg-main{align-items:flex-start}
-.msg-read{font-size:9px;line-height:1;color:#8a8a8a;font-weight:800;padding:0 4px}
+.msg-read{font-size:9px;line-height:1;color:#8a8a8a;font-weight:800;padding:0 4px;margin-top:4px}
 .msg.select-mode{max-width:100%;cursor:pointer}
 .msg.selected .msg-bubble{outline:2px solid var(--b);outline-offset:2px}
 .msg-bubble{padding:10px 12px;border-radius:16px;font-size:13px;line-height:1.5;font-weight:600;max-width:100%;white-space:pre-wrap;word-break:break-word;min-height:40px;display:flex;align-items:center;transition:transform .08s linear}
@@ -614,18 +614,41 @@ function makeMomentLineFromAi(aiText, fallback, max){
   return truncateMomentText(raw, max || 42);
 }
 
-function buildMomentPostContent(seed, aiText){
-  var s = String(seed || '').replace(/\s+/g, ' ').trim();
-  var a = String(aiText || '').replace(/\s+/g, ' ').trim();
-  s = s.replace(/^(请|帮我|你|麻烦|可以|能不能)?\s*(发|写|来一条|整一条)?\s*(个|一条)?\s*(说说|动态|朋友圈)\s*/,'').trim();
-  s = s.replace(/^(点赞|评论|回复)\s*/,'').trim();
-  if(s && s.length >= 4) return truncateMomentText(s, 42);
-  if(a){
-    var first = a.split(/[。！？!?]/)[0].trim();
-    if(first.length >= 4) return truncateMomentText(first, 42);
+function stripMomentDirectiveText(value){
+  var text = String(value || '').replace(/\s+/g, ' ').trim();
+  if(!text) return '';
+  text = text.replace(/^\[(朋友圈|说说|动态|评论|点赞|回复)\]\s*/ig, '');
+  text = text.replace(/^(请|麻烦|帮我|你|可以|能不能)\s*/,'');
+  text = text.replace(/^(去|来|给我|帮我)?\s*(发|写|整|po|post)\s*(个|一条)?\s*(朋友圈|说说|动态)\s*/i,'');
+  text = text.replace(/^(去|给我|帮我)?\s*(评论|点赞|回复)\s*/i,'');
+  text = text.replace(/^(内容是|文案是|写着|发：|发:)\s*/i,'');
+  text = text.replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g,'');
+  return text.trim();
+}
+
+function makeNaturalMomentPost(seed, aiText){
+  var fromSeed = stripMomentDirectiveText(seed);
+  var fromAi = stripMomentDirectiveText(aiText);
+  var picked = '';
+  if(fromSeed && fromSeed.length >= 4) picked = fromSeed;
+  else if(fromAi && fromAi.length >= 4) picked = fromAi;
+  if(!picked){
+    var pool = ['把今天的小情绪记下来。','这一刻想悄悄收藏。','留一条给未来的自己。','有感而发，就写在这里。'];
+    picked = pool[Math.floor(Math.random() * pool.length)];
   }
-  var pool = ['想把这一刻留住。','把心情悄悄记下来。','今天也值得被认真记录。','有一点小感触，记在这里。'];
-  return pool[Math.floor(Math.random() * pool.length)];
+  return truncateMomentText(picked, 42);
+}
+
+function makeNaturalMomentComment(seed, aiText){
+  var fromSeed = stripMomentDirectiveText(seed);
+  var fromAi = stripMomentDirectiveText(aiText);
+  var base = fromAi || fromSeed;
+  if(!base || base.length < 2){
+    var fallback = ['这条很有感觉。','看到这里有点共鸣。','认真看完了，挺喜欢。','这句写得真好。'];
+    return fallback[Math.floor(Math.random() * fallback.length)];
+  }
+  base = base.replace(/^(我去|我来|我给你|我会)\s*(评论|点赞|回复)\s*/,'');
+  return truncateMomentText(base, 36);
 }
 
 function maybeRunAiMomentsFromChat(text, msgType){
@@ -662,7 +685,6 @@ function maybeRunAiMomentsFromChat(text, msgType){
   var seed = truncateMomentText((pending && pending.seedText) || sig.shortText, 80);
   var aiLine = makeMomentLineFromAi(text, seed, 48);
   var onlySocialAction = (forceActions.indexOf('like') !== -1 || forceActions.indexOf('comment') !== -1 || forceActions.indexOf('reply') !== -1) && forceActions.indexOf('post') === -1;
-  var explicitPostRequest = !!((pending && pending.wantsPostAny) || sig.wantsPostAny);
 
   function inferPostType(){
     if(forcedPostType) return forcedPostType;
@@ -676,7 +698,7 @@ function maybeRunAiMomentsFromChat(text, msgType){
   function addPost(){
     var postType = inferPostType();
     var hasImage = postType === 'dynamic';
-    var content = explicitPostRequest ? buildMomentPostContent(seed, aiLine) : (buildMomentPostContent(seed, aiLine));
+    var content = makeNaturalMomentPost(seed, aiLine);
     posts.push({
       id: 'post_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       type: postType,
@@ -720,14 +742,14 @@ function maybeRunAiMomentsFromChat(text, msgType){
       name: aiName,
       avatar: aiAvatar,
       replyToName: replyTarget,
-      text: makeMomentLineFromAi(text, seed, 36),
+      text: makeNaturalMomentComment(seed, aiLine),
       at: Date.now()
     });
     latest.comments = comments;
     changed = true;
   }
 
-  var shouldPostByMood = !forceActions.length && (sig.emotional || sig.reflective || sig.imageHint || (pending && (pending.emotional || pending.reflective))) && Math.random() < 0.42;
+  var shouldPostByMood = !forceActions.length && (sig.emotional || sig.reflective || sig.imageHint || (pending && (pending.emotional || pending.reflective))) && Math.random() < 0.56;
   if(onlySocialAction) shouldPostByMood = false;
   if(shouldPostByMood) forceActions.push('post');
   if(!forceActions.length && posts.length && Math.random() < 0.16) forceActions.push('like');
@@ -1451,6 +1473,8 @@ function buildSystemPrompt() {
   var replyGuide = [
     '【聊天风格补充】',
     '请像真人聊天一样自然回复，不要太像客服。',
+    '当你决定发朋友圈时，不要在聊天里机械复读“我要发的文案”，也不要输出“[朋友圈]”这类指令格式。',
+    '当用户让你去评论/点赞时，评论内容要像真人表达，不要把用户指令原句照搬成评论。',
     '只有在上下文非常合适时，才偶尔引用一条历史消息增强活人感；大多数时候正常回复即可。',
     '如果你要引用，请只在单条 JSON 对象里额外带 reply_to 和 reply_role；如果不引用，就输出普通内容，不必强行使用 JSON。',
     '一旦你选择语音或图片消息，必须严格输出 JSON，不能把特殊格式写成普通文本描述。',
