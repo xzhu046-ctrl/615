@@ -489,6 +489,11 @@ var LONG_PRESS_MS = 420;
 var replyTargetId = null;
 var IMAGE_SNIPPET = '【图片】';
 var IMAGE_BUBBLE_URL = 'https://files.catbox.moe/6ruu03.jpeg';
+var MOMENTS_POSTS_KEY = 'qq_moments_posts';
+var MOMENTS_BUBBLE_NAME_KEY = 'qq_moments_bubble_name';
+var MOMENTS_DEFAULT_USER_NAME = '我哥天下第一好';
+var momentsIntentFromUser = null;
+var momentsLastActionAt = 0;
 
 function normalizeMessageType(type){
   if(type === 'voice_message' || type === 'voice') return 'voice';
@@ -504,6 +509,173 @@ function looksLikeVisualDescription(text){
   if(/(你今天怎么样|在干嘛|回我|想你了|吃了吗|睡了吗|要不要|可以吗|好不好|是不是)/.test(value)) return false;
   if(/(一张|画面里|图里|照片里|镜头里|看起来|映着|摆着|放着|站在|躺在|飘着|带着|沾着|穿着|捧着|围着|落着|盛开|露水|花瓣|天空|云|月光|阳光|树影|雨滴|雪|海面|窗边|房间|街道|桌面|裙摆|眼睛|头发|小猫|小狗|白色|黑色|金色|银色|蓝色|粉色|红色|绿色|光影|雾气|晚霞|星光)/.test(value)) return true;
   return value.length >= 12 && /[，。、；：]/.test(value) && !/(我|你)/.test(value);
+}
+
+function readMomentsPosts(){
+  try{
+    var parsed = JSON.parse(localStorage.getItem(MOMENTS_POSTS_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  }catch(e){
+    return [];
+  }
+}
+
+function writeMomentsPosts(posts){
+  localStorage.setItem(MOMENTS_POSTS_KEY, JSON.stringify(Array.isArray(posts) ? posts : []));
+}
+
+function getMomentsUserName(){
+  var fromBubble = String(localStorage.getItem(MOMENTS_BUBBLE_NAME_KEY) || '').trim();
+  if(fromBubble) return fromBubble;
+  var fallback = String(localStorage.getItem(userKey('user_name')) || '').trim();
+  return fallback || MOMENTS_DEFAULT_USER_NAME;
+}
+
+function getMomentsAiName(){
+  if(character && character.name) return String(character.name).trim() || 'AI';
+  return 'AI';
+}
+
+function getLatestMoment(posts){
+  if(!Array.isArray(posts) || !posts.length) return null;
+  return posts.slice().sort(function(a,b){ return (b.createdAt || 0) - (a.createdAt || 0); })[0];
+}
+
+function getSignalsForMoments(text, msgType){
+  var raw = String(text || '');
+  var lower = raw.toLowerCase();
+  return {
+    wantsMoments: /(朋友圈|发圈|说说|动态|moments)/i.test(raw),
+    wantsLike: /(点赞|点个赞|赞一下|like)/i.test(raw),
+    wantsComment: /(评论|留言)/i.test(raw),
+    wantsReply: /(回复|回他|回她|回一下)/i.test(raw),
+    emotional: /(感人|感动|纪念|值得记录|想记录|开心|幸福|漂亮|好看|绝美|治愈|美哭|太美)/.test(raw),
+    imageHint: msgType === 'image' || /(图片|照片|图|gif|截图|拍照|发图)/i.test(raw) || looksLikeVisualDescription(raw),
+    shortText: raw.replace(/\s+/g, ' ').trim(),
+    lower: lower
+  };
+}
+
+function captureUserMomentIntent(text, msgType){
+  var sig = getSignalsForMoments(text, msgType);
+  if(!(sig.wantsMoments || sig.wantsLike || sig.wantsComment || sig.wantsReply || sig.emotional || sig.imageHint)) return;
+  momentsIntentFromUser = {
+    ts: Date.now(),
+    wantsMoments: sig.wantsMoments,
+    wantsLike: sig.wantsLike,
+    wantsComment: sig.wantsComment,
+    wantsReply: sig.wantsReply,
+    emotional: sig.emotional,
+    imageHint: sig.imageHint,
+    seedText: sig.shortText
+  };
+}
+
+function truncateMomentText(value, max){
+  var text = String(value || '').replace(/\s+/g, ' ').trim();
+  if(!text) return '';
+  if(text.length <= max) return text;
+  return text.slice(0, Math.max(0, max - 1)) + '…';
+}
+
+function makeAiMomentComment(seed){
+  var t = truncateMomentText(seed, 34);
+  if(!t) return '这条想记录下来。';
+  return t.length <= 6 ? (t + '，记下了。') : t;
+}
+
+function maybeRunAiMomentsFromChat(text, msgType){
+  var now = Date.now();
+  var aiName = getMomentsAiName();
+  var sig = getSignalsForMoments(text, msgType);
+  var pending = momentsIntentFromUser;
+  if(pending && (now - pending.ts > 5 * 60 * 1000)) pending = null;
+  momentsIntentFromUser = null;
+
+  var forceActions = [];
+  if(pending){
+    if(pending.wantsLike) forceActions.push('like');
+    if(pending.wantsComment) forceActions.push('comment');
+    if(pending.wantsReply) forceActions.push('reply');
+    if(pending.wantsMoments || pending.emotional || pending.imageHint) forceActions.push('post');
+  }
+  if(sig.wantsLike) forceActions.push('like');
+  if(sig.wantsComment) forceActions.push('comment');
+  if(sig.wantsReply) forceActions.push('reply');
+  if(sig.wantsMoments) forceActions.push('post');
+
+  if(!forceActions.length && now - momentsLastActionAt < 12000) return;
+
+  var posts = readMomentsPosts();
+  if(!Array.isArray(posts)) return;
+  var changed = false;
+  var seed = truncateMomentText((pending && pending.seedText) || sig.shortText, 80);
+
+  function addPost(){
+    var hasImage = msgType === 'image' || sig.imageHint || (pending && pending.imageHint);
+    var content = seed || '想把这一刻记下来。';
+    posts.push({
+      id: 'post_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      type: hasImage ? 'dynamic' : 'say',
+      text: content,
+      imageText: hasImage ? content : '',
+      createdAt: Date.now(),
+      comments: [],
+      likes: [],
+      authorName: aiName
+    });
+    changed = true;
+  }
+
+  function likeLatest(){
+    var latest = getLatestMoment(posts);
+    if(!latest) return;
+    var likes = Array.isArray(latest.likes) ? latest.likes : [];
+    if(likes.indexOf(aiName) === -1){
+      likes.push(aiName);
+      latest.likes = likes;
+      changed = true;
+    }
+  }
+
+  function commentLatest(replyMode){
+    var latest = getLatestMoment(posts);
+    if(!latest){
+      addPost();
+      latest = getLatestMoment(posts);
+      if(!latest) return;
+    }
+    var comments = Array.isArray(latest.comments) ? latest.comments : [];
+    var replyTarget = '';
+    if(replyMode && comments.length){
+      var picked = comments[comments.length - 1];
+      replyTarget = (picked && picked.name) || getMomentsUserName();
+    }
+    comments.push({
+      id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      name: aiName,
+      replyToName: replyTarget,
+      text: makeAiMomentComment(seed),
+      at: Date.now()
+    });
+    latest.comments = comments;
+    changed = true;
+  }
+
+  var shouldPostByMood = !forceActions.length && (sig.emotional || sig.imageHint) && Math.random() < 0.36;
+  if(shouldPostByMood) forceActions.push('post');
+  if(!forceActions.length && posts.length && Math.random() < 0.16) forceActions.push('like');
+  if(!forceActions.length) return;
+
+  if(forceActions.indexOf('post') !== -1) addPost();
+  if(forceActions.indexOf('like') !== -1) likeLatest();
+  if(forceActions.indexOf('comment') !== -1) commentLatest(false);
+  if(forceActions.indexOf('reply') !== -1) commentLatest(true);
+
+  if(changed){
+    momentsLastActionAt = now;
+    writeMomentsPosts(posts);
+  }
 }
 
 function genMsgId(){
@@ -1211,6 +1383,7 @@ function sendOnly() {
   saveChat();
   clearReplyTarget();
   hideError();
+  captureUserMomentIntent(text, 'text');
 }
 
 // Triggers AI to reply (either to existing last message or sends+replies)
@@ -1227,6 +1400,7 @@ async function triggerReply() {
     chatLog.push(entry);
     addMessage('user', text, true, 'text', entry.id);
     clearReplyTarget();
+    captureUserMomentIntent(text, 'text');
   }
 
   // Now get AI reply
@@ -1552,6 +1726,7 @@ function sendVoiceInput(){
   addMessage('user', text, true, 'voice', entry.id);
   saveChat();
   clearReplyTarget();
+  captureUserMomentIntent(text, 'voice');
 }
 
 function sendImageCardInput(){
@@ -1566,6 +1741,7 @@ function sendImageCardInput(){
   addMessage('user', text, true, 'image', entry.id);
   saveChat();
   clearReplyTarget();
+  captureUserMomentIntent(text, 'image');
 }
 
 function openImageViewer(text){
@@ -2020,6 +2196,7 @@ async function deliverAiReply(text){
     entry.replyToId = resolveReplyTargetId(p.replyTo, p.replyRole);
     chatLog.push(entry);
     addMessage('ai', p.text, true, t, entry.id);
+    maybeRunAiMomentsFromChat(p.text, t);
     if(t === 'text'){
       await animateAssistantTextMessage(entry.id, p.text);
     }else{
