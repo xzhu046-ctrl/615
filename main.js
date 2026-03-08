@@ -19,6 +19,7 @@ const LIVE_DANMAKU_DEFAULTS = {
   '2': ['蹲到你了','这张也太甜','晚安打卡'],
   '3': ['今日份心动','镜头感满分','路过被可爱到']
 };
+const LIVE_DANMAKU_ENABLED_KEY = 'home_live_danmaku_enabled';
 
 function hasSavedPhoneFramePreference(){
   const saved = localStorage.getItem(PHONE_FRAME_STORAGE_KEY);
@@ -135,6 +136,17 @@ function bindTextNormalization(){
 
 function getLiveDanmakuStorageKey(slotId){
   return 'home_live_danmaku_' + slotId;
+}
+
+function getLiveDanmakuEnabled(){
+  const saved = localStorage.getItem(LIVE_DANMAKU_ENABLED_KEY);
+  if(saved === '0') return false;
+  if(saved === '1') return true;
+  return true;
+}
+
+function applyLiveDanmakuVisibility(enabled){
+  document.body.classList.toggle('live-danmaku-off', !enabled);
 }
 
 function getLiveDanmakuTexts(slotId){
@@ -1133,6 +1145,7 @@ function formatEphone(){
   renderBondDays();
   renderBondBubbles();
   renderBondWidget(null);
+  applyLiveDanmakuVisibility(true);
   setHomePage(0, true);
 }
 
@@ -1182,6 +1195,12 @@ window.addEventListener('message',(e)=>{
   if(type==='SET_LIVE_DANMAKU'){
     setLiveDanmakuTexts(payload || {});
     showHomeToast('弹幕已保存');
+  }
+  if(type==='SET_LIVE_DANMAKU_ENABLED'){
+    const next = !!payload;
+    localStorage.setItem(LIVE_DANMAKU_ENABLED_KEY, next ? '1' : '0');
+    applyLiveDanmakuVisibility(next);
+    showHomeToast(next ? '弹幕已开启' : '弹幕已关闭');
   }
   if(type==='SHOW_HOME_TOAST'){ showHomeToast(payload); }
   if(type==='SET_WALLPAPER'){ setWallpaper(payload); }
@@ -1345,6 +1364,7 @@ function restoreState(){
   bindBondAvatarPressBehavior();
   bindTopFrameEditor();
   bindHomeAppPressState();
+  applyLiveDanmakuVisibility(getLiveDanmakuEnabled());
   restoreHomeSlots();
   restoreHomeAppIcons();
   renderCharNote();

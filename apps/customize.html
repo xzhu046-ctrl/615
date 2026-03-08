@@ -109,6 +109,19 @@ input[type="text"]:focus{box-shadow:3px 4px 0 #0a0a0a}
 
   <div class="card">
     <div class="title">首页弹幕</div>
+    <div class="toggle-row" style="margin-bottom:12px">
+      <div class="toggle-copy">
+        <strong>弹幕开关</strong>
+        <span id="danmaku-toggle-desc">主页长方形照片会显示弹幕。</span>
+      </div>
+      <div class="switch-wrap">
+        <button class="switch on" id="danmaku-toggle-btn" type="button" role="switch" aria-checked="true" aria-label="切换弹幕显示" onclick="toggleLiveDanmakuEnabled()">
+          <span class="switch-track" aria-hidden="true"></span>
+          <span class="switch-thumb" aria-hidden="true"></span>
+        </button>
+        <span class="switch-label" id="danmaku-toggle-label">开</span>
+      </div>
+    </div>
     <div class="danmaku-list">
       <div class="danmaku-group">
         <div class="danmaku-group-title">长方形 1</div>
@@ -162,8 +175,10 @@ const LIVE_DANMAKU_DEFAULTS = {
   '2': ['蹲到你了','这张也太甜','晚安打卡'],
   '3': ['今日份心动','镜头感满分','路过被可爱到']
 };
+const LIVE_DANMAKU_ENABLED_KEY = 'home_live_danmaku_enabled';
 let stagedIcons = {};
 let frameVisible = true;
+let liveDanmakuEnabled = true;
 
 function getDefaultPhoneFrameVisibility(){
   try{
@@ -209,6 +224,35 @@ function togglePhoneFrame(){
 
 function getLiveDanmakuStorageKey(slotId){
   return 'home_live_danmaku_' + slotId;
+}
+
+function getLiveDanmakuEnabled(){
+  const saved = localStorage.getItem(LIVE_DANMAKU_ENABLED_KEY);
+  if(saved === '0') return false;
+  if(saved === '1') return true;
+  return true;
+}
+
+function renderLiveDanmakuToggle(){
+  const btn = document.getElementById('danmaku-toggle-btn');
+  const label = document.getElementById('danmaku-toggle-label');
+  const desc = document.getElementById('danmaku-toggle-desc');
+  if(!btn || !label || !desc) return;
+  btn.classList.toggle('on', liveDanmakuEnabled);
+  btn.classList.toggle('off', !liveDanmakuEnabled);
+  btn.setAttribute('aria-checked', liveDanmakuEnabled ? 'true' : 'false');
+  label.textContent = liveDanmakuEnabled ? '开' : '关';
+  desc.textContent = liveDanmakuEnabled ? '主页长方形照片会显示弹幕。' : '主页长方形照片不会显示弹幕。';
+}
+
+function toggleLiveDanmakuEnabled(){
+  liveDanmakuEnabled = !liveDanmakuEnabled;
+  localStorage.setItem(LIVE_DANMAKU_ENABLED_KEY, liveDanmakuEnabled ? '1' : '0');
+  renderLiveDanmakuToggle();
+  try{
+    window.parent.postMessage({type:'SET_LIVE_DANMAKU_ENABLED', payload: liveDanmakuEnabled}, '*');
+  }catch(e){}
+  toast(liveDanmakuEnabled ? '弹幕已开启' : '弹幕已关闭');
 }
 
 function getLiveDanmakuTexts(slotId){
@@ -405,7 +449,9 @@ function saveIcons(){
 (function restore(){
   bindTextNormalization();
   frameVisible = getPhoneFrameVisibility();
+  liveDanmakuEnabled = getLiveDanmakuEnabled();
   renderPhoneFrameToggle();
+  renderLiveDanmakuToggle();
   renderLiveDanmakuInputs();
   const w=localStorage.getItem('wallpaper');
   const restoreWallpaper = function(c){
