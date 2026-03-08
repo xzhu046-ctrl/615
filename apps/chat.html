@@ -43,6 +43,10 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 @keyframes msgIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .msg.user{flex-direction:row-reverse;align-self:flex-end}
 .msg.ai{align-self:flex-start}
+.msg-main{display:flex;flex-direction:column;gap:2px;min-width:0;max-width:100%}
+.msg.user .msg-main{align-items:flex-end}
+.msg.ai .msg-main{align-items:flex-start}
+.msg-read{font-size:9px;line-height:1;color:#8a8a8a;font-weight:800;padding:0 4px}
 .msg.select-mode{max-width:100%;cursor:pointer}
 .msg.selected .msg-bubble{outline:2px solid var(--b);outline-offset:2px}
 .msg-bubble{padding:10px 12px;border-radius:16px;font-size:13px;line-height:1.5;font-weight:600;max-width:100%;white-space:pre-wrap;word-break:break-word;min-height:40px;display:flex;align-items:center;transition:transform .08s linear}
@@ -743,13 +747,27 @@ function maybeRunAiMomentsFromChat(text, msgType){
 function genMsgId(){
   return 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
 }
+function getNowTs(){
+  return Date.now();
+}
+function fmtReadTime(ts){
+  var d = new Date(ts || 0);
+  if(Number.isNaN(d.getTime())) return '';
+  var h = String(d.getHours()).padStart(2, '0');
+  var m = String(d.getMinutes()).padStart(2, '0');
+  return h + ':' + m;
+}
 function makeChatEntry(role, content, type, id){
+  var sentAt = getNowTs();
+  var normRole = role || 'assistant';
   return {
     id: id || genMsgId(),
-    role: role || 'assistant',
+    role: normRole,
     content: typeof content === 'string' ? content : String(content || ''),
     type: normalizeMessageType(type || 'text'),
-    replyToId: null
+    replyToId: null,
+    sentAt: sentAt,
+    readAt: (normRole === 'assistant' ? sentAt : null)
   };
 }
 function normalizeChatEntry(m){
@@ -764,6 +782,14 @@ function normalizeChatEntry(m){
     }
     var normalized = makeChatEntry(m.role || 'assistant', m.content || '', normalizeMessageType(m.type || 'text'), m.id);
     normalized.replyToId = m.replyToId || null;
+    normalized.sentAt = m.sentAt || normalized.sentAt || getNowTs();
+    if(m.readAt){
+      normalized.readAt = m.readAt;
+    }else if(normalized.role === 'assistant'){
+      normalized.readAt = normalized.sentAt;
+    }else{
+      normalized.readAt = null;
+    }
     return normalized;
   }
   var txt = String(m || '');
@@ -774,6 +800,17 @@ function normalizeChatEntry(m){
     }
   }catch(e){}
   return makeChatEntry('assistant', txt, 'text');
+}
+function markUserMessagesReadByChar(){
+  var now = getNowTs();
+  var changed = false;
+  chatLog.forEach(function(m){
+    if(m && m.role === 'user' && !m.readAt){
+      m.readAt = now;
+      changed = true;
+    }
+  });
+  return changed;
 }
 function getMessageById(msgId){
   return chatLog.find(function(m){ return m.id === msgId; }) || null;
@@ -1470,6 +1507,10 @@ async function triggerReply() {
     clearReplyTarget();
     captureUserMomentIntent(text, 'text');
   }
+  if(markUserMessagesReadByChar()){
+    saveChat();
+    renderChatLog(true);
+  }
 
   // Now get AI reply
   var provider = localStorage.getItem('provider') || 'openai';
@@ -1699,8 +1740,18 @@ function addMessage(role, content, doScroll, msgType, msgId) {
     bubble.insertBefore(replyBox, bubble.firstChild);
   }
 
-  if (viewRole === 'user') div.append(av, bubble);
-  else div.append(av, bubble);
+  var main = document.createElement('div');
+  main.className = 'msg-main';
+  main.appendChild(bubble);
+  if(entry && entry.readAt){
+    var read = document.createElement('div');
+    read.className = 'msg-read';
+    read.textContent = '已读 ' + fmtReadTime(entry.readAt);
+    main.appendChild(read);
+  }
+
+  if (viewRole === 'user') div.append(av, main);
+  else div.append(av, main);
   if(msgId) bindMessageLongPress(div, msgId);
   msgs.appendChild(div);
   if (doScroll) msgs.scrollTop = msgs.scrollHeight;
