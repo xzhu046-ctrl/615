@@ -2110,18 +2110,25 @@ function calcReplyAffinity(aiText, userText){
   return hit / Math.max(2, Math.min(12, a.length + b.length));
 }
 
+function hasReplyCueInText(aiText){
+  var s = String(aiText || '').trim();
+  if(!s) return false;
+  return /(你刚|你那|那条|这条|这句|那句|刚才你|上面那句|前面那句|你说的|你发的|回你|回复你|接你|针对你)/.test(s);
+}
+
 function inferReplyTargetForPart(aiText, usedSet){
+  if(!hasReplyCueInText(aiText)) return null;
   var recentUsers = chatLog.slice().reverse().filter(function(m){ return m.role === 'user'; }).slice(0, 8);
-  if(!recentUsers.length) return null;
+  if(recentUsers.length < 2) return null;
   var best = null;
   recentUsers.forEach(function(m, idx){
     if(usedSet && usedSet.has(m.id)) return;
     var score = calcReplyAffinity(aiText, m.content || '');
-    score += Math.max(0, 0.12 - idx * 0.015);
+    score += Math.max(0, 0.08 - idx * 0.01);
     if(!best || score > best.score) best = { id: m.id, score: score };
   });
   if(!best) return null;
-  return best.score >= 0.16 ? best.id : null;
+  return best.score >= 0.22 ? best.id : null;
 }
 function renderReplyPreview(){
   var host = document.getElementById('replyPreview');
@@ -5071,7 +5078,7 @@ async function deliverAiReply(text){
   if(!parts.length) parts = [{text:String(text||'(空消息)'), t:'text'}];
   var sentCount = 0;
   var sentTexts = [];
-  var autoReplyMax = Math.min(2, Math.max(0, Math.floor(parts.length / 2)));
+  var autoReplyMax = Math.min(1, Math.max(0, Math.floor(parts.length / 3)));
   var autoReplyCount = 0;
   var usedReplyTargets = new Set();
   for(var i = 0; i < parts.length; i++){
@@ -5089,7 +5096,7 @@ async function deliverAiReply(text){
     entry.replyToId = resolveReplyTargetId(p.replyTo, p.replyRole);
     if(entry.replyToId){
       usedReplyTargets.add(entry.replyToId);
-    }else if(autoReplyCount < autoReplyMax && t === 'text' && parts.length >= 3){
+    }else if(autoReplyCount < autoReplyMax && t === 'text' && parts.length >= 4){
       var autoTarget = inferReplyTargetForPart(p.text, usedReplyTargets);
       if(autoTarget){
         entry.replyToId = autoTarget;
