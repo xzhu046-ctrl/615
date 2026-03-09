@@ -669,7 +669,8 @@ async function runAiBackgroundActivity(){
     '你只能返回 JSON，不要返回任何解释、markdown、代码块。',
     'JSON 格式：{"action":"message|say|dynamic","content":"...","imageText":"..."}',
     'action=message 表示给用户主动发一条聊天消息；action=say 表示发朋友圈说说；action=dynamic 表示发朋友圈动态。',
-    'content 必填，简短自然；imageText 只在 dynamic 时填写，可与 content 相同。'
+    'content 必填，简短自然；imageText 只在 dynamic 时填写。',
+    '如果 action=dynamic，则 content 和 imageText 都必须是图像描述（物体/场景/画面细节），不能是普通聊天句。'
   ].join('\n');
   var userPrompt = [
     '角色名：' + (character.nickname || character.name || '角色'),
