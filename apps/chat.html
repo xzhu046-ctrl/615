@@ -3874,7 +3874,28 @@ function parseInnerVoiceResult(raw){
       };
     }
   }catch(e){}
+  var m = txt.match(/\{[\s\S]*\}/);
+  if(m){
+    try{
+      var obj2 = JSON.parse(m[0]);
+      if(obj2 && typeof obj2 === 'object'){
+        return {
+          normal: String(obj2.normal || obj2.thought || '').trim(),
+          desire: String(obj2.desire || obj2.dark || '').trim()
+        };
+      }
+    }catch(e2){}
+  }
   return null;
+}
+
+function fallbackInnerVoice(seedText){
+  var seed = String(seedText || '').replace(/\s+/g, ' ').trim();
+  if(!seed) seed = '对话继续推进。';
+  return {
+    normal: '他在想：' + seed.slice(0, 48),
+    desire: '他更深处想把关系再往前推一步，不想停在表面聊天。'
+  };
 }
 
 async function refreshInnerVoiceFromAi(seedText){
@@ -3907,9 +3928,8 @@ async function refreshInnerVoiceFromAi(seedText){
     ].join('\n\n');
   try{
     var raw = await callAIWithCustomPrompts(baseSys, userPrompt);
-    var parsed = parseInnerVoiceResult(raw);
-    if(!parsed) return;
-    if(!parsed.normal || !parsed.desire) return;
+    var parsed = parseInnerVoiceResult(raw) || fallbackInnerVoice(seedText);
+    if(!parsed.normal || !parsed.desire) parsed = fallbackInnerVoice(seedText);
     var item = {
       id: 'iv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
       normal: parsed.normal,
@@ -3923,7 +3943,22 @@ async function refreshInnerVoiceFromAi(seedText){
     if(document.getElementById('innerVoiceOverlay')?.classList.contains('open')){
       renderInnerVoiceOverlay();
     }
-  }catch(e){}
+  }catch(e){
+    var fb = fallbackInnerVoice(seedText);
+    var item2 = {
+      id: 'iv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+      normal: fb.normal,
+      desire: fb.desire,
+      at: Date.now()
+    };
+    var store2 = loadInnerVoiceStore();
+    store2.current = item2;
+    store2.items = (store2.items || []).concat([item2]).slice(-120);
+    saveInnerVoiceStore(store2);
+    if(document.getElementById('innerVoiceOverlay')?.classList.contains('open')){
+      renderInnerVoiceOverlay();
+    }
+  }
 }
 
 function openClearChatConfirm(){
@@ -4636,9 +4671,11 @@ async function deliverAiReply(text){
     }
     chatLog.push(entry);
     addMessage('ai', p.text, true, t, entry.id);
-    if(t === 'text'){
-      var line = String(p.text || '').trim();
-      if(line) sentTexts.push(line);
+    var seedLine = String(p.text || '').trim();
+    if(seedLine){
+      if(t === 'voice') seedLine = '语音：' + seedLine;
+      if(t === 'image') seedLine = '图片：' + seedLine;
+      sentTexts.push(seedLine);
     }
     sentCount++;
     maybeAutoBlockByChar(p.text);
@@ -4679,8 +4716,14 @@ window.addEventListener('message', function(e) {
     }
     chatLog.push(incoming);
     addMessage('ai', incoming.content, true, incoming.type, incoming.id);
-    if(incoming.role === 'assistant' && normalizeMessageType(incoming.type || 'text') === 'text'){
-      refreshInnerVoiceFromAi(String(incoming.content || '').trim());
+    if(incoming.role === 'assistant'){
+      var inType = normalizeMessageType(incoming.type || 'text');
+      var inSeed = String(incoming.content || '').trim();
+      if(inSeed){
+        if(inType === 'voice') inSeed = '语音：' + inSeed;
+        if(inType === 'image') inSeed = '图片：' + inSeed;
+      }
+      refreshInnerVoiceFromAi(inSeed);
     }
     saveChat();
     return;
