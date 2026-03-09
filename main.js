@@ -1180,7 +1180,13 @@ function openPlaceholderMiniApp(idx){
 
 function getActiveCharacterData(){
   try{
-    return JSON.parse(localStorage.getItem('activeCharacter') || 'null');
+    var globalActive = JSON.parse(localStorage.getItem('activeCharacter') || 'null');
+    if(globalActive && globalActive.id) return globalActive;
+  }catch(e){
+  }
+  try{
+    var scoped = scopedKeyForAccount('activeCharacter', getActiveAccountId());
+    return JSON.parse(localStorage.getItem(scoped) || 'null');
   }catch(e){
     return null;
   }
@@ -1201,6 +1207,20 @@ function getChatUserAvatar(charId){
     if(src && src.startsWith('data:')) return src;
     return loadStoredAsset('user_avatar_' + charId);
   });
+}
+
+function getStoredChatMessages(charId){
+  if(!charId) return [];
+  try{
+    var scoped = scopedKeyForAccount('chat_' + charId, getActiveAccountId());
+    var raw = localStorage.getItem(scoped) || localStorage.getItem('chat_' + charId) || '';
+    if(!raw) return [];
+    var parsed = JSON.parse(raw);
+    var list = (parsed && (parsed.history || parsed.messages)) || [];
+    return Array.isArray(list) ? list : [];
+  }catch(e){
+    return [];
+  }
 }
 
 function renderBondWidget(character){
@@ -1634,6 +1654,7 @@ window.addEventListener('message',(e)=>{
     const slim = slimChar(payload);
     setWidgetCharacter(payload);
     try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
+    try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
     cacheAvatar(payload);
     renderBondWidget(payload);
     renderHomeDockBadges();
@@ -1645,12 +1666,17 @@ window.addEventListener('message',(e)=>{
     cacheAvatar(payload);
     setWidgetCharacter(payload);
     try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
+    try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
     renderBondWidget(payload);
     renderHomeDockBadges();
   }
   if(type==='OPEN_CHAT_WITH'){
     openApp('chat');
     const slim = slimChar(payload);
+    try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
+    try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
+    setWidgetCharacter(payload);
+    renderBondWidget(payload);
     try{ localStorage.setItem('pendingChatChar',JSON.stringify(slim)); }catch(e){}
     postToChat({ type:'SET_ACTIVE_CHARACTER', payload: slim });
   }
@@ -1686,24 +1712,28 @@ window.addEventListener('message',(e)=>{
     maybeRunAiBgTick(false);
   }
   if(type==='CHAT_UPDATED'){
-    // Sync widget preview when chat changes
-    var ac = null;
-    try { ac = JSON.parse(localStorage.getItem('activeCharacter')||'null'); } catch(e){}
-    if(ac && ac.id === payload.id){
-      if(payload.data) localStorage.setItem('activeCharacter', JSON.stringify(payload.data));
-      if(payload.data) setWidgetCharacter(payload.data);
-      var subText = payload.last || '';
-      var lastType = normalizeChatPreviewType(payload.lastType || 'text');
-      if(lastType === 'voice'){
-        var dur = Math.max(1, Math.min(60, Math.ceil((payload.last||'').length/6)));
-        subText = '语音消息 ' + dur + "''";
-      } else if(lastType === 'image'){
-        subText = '【图片】';
-      }
-      document.getElementById('wgt-sub').textContent = formatCharSub(subText);
-      renderBondWidget(payload.data || ac);
-      renderHomeDockBadges();
+    // Always sync to the latest chatted character/widget state.
+    var nextChar = payload && payload.data ? payload.data : null;
+    if(nextChar && nextChar.id){
+      try{ localStorage.setItem('activeCharacter', JSON.stringify(nextChar)); }catch(e){}
+      try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(nextChar)); }catch(e){}
+      setWidgetCharacter(nextChar);
+      renderBondWidget(nextChar);
+    }else{
+      var ac = getActiveCharacterData();
+      if(ac) renderBondWidget(ac);
     }
+    var subText = payload.last || '';
+    var lastType = normalizeChatPreviewType(payload.lastType || 'text');
+    if(lastType === 'voice'){
+      var dur = Math.max(1, Math.min(60, Math.ceil((payload.last||'').length/6)));
+      subText = '语音消息 ' + dur + "''";
+    } else if(lastType === 'image'){
+      subText = '【图片】';
+    }
+    var subEl = document.getElementById('wgt-sub');
+    if(subEl) subEl.textContent = formatCharSub(subText);
+    renderHomeDockBadges();
   }
 });
 
@@ -1794,8 +1824,7 @@ function setWidgetCharacter(c){
   var lastLine = '';
   try {
     if (c?.id) {
-      var saved = JSON.parse(localStorage.getItem('chat_' + c.id) || 'null');
-      var msgs = (saved && saved.messages) || [];
+      var msgs = getStoredChatMessages(c.id);
       if (msgs.length) {
         var lastMsg = normalizePreviewMessage(msgs[msgs.length - 1]);
         var lastType = lastMsg.type;
