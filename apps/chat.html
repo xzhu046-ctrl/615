@@ -320,6 +320,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .cs-save-btn:active{transform:none;box-shadow:none}
 .cs-danger-btn{font-family:var(--fontd);font-weight:900;border:var(--bd);border-radius:12px;padding:11px;font-size:13px;cursor:pointer;box-shadow:var(--sh);background:#fff;color:#b00;width:100%;text-align:center;transition:transform .12s,box-shadow .12s}
 .cs-danger-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
+.cs-plain-btn{font-family:var(--fontd);font-weight:900;border:var(--bd);border-radius:12px;padding:11px;font-size:13px;cursor:pointer;box-shadow:none;background:#fff;color:var(--b);width:100%;text-align:center}
+.cs-plain-btn:active{transform:none;box-shadow:none}
 
 /* toast */
 .toast{position:fixed;bottom:74px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--b);color:var(--w);padding:9px 18px;border-radius:18px;font-weight:700;font-size:12px;opacity:0;transition:all .28s;pointer-events:none;white-space:nowrap;z-index:999}
@@ -571,6 +573,18 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
       <span class="cs-label">自动总结间隔（X）</span>
       <input class="cs-input" id="csSummaryEvery" type="number" min="6" max="120" step="1" placeholder="如 30">
     </div>
+    <div class="toggle-row" style="margin-bottom:10px">
+      <div class="toggle-left">
+        <div class="toggle-label">自动总结（达到 X 条后生成 1 条记忆）</div>
+        <div class="toggle-sub" id="autoSummarySub">默认开启</div>
+      </div>
+      <div class="toggle-switch on" id="autoSummaryToggle" onclick="toggleAutoSummarySwitch()"></div>
+    </div>
+    <div style="margin-bottom:10px">
+      <span class="cs-label">手动总结条数（X）</span>
+      <input class="cs-input" id="csManualSummarySize" type="number" min="6" max="120" step="1" placeholder="如 30">
+    </div>
+    <button class="cs-plain-btn" type="button" onclick="runManualSummaryNow()">立即手动总结</button>
     <div style="margin-bottom:10px">
       <span class="cs-label">记忆合并阈值（达到 X 条后合并为 1 条）</span>
       <input class="cs-input" id="csMemoryMergeThreshold" type="number" min="2" max="50" step="1" placeholder="默认 10">
@@ -892,9 +906,11 @@ var MIN_CONTEXT_WINDOW = 6;
 var MAX_CONTEXT_WINDOW = 120;
 var DEFAULT_SUMMARY_EVERY = 30;
 var DEFAULT_MEMORY_MERGE_THRESHOLD = 10;
+var DEFAULT_MANUAL_SUMMARY_SIZE = 30;
 var DEFAULT_MOMENTS_FREQ = 'medium';
 var memorySummaryBusy = false;
 var pendingCharBgEnabled = null;
+var pendingAutoSummaryEnabled = null;
 var memoryEditingId = '';
 var chatSettingsSavedAtLeastOnce = false;
 var innerVoiceHistoryMode = false;
@@ -915,6 +931,12 @@ function summaryEveryKey(){
 }
 function memoryMergeThresholdKey(){
   return character && character.id ? accountScopedKey('memory_merge_threshold_' + character.id) : '';
+}
+function autoSummaryEnabledKey(){
+  return character && character.id ? accountScopedKey('auto_summary_enabled_' + character.id) : '';
+}
+function manualSummarySizeKey(){
+  return character && character.id ? accountScopedKey('manual_summary_size_' + character.id) : '';
 }
 function loadContextWindowSize(){
   if(!character) return DEFAULT_CONTEXT_WINDOW;
@@ -954,6 +976,29 @@ function saveMemoryMergeThreshold(n){
   if(Number.isNaN(next)) next = DEFAULT_MEMORY_MERGE_THRESHOLD;
   next = Math.max(2, Math.min(50, next));
   localStorage.setItem(memoryMergeThresholdKey(), String(next));
+}
+function loadAutoSummaryEnabled(){
+  if(!character) return true;
+  var raw = localStorage.getItem(autoSummaryEnabledKey());
+  if(raw === null) return true;
+  return raw !== '0';
+}
+function saveAutoSummaryEnabled(enabled){
+  if(!character) return;
+  localStorage.setItem(autoSummaryEnabledKey(), enabled ? '1' : '0');
+}
+function loadManualSummarySize(){
+  if(!character) return DEFAULT_MANUAL_SUMMARY_SIZE;
+  var n = parseInt(localStorage.getItem(manualSummarySizeKey()) || String(DEFAULT_MANUAL_SUMMARY_SIZE), 10);
+  if(Number.isNaN(n)) n = DEFAULT_MANUAL_SUMMARY_SIZE;
+  return Math.max(6, Math.min(120, n));
+}
+function saveManualSummarySize(n){
+  if(!character) return;
+  var next = parseInt(n || String(DEFAULT_MANUAL_SUMMARY_SIZE), 10);
+  if(Number.isNaN(next)) next = DEFAULT_MANUAL_SUMMARY_SIZE;
+  next = Math.max(6, Math.min(120, next));
+  localStorage.setItem(manualSummarySizeKey(), String(next));
 }
 function approxTokenCount(text){
   var src = String(text || '');
@@ -1124,6 +1169,7 @@ async function maybeCompactMemorySummaries(store){
 }
 async function maybeCreateMemorySummaries(){
   if(!character || memorySummaryBusy) return;
+  if(!loadAutoSummaryEnabled()) return;
   var summaryEvery = loadSummaryEverySize();
   if(summaryEvery < MIN_CONTEXT_WINDOW) return;
   var store = loadMemorySummaryStore();
@@ -1351,6 +1397,76 @@ function toggleCharBgSwitch(){
   pendingCharBgEnabled = next;
   renderCharBgToggle();
   toast(next ? '已暂存：允许后台活动' : '已暂存：角色进入 Dormant');
+}
+
+function renderAutoSummaryToggle(){
+  var toggle = document.getElementById('autoSummaryToggle');
+  if(!toggle) return;
+  var enabled = pendingAutoSummaryEnabled === null ? loadAutoSummaryEnabled() : !!pendingAutoSummaryEnabled;
+  toggle.classList.toggle('on', enabled);
+  var sub = document.getElementById('autoSummarySub');
+  if(sub) sub.textContent = enabled ? '开启后会按间隔自动总结' : '关闭后仅支持手动总结';
+}
+
+function toggleAutoSummarySwitch(){
+  if(!character || !character.id){
+    toast('未加载角色');
+    return;
+  }
+  var now = pendingAutoSummaryEnabled === null ? loadAutoSummaryEnabled() : !!pendingAutoSummaryEnabled;
+  pendingAutoSummaryEnabled = !now;
+  renderAutoSummaryToggle();
+  toast(pendingAutoSummaryEnabled ? '已暂存：自动总结开启' : '已暂存：自动总结关闭');
+}
+
+async function runManualSummaryNow(){
+  if(!character){
+    toast('未加载角色');
+    return;
+  }
+  if(memorySummaryBusy){
+    toast('正在生成总结，请稍候');
+    return;
+  }
+  var input = document.getElementById('csManualSummarySize');
+  var count = parseInt((input && input.value) || String(loadManualSummarySize()), 10);
+  if(Number.isNaN(count)) count = loadManualSummarySize();
+  count = Math.max(6, Math.min(120, count));
+  if(input) input.value = String(count);
+  var store = loadMemorySummaryStore();
+  var progress = Math.max(0, Math.min(store.progress || store.covered || 0, chatLog.length));
+  var remaining = chatLog.length - progress;
+  if(remaining <= 0){
+    toast('暂无可总结的新消息');
+    return;
+  }
+  var take = Math.min(count, remaining);
+  var from = progress;
+  var to = progress + take;
+  var slice = chatLog.slice(from, to);
+  if(!slice.length){
+    toast('暂无可总结的新消息');
+    return;
+  }
+  memorySummaryBusy = true;
+  try{
+    var text = await generateMemorySummary(slice);
+    store.items.push({
+      id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+      from: from,
+      to: to,
+      text: text,
+      tokens: approxTokenCount(text),
+      createdAt: Date.now()
+    });
+    store.progress = to;
+    saveMemorySummaryStore(store);
+    await maybeCompactMemorySummaries(store);
+    toast('已手动总结 ' + take + ' 条消息');
+  }finally{
+    memorySummaryBusy = false;
+    refreshMemoryUi();
+  }
 }
 
 function blockStateKey(charId){
@@ -4783,6 +4899,7 @@ function restoreParentTopbarForSettings(){
 function openChatSettings() {
   chatSettingsSavedAtLeastOnce = false;
   pendingCharBgEnabled = null;
+  pendingAutoSummaryEnabled = null;
   // Populate char
   if (character) {
     var av = document.getElementById('csCharAvatar');
@@ -4811,6 +4928,7 @@ function openChatSettings() {
   renderWbBookList();
   document.getElementById('csContextWindow').value = loadContextWindowSize();
   document.getElementById('csSummaryEvery').value = loadSummaryEverySize();
+  document.getElementById('csManualSummarySize').value = loadManualSummarySize();
   document.getElementById('csMemoryMergeThreshold').value = loadMemoryMergeThreshold();
   var freqSel = document.getElementById('csMomentsFreq');
   if(freqSel) freqSel.value = loadCharMomentsFreq(character && character.id);
@@ -4825,6 +4943,7 @@ function openChatSettings() {
   if(canPickGreeting) populateGreetings();
   refreshUserAvatars();
   renderCharBgToggle();
+  renderAutoSummaryToggle();
   updateBlockedUi();
   refreshMemoryUi();
   hideParentTopbarForSettings();
@@ -4834,6 +4953,7 @@ function openChatSettings() {
 function closeChatSettings() {
   if(!chatSettingsSavedAtLeastOnce){
     pendingCharBgEnabled = null;
+    pendingAutoSummaryEnabled = null;
     loadWorldBook();
   }
   document.getElementById('chatSettings').classList.remove('open');
@@ -4980,12 +5100,14 @@ function saveChatSettings() {
   var cmx = parseInt(document.getElementById('csMsgMax').value || '3');
   var cwin = parseInt(document.getElementById('csContextWindow').value || String(DEFAULT_CONTEXT_WINDOW), 10);
   var severy = parseInt(document.getElementById('csSummaryEvery').value || String(DEFAULT_SUMMARY_EVERY), 10);
+  var manualSize = parseInt(document.getElementById('csManualSummarySize').value || String(DEFAULT_MANUAL_SUMMARY_SIZE), 10);
   var mergeThreshold = parseInt(document.getElementById('csMemoryMergeThreshold').value || String(DEFAULT_MEMORY_MERGE_THRESHOLD), 10);
   var momentsFreq = normalizeMomentsFreq(document.getElementById('csMomentsFreq').value || DEFAULT_MOMENTS_FREQ);
   localStorage.setItem(userKey('user_name'), un);
   localStorage.setItem(userKey('user_persona'), up);
   saveContextWindowSize(cwin);
   saveSummaryEverySize(severy);
+  saveManualSummarySize(manualSize);
   saveMemoryMergeThreshold(mergeThreshold);
   if (character) {
     if (cn) { character.name = cn; }
@@ -5005,8 +5127,12 @@ function saveChatSettings() {
     if(pendingCharBgEnabled !== null){
       saveCharBgEnabled(character.id, pendingCharBgEnabled);
     }
+    if(pendingAutoSummaryEnabled !== null){
+      saveAutoSummaryEnabled(!!pendingAutoSummaryEnabled);
+    }
     saveCharMomentsFreq(character.id, momentsFreq);
     pendingCharBgEnabled = null;
+    pendingAutoSummaryEnabled = null;
   }
   chatSettingsSavedAtLeastOnce = true;
   toast('设置已保存！');
