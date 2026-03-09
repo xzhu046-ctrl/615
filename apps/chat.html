@@ -1879,13 +1879,21 @@ function updateModelLabel() {
 }
 
 function getWbBookStateKey() {
-  return character ? ('wb_book_states_' + character.id) : '';
+  return character ? accountScopedKey('wb_book_states_' + character.id) : '';
+}
+
+function getWbEnabledKey() {
+  return character ? accountScopedKey('wb_enabled_' + character.id) : '';
 }
 
 function getSavedWbBookStates() {
   if (!character) return {};
   try {
-    var raw = JSON.parse(localStorage.getItem(getWbBookStateKey()) || '{}');
+    var scopedKey = getWbBookStateKey();
+    var legacyKey = 'wb_book_states_' + character.id;
+    var rawText = localStorage.getItem(scopedKey);
+    if(rawText === null) rawText = localStorage.getItem(legacyKey);
+    var raw = JSON.parse(rawText || '{}');
     return raw && typeof raw === 'object' ? raw : {};
   } catch(e) {
     return {};
@@ -2017,7 +2025,8 @@ function loadWorldBook() {
     wbBooks = [];
     wbEntries = [];
   }
-  var saved = localStorage.getItem('wb_enabled_' + character.id);
+  var saved = localStorage.getItem(getWbEnabledKey());
+  if(saved === null) saved = localStorage.getItem('wb_enabled_' + character.id);
   wbEnabled = saved === null ? wbBooks.length > 0 : saved === 'true';
   var tog = document.getElementById('wbToggle');
   if (tog) tog.classList.toggle('on', wbEnabled);
@@ -3596,7 +3605,7 @@ function confirmGreetingChange(){
 function toggleWB() {
   wbEnabled = !wbEnabled;
   document.getElementById('wbToggle').classList.toggle('on', wbEnabled);
-  if (character) localStorage.setItem('wb_enabled_' + character.id, wbEnabled);
+  if (character) localStorage.setItem(getWbEnabledKey(), wbEnabled);
   if (character) {
     var states = getSavedWbBookStates();
     wbBooks.forEach(function(book) {
