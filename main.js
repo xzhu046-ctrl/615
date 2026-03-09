@@ -1213,11 +1213,26 @@ function getStoredChatMessages(charId){
   if(!charId) return [];
   try{
     var scoped = scopedKeyForAccount('chat_' + charId, getActiveAccountId());
-    var raw = localStorage.getItem(scoped) || localStorage.getItem('chat_' + charId) || '';
-    if(!raw) return [];
-    var parsed = JSON.parse(raw);
-    var list = (parsed && (parsed.history || parsed.messages)) || [];
-    return Array.isArray(list) ? list : [];
+    var candidates = [
+      localStorage.getItem(scoped) || '',
+      localStorage.getItem('chat_' + charId) || ''
+    ];
+    for(var i=0; i<localStorage.length; i++){
+      var key = localStorage.key(i) || '';
+      if(key.indexOf('chat_' + charId + '__acct_') === 0){
+        candidates.push(localStorage.getItem(key) || '');
+      }
+    }
+    var best = [];
+    candidates.forEach(function(raw){
+      if(!raw) return;
+      try{
+        var parsed = JSON.parse(raw);
+        var list = (parsed && (parsed.history || parsed.messages)) || [];
+        if(Array.isArray(list) && list.length > best.length) best = list;
+      }catch(e){}
+    });
+    return best;
   }catch(e){
     return [];
   }
