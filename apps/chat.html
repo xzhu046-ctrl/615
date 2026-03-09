@@ -528,7 +528,6 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
         <span class="cs-label">自动总结间隔（X）</span>
         <input class="cs-input" id="csSummaryEvery" type="number" min="6" max="120" step="1" placeholder="如 30">
       </div>
-      <div class="mem-list" id="memPreviewList"></div>
     </div>
     <div class="cs-card">
       <div class="cs-card-title">后台活动</div>
@@ -960,11 +959,22 @@ async function maybeCreateMemorySummaries(){
 function getMemorySummaryItems(){
   return loadMemorySummaryStore().items || [];
 }
+function getMemoryCoveredCount(){
+  var store = loadMemorySummaryStore();
+  return Math.max(0, Number((store && store.covered) || 0) || 0);
+}
 function getMemorySummaryTokens(){
   var items = getMemorySummaryItems();
   var sum = 0;
   items.forEach(function(it){ sum += Number(it.tokens || 0) || approxTokenCount(it.text || ''); });
   return sum;
+}
+function getVisibleChatForModel(){
+  var windowSize = loadContextWindowSize();
+  var tailStart = Math.max(0, chatLog.length - windowSize);
+  var covered = Math.max(0, Math.min(chatLog.length, getMemoryCoveredCount()));
+  var start = Math.max(tailStart, covered);
+  return chatLog.slice(start);
 }
 
 function normalizeNameLite(v){
@@ -3022,8 +3032,7 @@ async function callAI(provider, key) {
   var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider);
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '1');
   var sys = buildSystemPrompt();
-  var ctxWindow = loadContextWindowSize();
-  var msgs = chatLog.slice(-ctxWindow).map(function(m){
+  var msgs = getVisibleChatForModel().map(function(m){
     return { role: m.role, content: formatMessageForModel(m) };
   }); // user-configurable context window
 
@@ -3476,31 +3485,24 @@ function getContextTokenStats(){
   ].join('\n');
   var enabledBooks = (wbBooks || []).filter(function(book){ return book.enabled; });
   var worldbookTokens = enabledBooks.reduce(function(sum, book){ return sum + (Number(book.tokenCount || 0) || 0); }, 0);
-  var windowSize = loadContextWindowSize();
-  var recentMsgs = chatLog.slice(-windowSize);
-  var chatTokens = recentMsgs.reduce(function(sum, m){
+  var visibleMsgs = getVisibleChatForModel();
+  var chatTokens = visibleMsgs.reduce(function(sum, m){
     return sum + approxTokenCount(formatMessageForModel(m));
   }, 0);
   var memoryTokens = getMemorySummaryTokens();
-  var staticGuideTokens = approxTokenCount([
-    '聊天风格补充',
-    '格式硬约束',
-    '朋友圈互动能力',
-    '拉黑/好友申请',
-    '系统提示'
-  ].join('\n'));
   var breakdown = {
     char: approxTokenCount(charParts),
     user: approxTokenCount(userParts),
     worldbook: worldbookTokens,
     chat: chatTokens,
     memory: memoryTokens,
-    misc: staticGuideTokens
+    misc: 0
   };
   var actualSystemPrompt = buildSystemPrompt();
   var actualPromptTokens = approxTokenCount(actualSystemPrompt);
-  breakdown.total = actualPromptTokens + chatTokens;
-  breakdown.misc = Math.max(1, actualPromptTokens);
+  var knownPromptParts = breakdown.char + breakdown.user + breakdown.worldbook + breakdown.memory;
+  breakdown.misc = Math.max(0, actualPromptTokens - knownPromptParts);
+  breakdown.total = knownPromptParts + breakdown.misc + breakdown.chat;
   return breakdown;
 }
 
@@ -3516,7 +3518,7 @@ function renderContextTokenStats(){
     ['世界书', stats.worldbook],
     ['最近聊天', stats.chat],
     ['记忆总结', stats.memory],
-    ['系统提示', stats.misc]
+    ['系统规则', stats.misc]
   ];
   host.innerHTML = rows.map(function(row){
     return '<div class="token-pill">' + esc(row[0]) + '<strong>' + formatTok(row[1]) + '</strong></div>';
