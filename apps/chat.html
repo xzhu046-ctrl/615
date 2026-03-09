@@ -491,12 +491,12 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
       </div>
       <div class="avatar-info">
         <span class="cs-label">显示名称</span>
-        <input class="cs-input" id="csCharName" placeholder="角色名称..." type="text">
+        <input class="cs-input" id="csCharName" placeholder="角色名称..." type="text" oninput="postSettingsPreviewSync()">
       </div>
     </div>
     <div style="margin-top:10px">
       <span class="cs-label">昵称 / 备注</span>
-      <input class="cs-input" id="csCharNick" placeholder="可选备注名..." type="text">
+      <input class="cs-input" id="csCharNick" placeholder="可选备注名..." type="text" oninput="postSettingsPreviewSync()">
     </div>
     <div style="margin-top:10px">
       <span class="cs-label">角色人设 (persona)</span>
@@ -522,7 +522,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
         </div>
         <div class="avatar-info">
           <span class="cs-label">你的名字</span>
-          <input class="cs-input" id="csUserName" placeholder="你的名字..." type="text">
+          <input class="cs-input" id="csUserName" placeholder="你的名字..." type="text" oninput="postSettingsPreviewSync()">
         </div>
       </div>
       <div style="margin-top:10px">
@@ -5071,6 +5071,7 @@ function onCharImg(file) {
     var av = document.getElementById('csCharAvatar');
     av.innerHTML = '<img src="' + d + '"><div class="avatar-pick-hint">换头像</div>';
     if (character) { saveStoredAsset('char_avatar_' + character.id, d); updateHeader(); }
+    postSettingsPreviewSync();
   };
   r.readAsDataURL(file);
 }
@@ -5084,8 +5085,35 @@ function onUserImg(file) {
     av.innerHTML = '<img src="' + d + '"><div class="avatar-pick-hint">换头像</div>';
     saveStoredAsset(userKey('user_avatar'), d);
     refreshUserAvatars();
+    postSettingsPreviewSync();
   };
   r.readAsDataURL(file);
+}
+
+function postSettingsPreviewSync(){
+  if(!character) return;
+  var nameEl = document.getElementById('csCharName');
+  var nickEl = document.getElementById('csCharNick');
+  var userEl = document.getElementById('csUserName');
+  var draft = Object.assign({}, character || {});
+  var nextName = String((nameEl && nameEl.value) || '').trim();
+  if(nextName) draft.name = nextName;
+  draft.nickname = String((nickEl && nickEl.value) || '').trim();
+  var charImg = document.querySelector('#csCharAvatar img');
+  var charImgSrc = String((charImg && charImg.src) || '').trim();
+  if(charImgSrc && charImgSrc.startsWith('data:')) draft.imageData = charImgSrc;
+  var userName = String((userEl && userEl.value) || '').trim();
+  var userImg = document.querySelector('#csUserAvatar img');
+  var userAvatar = String((userImg && userImg.src) || '').trim();
+  if(!(userAvatar && userAvatar.startsWith('data:'))) userAvatar = '';
+  var slim = compactChar(draft);
+  try{ window.parent.postMessage({ type:'SET_ACTIVE_CHARACTER', payload: slim }, '*'); }catch(e){}
+  try{
+    window.parent.postMessage({
+      type:'BOND_WIDGET_PREVIEW',
+      payload:{ char: slim, userName: userName, userAvatar: userAvatar }
+    }, '*');
+  }catch(e){}
 }
 
 function saveChatSettings() {
@@ -5134,6 +5162,7 @@ function saveChatSettings() {
   toast('设置已保存！');
   // Persist chat log so changes survive leaving page
   saveChat();
+  postSettingsPreviewSync();
   refreshMemoryUi();
 }
 

@@ -1269,6 +1269,38 @@ function renderBondWidget(character){
   }
 }
 
+function applyBondWidgetPreview(payload){
+  var preview = payload && typeof payload === 'object' ? payload : {};
+  var c = preview.char || getActiveCharacterData();
+  if(c){
+    setWidgetCharacter(c);
+    renderBondWidget(c);
+  }else{
+    renderBondWidget(null);
+  }
+  var userNameEl = document.getElementById('bond-user-name');
+  if(userNameEl && typeof preview.userName === 'string'){
+    userNameEl.textContent = preview.userName.trim() || 'USER';
+  }
+  if(typeof preview.userAvatar === 'string'){
+    var userAvatarEl = document.getElementById('bond-user-avatar');
+    if(userAvatarEl){
+      var src = preview.userAvatar.trim();
+      var baseHtml = src && src.startsWith('data:')
+        ? '<span class="bond-avatar-base"><img src="' + src + '" alt=""></span>'
+        : '<span class="bond-avatar-base">你</span>';
+      var frameUrl = getActiveBondAvatarFrameUrl('user');
+      if(frameUrl){
+        var frameVisual = getTopFrameVisual(frameUrl);
+        var frameStyle = '--frame-scale:' + frameVisual.scale + ';--frame-offset-x:' + frameVisual.offsetX + 'px;--frame-offset-y:' + frameVisual.offsetY + 'px;';
+        userAvatarEl.innerHTML = baseHtml + '<img class="bond-avatar-frame" style="' + frameStyle + '" src="' + frameUrl + '" alt="">';
+      } else {
+        userAvatarEl.innerHTML = baseHtml;
+      }
+    }
+  }
+}
+
 function onTopSlotTap(e){
   if(e && e.stopPropagation) e.stopPropagation();
   if(topSlotLongPressFired){
@@ -1659,6 +1691,9 @@ window.addEventListener('message',(e)=>{
     renderBondWidget(payload);
     renderHomeDockBadges();
     postToChat({ type:'SET_ACTIVE_CHARACTER', payload: slim });
+  }
+  if(type==='BOND_WIDGET_PREVIEW'){
+    applyBondWidgetPreview(payload);
   }
   if(type==='CHARACTER_IMPORTED'){
     // When a card is imported, immediately reflect it on the home widget.
