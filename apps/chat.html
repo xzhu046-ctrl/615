@@ -4137,15 +4137,41 @@ function parseInnerVoiceResult(raw){
       }
     }catch(e2){}
   }
+  var normalMatch = txt.match(/(?:normal|thought|正常(?:心声|想法)?|心声)\s*[:：]\s*([^\n]+)/i);
+  var desireMatch = txt.match(/(?:desire|dark|欲望|深层(?:欲望|想法)?|内心欲望)\s*[:：]\s*([^\n]+)/i);
+  if(normalMatch || desireMatch){
+    return {
+      normal: normalMatch ? String(normalMatch[1] || '').trim() : '',
+      desire: desireMatch ? String(desireMatch[1] || '').trim() : ''
+    };
+  }
   return null;
 }
 
+function normalizeInnerVoiceSeed(seedText){
+  var src = String(seedText || '').replace(/\s+/g, ' ').trim();
+  if(!src) return '';
+  var segs = src.split(/\s*\/\s*/).map(function(v){ return v.trim(); }).filter(Boolean);
+  var picked = segs.length ? segs[segs.length - 1] : src;
+  picked = picked.replace(/[。！？!?,，；;]+$/g, '').trim();
+  return picked.slice(0, 48);
+}
+
 function fallbackInnerVoice(seedText){
-  var seed = String(seedText || '').replace(/\s+/g, ' ').trim();
-  if(!seed) seed = '对话继续推进。';
+  var seed = normalizeInnerVoiceSeed(seedText);
+  var persona = String((character && (character.personality || character.description || '')) || '').toLowerCase();
+  if(!seed) seed = '对话继续推进';
+  var normalPrefix = '他在想';
+  if(/温柔|治愈|体贴|gentle|soft/.test(persona)) normalPrefix = '他心里一软，想着';
+  else if(/傲娇|毒舌|嘴硬|tsundere/.test(persona)) normalPrefix = '他嘴上不说，心里想着';
+  else if(/高冷|冷淡|克制|cool|cold/.test(persona)) normalPrefix = '他冷静地想着';
+  var desireLine = '他想把关系往更亲密、更有掌控感的方向推进。';
+  if(/占有|病娇|偏执|possessive|obsess/.test(persona)){
+    desireLine = '他想把主动权握在自己手里，让这段关系只朝他想要的方向发展。';
+  }
   return {
-    normal: '他在想：' + seed.slice(0, 48),
-    desire: '他更深处想把关系再往前推一步，不想停在表面聊天。'
+    normal: normalPrefix + '：' + seed + '。',
+    desire: desireLine
   };
 }
 
@@ -4183,13 +4209,21 @@ async function refreshInnerVoiceFromAi(seedText){
       seedText ? ('本轮角色回复：' + seedText) : ''
     ].join('\n\n');
   try{
-    var raw = await callAIWithCustomPrompts(baseSys, userPrompt);
-    var parsed = parseInnerVoiceResult(raw) || fallbackInnerVoice(seedText);
-    if(!parsed.normal || !parsed.desire) parsed = fallbackInnerVoice(seedText);
+    var parsed = null;
+    for(var attempt = 0; attempt < 2; attempt++){
+      var strictPrompt = userPrompt + '\n\n只允许输出 JSON 对象，键名必须是 normal 与 desire。';
+      var raw = await callAIWithCustomPrompts(baseSys, strictPrompt);
+      var candidate = parseInnerVoiceResult(raw);
+      if(candidate && candidate.normal && candidate.desire){
+        parsed = candidate;
+        break;
+      }
+    }
+    if(!parsed) parsed = fallbackInnerVoice(seedText);
     var item = {
       id: 'iv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
-      normal: parsed.normal,
-      desire: parsed.desire,
+      normal: String(parsed.normal || '').trim(),
+      desire: String(parsed.desire || '').trim(),
       at: Date.now()
     };
     var store = loadInnerVoiceStore();
@@ -4954,7 +4988,7 @@ async function deliverAiReply(text){
     sentTexts.push(fallbackEntry.content);
   }
   if(sentTexts.length){
-    refreshInnerVoiceFromAi(sentTexts.join(' / '));
+    refreshInnerVoiceFromAi(sentTexts[sentTexts.length - 1]);
   }
   updateBlockedUi();
 }
