@@ -47,8 +47,9 @@ button,input,textarea{color:var(--b);-webkit-text-fill-color:var(--b)}
 .account-main{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .badges{display:flex;gap:6px;flex-wrap:wrap}
 .badge{font-size:9px;border:var(--bd);border-radius:999px;padding:2px 7px;font-weight:900;background:#111;color:#fff}
-.fav-list{display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:auto}
-.fav-item{border:var(--bd);border-radius:14px;background:#f8f8f8;box-shadow:var(--sh);padding:10px;display:flex;gap:10px}
+.fav-list{display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:auto;padding:2px 0 2px 0;-webkit-overflow-scrolling:touch}
+.fav-item{width:calc(100% - 6px);margin:0 auto;border:var(--bd);border-radius:14px;background:#f8f8f8;box-shadow:var(--sh);padding:10px;display:flex;gap:10px;touch-action:pan-y;transition:transform .15s ease}
+.fav-item.swiping{transition:none}
 .fav-av{width:36px;height:36px;border:var(--bd);border-radius:10px;background:#eee center/cover no-repeat;flex-shrink:0}
 .fav-meta{min-width:0;flex:1}
 .fav-name{font-family:var(--fontd);font-size:12px;font-weight:900}
@@ -232,7 +233,7 @@ function renderFavorites(){
   if(!favs.length){ list.innerHTML = '<div class="sub">还没有收藏，去聊天里长按消息收藏吧。</div>'; return; }
   list.innerHTML = favs.map(f=>{
     const av = f.avatar ? 'style="background-image:url(' + escAttr(f.avatar) + ')"' : '';
-    return '<article class="fav-item">'
+    return '<article class="fav-item" data-fav-id="'+escAttr(f.id||'')+'">'
       + '<div class="fav-av" '+av+'></div>'
       + '<div class="fav-meta">'
       + '<div class="fav-name">'+esc(f.name||'未命名')+'</div>'
@@ -240,9 +241,64 @@ function renderFavorites(){
       + '<div class="fav-text">'+esc(f.text||'')+'</div>'
       + '</div></article>';
   }).join('');
+  bindFavoriteSwipeDelete();
 }
 
 function openFavorites(){ renderFavorites(); document.getElementById('favOverlay').classList.add('open'); }
+
+function removeFavoriteById(id){
+  if(!id) return;
+  window.AccountManager.updateActive((a)=>{
+    const arr = Array.isArray(a.favorites) ? a.favorites : [];
+    a.favorites = arr.filter((it)=>String(it && it.id || '') !== String(id));
+  });
+  renderProfile();
+  renderFavorites();
+}
+
+function confirmRemoveFavorite(id){
+  confirmModal('取消收藏', '确定取消收藏？', ()=>{ removeFavoriteById(id); });
+}
+
+function bindFavoriteSwipeDelete(){
+  const list = document.getElementById('favList');
+  if(!list) return;
+  list.querySelectorAll('.fav-item').forEach((item)=>{
+    let startX = 0;
+    let startY = 0;
+    let dx = 0;
+    let dragging = false;
+    let pointerId = null;
+    const reset = ()=>{ item.classList.remove('swiping'); item.style.transform = ''; dragging = false; pointerId = null; };
+    item.addEventListener('pointerdown', (e)=>{
+      if(e.pointerType === 'mouse' && e.button !== 0) return;
+      pointerId = e.pointerId;
+      startX = e.clientX;
+      startY = e.clientY;
+      dx = 0;
+      dragging = true;
+      item.classList.add('swiping');
+      try{ item.setPointerCapture(pointerId); }catch(err){}
+    });
+    item.addEventListener('pointermove', (e)=>{
+      if(!dragging || (pointerId !== null && e.pointerId !== pointerId)) return;
+      const moveX = e.clientX - startX;
+      const moveY = e.clientY - startY;
+      if(Math.abs(moveY) > 16 && Math.abs(moveY) > Math.abs(moveX)){ reset(); return; }
+      dx = Math.min(0, Math.max(-68, moveX));
+      item.style.transform = 'translateX(' + dx + 'px)';
+    });
+    item.addEventListener('pointerup', (e)=>{
+      if(!dragging || (pointerId !== null && e.pointerId !== pointerId)) return;
+      const swipe = dx;
+      const id = item.getAttribute('data-fav-id') || '';
+      reset();
+      if(swipe <= -42){ confirmRemoveFavorite(id); }
+    });
+    item.addEventListener('pointercancel', reset);
+    item.addEventListener('lostpointercapture', reset);
+  });
+}
 
 function renderAccountList(){
   const list = document.getElementById('accountList');
