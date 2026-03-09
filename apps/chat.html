@@ -817,6 +817,16 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
   </div>
 </div>
 
+<div class="confirm-overlay" id="innerVoiceDeleteConfirmOverlay">
+  <div class="confirm-card">
+    <div class="confirm-title">删除心声？</div>
+    <div class="confirm-actions">
+      <button class="confirm-btn" type="button" onclick="closeInnerVoiceDeleteConfirm()">取消</button>
+      <button class="confirm-btn" type="button" onclick="confirmInnerVoiceDelete()">确认</button>
+    </div>
+  </div>
+</div>
+
 <div class="confirm-overlay" id="userReAddOverlay">
   <div class="confirm-card">
     <div class="confirm-title">发送好友申请</div>
@@ -888,6 +898,7 @@ var memoryEditingId = '';
 var chatSettingsSavedAtLeastOnce = false;
 var innerVoiceHistoryMode = false;
 var innerVoiceEditingId = '';
+var innerVoicePendingDeleteId = '';
 
 function contextWindowKey(){
   return character && character.id ? accountScopedKey('ctx_window_' + character.id) : '';
@@ -3863,6 +3874,10 @@ var _mdc = document.getElementById('multiDeleteConfirm');
   if(_ccco){
     _ccco.addEventListener('click', function(e){ if(e.target === _ccco) closeClearChatConfirm(); });
   }
+  var _ivdco = document.getElementById('innerVoiceDeleteConfirmOverlay');
+  if(_ivdco){
+    _ivdco.addEventListener('click', function(e){ if(e.target === _ivdco) closeInnerVoiceDeleteConfirm(); });
+  }
   var _memo = document.getElementById('memoryOverlay');
   if(_memo){
     _memo.addEventListener('click', function(e){ if(e.target === _memo) closeMemoryPanel(); });
@@ -4082,7 +4097,7 @@ function renderInnerVoiceOverlay(){
     }
     body.innerHTML = store.items.slice().reverse().map(function(it){
       var safeId = esc(it.id || '');
-      return '<div class="inner-voice-item"><div class="inner-voice-item-head"><div class="inner-voice-meta">' + esc(new Date(it.at || Date.now()).toLocaleString()) + '</div><div class="inner-voice-item-actions"><button class="inner-voice-item-btn" type="button" onclick="openInnerVoiceEditor(\'' + safeId + '\')">编辑</button><button class="inner-voice-item-btn icon" type="button" onclick="deleteInnerVoiceItem(\'' + safeId + '\')">×</button></div></div>' +
+      return '<div class="inner-voice-item"><div class="inner-voice-item-head"><div class="inner-voice-meta">' + esc(new Date(it.at || Date.now()).toLocaleString()) + '</div><div class="inner-voice-item-actions"><button class="inner-voice-item-btn" type="button" onclick="openInnerVoiceEditor(\'' + safeId + '\')">编辑</button><button class="inner-voice-item-btn icon" type="button" onclick="openInnerVoiceDeleteConfirm(\'' + safeId + '\')">×</button></div></div>' +
         '<div class="inner-voice-box normal">' + esc(it.normal || '（空）') + '</div>' +
         '<div class="inner-voice-box desire">' + esc(it.desire || '（空）') + '</div></div>';
     }).join('');
@@ -4143,6 +4158,24 @@ function confirmInnerVoiceEditor(){
   closeInnerVoiceEditor();
   renderInnerVoiceOverlay();
   toast('心声已更新');
+}
+
+function openInnerVoiceDeleteConfirm(id){
+  if(!id) return;
+  innerVoicePendingDeleteId = String(id);
+  document.getElementById('innerVoiceDeleteConfirmOverlay')?.classList.add('open');
+}
+
+function closeInnerVoiceDeleteConfirm(){
+  innerVoicePendingDeleteId = '';
+  document.getElementById('innerVoiceDeleteConfirmOverlay')?.classList.remove('open');
+}
+
+function confirmInnerVoiceDelete(){
+  var id = innerVoicePendingDeleteId;
+  closeInnerVoiceDeleteConfirm();
+  if(!id) return;
+  deleteInnerVoiceItem(id);
 }
 
 function deleteInnerVoiceItem(id){
