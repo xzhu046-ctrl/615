@@ -2425,7 +2425,6 @@ function buildSystemPrompt() {
   }
 
   var parts = [];
-  if (wbBefore.length) parts.push(wbBefore.join('\n\n'));
 
   // Character card system prompt
   if (character) {
@@ -2444,17 +2443,9 @@ function buildSystemPrompt() {
     parts.push(override || '你是一个友好的AI助手。');
   }
 
-  if (wbMid.length) parts.push(wbMid.join('\n\n'));
-
   // User persona
   var userName = localStorage.getItem(userKey('user_name')) || '';
   var userPersona = localStorage.getItem(userKey('user_persona')) || '';
-  if (userName || userPersona) {
-    var u = '【关于用户】';
-    if (userName) u += '\n名字：' + userName;
-    if (userPersona) u += '\n设定：' + userPersona;
-    parts.push(u);
-  }
   if(character && !isDefaultAccountContext()){
     var intro = '';
     try{ intro = localStorage.getItem('pending_friend_req_intro_' + character.id) || ''; }catch(e){}
@@ -2473,8 +2464,6 @@ function buildSystemPrompt() {
     }).join('\n');
     parts.push(['【历史记忆总结】', memText].join('\n'));
   }
-
-  if (wbAfter.length) parts.push(wbAfter.join('\n\n'));
 
   var wbAll = [].concat(wbBefore, wbMid, wbAfter).join('\n\n');
   var curGreeting = getPromptGreeting();
@@ -2502,6 +2491,12 @@ function buildSystemPrompt() {
       '如果你想继续沟通，也可以不拉黑；这由你按人设和上下文自主判断。'
     ].join('\n')
   }) : '');
+  if(!pmPrompt && (userName || userPersona)){
+    var u = '【关于用户】';
+    if (userName) u += '\n名字：' + userName;
+    if (userPersona) u += '\n设定：' + userPersona;
+    parts.push(u);
+  }
   var replyGuide = [
     '【聊天风格补充】',
     '请像真人聊天一样自然回复，不要太像客服。',
@@ -3511,7 +3506,10 @@ function getContextTokenStats(){
     memory: memoryTokens,
     misc: staticGuideTokens
   };
-  breakdown.total = breakdown.char + breakdown.user + breakdown.worldbook + breakdown.chat + breakdown.memory + breakdown.misc;
+  var actualSystemPrompt = buildSystemPrompt();
+  var actualPromptTokens = approxTokenCount(actualSystemPrompt);
+  breakdown.total = actualPromptTokens + chatTokens;
+  breakdown.misc = Math.max(0, breakdown.total - (breakdown.char + breakdown.user + breakdown.worldbook + breakdown.memory + breakdown.chat));
   return breakdown;
 }
 
