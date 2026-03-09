@@ -1758,10 +1758,13 @@ window.addEventListener('message',(e)=>{
       var ac = getActiveCharacterData();
       if(ac) renderBondWidget(ac);
     }
-    var subText = payload.last || '';
-    var lastType = normalizeChatPreviewType(payload.lastType || 'text');
+    var picked = payload && payload.id
+      ? pickAssistantFirstPreview(getStoredChatMessages(payload.id))
+      : { content: (payload.last || ''), type: normalizeChatPreviewType(payload.lastType || 'text') };
+    var subText = picked.content || payload.last || '';
+    var lastType = normalizeChatPreviewType(picked.type || payload.lastType || 'text');
     if(lastType === 'voice'){
-      var dur = Math.max(1, Math.min(60, Math.ceil((payload.last||'').length/6)));
+      var dur = Math.max(1, Math.min(60, Math.ceil((subText||'').length/6)));
       subText = '语音消息 ' + dur + "''";
     } else if(lastType === 'image'){
       subText = '【图片】';
@@ -1845,6 +1848,20 @@ function normalizePreviewMessage(msg){
   return { content: next.content || '', type: kind };
 }
 
+function isAssistantPreviewMessage(msg){
+  var role = String((msg && (msg.role || msg.sender || msg.from || '')) || '').toLowerCase();
+  return role === 'assistant' || role === 'ai' || role === 'character' || role === 'bot';
+}
+
+function pickAssistantFirstPreview(messages){
+  var list = Array.isArray(messages) ? messages : [];
+  for(var i=list.length - 1; i>=0; i--){
+    if(isAssistantPreviewMessage(list[i])) return normalizePreviewMessage(list[i]);
+  }
+  if(!list.length) return { content:'', type:'text' };
+  return normalizePreviewMessage(list[list.length - 1]);
+}
+
 // Clamp long character descriptions to keep the widget tidy while showing the tail.
 function formatCharSub(text){
   const limit = 36; // clamp to last 36 chars for compact widget
@@ -1861,7 +1878,7 @@ function setWidgetCharacter(c){
     if (c?.id) {
       var msgs = getStoredChatMessages(c.id);
       if (msgs.length) {
-        var lastMsg = normalizePreviewMessage(msgs[msgs.length - 1]);
+        var lastMsg = pickAssistantFirstPreview(msgs);
         var lastType = lastMsg.type;
         if (lastType === 'voice') {
           var duration = Math.max(1, Math.min(60, Math.ceil((lastMsg.content || '').length/6)));

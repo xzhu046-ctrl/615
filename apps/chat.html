@@ -491,12 +491,12 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
       </div>
       <div class="avatar-info">
         <span class="cs-label">显示名称</span>
-        <input class="cs-input" id="csCharName" placeholder="角色名称..." type="text" oninput="postSettingsPreviewSync()">
+        <input class="cs-input" id="csCharName" placeholder="角色名称..." type="text">
       </div>
     </div>
     <div style="margin-top:10px">
       <span class="cs-label">昵称 / 备注</span>
-      <input class="cs-input" id="csCharNick" placeholder="可选备注名..." type="text" oninput="postSettingsPreviewSync()">
+      <input class="cs-input" id="csCharNick" placeholder="可选备注名..." type="text">
     </div>
     <div style="margin-top:10px">
       <span class="cs-label">角色人设 (persona)</span>
@@ -522,7 +522,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
         </div>
         <div class="avatar-info">
           <span class="cs-label">你的名字</span>
-          <input class="cs-input" id="csUserName" placeholder="你的名字..." type="text" oninput="postSettingsPreviewSync()">
+          <input class="cs-input" id="csUserName" placeholder="你的名字..." type="text">
         </div>
       </div>
       <div style="margin-top:10px">
@@ -4595,9 +4595,19 @@ function confirmClearChatAll(){
 function saveChat() {
   if (!character) return;
   localStorage.setItem(chatStorageKey(character.id), JSON.stringify({ history: chatLog, messages: chatLog }));
-  var lastMsg = chatLog.length ? chatLog[chatLog.length-1].content : '';
+  var lastEntry = null;
+  for(var i = chatLog.length - 1; i >= 0; i--){
+    var it = chatLog[i] || {};
+    if(String(it.role || '').toLowerCase() === 'assistant'){
+      lastEntry = it;
+      break;
+    }
+  }
+  if(!lastEntry && chatLog.length) lastEntry = chatLog[chatLog.length - 1];
+  var lastMsg = lastEntry ? (lastEntry.content || '') : '';
+  var lastType = lastEntry ? (lastEntry.type || 'text') : 'text';
   try {
-    window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id: character.id, data: character, last: lastMsg, lastType: chatLog.length ? chatLog[chatLog.length-1].type : 'text' } }, '*');
+    window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id: character.id, data: character, last: lastMsg, lastType: lastType } }, '*');
   } catch(e){}
   maybeCreateMemorySummaries();
   refreshMemoryUi();
@@ -5071,7 +5081,6 @@ function onCharImg(file) {
     var av = document.getElementById('csCharAvatar');
     av.innerHTML = '<img src="' + d + '"><div class="avatar-pick-hint">换头像</div>';
     if (character) { saveStoredAsset('char_avatar_' + character.id, d); updateHeader(); }
-    postSettingsPreviewSync();
   };
   r.readAsDataURL(file);
 }
@@ -5086,7 +5095,6 @@ function onUserImg(file) {
     saveStoredAsset(userKey('user_avatar'), d);
     if(character && character.id) saveStoredAsset('user_avatar_' + character.id, d);
     refreshUserAvatars();
-    postSettingsPreviewSync();
   };
   r.readAsDataURL(file);
 }
