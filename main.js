@@ -274,6 +274,17 @@ function getDefaultAccountId(){
   return '';
 }
 
+function getActiveAccountId(){
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      var active = window.AccountManager.getActive();
+      if(active && active.id) return active.id;
+    }
+  }catch(e){}
+  return getDefaultAccountId();
+}
+
 function getBackgroundCharacter(){
   var defaultId = getDefaultAccountId();
   if(!defaultId) return null;
@@ -1177,12 +1188,19 @@ function getActiveCharacterData(){
 
 function getChatUserName(charId){
   if(!charId) return 'USER';
-  return (localStorage.getItem('user_name_' + charId) || '').trim() || 'USER';
+  var activeId = getActiveAccountId();
+  var scoped = scopedKeyForAccount('user_name_' + charId, activeId);
+  return (localStorage.getItem(scoped) || localStorage.getItem('user_name_' + charId) || '').trim() || 'USER';
 }
 
 function getChatUserAvatar(charId){
   if(!charId) return Promise.resolve('');
-  return loadStoredAsset('user_avatar_' + charId);
+  var activeId = getActiveAccountId();
+  var scoped = scopedKeyForAccount('user_avatar_' + charId, activeId);
+  return loadStoredAsset(scoped).then(function(src){
+    if(src && src.startsWith('data:')) return src;
+    return loadStoredAsset('user_avatar_' + charId);
+  });
 }
 
 function renderBondWidget(character){
@@ -1673,6 +1691,7 @@ window.addEventListener('message',(e)=>{
     try { ac = JSON.parse(localStorage.getItem('activeCharacter')||'null'); } catch(e){}
     if(ac && ac.id === payload.id){
       if(payload.data) localStorage.setItem('activeCharacter', JSON.stringify(payload.data));
+      if(payload.data) setWidgetCharacter(payload.data);
       var subText = payload.last || '';
       var lastType = normalizeChatPreviewType(payload.lastType || 'text');
       if(lastType === 'voice'){
