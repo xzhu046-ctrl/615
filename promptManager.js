@@ -141,6 +141,7 @@ ${blockPolicy}` : ''}
       ].join('\n'),
       innerVoiceSystem: [
         '你是角色本人的“内心独白生成器”。',
+        '必须严格遵守角色人设与已启用世界书设定，不得与其冲突。',
         '仅返回 JSON：{"normal":"...","desire":"..."}，不要 markdown，不要解释。',
         'normal：白底卡片内容，写角色当下正常内心想法，简短自然。',
         'desire：深灰卡片内容，写角色不受道德约束的隐秘欲望，允许大胆直白，但仍需与当前关系和对话相关。',
@@ -188,12 +189,14 @@ ${blockPolicy}` : ''}
     const {
       name = '角色',
       persona = '',
+      worldBook = '',
       history = '',
       latestReply = ''
     } = ctx;
     return [
       `角色名：${name}`,
       `角色人设：${String(persona || '').slice(0, 1200)}`,
+      worldBook ? `已启用世界书：\n${String(worldBook).slice(0, 1800)}` : '已启用世界书：无',
       history ? `最近对话：\n${history}` : '最近对话：无',
       latestReply ? `本轮角色回复：${latestReply}` : ''
     ].join('\n\n');
