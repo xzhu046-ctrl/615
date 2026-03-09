@@ -249,6 +249,21 @@ function scopedKeyForAccount(base, accountId){
   return base + '__acct_' + accountId;
 }
 
+function charBgEnabledKeyForAccount(charId, accountId){
+  return scopedKeyForAccount('char_bg_activity_enabled_' + charId, accountId);
+}
+
+function isCharBgEnabled(charId, accountId){
+  if(!charId) return true;
+  try{
+    var scoped = localStorage.getItem(charBgEnabledKeyForAccount(charId, accountId));
+    if(scoped !== null) return scoped !== '0';
+    var legacy = localStorage.getItem('char_bg_activity_enabled_' + charId);
+    if(legacy !== null) return legacy !== '0';
+  }catch(e){}
+  return true;
+}
+
 function getDefaultAccountId(){
   try{
     if(window.AccountManager){
@@ -271,13 +286,14 @@ function getBackgroundCharacter(){
     if(c && !c.ownerAccountId) c.ownerAccountId = defaultId;
   });
   var owned = chars.filter(function(c){ return c && c.ownerAccountId === defaultId; });
+  var enabledOwned = owned.filter(function(c){ return isCharBgEnabled(c.id, defaultId); });
   var active = null;
   try{ active = JSON.parse(localStorage.getItem('activeCharacter') || 'null'); }catch(e){ active = null; }
   if(active && active.id){
-    var found = owned.find(function(c){ return c.id === active.id; });
+    var found = enabledOwned.find(function(c){ return c.id === active.id; });
     if(found) return Object.assign({}, found, active);
   }
-  return owned[0] || null;
+  return enabledOwned[0] || null;
 }
 
 function readBackgroundChatHistory(charId, accountId){

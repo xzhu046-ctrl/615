@@ -462,6 +462,16 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
         <div style="font-size:12px;color:var(--g)">未加载角色</div>
       </div>
     </div>
+    <div class="cs-card">
+      <div class="cs-card-title">后台活动</div>
+      <div class="toggle-row">
+        <div class="toggle-left">
+          <div class="toggle-label">允许该角色后台活动</div>
+          <div class="toggle-sub">关闭后该角色将进入 Dormant，只会在你主动触发时回复</div>
+        </div>
+        <div class="toggle-switch on" id="charBgToggle" onclick="toggleCharBgSwitch()"></div>
+      </div>
+    </div>
 
     <button class="cs-save-btn" onclick="saveChatSettings()">保存并应用</button>
     <button class="cs-danger-btn" id="blockToggleBtn" type="button" onclick="toggleBlockFromSettings()">拉黑对方</button>
@@ -605,6 +615,16 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
   </div>
 </div>
 
+<div class="confirm-overlay" id="blockConfirmOverlay">
+  <div class="confirm-card">
+    <div class="confirm-title" id="blockConfirmTitle">确定拉黑对方？</div>
+    <div class="confirm-actions">
+      <button class="confirm-btn" onclick="closeBlockConfirm()">取消</button>
+      <button class="confirm-btn primary" onclick="confirmBlockFromSettings()">拉黑</button>
+    </div>
+  </div>
+</div>
+
 <div class="confirm-overlay" id="userReAddOverlay">
   <div class="confirm-card">
     <div class="confirm-title">发送好友申请</div>
@@ -647,6 +667,7 @@ var momentsIntentFromUser = null;
 var momentsLastActionAt = 0;
 var needsFriendRequestGate = false;
 var blockAppealState = null;
+var pendingBlockTargetName = '';
 
 function normalizeNameLite(v){
   return String(v || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g,'');
@@ -714,28 +735,71 @@ function momentStorageKey(base){
   return accountScopedKey(base);
 }
 
+function charBgEnabledKey(charId){
+  return accountScopedKey('char_bg_activity_enabled_' + charId);
+}
+
+function loadCharBgEnabled(charId){
+  if(!charId) return true;
+  var key = charBgEnabledKey(charId);
+  try{
+    var raw = localStorage.getItem(key);
+    if(raw === null){
+      localStorage.setItem(key, '1');
+      return true;
+    }
+    return raw !== '0';
+  }catch(e){
+    return true;
+  }
+}
+
+function saveCharBgEnabled(charId, enabled){
+  if(!charId) return;
+  try{ localStorage.setItem(charBgEnabledKey(charId), enabled ? '1' : '0'); }catch(e){}
+}
+
+function renderCharBgToggle(){
+  var toggle = document.getElementById('charBgToggle');
+  if(!toggle) return;
+  var enabled = !!(character && loadCharBgEnabled(character.id));
+  toggle.classList.toggle('on', enabled);
+}
+
+function toggleCharBgSwitch(){
+  if(!character || !character.id){
+    toast('未加载角色');
+    return;
+  }
+  var next = !loadCharBgEnabled(character.id);
+  saveCharBgEnabled(character.id, next);
+  renderCharBgToggle();
+  toast(next ? '已允许该角色后台活动' : '该角色已进入 Dormant');
+}
+
 function blockStateKey(charId){
   return accountScopedKey('chat_block_state_' + charId);
 }
 
 function loadBlockState(){
-  if(!character || !character.id) return { userBlocked:false, charBlocked:false, appealCount:0 };
+  if(!character || !character.id) return { userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0 };
   try{
     var raw = JSON.parse(localStorage.getItem(blockStateKey(character.id)) || 'null');
     if(raw && typeof raw === 'object'){
       return {
         userBlocked: !!raw.userBlocked,
         charBlocked: !!raw.charBlocked,
-        appealCount: parseInt(raw.appealCount || '0', 10) || 0
+        appealCount: parseInt(raw.appealCount || '0', 10) || 0,
+        abuseCount: parseInt(raw.abuseCount || '0', 10) || 0
       };
     }
   }catch(e){}
-  return { userBlocked:false, charBlocked:false, appealCount:0 };
+  return { userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0 };
 }
 
 function saveBlockState(state){
   if(!character || !character.id) return;
-  var next = Object.assign({ userBlocked:false, charBlocked:false, appealCount:0 }, state || {});
+  var next = Object.assign({ userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0 }, state || {});
   try{ localStorage.setItem(blockStateKey(character.id), JSON.stringify(next)); }catch(e){}
 }
 
@@ -2160,13 +2224,19 @@ async function attemptCharAppeal(extra, round){
   var state = loadBlockState();
   if(!state.userBlocked) return;
   var currentRound = round || 1;
-  if(currentRound > 3) return;
+  if(currentRound > 8) return;
   try{
-    var decision = await aiDecideAppeal(extra || '你刚被用户拉黑。请决定是否发好友申请挽留。');
-    if(!decision.appeal) return;
-    blockAppealState = { from: 'char', round: currentRound };
+    state.appealCount = Math.max(0, parseInt(state.appealCount || '0', 10) || 0);
+    saveBlockState(state);
+    var decision = await aiDecideAppeal((extra || '你刚被用户拉黑。请决定是否发好友申请挽留。') + '\n当前已申请次数：' + currentRound + '。你可以坚持、也可以因为受伤而放弃。');
+    if(!decision.appeal){
+      state.appealCount = currentRound;
+      saveBlockState(state);
+      return;
+    }
+    blockAppealState = { from: 'char', round: currentRound, text: String(decision.text || '').trim() };
     var text = document.getElementById('blockAppealText');
-    if(text) text.textContent = decision.text || '我还是想和你聊聊，可以原谅我吗？';
+    if(text) text.textContent = blockAppealState.text || '我还是想和你聊聊，可以原谅我吗？';
     document.getElementById('blockAppealOverlay')?.classList.add('open');
   }catch(err){
     console.error('appeal failed', err);
@@ -2175,21 +2245,31 @@ async function attemptCharAppeal(extra, round){
 
 function ignoreBlockAppeal(){
   var state = blockAppealState || { from: 'char', round: 1 };
+  blockAppealState = null;
   document.getElementById('blockAppealOverlay')?.classList.remove('open');
   if(state.from === 'char'){
-    setTimeout(function(){ attemptCharAppeal('用户忽略了你的好友申请。你要不要再试一次？', (state.round || 1) + 1); }, 220);
+    var bs = loadBlockState();
+    bs.appealCount = Math.max(1, parseInt(state.round || 1, 10) || 1);
+    saveBlockState(bs);
+    var nextRound = bs.appealCount + 1;
+    var delay = Math.min(9000, 1200 + bs.appealCount * 900);
+    setTimeout(function(){
+      attemptCharAppeal('用户刚刚无视了你的好友申请。请按人设判断是否继续尝试，连续多次被无视时可以表现失落/烦躁，也可以暂时停下。', nextRound);
+    }, delay);
   }
 }
 
 function acceptBlockAppeal(){
   var state = blockAppealState || { from: 'char' };
+  blockAppealState = null;
   document.getElementById('blockAppealOverlay')?.classList.remove('open');
   var bs = loadBlockState();
   if(state.from === 'char'){
     bs.userBlocked = false;
     bs.appealCount = 0;
     saveBlockState(bs);
-    var thanks = makeChatEntry('assistant','谢谢你愿意再给我一次机会。','text');
+    var acceptedText = String(state.text || '').trim() || '谢谢你愿意再给我一次机会。';
+    var thanks = makeChatEntry('assistant', acceptedText, 'text');
     chatLog.push(thanks);
     addMessage('ai', thanks.content, true, 'text', thanks.id);
     saveChat();
@@ -2244,10 +2324,21 @@ function maybeAutoBlockByChar(aiText){
   for(var i = chatLog.length - 1; i >= 0; i--){
     if(chatLog[i] && chatLog[i].role === 'user'){ lastUser = String(chatLog[i].content || ''); break; }
   }
-  var hitUser = /(滚|傻|去死|闭嘴|恶心|烦死|你有病|垃圾|废物|讨厌)/.test(lastUser);
+  var severeHitUser = /(去死|杀了你|弄死你|你该死|滚远点|别再来|永远别烦我)/.test(lastUser);
+  var hitUser = /(滚|傻|闭嘴|恶心|烦死|你有病|垃圾|废物|讨厌|蠢|弱智|神经病)/.test(lastUser);
   var hitAi = /(生气|别再|受够|不想理|到此为止|别联系|拉黑)/.test(String(aiText || ''));
-  if(!(hitUser || hitAi)) return;
-  if(Math.random() > 0.45) return;
+  if(severeHitUser){
+    state.abuseCount = (parseInt(state.abuseCount || '0', 10) || 0) + 3;
+  }else if(hitUser){
+    state.abuseCount = (parseInt(state.abuseCount || '0', 10) || 0) + 1;
+  }else{
+    state.abuseCount = Math.max(0, (parseInt(state.abuseCount || '0', 10) || 0) - 1);
+  }
+  var shouldBlock = severeHitUser || (state.abuseCount >= 2 && (hitUser || hitAi)) || (state.abuseCount >= 3);
+  if(!shouldBlock) {
+    saveBlockState(state);
+    return;
+  }
   state.charBlocked = true;
   saveBlockState(state);
   updateBlockedUi();
@@ -2265,8 +2356,24 @@ function toggleBlockFromSettings(){
     toast('已解除拉黑');
     return;
   }
+  pendingBlockTargetName = String(character.nickname || character.name || '对方');
+  var title = document.getElementById('blockConfirmTitle');
+  if(title) title.textContent = '确定拉黑' + pendingBlockTargetName + '？';
+  document.getElementById('blockConfirmOverlay')?.classList.add('open');
+}
+
+function closeBlockConfirm(){
+  pendingBlockTargetName = '';
+  document.getElementById('blockConfirmOverlay')?.classList.remove('open');
+}
+
+function confirmBlockFromSettings(){
+  if(!character) return;
+  closeBlockConfirm();
+  var state = loadBlockState();
   state.userBlocked = true;
   state.appealCount = 0;
+  state.abuseCount = Math.max(0, parseInt(state.abuseCount || '0', 10) || 0);
   saveBlockState(state);
   updateBlockedUi();
   toast('已拉黑对方');
@@ -2755,6 +2862,10 @@ var _mdc = document.getElementById('multiDeleteConfirm');
   if(_bao){
     _bao.addEventListener('click', function(e){ if(e.target === _bao) document.getElementById('blockAppealOverlay')?.classList.remove('open'); });
   }
+  var _bco = document.getElementById('blockConfirmOverlay');
+  if(_bco){
+    _bco.addEventListener('click', function(e){ if(e.target === _bco) closeBlockConfirm(); });
+  }
   var _uro = document.getElementById('userReAddOverlay');
   if(_uro){
     _uro.addEventListener('click', function(e){ if(e.target === _uro) closeUserReAddRequest(); });
@@ -3143,6 +3254,7 @@ function openChatSettings() {
   if(greetingsCard) greetingsCard.style.display = canPickGreeting ? '' : 'none';
   if(canPickGreeting) populateGreetings();
   refreshUserAvatars();
+  renderCharBgToggle();
   updateBlockedUi();
   hideParentTopbarForSettings();
   document.getElementById('chatSettings').classList.add('open');
