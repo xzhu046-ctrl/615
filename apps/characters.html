@@ -101,6 +101,7 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
 .modal .avatar-box img{width:100%;height:100%;object-fit:cover}
 </style>
 <script src="../assetStore.js"></script>
+<script src="../accountManager.js"></script>
 </head>
 <body>
 
@@ -170,6 +171,31 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
   </div>
 </div>
 
+<div class="modal-mask" id="friendReqMask" style="z-index:320">
+  <div class="modal">
+    <h3>是否发送好友申请？</h3>
+    <div style="font-size:12px;line-height:1.6;color:#666;font-weight:700">当前账号是小号，对方会以陌生人视角决定是否通过。</div>
+    <div class="row">
+      <button class="btn" onclick="cancelFriendReq()">取消</button>
+      <button class="btn primary" onclick="confirmFriendReq()">确认</button>
+    </div>
+  </div>
+</div>
+<div class="modal-mask" id="friendWaitMask" style="z-index:321">
+  <div class="modal">
+    <h3>等待通过中...</h3>
+    <div style="font-size:12px;line-height:1.6;color:#666;font-weight:700">正在发送好友申请</div>
+  </div>
+</div>
+<div class="modal-mask" id="friendRejectMask" style="z-index:322">
+  <div class="modal">
+    <h3>你被拒绝了哦</h3>
+    <div class="row">
+      <button class="btn primary" onclick="closeFriendReject()">知道了</button>
+    </div>
+  </div>
+</div>
+
 <script>
 var chars = [];
 var curChar = null;
@@ -206,6 +232,7 @@ try {
   pinyinCollator = null;
 }
 var avatarAssetCache = {};
+var pendingFriendCharId = '';
 
 function loadStoredAsset(key){
   if(window.assetStore) return window.assetStore.load(key);
@@ -318,8 +345,16 @@ function saveCharsWithFallback(lastCard) {
   return false;
 }
 function save() { return saveCharsWithFallback(null); }
+function getVisibleChars(){
+  if(!window.AccountManager) return chars.slice();
+  var acct = window.AccountManager.getActive();
+  if(!acct || acct.isDefault) return chars.slice();
+  var friendSet = new Set(Array.isArray(acct.friends) ? acct.friends : []);
+  return chars.filter(function(c){ return friendSet.has(c.id); });
+}
 function updateCount() {
-  document.getElementById('charCount').textContent = chars.length ? chars.length + ' 个角色' : '还没有角色卡';
+  var visible = getVisibleChars();
+  document.getElementById('charCount').textContent = visible.length ? visible.length + ' 个角色' : '还没有角色卡';
 }
 function comparePinyin(a, b) {
   if (pinyinCollator) return pinyinCollator.compare(a, b);
@@ -349,12 +384,13 @@ function getSortKey(c) {
 // ── Render list ──
 function renderList(filter) {
   var list = document.getElementById('contactList');
-  if (!chars.length) {
+  var srcChars = getVisibleChars();
+  if (!srcChars.length) {
     list.innerHTML = '<div class="empty"><div class="empty-icon">🃏</div><div class="empty-title">还没有角色</div><div class="empty-sub">点击「导入角色卡」添加<br>SillyTavern .png 或 .json 角色卡<br>也可以直接拖放到这里</div></div>';
     return;
   }
   var q = (filter || '').toLowerCase();
-  var filtered = chars.filter(function(c){ return !q || c.name.toLowerCase().includes(q); });
+  var filtered = srcChars.filter(function(c){ return !q || c.name.toLowerCase().includes(q); });
   if (!filtered.length) {
     list.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">没有找到</div></div>';
     return;
@@ -478,6 +514,67 @@ function createChar() {
   save(); updateCount(); renderList();
   closeCreate();
   log('已创建: ' + name);
+  maybeAskFriendRequest(c.id);
+}
+
+function isDefaultAccount(){
+  if(!window.AccountManager) return true;
+  var acct = window.AccountManager.getActive();
+  return !!(acct && acct.isDefault);
+}
+
+function evaluateFriendAcceptanceByChar(charId){
+  var c = chars.find(function(x){ return x.id === charId; });
+  var corpus = [
+    c && c.personality ? c.personality : '',
+    c && c.description ? c.description : '',
+    c && c.scenario ? c.scenario : '',
+    c && c.system_prompt ? c.system_prompt : ''
+  ].join('\n').toLowerCase();
+  var strictReject = /(冷漠|厌世|疑心|偏执|占有|病娇|危险|暴躁|孤僻|不信任|陌生人勿扰|stranger|hostile|paranoid|possessive)/.test(corpus);
+  return Math.random() < (strictReject ? 0.35 : 0.68);
+}
+
+function maybeAskFriendRequest(charId){
+  if(!window.AccountManager || isDefaultAccount()) return;
+  if(window.AccountManager.isFriend(charId)) return;
+  pendingFriendCharId = charId || '';
+  var mask = document.getElementById('friendReqMask');
+  if(mask) mask.style.display = 'flex';
+}
+
+function cancelFriendReq(){
+  pendingFriendCharId = '';
+  var mask = document.getElementById('friendReqMask');
+  if(mask) mask.style.display = 'none';
+}
+
+function confirmFriendReq(){
+  var charId = pendingFriendCharId;
+  var req = document.getElementById('friendReqMask');
+  var wait = document.getElementById('friendWaitMask');
+  if(req) req.style.display = 'none';
+  if(wait) wait.style.display = 'flex';
+  setTimeout(function(){
+    if(wait) wait.style.display = 'none';
+    if(!charId){ pendingFriendCharId = ''; return; }
+    var accepted = evaluateFriendAcceptanceByChar(charId);
+    if(!accepted){
+      var reject = document.getElementById('friendRejectMask');
+      if(reject) reject.style.display = 'flex';
+      pendingFriendCharId = '';
+      return;
+    }
+    window.AccountManager.addFriend(charId);
+    pendingFriendCharId = '';
+    log('好友申请已通过');
+    renderList();
+  }, 920);
+}
+
+function closeFriendReject(){
+  var reject = document.getElementById('friendRejectMask');
+  if(reject) reject.style.display = 'none';
 }
 
 var avatarUpload = '';
@@ -527,6 +624,10 @@ function closeDetail() { document.getElementById('dp').classList.remove('open');
 
 function startChat() {
   if (!curChar) return;
+  if(window.AccountManager && !isDefaultAccount() && !window.AccountManager.isFriend(curChar.id)){
+    maybeAskFriendRequest(curChar.id);
+    return;
+  }
   var slim = slimChar(curChar);
   try { localStorage.setItem('activeCharacter', JSON.stringify(slim)); } catch(e){}
   try { localStorage.setItem('pendingChatChar', JSON.stringify(slim)); } catch(e){}
@@ -793,6 +894,7 @@ function parseCard(jsonStr, imageData, filename) {
     if(card.imageData){ saveStoredAsset('char_avatar_' + card.id, card.imageData); avatarAssetCache[card.id] = card.imageData; }
     saveCharsWithFallback(card); updateCount(); renderList();
     window.parent.postMessage({ type:'CHARACTER_IMPORTED', payload:card }, '*');
+    maybeAskFriendRequest(card.id);
 
   } catch(e) {
     log('解析失败: ' + e.message);

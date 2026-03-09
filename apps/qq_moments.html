@@ -6,6 +6,7 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
+<script src="../accountManager.js"></script>
 <script src="../assetStore.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -131,8 +132,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z"/></svg>
           </button>
         </div>
-        <button class="hero-name-bubble" id="heroNameBubble" type="button" onclick="openBubbleNameEditor(event)">我哥天下第一好</button>
-        <button class="hero-avatar" id="heroAvatar" type="button" title="更换头像" onclick="pickHeroAvatar(event)"></button>
+        <button class="hero-name-bubble" id="heroNameBubble" type="button" onclick="showToast('请到个人中心修改名字')">我哥天下第一好</button>
+        <button class="hero-avatar" id="heroAvatar" type="button" title="头像由个人中心控制" onclick="pickHeroAvatar(event)"></button>
       </div>
       <div class="hero-sign-wrap">
         <div class="hero-sign" id="heroSignature" onclick="openSignatureEditor()">在时间的尽头我们终将相遇</div>
@@ -224,6 +225,30 @@ let deleteMode = false;
 let deleteSelection = [];
 let replyTarget = {};
 
+function scopedKey(base){
+  if(window.AccountManager){
+    window.AccountManager.ensure();
+    return window.AccountManager.scopedKey(base);
+  }
+  return base;
+}
+function lsGet(base){
+  return localStorage.getItem(scopedKey(base));
+}
+function lsSet(base, val){
+  localStorage.setItem(scopedKey(base), val);
+}
+function lsRemove(base){
+  localStorage.removeItem(scopedKey(base));
+}
+function activeProfile(){
+  if(window.AccountManager){
+    window.AccountManager.ensure();
+    return window.AccountManager.getActive();
+  }
+  return { name: DEFAULT_BUBBLE_NAME, avatar: '' };
+}
+
 function esc(s){
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -244,7 +269,7 @@ function goBackQQ(evt){
 
 function getPosts(){
   try{
-    const posts = JSON.parse(localStorage.getItem(STORAGE_POSTS) || '[]');
+    const posts = JSON.parse(lsGet(STORAGE_POSTS) || '[]');
     return Array.isArray(posts) ? posts : [];
   }catch(e){
     return [];
@@ -252,7 +277,7 @@ function getPosts(){
 }
 
 function savePosts(posts){
-  localStorage.setItem(STORAGE_POSTS, JSON.stringify(posts));
+  lsSet(STORAGE_POSTS, JSON.stringify(posts));
 }
 
 function fmtTime(ts){
@@ -271,7 +296,8 @@ function fmtTime(ts){
 }
 
 function getCurrentBubbleName(){
-  return (localStorage.getItem(STORAGE_BUBBLE_NAME) || DEFAULT_BUBBLE_NAME).trim() || DEFAULT_BUBBLE_NAME;
+  const profile = activeProfile();
+  return String(profile.name || DEFAULT_BUBBLE_NAME).trim() || DEFAULT_BUBBLE_NAME;
 }
 
 function formatLikeText(names){
@@ -288,14 +314,14 @@ function getActorName(post){
 function getPostAvatarStyleValue(post){
   const src = (post && post.authorAvatar) || '';
   if(src) return 'url(' + src + ')';
-  const fallback = currentHeroAvatarSrc || localStorage.getItem(STORAGE_AVATAR) || '';
+  const fallback = currentHeroAvatarSrc || activeProfile().avatar || lsGet(STORAGE_AVATAR) || '';
   return fallback ? ('url(' + fallback + ')') : 'none';
 }
 
 function getCommentAvatarStyleValue(comment){
   const src = (comment && comment.avatar) || '';
   if(src) return 'url(' + src + ')';
-  const fallback = currentHeroAvatarSrc || localStorage.getItem(STORAGE_AVATAR) || '';
+  const fallback = currentHeroAvatarSrc || activeProfile().avatar || lsGet(STORAGE_AVATAR) || '';
   return fallback ? ('url(' + fallback + ')') : 'none';
 }
 
@@ -467,7 +493,7 @@ function addComment(postId){
   const comments = Array.isArray(posts[idx].comments) ? posts[idx].comments : [];
   const bubbleName = getCurrentBubbleName();
   const replyTo = replyTarget[postId] || '';
-  comments.push({ id: 'c_' + Date.now(), name: bubbleName, avatar: currentHeroAvatarSrc || localStorage.getItem(STORAGE_AVATAR) || '', replyToName: replyTo, text: text, at: Date.now() });
+  comments.push({ id: 'c_' + Date.now(), name: bubbleName, avatar: currentHeroAvatarSrc || activeProfile().avatar || lsGet(STORAGE_AVATAR) || '', replyToName: replyTo, text: text, at: Date.now() });
   delete replyTarget[postId];
   posts[idx].comments = comments;
   savePosts(posts);
@@ -490,6 +516,8 @@ function publishCurrent(){
     type: publishState.mode === 'dynamic' ? 'dynamic' : 'say',
     text: text,
     imageText: publishState.mode === 'dynamic' ? imageText : '',
+    authorName: getCurrentBubbleName(),
+    authorAvatar: activeProfile().avatar || '',
     createdAt: Date.now(),
     comments: []
   });
@@ -514,18 +542,14 @@ function closePublishOverlay(){
 function openSignatureEditor(){
   const overlay = document.getElementById('signatureOverlay');
   const input = document.getElementById('signatureInput');
-  const current = localStorage.getItem(STORAGE_SIGN) || '在时间的尽头我们终将相遇';
+  const current = lsGet(STORAGE_SIGN) || '在时间的尽头我们终将相遇';
   if(input) input.value = current;
   if(overlay) overlay.classList.add('open');
 }
 
 function openBubbleNameEditor(evt){
   if(evt && evt.stopPropagation) evt.stopPropagation();
-  const overlay = document.getElementById('bubbleNameOverlay');
-  const input = document.getElementById('bubbleNameInput');
-  const current = localStorage.getItem(STORAGE_BUBBLE_NAME) || DEFAULT_BUBBLE_NAME;
-  if(input) input.value = current;
-  if(overlay) overlay.classList.add('open');
+  showToast('请到个人中心修改名字');
 }
 
 function closeBubbleNameEditor(){
@@ -536,7 +560,7 @@ function closeBubbleNameEditor(){
 function confirmBubbleName(){
   const input = document.getElementById('bubbleNameInput');
   const next = input ? String(input.value || '').trim() : '';
-  localStorage.setItem(STORAGE_BUBBLE_NAME, next || DEFAULT_BUBBLE_NAME);
+  lsSet(STORAGE_BUBBLE_NAME, next || DEFAULT_BUBBLE_NAME);
   renderHero();
   closeBubbleNameEditor();
 }
@@ -549,7 +573,7 @@ function closeSignatureEditor(){
 function confirmSignature(){
   const input = document.getElementById('signatureInput');
   const next = input ? String(input.value || '').trim() : '';
-  localStorage.setItem(STORAGE_SIGN, next || '在时间的尽头我们终将相遇');
+  lsSet(STORAGE_SIGN, next || '在时间的尽头我们终将相遇');
   renderHero();
   closeSignatureEditor();
 }
@@ -656,19 +680,21 @@ function closeImageViewer(){
 }
 
 function getAvatarStyleValue(){
-  const src = currentHeroAvatarSrc || localStorage.getItem(STORAGE_AVATAR) || '';
+  const src = currentHeroAvatarSrc || activeProfile().avatar || lsGet(STORAGE_AVATAR) || '';
   return src ? ('url(' + src + ') center/cover no-repeat') : '#eee';
 }
 
 function loadStoredAsset(key){
-  if(window.assetStore) return window.assetStore.load(key);
-  try{ return Promise.resolve(localStorage.getItem(key) || ''); }catch(e){ return Promise.resolve(''); }
+  const scoped = scopedKey(key);
+  if(window.assetStore) return window.assetStore.load(scoped);
+  try{ return Promise.resolve(localStorage.getItem(scoped) || ''); }catch(e){ return Promise.resolve(''); }
 }
 
 function saveStoredAsset(key, data){
-  if(window.assetStore) return window.assetStore.set(key, data);
+  const scoped = scopedKey(key);
+  if(window.assetStore) return window.assetStore.saveOrFallback(scoped, data);
   try{
-    localStorage.setItem(key, data);
+    localStorage.setItem(scoped, data);
     return Promise.resolve();
   }catch(e){
     return Promise.reject(e);
@@ -676,30 +702,32 @@ function saveStoredAsset(key, data){
 }
 
 async function resolveHeroSource(legacyKey, assetKey){
-  if(transientAssets[assetKey]) return transientAssets[assetKey];
+  const cacheKey = scopedKey(assetKey);
+  if(transientAssets[cacheKey]) return transientAssets[cacheKey];
   const assetVal = await loadStoredAsset(assetKey);
   if(assetVal instanceof Blob){
     return URL.createObjectURL(assetVal);
   }
   if(typeof assetVal === 'string' && assetVal) return assetVal;
-  return localStorage.getItem(legacyKey) || '';
+  return lsGet(legacyKey) || '';
 }
 
 async function persistHeroUpload(legacyKey, assetKey, file, src){
+  const cacheKey = scopedKey(assetKey);
   try{
     if(file) await saveStoredAsset(assetKey, file);
     else await saveStoredAsset(assetKey, src);
-    delete transientAssets[assetKey];
-    localStorage.removeItem(legacyKey);
+    delete transientAssets[cacheKey];
+    lsRemove(legacyKey);
     return true;
   }catch(e){
     if(!src) return false;
     try{
-      localStorage.setItem(legacyKey, src);
-      delete transientAssets[assetKey];
+      lsSet(legacyKey, src);
+      delete transientAssets[cacheKey];
       return true;
     }catch(err){
-      transientAssets[assetKey] = src;
+      transientAssets[cacheKey] = src;
       showToast('图片较大，仅本次会话可用');
       return true;
     }
@@ -712,9 +740,10 @@ async function renderHero(){
   const sig = document.getElementById('heroSignature');
   const bubble = document.getElementById('heroNameBubble');
   const bgSrc = await resolveHeroSource(STORAGE_BG, STORAGE_BG_ASSET);
-  const avSrc = await resolveHeroSource(STORAGE_AVATAR, STORAGE_AVATAR_ASSET);
-  const sign = localStorage.getItem(STORAGE_SIGN) || '在时间的尽头我们终将相遇';
-  const bubbleName = localStorage.getItem(STORAGE_BUBBLE_NAME) || DEFAULT_BUBBLE_NAME;
+  const profile = activeProfile();
+  const avSrc = profile.avatar || await resolveHeroSource(STORAGE_AVATAR, STORAGE_AVATAR_ASSET);
+  const sign = lsGet(STORAGE_SIGN) || '在时间的尽头我们终将相遇';
+  const bubbleName = String(profile.name || DEFAULT_BUBBLE_NAME).trim() || DEFAULT_BUBBLE_NAME;
   if(heroBgObjectUrl && heroBgObjectUrl !== bgSrc){
     URL.revokeObjectURL(heroBgObjectUrl);
     heroBgObjectUrl = '';
@@ -754,8 +783,7 @@ function pickHeroBg(){
 
 function pickHeroAvatar(evt){
   if(evt && evt.stopPropagation) evt.stopPropagation();
-  const input = document.getElementById('heroAvatarInput');
-  if(input) input.click();
+  showToast('请到个人中心修改头像');
 }
 
 function bindInputs(){
@@ -773,15 +801,7 @@ function bindInputs(){
     });
   }
   if(avInput){
-    avInput.addEventListener('change', (evt)=>{
-      const file = evt.target && evt.target.files ? evt.target.files[0] : null;
-      readFileAsDataUrl(file, async (src)=>{
-        if(!src) return;
-        const ok = await persistHeroUpload(STORAGE_AVATAR, STORAGE_AVATAR_ASSET, file, src);
-        evt.target.value = '';
-        if(ok) renderHero();
-      });
-    });
+    avInput.addEventListener('change', (evt)=>{ evt.target.value = ''; });
   }
 
   const publishOverlay = document.getElementById('publishOverlay');

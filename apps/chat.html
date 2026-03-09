@@ -6,6 +6,7 @@
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
 <script src="../promptManager.js"></script>
+<script src="../accountManager.js"></script>
 <script src="../assetStore.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -252,8 +253,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .confirm-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .msg-actions-overlay{position:fixed;inset:0;background:rgba(0,0,0,.22);display:none;align-items:center;justify-content:center;z-index:220;padding:18px}
 .msg-actions-overlay.open{display:flex}
-.msg-actions-card{width:min(320px,100%);background:var(--w);border:var(--bd);border-radius:18px;box-shadow:var(--sh);padding:12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-.msg-action-btn{border:var(--bd);border-radius:14px;background:var(--w);box-shadow:var(--sh);padding:12px 8px;font-family:var(--fontd);font-size:12px;font-weight:900;color:var(--b);cursor:pointer;text-align:center}
+.msg-actions-card{width:min(340px,100%);background:var(--w);border:var(--bd);border-radius:18px;box-shadow:var(--sh);padding:10px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.msg-action-btn{border:var(--bd);border-radius:12px;background:var(--w);box-shadow:var(--sh);padding:10px 6px;font-family:var(--fontd);font-size:11px;font-weight:900;color:var(--b);cursor:pointer;text-align:center}
 .msg-action-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .multi-trash-btn,.multi-cancel-btn{position:fixed;right:16px;width:46px;height:46px;border-radius:50%;border:var(--bd);box-shadow:var(--sh);display:none;align-items:center;justify-content:center;z-index:210;cursor:pointer}
 .multi-trash-btn.show,.multi-cancel-btn.show{display:flex}
@@ -539,6 +540,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
     <button class="msg-action-btn" onclick="beginEditMessage()">编辑</button>
     <button class="msg-action-btn" onclick="deleteActiveMessage()">删除</button>
     <button class="msg-action-btn" onclick="enterMultiSelectMode()">多选</button>
+    <button class="msg-action-btn" onclick="favoriteActiveMessage()">收藏</button>
   </div>
 </div>
 
@@ -552,6 +554,34 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
     <div class="confirm-actions">
       <button class="confirm-btn" onclick="closeMultiDeleteConfirm()">取消</button>
       <button class="confirm-btn primary" onclick="confirmMultiDelete()">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="confirm-overlay" id="friendReqConfirm">
+  <div class="confirm-card">
+    <div class="confirm-title">是否发送好友申请？</div>
+    <div class="confirm-desc">当前账号是小号，对方会把你视为陌生人。</div>
+    <div class="confirm-actions">
+      <button class="confirm-btn" onclick="cancelFriendRequestFlow()">取消</button>
+      <button class="confirm-btn primary" onclick="confirmFriendRequestFlow()">确认</button>
+    </div>
+  </div>
+</div>
+<div class="confirm-overlay" id="friendReqWaiting">
+  <div class="confirm-card">
+    <div class="confirm-title">等待通过中...</div>
+    <div class="confirm-desc" id="friendReqWaitingText">正在发送好友申请</div>
+    <div class="confirm-actions">
+      <button class="confirm-btn" onclick="cancelFriendRequestFlow()">关闭</button>
+    </div>
+  </div>
+</div>
+<div class="confirm-overlay" id="friendReqRejected">
+  <div class="confirm-card">
+    <div class="confirm-title">你被拒绝了哦</div>
+    <div class="confirm-actions">
+      <button class="confirm-btn primary" onclick="closeFriendRejected()">知道了</button>
     </div>
   </div>
 </div>
@@ -585,6 +615,24 @@ var MOMENTS_BUBBLE_NAME_KEY = 'qq_moments_bubble_name';
 var MOMENTS_DEFAULT_USER_NAME = '我哥天下第一好';
 var momentsIntentFromUser = null;
 var momentsLastActionAt = 0;
+var needsFriendRequestGate = false;
+
+function accountScopedKey(base){
+  if(window.AccountManager){
+    window.AccountManager.ensure();
+    return window.AccountManager.scopedKey(base);
+  }
+  return base;
+}
+function chatStorageKey(charId){
+  return accountScopedKey('chat_' + charId);
+}
+function greetingStorageKey(charId){
+  return accountScopedKey('greeting_idx_' + charId);
+}
+function momentStorageKey(base){
+  return accountScopedKey(base);
+}
 
 function normalizeMessageType(type){
   if(type === 'voice_message' || type === 'voice') return 'voice';
@@ -604,7 +652,7 @@ function looksLikeVisualDescription(text){
 
 function readMomentsPosts(){
   try{
-    var parsed = JSON.parse(localStorage.getItem(MOMENTS_POSTS_KEY) || '[]');
+    var parsed = JSON.parse(localStorage.getItem(momentStorageKey(MOMENTS_POSTS_KEY)) || '[]');
     return Array.isArray(parsed) ? parsed : [];
   }catch(e){
     return [];
@@ -612,11 +660,17 @@ function readMomentsPosts(){
 }
 
 function writeMomentsPosts(posts){
-  localStorage.setItem(MOMENTS_POSTS_KEY, JSON.stringify(Array.isArray(posts) ? posts : []));
+  localStorage.setItem(momentStorageKey(MOMENTS_POSTS_KEY), JSON.stringify(Array.isArray(posts) ? posts : []));
 }
 
 function getMomentsUserName(){
-  var fromBubble = String(localStorage.getItem(MOMENTS_BUBBLE_NAME_KEY) || '').trim();
+  var fromAccount = '';
+  if(window.AccountManager){
+    var acct = window.AccountManager.getActive();
+    fromAccount = String((acct && acct.name) || '').trim();
+  }
+  if(fromAccount) return fromAccount;
+  var fromBubble = String(localStorage.getItem(momentStorageKey(MOMENTS_BUBBLE_NAME_KEY)) || '').trim();
   if(fromBubble) return fromBubble;
   var fallback = String(localStorage.getItem(userKey('user_name')) || '').trim();
   return fallback || MOMENTS_DEFAULT_USER_NAME;
@@ -1152,6 +1206,42 @@ function beginEditMessage(){
     }
   }, 20);
 }
+function favoriteActiveMessage(){
+  if(!activeActionMessageId) return;
+  var msg = getMessageById(activeActionMessageId);
+  closeMessageActions();
+  if(!msg){
+    toast('未找到消息');
+    return;
+  }
+  if(!window.AccountManager){
+    toast('收藏功能不可用');
+    return;
+  }
+  var roleName = msg.role === 'assistant'
+    ? ((character && (character.nickname || character.name)) || 'CHAR')
+    : getMomentsUserName();
+  var avatar = '';
+  if(msg.role === 'assistant'){
+    avatar = getMomentsAiAvatar();
+  }else{
+    try{
+      var acct = window.AccountManager.getActive();
+      avatar = (acct && acct.avatar) || '';
+    }catch(e){}
+  }
+  window.AccountManager.addFavorite({
+    id: 'fav_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,7),
+    from: msg.role === 'assistant' ? 'char' : 'user',
+    charId: character ? character.id : '',
+    name: roleName,
+    avatar: avatar,
+    text: String(msg.content || ''),
+    type: msg.type || 'text',
+    at: Date.now()
+  });
+  toast('已收藏');
+}
 function cancelEditMessage(){
   editingMessageId = null;
   editingDraft = '';
@@ -1258,7 +1348,8 @@ function bindMessageLongPress(el, msgId){
   });
 }
 function userKey(base){
-  return character && character.id ? (base + '_' + character.id) : base;
+  var raw = character && character.id ? (base + '_' + character.id) : base;
+  return accountScopedKey(raw);
 }
 function ensureMsgRange(){
   if(!character) return;
@@ -1284,6 +1375,61 @@ function compactChar(c){
   };
 }
 
+function isSubAccountNeedFriend(charId){
+  if(!window.AccountManager || !charId) return false;
+  var acct = window.AccountManager.getActive();
+  if(!acct || acct.isDefault) return false;
+  return !window.AccountManager.isFriend(charId);
+}
+
+function evaluateFriendAcceptance(){
+  var corpus = [
+    character && character.personality ? character.personality : '',
+    character && character.description ? character.description : '',
+    character && character.scenario ? character.scenario : '',
+    character && character.system_prompt ? character.system_prompt : ''
+  ].join('\n').toLowerCase();
+  var strictReject = /(冷漠|厌世|疑心|偏执|占有|病娇|危险|暴躁|孤僻|不信任|陌生人勿扰|stranger|hostile|paranoid|possessive)/.test(corpus);
+  var base = strictReject ? 0.35 : 0.68;
+  return Math.random() < base;
+}
+
+function openFriendRequestConfirm(){
+  document.getElementById('friendReqConfirm')?.classList.add('open');
+}
+
+function cancelFriendRequestFlow(){
+  document.getElementById('friendReqConfirm')?.classList.remove('open');
+  document.getElementById('friendReqWaiting')?.classList.remove('open');
+  document.getElementById('friendReqRejected')?.classList.remove('open');
+}
+
+function closeFriendRejected(){
+  cancelFriendRequestFlow();
+}
+
+function confirmFriendRequestFlow(){
+  document.getElementById('friendReqConfirm')?.classList.remove('open');
+  document.getElementById('friendReqWaiting')?.classList.add('open');
+  var wt = document.getElementById('friendReqWaitingText');
+  if(wt) wt.textContent = '正在发送好友申请…';
+  setTimeout(function(){
+    var accepted = evaluateFriendAcceptance();
+    document.getElementById('friendReqWaiting')?.classList.remove('open');
+    if(!accepted){
+      document.getElementById('friendReqRejected')?.classList.add('open');
+      return;
+    }
+    if(window.AccountManager && character && character.id){
+      window.AccountManager.addFriend(character.id);
+    }
+    needsFriendRequestGate = false;
+    toast('已通过好友申请');
+    loadWorldBook();
+    restoreOrStartChat();
+  }, 950);
+}
+
 // ════════════════════════════════════════════
 //  Init
 // ════════════════════════════════════════════
@@ -1305,7 +1451,12 @@ function init() {
   updateModelLabel();
 
   if (character) {
-    curGreetingIdx = parseInt(localStorage.getItem('greeting_idx_' + character.id) || '0');
+    curGreetingIdx = parseInt(localStorage.getItem(greetingStorageKey(character.id)) || '0');
+    if(isSubAccountNeedFriend(character.id)){
+      needsFriendRequestGate = true;
+      openFriendRequestConfirm();
+      return;
+    }
     loadWorldBook();
     restoreOrStartChat();
   }
@@ -1478,7 +1629,7 @@ function loadWorldBook() {
 function restoreOrStartChat() {
   var msgs = document.getElementById('messages');
   replyTargetId = null;
-  var saved = localStorage.getItem('chat_' + character.id);
+  var saved = localStorage.getItem(chatStorageKey(character.id));
   if (saved !== null) {
     try {
       var obj = JSON.parse(saved);
@@ -2096,7 +2247,7 @@ function clearChat() {
   editingDraft = '';
   replyTargetId = null;
   chatLog = [];
-  if (character) localStorage.removeItem('chat_' + character.id);
+  if (character) localStorage.removeItem(chatStorageKey(character.id));
   var msgs = document.getElementById('messages');
   msgs.innerHTML = '';
   var g = getGreeting();
@@ -2113,7 +2264,7 @@ function clearChat() {
 
 function saveChat() {
   if (!character) return;
-  localStorage.setItem('chat_' + character.id, JSON.stringify({ history: chatLog, messages: chatLog }));
+  localStorage.setItem(chatStorageKey(character.id), JSON.stringify({ history: chatLog, messages: chatLog }));
   var lastMsg = chatLog.length ? chatLog[chatLog.length-1].content : '';
   try {
     window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id: character.id, data: character, last: lastMsg, lastType: chatLog.length ? chatLog[chatLog.length-1].type : 'text' } }, '*');
@@ -2411,8 +2562,15 @@ function openChatSettings() {
   document.getElementById('wbToggle').classList.toggle('on', wbEnabled);
   updateWbInfoText();
   renderWbBookList();
-  // Greetings
-  populateGreetings();
+  // Greetings (small account cannot pick opening lines)
+  var greetingsCard = document.getElementById('greetingsCard');
+  var canPickGreeting = true;
+  if(window.AccountManager){
+    var acct = window.AccountManager.getActive();
+    canPickGreeting = !!(acct && acct.isDefault);
+  }
+  if(greetingsCard) greetingsCard.style.display = canPickGreeting ? '' : 'none';
+  if(canPickGreeting) populateGreetings();
   refreshUserAvatars();
   hideParentTopbarForSettings();
   document.getElementById('chatSettings').classList.add('open');
@@ -2461,7 +2619,7 @@ function cancelGreetingChange(){
 function confirmGreetingChange(){
   if(pendingGreetingIdx === null || !character) { cancelGreetingChange(); return; }
   curGreetingIdx = pendingGreetingIdx;
-  localStorage.setItem('greeting_idx_' + character.id, curGreetingIdx);
+  localStorage.setItem(greetingStorageKey(character.id), curGreetingIdx);
   document.querySelectorAll('.g-item').forEach(function(el) {
     el.classList.toggle('active-g', parseInt(el.dataset.gi) === curGreetingIdx);
   });
@@ -2472,7 +2630,7 @@ function confirmGreetingChange(){
   editingMessageId = null;
   editingDraft = '';
   chatLog = [];
-  localStorage.removeItem('chat_' + character.id);
+  localStorage.removeItem(chatStorageKey(character.id));
   var msgs = document.getElementById('messages');
   msgs.innerHTML = '';
   var g = getGreeting();
@@ -2696,7 +2854,7 @@ window.addEventListener('message', function(e) {
     character = incoming;
     localStorage.setItem('activeCharacter', JSON.stringify(character));
     ensureMsgRange();
-    curGreetingIdx = parseInt(localStorage.getItem('greeting_idx_' + character.id) || '0');
+    curGreetingIdx = parseInt(localStorage.getItem(greetingStorageKey(character.id)) || '0');
     updateHeader();
     updateModelLabel();
     loadWorldBook();
