@@ -61,6 +61,7 @@ body{font-family:var(--font);background:var(--off);color:var(--b);min-height:100
 .badge-before{background:#fff;color:#0a0a0a}
 .badge-mid{background:#555;color:#fff;border-color:#555}
 .badge-after{background:#0a0a0a;color:#fff}
+.badge-tok{background:#fff;color:#0a0a0a}
 .entry-expand-icon{font-size:16px;color:var(--g);flex-shrink:0;transition:transform .2s;margin-left:2px}
 .entry-card.expanded .entry-expand-icon{transform:rotate(180deg)}
 .entry-body{display:none;padding:0 14px 14px;border-top:var(--bd)}
@@ -173,6 +174,32 @@ var UNCATEGORIZED_KEY = '__uncategorized__';
 var confirmResolver = null;
 var openCategoryPickerId = null;
 var topCategoryPickerOpen = false;
+
+function approxTokenCount(text) {
+  var src = String(text || '');
+  if (!src) return 0;
+  var cjk = 0;
+  var other = 0;
+  for (var i = 0; i < src.length; i++) {
+    var code = src.charCodeAt(i);
+    if ((code >= 0x4E00 && code <= 0x9FFF) || (code >= 0x3400 && code <= 0x4DBF) || (code >= 0x3000 && code <= 0x303F)) cjk += 1;
+    else other += 1;
+  }
+  return Math.max(1, cjk + Math.ceil(other / 4));
+}
+
+function formatTok(n) {
+  var v = Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
+  return v + ' tok';
+}
+
+function worldbookTokenCount(wb) {
+  if (!wb || !Array.isArray(wb.entries)) return 0;
+  return wb.entries.reduce(function(sum, e) {
+    if (!e || e.enabled === false) return sum;
+    return sum + approxTokenCount(e.content || '');
+  }, 0);
+}
 
 function normalizeWorldbooks(raw) {
   var out = {};
@@ -385,6 +412,7 @@ function renderEntries() {
 function makeWbMetaCard(wb) {
   var card = document.createElement('div');
   var activeLabel = getCategoryLabel(curCharId);
+  var totalTok = worldbookTokenCount(wb);
   var optionCards = ['<button class="picker-option'+(curCharId===UNCATEGORIZED_KEY?' active':'')+'" onclick="moveCurrentWb(\''+UNCATEGORIZED_KEY+'\')">未分类</button>'];
   chars.forEach(function(c) {
     optionCards.push('<button class="picker-option'+(curCharId===c.id?' active':'')+'" onclick="moveCurrentWb(\''+escAttr(c.id)+'\')">' + esc((c.avatar||'') + ' ' + c.name) + '</button>');
@@ -404,7 +432,7 @@ function makeWbMetaCard(wb) {
         '</div>' +
       '</div>' +
       '<div class="check-row">' +
-        '<span>全局世界书</span>' +
+        '<span>全局世界书 · ' + formatTok(totalTok) + '</span>' +
         '<button class="switch' + (wb.global ? ' on' : '') + '" onclick="toggleCurrentWbGlobal()"></button>' +
       '</div>' +
       '<div class="wb-hint">全局世界书会影响所有角色的回复。未分类世界书会保留在这里，直到你把它分配给某个角色，或设为全局。</div>' +
@@ -423,11 +451,12 @@ function makeEntryCard(e) {
   var posClass = { before:'badge-before', mid:'badge-mid', after:'badge-after' }[e.position]||'badge-after';
   var posLabel = { before:'前', mid:'中', after:'后' }[e.position]||'后';
 
+  var entryTok = approxTokenCount(e.content || '');
   card.innerHTML =
     '<div class="entry-head" onclick="toggleExpand(this)">' +
       '<div class="entry-toggle' + (e.enabled?' on':'') + '" onclick="event.stopPropagation();toggleEntry(\''+e.id+'\')" title="启用或停用"></div>' +
       '<div class="entry-title-text">' + esc(e.title) + '</div>' +
-      '<div class="entry-badges"><span class="badge '+posClass+'">'+posLabel+'</span></div>' +
+      '<div class="entry-badges"><span class="badge '+posClass+'">'+posLabel+'</span><span class="badge badge-tok">' + formatTok(entryTok) + '</span></div>' +
       '<div class="entry-expand-icon">▾</div>' +
     '</div>' +
     '<div class="entry-body">' +
@@ -499,6 +528,14 @@ function updateField(id, field, val) {
   if(field==='position') {
     // re-render to move to correct group
     saveWbs(); renderEntries();
+    return;
+  }
+  if(field==='content'){
+    var card = document.getElementById('ec_'+id);
+    if(card){
+      var tokBadge = card.querySelector('.badge-tok');
+      if(tokBadge) tokBadge.textContent = formatTok(approxTokenCount(val || ''));
+    }
   }
 }
 

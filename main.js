@@ -363,9 +363,6 @@ function getBackgroundProviderConfig(){
   var key = localStorage.getItem('key_' + provider) || '';
   if(!key && provider !== 'custom') return null;
   var model = localStorage.getItem('model_' + provider) || getDefaultModelForBg(provider);
-  var maxTokens = parseInt(localStorage.getItem('maxtokens') || '700', 10);
-  if(Number.isNaN(maxTokens)) maxTokens = 700;
-  maxTokens = Math.max(120, Math.min(1600, maxTokens));
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.95');
   if(Number.isNaN(temperature)) temperature = 0.95;
   var customUrl = (localStorage.getItem('custom_url') || '').replace(/\/$/, '');
@@ -374,7 +371,6 @@ function getBackgroundProviderConfig(){
     provider: provider,
     key: key,
     model: model,
-    maxTokens: maxTokens,
     temperature: temperature,
     customUrl: customUrl
   };
@@ -496,7 +492,6 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
       body: JSON.stringify({
         model: cfg.model,
         temperature: cfg.temperature,
-        max_tokens: cfg.maxTokens,
         messages: [{ role:'system', content: sysPrompt }, { role:'user', content: userPrompt }]
       })
     });
@@ -515,7 +510,6 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
       },
       body: JSON.stringify({
         model: cfg.model,
-        max_tokens: cfg.maxTokens,
         temperature: cfg.temperature,
         system: sysPrompt,
         messages: [{ role:'user', content: userPrompt }]
@@ -536,7 +530,7 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
           { role:'model', parts:[{ text:'好的，我会严格按 JSON 格式返回。' }] },
           { role:'user', parts:[{ text:userPrompt }] }
         ],
-        generationConfig: { maxOutputTokens: cfg.maxTokens, temperature: cfg.temperature }
+        generationConfig: { temperature: cfg.temperature }
       })
     });
     var dg = await resGemini.json();
@@ -556,7 +550,6 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
       body: JSON.stringify({
         model: cfg.model,
         temperature: cfg.temperature,
-        max_tokens: cfg.maxTokens,
         messages: [{ role:'system', content: sysPrompt }, { role:'user', content: userPrompt }]
       })
     });
@@ -573,7 +566,6 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
       body: JSON.stringify({
         model: localStorage.getItem('model_custom_manual') || cfg.model,
         temperature: cfg.temperature,
-        max_tokens: cfg.maxTokens,
         messages: [{ role:'system', content: sysPrompt }, { role:'user', content: userPrompt }]
       })
     });
