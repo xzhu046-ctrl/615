@@ -2116,19 +2116,38 @@ function hasReplyCueInText(aiText){
   return /(你刚|你那|那条|这条|这句|那句|刚才你|上面那句|前面那句|你说的|你发的|回你|回复你|接你|针对你)/.test(s);
 }
 
+function isGenericAssistantLine(aiText){
+  var s = String(aiText || '').replace(/\s+/g, '').trim();
+  if(!s) return true;
+  if(s.length <= 4) return true;
+  return /^(好的|行|嗯|哈哈|收到|知道了|ok|okk|可不|是啊|对啊|好吧|行吧|行了)$/.test(s.toLowerCase());
+}
+
 function inferReplyTargetForPart(aiText, usedSet){
-  if(!hasReplyCueInText(aiText)) return null;
+  if(isGenericAssistantLine(aiText)) return null;
   var recentUsers = chatLog.slice().reverse().filter(function(m){ return m.role === 'user'; }).slice(0, 8);
   if(recentUsers.length < 2) return null;
   var best = null;
+  var second = null;
+  var cueBoost = hasReplyCueInText(aiText) ? 0.05 : 0;
   recentUsers.forEach(function(m, idx){
     if(usedSet && usedSet.has(m.id)) return;
     var score = calcReplyAffinity(aiText, m.content || '');
-    score += Math.max(0, 0.08 - idx * 0.01);
-    if(!best || score > best.score) best = { id: m.id, score: score };
+    score += Math.max(0, 0.07 - idx * 0.01);
+    score += cueBoost;
+    var cur = { id: m.id, score: score };
+    if(!best || cur.score > best.score){
+      second = best;
+      best = cur;
+    }else if(!second || cur.score > second.score){
+      second = cur;
+    }
   });
   if(!best) return null;
-  return best.score >= 0.22 ? best.id : null;
+  var margin = best.score - ((second && second.score) || 0);
+  // Context-first: allow auto reply when semantic match is strong and clearly better than alternatives.
+  if(best.score >= 0.24 && margin >= 0.06) return best.id;
+  return null;
 }
 function renderReplyPreview(){
   var host = document.getElementById('replyPreview');
