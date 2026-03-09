@@ -562,6 +562,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
   <div class="confirm-card">
     <div class="confirm-title">是否发送好友申请？</div>
     <div class="confirm-desc">当前账号是小号，对方会把你视为陌生人。</div>
+    <textarea id="friendReqIntro" style="width:100%;border:var(--bd);border-radius:12px;min-height:84px;padding:10px;font-family:var(--font);font-size:12px;font-weight:600;outline:none;background:var(--off);line-height:1.6" placeholder="附言：介绍一下你是谁，为什么想加好友（可提升通过率）"></textarea>
     <div class="confirm-actions">
       <button class="confirm-btn" onclick="cancelFriendRequestFlow()">取消</button>
       <button class="confirm-btn primary" onclick="confirmFriendRequestFlow()">确认</button>
@@ -616,6 +617,31 @@ var MOMENTS_DEFAULT_USER_NAME = '我哥天下第一好';
 var momentsIntentFromUser = null;
 var momentsLastActionAt = 0;
 var needsFriendRequestGate = false;
+
+function normalizeNameLite(v){
+  return String(v || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g,'');
+}
+function calcNameSimilarity(a, b){
+  var x = normalizeNameLite(a);
+  var y = normalizeNameLite(b);
+  if(!x || !y) return 0;
+  if(x === y) return 1;
+  if(x.indexOf(y) !== -1 || y.indexOf(x) !== -1){
+    return Math.min(x.length, y.length) / Math.max(x.length, y.length);
+  }
+  var setX = new Set(x.split(''));
+  var setY = new Set(y.split(''));
+  var inter = 0;
+  setX.forEach(function(ch){ if(setY.has(ch)) inter++; });
+  return inter / Math.max(setX.size, setY.size, 1);
+}
+function getDefaultAccountName(){
+  if(!window.AccountManager) return '';
+  var accounts = window.AccountManager.ensure();
+  var did = window.AccountManager.getDefaultId();
+  var d = (accounts || []).find(function(a){ return a.id === did; });
+  return d ? (d.name || '') : '';
+}
 
 function accountScopedKey(base){
   if(window.AccountManager){
@@ -1382,7 +1408,7 @@ function isSubAccountNeedFriend(charId){
   return !window.AccountManager.isFriend(charId);
 }
 
-function evaluateFriendAcceptance(){
+function evaluateFriendAcceptance(introText){
   var corpus = [
     character && character.personality ? character.personality : '',
     character && character.description ? character.description : '',
@@ -1390,11 +1416,35 @@ function evaluateFriendAcceptance(){
     character && character.system_prompt ? character.system_prompt : ''
   ].join('\n').toLowerCase();
   var strictReject = /(冷漠|厌世|疑心|偏执|占有|病娇|危险|暴躁|孤僻|不信任|陌生人勿扰|stranger|hostile|paranoid|possessive)/.test(corpus);
-  var base = strictReject ? 0.35 : 0.68;
-  return Math.random() < base;
+  var prob = strictReject ? 0.36 : 0.62;
+  var intro = String(introText || '').trim();
+
+  var activeName = '';
+  try{
+    var acct = window.AccountManager.getActive();
+    activeName = (acct && acct.name) || '';
+  }catch(e){}
+  var defaultName = getDefaultAccountName();
+  var similarity = calcNameSimilarity(activeName, defaultName);
+  if(similarity >= 0.78) prob -= 0.14;
+  if(similarity >= 0.9) prob -= 0.08;
+
+  if(intro.length >= 6) prob += 0.08;
+  if(intro.length >= 14) prob += 0.06;
+  if(/(你好|打扰了|谢谢|麻烦|希望|请|可以|想和你聊|很喜欢|久仰)/.test(intro)) prob += 0.07;
+  if(/(我就是|其实是我|你猜我是谁|小号|马甲|另一个号)/i.test(intro)) prob -= 0.1;
+
+  prob = Math.max(0.06, Math.min(0.92, prob));
+  return Math.random() < prob;
 }
 
 function openFriendRequestConfirm(){
+  var input = document.getElementById('friendReqIntro');
+  if(input){
+    var preset = '';
+    try{ preset = localStorage.getItem('pending_friend_req_intro_' + (character && character.id ? character.id : '')) || ''; }catch(e){}
+    input.value = preset;
+  }
   document.getElementById('friendReqConfirm')?.classList.add('open');
 }
 
@@ -1402,6 +1452,8 @@ function cancelFriendRequestFlow(){
   document.getElementById('friendReqConfirm')?.classList.remove('open');
   document.getElementById('friendReqWaiting')?.classList.remove('open');
   document.getElementById('friendReqRejected')?.classList.remove('open');
+  var input = document.getElementById('friendReqIntro');
+  if(input) input.value = '';
 }
 
 function closeFriendRejected(){
@@ -1413,11 +1465,14 @@ function confirmFriendRequestFlow(){
   document.getElementById('friendReqWaiting')?.classList.add('open');
   var wt = document.getElementById('friendReqWaitingText');
   if(wt) wt.textContent = '正在发送好友申请…';
+  var intro = (document.getElementById('friendReqIntro')?.value || '').trim();
+  try{ if(character && character.id) localStorage.setItem('pending_friend_req_intro_' + character.id, intro); }catch(e){}
   setTimeout(function(){
-    var accepted = evaluateFriendAcceptance();
+    var accepted = evaluateFriendAcceptance(intro);
     document.getElementById('friendReqWaiting')?.classList.remove('open');
     if(!accepted){
       document.getElementById('friendReqRejected')?.classList.add('open');
+      needsFriendRequestGate = true;
       return;
     }
     if(window.AccountManager && character && character.id){
@@ -1641,11 +1696,31 @@ function restoreOrStartChat() {
   }
   // Fresh start — show greeting
   var greeting = getGreeting();
+  var introKey = 'pending_friend_req_intro_' + character.id;
+  var intro = '';
+  try{ intro = localStorage.getItem(introKey) || ''; }catch(e){}
+  var hasIntroMarker = !!intro;
+  var isDefaultAccount = true;
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      isDefaultAccount = !!(acct && acct.isDefault);
+    }
+  }catch(e){}
   msgs.innerHTML = '';
   if (greeting) {
     var first = makeChatEntry('assistant', greeting, 'text');
     chatLog = [first];
     addMessage('ai', greeting, false, 'text', first.id);
+  } else if(!isDefaultAccount && hasIntroMarker && needsFriendRequestGate === false && isSubAccountNeedFriend(character.id) === false) {
+    var hello = intro
+      ? ('你好，我看到了你的好友申请。' + intro.slice(0, 24) + '。先认识一下吧。')
+      : '你好，好友申请通过了。我们先认识一下吧。';
+    var firstHello = makeChatEntry('assistant', hello, 'text');
+    chatLog = [firstHello];
+    addMessage('ai', hello, false, 'text', firstHello.id);
+    saveChat();
+    try{ localStorage.removeItem(introKey); }catch(e){}
   } else {
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">' + esc(character.name) + '</div><div class="welcome-sub">发送消息开始对话，或按 ✦ 触发回复</div></div>';
   }
