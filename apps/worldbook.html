@@ -163,6 +163,36 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
     </div>
   </div>
 </div>
+<div class="confirm-mask" id="wbCreateChoiceMask" onclick="onWbCreateChoiceMask(event)">
+  <div class="confirm-card">
+    <div class="confirm-title">新建世界书</div>
+    <div class="confirm-text">请选择创建方式</div>
+    <div class="btn-row">
+      <button class="btn btn-white btn-full" type="button" onclick="closeWbCreateChoice()">取消</button>
+      <button class="btn btn-white btn-full" type="button" onclick="startCreateWorldBookImport()">导入</button>
+      <button class="btn btn-black btn-full" type="button" onclick="openCreateWorldBookForm()">创建</button>
+    </div>
+  </div>
+</div>
+<div class="confirm-mask" id="wbCreateFormMask" onclick="onWbCreateFormMask(event)">
+  <div class="confirm-card">
+    <div class="confirm-title">创建世界书</div>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div>
+        <label>名称</label>
+        <input id="wbCreateName" type="text" placeholder="如：现代都市设定">
+      </div>
+      <div>
+        <label>分类</label>
+        <select id="wbCreateCategory"></select>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-white btn-full" type="button" onclick="closeCreateWorldBookForm()">取消</button>
+        <button class="btn btn-black btn-full" type="button" onclick="confirmCreateWorldBook()">确认</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
 // ── State ──
@@ -334,10 +364,91 @@ function renderWbTabs() {
 
 // ── New World Book ──
 function newWorldBook() {
+  openWbCreateChoice();
+}
+
+function openWbCreateChoice() {
+  closeTopCategoryPicker();
+  openCategoryPickerId = null;
+  renderEntries();
+  var mask = document.getElementById('wbCreateChoiceMask');
+  if (mask) mask.classList.add('show');
+}
+
+function closeWbCreateChoice() {
+  var mask = document.getElementById('wbCreateChoiceMask');
+  if (mask) mask.classList.remove('show');
+}
+
+function onWbCreateChoiceMask(event) {
+  if (event.target === event.currentTarget) closeWbCreateChoice();
+}
+
+function startCreateWorldBookImport() {
+  closeWbCreateChoice();
   var input = document.getElementById('wbImportInput');
   if (!input) return;
   input.value = '';
   input.click();
+}
+
+function buildWbCategoryOptions() {
+  var options = [{ value: UNCATEGORIZED_KEY, label: '未分类' }];
+  chars.forEach(function(c) {
+    options.push({ value: c.id, label: (c.avatar || '') + ' ' + c.name });
+  });
+  return options;
+}
+
+function openCreateWorldBookForm() {
+  closeWbCreateChoice();
+  var nameInput = document.getElementById('wbCreateName');
+  var categorySel = document.getElementById('wbCreateCategory');
+  if (!nameInput || !categorySel) return;
+  var options = buildWbCategoryOptions();
+  categorySel.innerHTML = options.map(function(opt) {
+    return '<option value="' + esc(opt.value) + '">' + esc(opt.label) + '</option>';
+  }).join('');
+  categorySel.value = wbs[curCharId] ? curCharId : UNCATEGORIZED_KEY;
+  nameInput.value = '';
+  var mask = document.getElementById('wbCreateFormMask');
+  if (mask) mask.classList.add('show');
+  setTimeout(function() { nameInput.focus(); }, 30);
+}
+
+function closeCreateWorldBookForm() {
+  var mask = document.getElementById('wbCreateFormMask');
+  if (mask) mask.classList.remove('show');
+}
+
+function onWbCreateFormMask(event) {
+  if (event.target === event.currentTarget) closeCreateWorldBookForm();
+}
+
+function confirmCreateWorldBook() {
+  var nameInput = document.getElementById('wbCreateName');
+  var categorySel = document.getElementById('wbCreateCategory');
+  if (!nameInput || !categorySel) return;
+  var name = String(nameInput.value || '').trim() || '世界书';
+  var targetKey = String(categorySel.value || UNCATEGORIZED_KEY);
+  if (!wbs[targetKey]) wbs[targetKey] = [];
+  var wb = {
+    id: 'wb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    name: name,
+    global: false,
+    entries: []
+  };
+  wbs[targetKey].push(wb);
+  curCharId = targetKey;
+  curWbIdx = wbs[targetKey].length - 1;
+  closeCreateWorldBookForm();
+  saveWbs();
+  updateTopCategoryLabel();
+  renderTopCategoryMenu();
+  renderWbTabs();
+  renderEntries();
+  toast('已创建空世界书：' + name);
+  notifyChat();
 }
 
 // ── New Entry ──
