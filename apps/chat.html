@@ -1455,11 +1455,33 @@ function makeNaturalMomentPost(seed, aiText){
   var picked = '';
   if(fromSeed && fromSeed.length >= 4) picked = fromSeed;
   else if(fromAi && fromAi.length >= 4) picked = fromAi;
+  function normalizeLite(v){
+    return String(v || '').replace(/\s+/g, '').replace(/[，。！？!?,.;:：'"“”‘’]/g, '').toLowerCase();
+  }
+  var s1 = normalizeLite(fromSeed);
+  var s2 = normalizeLite(picked);
+  var copied = !!(s1 && s2 && (s1 === s2 || s1.indexOf(s2) >= 0 || s2.indexOf(s1) >= 0));
+  if(copied){
+    picked = '';
+  }
   if(!picked){
     var pool = ['把今天的小情绪记下来。','这一刻想悄悄收藏。','留一条给未来的自己。','有感而发，就写在这里。'];
     picked = pool[Math.floor(Math.random() * pool.length)];
   }
+  picked = picked.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
   return truncateMomentText(picked, 42);
+}
+
+function forceVisualMomentLine(seed, aiLine){
+  var src = stripMomentDirectiveText(aiLine) || stripMomentDirectiveText(seed);
+  src = String(src || '').replace(/\s+/g, ' ').trim();
+  if(looksLikeVisualDescription(src)) return truncateMomentText(src, 48);
+  var pool = [
+    '夜色里路灯把潮湿路面照得发亮，店门口的暖光落在外套袖口。',
+    '桌面上冒着热气的面碗边放着红辣椒，筷子斜靠在白瓷碗沿。',
+    '窗边的玻璃映出街景和人影，风把发梢轻轻吹乱。'
+  ];
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function makeNaturalMomentComment(seed, aiText){
@@ -1547,12 +1569,12 @@ function maybeRunAiMomentsFromChat(text, msgType){
   function addPost(){
     var postType = inferPostType();
     var hasImage = postType === 'dynamic';
-    var content = makeNaturalMomentPost(seed, aiLine);
+    var content = hasImage ? forceVisualMomentLine(seed, aiLine) : makeNaturalMomentPost(seed, aiLine);
     posts.push({
       id: 'post_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       type: postType,
       text: content,
-      imageText: hasImage ? content : '',
+      imageText: hasImage ? forceVisualMomentLine(content, aiLine) : '',
       createdAt: Date.now(),
       comments: [],
       likes: [],
@@ -1756,6 +1778,37 @@ function resolveReplyTargetId(replyTo, replyRole){
     return content.indexOf(hint) >= 0 || hint.indexOf(content) >= 0 || snippet.indexOf(hint) >= 0 || hint.indexOf(snippet) >= 0;
   });
   return partial ? partial.id : null;
+}
+
+function tokenizeReplyText(v){
+  var s = String(v || '').toLowerCase().replace(/[，。！？!?,.;:：'"“”‘’（）()\[\]{}<>]/g, ' ');
+  var zh = s.match(/[\u4e00-\u9fa5]/g) || [];
+  var words = s.split(/\s+/).filter(function(w){ return w && w.length >= 2; });
+  return zh.concat(words).slice(0, 40);
+}
+
+function calcReplyAffinity(aiText, userText){
+  var a = tokenizeReplyText(aiText);
+  var b = tokenizeReplyText(userText);
+  if(!a.length || !b.length) return 0;
+  var sb = new Set(b);
+  var hit = 0;
+  a.forEach(function(t){ if(sb.has(t)) hit++; });
+  return hit / Math.max(2, Math.min(12, a.length + b.length));
+}
+
+function inferReplyTargetForPart(aiText, usedSet){
+  var recentUsers = chatLog.slice().reverse().filter(function(m){ return m.role === 'user'; }).slice(0, 8);
+  if(!recentUsers.length) return null;
+  var best = null;
+  recentUsers.forEach(function(m, idx){
+    if(usedSet && usedSet.has(m.id)) return;
+    var score = calcReplyAffinity(aiText, m.content || '');
+    score += Math.max(0, 0.12 - idx * 0.015);
+    if(!best || score > best.score) best = { id: m.id, score: score };
+  });
+  if(!best) return null;
+  return best.score >= 0.16 ? best.id : null;
 }
 function renderReplyPreview(){
   var host = document.getElementById('replyPreview');
@@ -2579,6 +2632,7 @@ function buildSystemPrompt() {
     '当用户让你去评论/点赞时，评论内容要像真人表达，不要把用户指令原句照搬成评论。',
     '只有在上下文非常合适时，才偶尔引用一条历史消息增强活人感；大多数时候正常回复即可。',
     '如果你要引用，请只在单条 JSON 对象里额外带 reply_to 和 reply_role；如果不引用，就输出普通内容，不必强行使用 JSON。',
+    '当用户连续发多条、你连续回复多条时，可对其中1-2条做精准引用来制造活人感（例如“夸你那条”/“点餐那条”），但不要每条都引用。',
     '一旦你选择语音或图片消息，必须严格输出 JSON，不能把特殊格式写成普通文本描述。',
     '如果你要回复一条图片消息，reply_to 直接写 "【图片】"；如果要回复语音消息，reply_to 写对应的“语音消息 xx\'\'”摘要。'
   ].join('\n');
@@ -4381,6 +4435,9 @@ async function deliverAiReply(text){
   }
   if(!parts.length) parts = [{text:String(text||'(空消息)'), t:'text'}];
   var sentCount = 0;
+  var autoReplyMax = Math.min(2, Math.max(0, Math.floor(parts.length / 2)));
+  var autoReplyCount = 0;
+  var usedReplyTargets = new Set();
   for(var i = 0; i < parts.length; i++){
     var p = parts[i];
     var t = normalizeMessageType(p.t || 'text');
@@ -4394,6 +4451,16 @@ async function deliverAiReply(text){
     }
     var entry = makeChatEntry('assistant', p.text, t);
     entry.replyToId = resolveReplyTargetId(p.replyTo, p.replyRole);
+    if(entry.replyToId){
+      usedReplyTargets.add(entry.replyToId);
+    }else if(autoReplyCount < autoReplyMax && t === 'text' && parts.length >= 3){
+      var autoTarget = inferReplyTargetForPart(p.text, usedReplyTargets);
+      if(autoTarget){
+        entry.replyToId = autoTarget;
+        usedReplyTargets.add(autoTarget);
+        autoReplyCount++;
+      }
+    }
     chatLog.push(entry);
     addMessage('ai', p.text, true, t, entry.id);
     sentCount++;
