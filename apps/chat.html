@@ -2294,16 +2294,56 @@ function parseAppealDecision(raw){
     if(txt.endsWith('```')) txt = txt.slice(0,-3);
     txt = txt.trim();
   }
-  try{
-    var obj = JSON.parse(txt);
-    if(obj && typeof obj === 'object'){
-      var appeal = !!(obj.appeal || obj.apply || obj.request || obj.send_request);
-      var accept = !!(obj.accept || obj.forgive);
-      var message = String(obj.text || obj.message || obj.content || '').trim();
-      return { appeal: appeal, accept: accept, text: message || '我还是想加回你。' };
+  function sanitizeAppealText(v){
+    var s = String(v || '').trim();
+    if(!s) return '';
+    s = s.replace(/^\s*\{[\s\S]*?\}\s*/g, '').trim();
+    s = s.replace(/^(text|message|content)\s*[:：]\s*/i, '').trim();
+    s = s.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+    s = s.replace(/(?:而且|另外|然后)\s*这个好友申请要遵循[\s\S]*$/i, '').trim();
+    return s;
+  }
+  function tryParseJsonChunk(input){
+    var src = String(input || '').trim();
+    if(!src) return null;
+    try{
+      var obj = JSON.parse(src);
+      if(obj && typeof obj === 'object') return obj;
+    }catch(e){}
+    var m = src.match(/\{[\s\S]*\}/);
+    if(m && m[0]){
+      try{
+        var obj2 = JSON.parse(m[0]);
+        if(obj2 && typeof obj2 === 'object') return obj2;
+      }catch(e2){}
     }
+    return null;
+  }
+  var obj = tryParseJsonChunk(txt);
+  if(obj && typeof obj === 'object'){
+    var appeal = !!(obj.appeal || obj.apply || obj.request || obj.send_request);
+    var accept = !!(obj.accept || obj.forgive);
+    var message = sanitizeAppealText(obj.text || obj.message || obj.content || '');
+    return { appeal: appeal, accept: accept, text: message || '我还是想加回你。' };
+  }
+  var textField = txt.match(/"text"\s*:\s*"([^"]{1,400})"/i);
+  if(textField && textField[1]){
+    return { appeal:true, accept:false, text: sanitizeAppealText(textField[1]) || '我还是想加回你。' };
+  }
+  try{
+    var loose = sanitizeAppealText(txt);
+    if(loose) return { appeal:true, accept:false, text: loose };
   }catch(e){}
-  return { appeal:true, text: txt };
+  return { appeal:true, text:'我还是想加回你。' };
+}
+
+function getAppealPersistenceProfile(){
+  var persona = String((character && (character.personality || character.description || '')) || '').toLowerCase();
+  var relentlessHit = /(偏执|病娇|占有|执着|不甘心|粘人|黏人|恋爱脑|舍不得|占有欲|obsess|possessive|clingy|persistent|stubborn)/i.test(persona);
+  if(relentlessHit){
+    return { maxRounds: 16, minDelay: 900, plusDelay: 650, fallbackText: '我还是想和你说清楚，能再给我一次机会吗？', relentless: true };
+  }
+  return { maxRounds: 8, minDelay: 1200, plusDelay: 900, fallbackText: '我还是想和你聊聊，可以原谅我吗？', relentless: false };
 }
 
 async function aiDecideAppeal(promptExtra){
@@ -2312,14 +2352,29 @@ async function aiDecideAppeal(promptExtra){
   var history = chatLog.slice(-6).map(function(m){
     return (m.role === 'user' ? 'User' : 'Char') + ': ' + String(m.content || '').replace(/\s+/g, ' ').trim();
   }).join('\n');
+  var wbEntries = getStrictPromptWorldbookEntries().map(function(e){
+    return String((e && e.content) || '').trim();
+  }).filter(Boolean).slice(0, 8);
+  var wbSnippet = wbEntries.join('\n\n').slice(0, 1200);
   var sys = [
     '你是角色本人，按人设决定是否发好友申请挽留。',
-    '只返回 JSON：{"appeal":true|false,"text":"..."}',
-    'text 用自然口语，不要解释规则，不要 markdown。'
+    '只返回 JSON：{"appeal":true|false,"accept":true|false,"text":"..."}',
+    'text 用自然口语，不要解释规则，不要 markdown。',
+    '不要输出额外说明，不要在 text 里夹带“遵循人设/世界书”这类元提示。'
   ].join('\n');
+  if(promptManager && typeof promptManager.appealPolicy === 'function'){
+    sys += '\n\n' + promptManager.appealPolicy({
+      originalName: character.name || '角色',
+      nickname: character.nickname || '',
+      persona: persona,
+      worldBook: wbSnippet,
+      history: history
+    });
+  }
   var user = [
     '角色名：' + (character.nickname || character.name || '角色'),
     '角色人设：' + persona,
+    wbSnippet ? ('世界书（已启用条目）：\n' + wbSnippet) : '世界书（已启用条目）：无',
     history ? ('最近聊天：\n' + history) : '最近聊天：无',
     promptExtra || ''
   ].join('\n\n');
@@ -2330,12 +2385,19 @@ async function aiDecideAppeal(promptExtra){
 async function attemptCharAppeal(extra, round){
   var state = loadBlockState();
   if(!state.userBlocked) return;
+  var profile = getAppealPersistenceProfile();
   var currentRound = round || 1;
-  if(currentRound > 8) return;
+  if(currentRound > profile.maxRounds) return;
   try{
     state.appealCount = Math.max(0, parseInt(state.appealCount || '0', 10) || 0);
     saveBlockState(state);
     var decision = await aiDecideAppeal((extra || '你刚被用户拉黑。请决定是否发好友申请挽留。') + '\n当前已申请次数：' + currentRound + '。你可以坚持、也可以因为受伤而放弃。');
+    if(!decision.appeal){
+      if(profile.relentless && currentRound < profile.maxRounds){
+        decision.appeal = true;
+        decision.text = decision.text || profile.fallbackText;
+      }
+    }
     if(!decision.appeal){
       state.appealCount = currentRound;
       saveBlockState(state);
@@ -2355,11 +2417,12 @@ function ignoreBlockAppeal(){
   blockAppealState = null;
   document.getElementById('blockAppealOverlay')?.classList.remove('open');
   if(state.from === 'char'){
+    var profile = getAppealPersistenceProfile();
     var bs = loadBlockState();
     bs.appealCount = Math.max(1, parseInt(state.round || 1, 10) || 1);
     saveBlockState(bs);
     var nextRound = bs.appealCount + 1;
-    var delay = Math.min(9000, 1200 + bs.appealCount * 900);
+    var delay = Math.min(9000, profile.minDelay + bs.appealCount * profile.plusDelay);
     setTimeout(function(){
       attemptCharAppeal('用户刚刚无视了你的好友申请。请按人设判断是否继续尝试，连续多次被无视时可以表现失落/烦躁，也可以暂时停下。', nextRound);
     }, delay);
