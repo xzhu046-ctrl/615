@@ -290,6 +290,20 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .inner-voice-box.normal{background:#fff;color:var(--b)}
 .inner-voice-box.desire{background:#505050;color:#fff;border-color:#2f2f2f}
 .inner-voice-meta{font-size:10px;color:var(--g);font-weight:800}
+.inner-voice-item{display:flex;flex-direction:column;gap:8px}
+.inner-voice-item-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.inner-voice-item-actions{display:flex;align-items:center;gap:6px}
+.inner-voice-item-btn{border:var(--bd);border-radius:999px;background:var(--w);color:var(--b);font-size:10px;font-weight:900;line-height:1;padding:4px 8px;cursor:pointer;box-shadow:1px 1px 0 var(--b)}
+.inner-voice-item-btn.icon{width:22px;height:22px;padding:0;display:flex;align-items:center;justify-content:center}
+.inner-voice-item-btn:active{transform:translate(1px,1px);box-shadow:0 0 0}
+.iv-editor-overlay{position:fixed;inset:0;z-index:245;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(255,255,255,.4);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.iv-editor-overlay.open{display:flex}
+.iv-editor-card{width:min(380px,100%);background:var(--w);border:var(--bd);border-radius:16px;box-shadow:var(--sh);padding:12px;display:flex;flex-direction:column;gap:10px}
+.iv-editor-title{font-family:var(--fontd);font-size:13px;font-weight:900}
+.iv-editor-label{font-size:10px;font-weight:800;color:var(--g);text-transform:uppercase;letter-spacing:.05em}
+.iv-editor-input{width:100%;border:var(--bd);border-radius:12px;min-height:78px;padding:10px;font-family:var(--font);font-size:12px;font-weight:700;line-height:1.6;resize:none;outline:none;background:var(--off)}
+.iv-editor-input:focus{box-shadow:2px 2px 0 var(--b)}
+.iv-editor-actions{display:flex;gap:8px}
 
 /* greeting selector */
 .greeting-list{display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto}
@@ -789,6 +803,20 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
   </div>
 </div>
 
+<div class="iv-editor-overlay" id="ivEditorOverlay">
+  <div class="iv-editor-card">
+    <div class="iv-editor-title">编辑心声</div>
+    <div class="iv-editor-label">普通心声</div>
+    <textarea class="iv-editor-input" id="ivEditorNormal" placeholder="输入普通心声..."></textarea>
+    <div class="iv-editor-label">内心欲望</div>
+    <textarea class="iv-editor-input" id="ivEditorDesire" placeholder="输入内心欲望..."></textarea>
+    <div class="iv-editor-actions">
+      <button class="confirm-btn" type="button" onclick="closeInnerVoiceEditor()">取消</button>
+      <button class="confirm-btn" type="button" onclick="confirmInnerVoiceEditor()">确认</button>
+    </div>
+  </div>
+</div>
+
 <div class="confirm-overlay" id="userReAddOverlay">
   <div class="confirm-card">
     <div class="confirm-title">发送好友申请</div>
@@ -859,6 +887,7 @@ var pendingCharBgEnabled = null;
 var memoryEditingId = '';
 var chatSettingsSavedAtLeastOnce = false;
 var innerVoiceHistoryMode = false;
+var innerVoiceEditingId = '';
 
 function contextWindowKey(){
   return character && character.id ? accountScopedKey('ctx_window_' + character.id) : '';
@@ -3842,6 +3871,10 @@ var _mdc = document.getElementById('multiDeleteConfirm');
   if(_memEdit){
     _memEdit.addEventListener('click', function(e){ if(e.target === _memEdit) closeMemoryEditor(); });
   }
+  var _ivEdit = document.getElementById('ivEditorOverlay');
+  if(_ivEdit){
+    _ivEdit.addEventListener('click', function(e){ if(e.target === _ivEdit) closeInnerVoiceEditor(); });
+  }
   var _ivoInner = document.getElementById('innerVoiceOverlay');
   if(_ivoInner){
     _ivoInner.addEventListener('click', function(e){ if(e.target === _ivoInner) closeInnerVoiceOverlay(); });
@@ -4048,9 +4081,10 @@ function renderInnerVoiceOverlay(){
       return;
     }
     body.innerHTML = store.items.slice().reverse().map(function(it){
-      return '<div class="inner-voice-meta">' + esc(new Date(it.at || Date.now()).toLocaleString()) + '</div>' +
+      var safeId = esc(it.id || '');
+      return '<div class="inner-voice-item"><div class="inner-voice-item-head"><div class="inner-voice-meta">' + esc(new Date(it.at || Date.now()).toLocaleString()) + '</div><div class="inner-voice-item-actions"><button class="inner-voice-item-btn" type="button" onclick="openInnerVoiceEditor(\'' + safeId + '\')">编辑</button><button class="inner-voice-item-btn icon" type="button" onclick="deleteInnerVoiceItem(\'' + safeId + '\')">×</button></div></div>' +
         '<div class="inner-voice-box normal">' + esc(it.normal || '（空）') + '</div>' +
-        '<div class="inner-voice-box desire">' + esc(it.desire || '（空）') + '</div>';
+        '<div class="inner-voice-box desire">' + esc(it.desire || '（空）') + '</div></div>';
     }).join('');
     return;
   }
@@ -4062,6 +4096,70 @@ function renderInnerVoiceOverlay(){
   body.innerHTML = '<div class="inner-voice-box normal">' + esc(store.current.normal || '（空）') + '</div>' +
     '<div class="inner-voice-box desire">' + esc(store.current.desire || '（空）') + '</div>' +
     '<div class="inner-voice-meta">每次角色回复后会刷新</div>';
+}
+
+function openInnerVoiceEditor(id){
+  var store = loadInnerVoiceStore();
+  var hit = (store.items || []).find(function(it){ return String(it.id) === String(id || ''); });
+  if(!hit){
+    toast('未找到该条心声');
+    return;
+  }
+  innerVoiceEditingId = String(id || '');
+  var normalInput = document.getElementById('ivEditorNormal');
+  var desireInput = document.getElementById('ivEditorDesire');
+  if(normalInput) normalInput.value = String(hit.normal || '');
+  if(desireInput) desireInput.value = String(hit.desire || '');
+  document.getElementById('ivEditorOverlay')?.classList.add('open');
+  setTimeout(function(){ normalInput?.focus(); }, 20);
+}
+
+function closeInnerVoiceEditor(){
+  innerVoiceEditingId = '';
+  document.getElementById('ivEditorOverlay')?.classList.remove('open');
+}
+
+function confirmInnerVoiceEditor(){
+  if(!character || !innerVoiceEditingId) return;
+  var normal = String(document.getElementById('ivEditorNormal')?.value || '').trim();
+  var desire = String(document.getElementById('ivEditorDesire')?.value || '').trim();
+  if(!normal || !desire){
+    toast('两段心声都不能为空');
+    return;
+  }
+  var store = loadInnerVoiceStore();
+  var idx = (store.items || []).findIndex(function(it){ return String(it.id) === String(innerVoiceEditingId); });
+  if(idx < 0){
+    closeInnerVoiceEditor();
+    return;
+  }
+  store.items[idx].normal = normal;
+  store.items[idx].desire = desire;
+  if(store.current && String(store.current.id) === String(innerVoiceEditingId)){
+    store.current.normal = normal;
+    store.current.desire = desire;
+  }
+  saveInnerVoiceStore(store);
+  closeInnerVoiceEditor();
+  renderInnerVoiceOverlay();
+  toast('心声已更新');
+}
+
+function deleteInnerVoiceItem(id){
+  if(!character || !id) return;
+  var store = loadInnerVoiceStore();
+  var before = (store.items || []).length;
+  store.items = (store.items || []).filter(function(it){ return String(it.id) !== String(id); });
+  if(store.items.length === before) return;
+  if(store.current && String(store.current.id) === String(id)){
+    store.current = store.items.length ? store.items[store.items.length - 1] : null;
+  }
+  saveInnerVoiceStore(store);
+  if(innerVoiceEditingId && String(innerVoiceEditingId) === String(id)){
+    closeInnerVoiceEditor();
+  }
+  renderInnerVoiceOverlay();
+  toast('心声已删除');
 }
 
 function openInnerVoiceOverlay(){
