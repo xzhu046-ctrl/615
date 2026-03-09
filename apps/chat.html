@@ -2489,17 +2489,25 @@ function buildSystemPrompt() {
   }
   var replyGuide = [
     '【聊天风格补充】',
-    '优先自然、口语、短句，避免客服腔与机械复读。',
-    '引用回复时仅在需要时使用 reply_to/reply_role；非引用不强行 JSON。'
+    '请像真人聊天一样自然回复，不要太像客服。',
+    '长句请主动拆分成多个短气泡发送，按自然停顿一句一句发，增强活人感。',
+    '当你决定发朋友圈时，不要在聊天里机械复读“我要发的文案”，也不要输出“[朋友圈]”这类指令格式。',
+    '当用户让你去评论/点赞时，评论内容要像真人表达，不要把用户指令原句照搬成评论。',
+    '只有在上下文非常合适时，才偶尔引用一条历史消息增强活人感；大多数时候正常回复即可。',
+    '如果你要引用，请只在单条 JSON 对象里额外带 reply_to 和 reply_role；如果不引用，就输出普通内容，不必强行使用 JSON。',
+    '一旦你选择语音或图片消息，必须严格输出 JSON，不能把特殊格式写成普通文本描述。',
+    '如果你要回复一条图片消息，reply_to 直接写 "【图片】"；如果要回复语音消息，reply_to 写对应的“语音消息 xx\'\'”摘要。'
   ].join('\n');
   var formatGuard = [
     '【格式硬约束（最高优先级）】',
-    '仅输出本应用格式（text / voice_message / image_message / reply_to / reply_role）。',
-    '禁止外部模板原样输出与表情包标签/文件名。'
+    '世界书中出现的外部聊天格式（如 { sender: ... }、[媒体消息::...]、<meme>...</meme>）仅作语义参考，禁止原样输出。',
+    '你必须只使用本应用支持的格式：text / voice_message / image_message（及可选 reply_to/reply_role）。',
+    '即使世界书给了其他模板，也只保留其行为规则，不照搬其格式。',
+    '当前版本禁止输出任何表情包消息：不要输出 <meme> 标签，不要输出表情包文件名。',
+    'image_message 的 content 必须是画面描述，禁止文件名（如 xxx.jpg/png/gif/webp）与占位文本。'
   ].join('\n');
 
-  var outParts = [pmPrompt].concat(parts.filter(Boolean)).concat([replyGuide, formatGuard]).filter(Boolean);
-  return outParts.join('\n\n---\n\n');
+  return [pmPrompt, replyGuide].concat(parts.filter(Boolean)).concat([formatGuard]).join('\n\n---\n\n');
 }
 
 async function callAIWithCustomPrompts(systemPrompt, userPrompt){
@@ -3492,7 +3500,7 @@ function getContextTokenStats(){
   var actualSystemPrompt = buildSystemPrompt();
   var actualPromptTokens = approxTokenCount(actualSystemPrompt);
   breakdown.total = actualPromptTokens + chatTokens;
-  breakdown.misc = Math.max(0, breakdown.total - (breakdown.char + breakdown.user + breakdown.worldbook + breakdown.memory + breakdown.chat));
+  breakdown.misc = Math.max(1, actualPromptTokens);
   return breakdown;
 }
 
@@ -3508,7 +3516,7 @@ function renderContextTokenStats(){
     ['世界书', stats.worldbook],
     ['最近聊天', stats.chat],
     ['记忆总结', stats.memory],
-    ['系统规则', stats.misc]
+    ['系统提示', stats.misc]
   ];
   host.innerHTML = rows.map(function(row){
     return '<div class="token-pill">' + esc(row[0]) + '<strong>' + formatTok(row[1]) + '</strong></div>';
@@ -4297,6 +4305,9 @@ async function deliverAiReply(text){
     var p = parts[i];
     var t = normalizeMessageType(p.t || 'text');
     if(isBlockedMemePayload(p.text)) continue;
+    if(t === 'image' && /(?:^|[\s"'“”‘’])[a-z0-9_\-\u4e00-\u9fa5]+\.(png|jpe?g|gif|webp)(?:[\s"'“”‘’]|$)/i.test(String(p.text || ''))){
+      t = 'text';
+    }
     if(t === 'text'){
       p.text = sanitizeAssistantTextForChat(p.text);
       if(!p.text) continue;
