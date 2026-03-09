@@ -66,6 +66,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 .comment-item:active{transform:translate(1px,1px)}
 .comment-av{width:22px;height:22px;border:1.5px solid #111;border-radius:8px;background:center/cover no-repeat #eee;box-shadow:1px 1px 0 #0a0a0a;flex-shrink:0}
 .comment-main{min-width:0;flex:1}
+.comment-del{width:20px;height:20px;border:1.5px solid #111;border-radius:999px;background:#fff;color:#111;box-shadow:1px 1px 0 #0a0a0a;display:flex;align-items:center;justify-content:center;font-family:var(--fontd);font-size:12px;font-weight:900;line-height:1;flex-shrink:0;cursor:pointer}
+.comment-del:active{transform:translate(1px,1px);box-shadow:none}
 .name-accent{color:#4f9fc2}
 .comment-compose{display:flex;flex-direction:column;gap:6px}
 .comment-input-row{display:flex;gap:6px}
@@ -182,6 +184,15 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
       </div>
     </div>
   </div>
+  <div class="overlay" id="deleteCommentConfirmOverlay">
+    <div class="modal">
+      <div class="modal-title">删除评论？</div>
+      <div class="footer-actions">
+        <button class="footer-btn" type="button" onclick="closeDeleteCommentConfirm()">取消</button>
+        <button class="footer-btn black" type="button" onclick="confirmDeleteComment()">确认</button>
+      </div>
+    </div>
+  </div>
 
   <div class="image-view-overlay" id="imageViewOverlay">
     <div class="image-view-card">
@@ -224,6 +235,7 @@ let publishState = {
 let deleteMode = false;
 let deleteSelection = [];
 let replyTarget = {};
+let pendingDeleteComment = { postId:'', commentId:'' };
 
 function scopedKey(base){
   if(window.AccountManager){
@@ -365,7 +377,7 @@ function renderFeed(){
           const whoHtml = replyName
             ? ('<span class="name-accent">' + name + '</span>回复<span class="name-accent">' + replyName + '</span>')
             : ('<span class="name-accent">' + name + '</span>');
-          return '<div class="comment-item" onclick="prepareReply(\'' + esc(post.id) + '\',\'' + cid + '\')"><div class="comment-av" style="background-image:' + getCommentAvatarStyleValue(c) + ';background-size:cover;background-position:center;background-repeat:no-repeat;"></div><div class="comment-main"><strong>' + whoHtml + '</strong>：' + text + '</div></div>';
+          return '<div class="comment-item" onclick="prepareReply(\'' + esc(post.id) + '\',\'' + cid + '\')"><div class="comment-av" style="background-image:' + getCommentAvatarStyleValue(c) + ';background-size:cover;background-position:center;background-repeat:no-repeat;"></div><div class="comment-main"><strong>' + whoHtml + '</strong>：' + text + '</div><button class="comment-del" type="button" onclick="openDeleteCommentConfirm(event,\'' + esc(post.id) + '\',\'' + cid + '\')" title="删除评论">×</button></div>';
         }).join('') : '<div class="comment-item"><div class="comment-main">还没有评论，快来抢沙发。</div></div>')
       + '</div>'
       + '<div class="comment-compose">'
@@ -402,6 +414,40 @@ function prepareReply(postId, commentId){
 function clearReplyTarget(postId){
   if(postId && replyTarget[postId]) delete replyTarget[postId];
   renderFeed();
+}
+
+function openDeleteCommentConfirm(evt, postId, commentId){
+  if(evt && evt.stopPropagation) evt.stopPropagation();
+  pendingDeleteComment = { postId: String(postId || ''), commentId: String(commentId || '') };
+  const overlay = document.getElementById('deleteCommentConfirmOverlay');
+  if(overlay) overlay.classList.add('open');
+}
+
+function closeDeleteCommentConfirm(){
+  pendingDeleteComment = { postId:'', commentId:'' };
+  const overlay = document.getElementById('deleteCommentConfirmOverlay');
+  if(overlay) overlay.classList.remove('open');
+}
+
+function confirmDeleteComment(){
+  const postId = pendingDeleteComment.postId;
+  const commentId = pendingDeleteComment.commentId;
+  if(!postId || !commentId){
+    closeDeleteCommentConfirm();
+    return;
+  }
+  const posts = getPosts();
+  const idx = posts.findIndex((p)=>p && p.id === postId);
+  if(idx === -1){
+    closeDeleteCommentConfirm();
+    return;
+  }
+  const comments = Array.isArray(posts[idx].comments) ? posts[idx].comments : [];
+  posts[idx].comments = comments.filter((c)=>String((c && c.id) || '') !== commentId);
+  savePosts(posts);
+  closeDeleteCommentConfirm();
+  renderFeed();
+  showToast('评论已删除');
 }
 
 function togglePostLike(postId){
@@ -826,6 +872,12 @@ function bindInputs(){
   if(deleteConfirmOverlay){
     deleteConfirmOverlay.addEventListener('click', (evt)=>{
       if(evt.target === evt.currentTarget) closeDeleteConfirm();
+    });
+  }
+  const deleteCommentOverlay = document.getElementById('deleteCommentConfirmOverlay');
+  if(deleteCommentOverlay){
+    deleteCommentOverlay.addEventListener('click', (evt)=>{
+      if(evt.target === evt.currentTarget) closeDeleteCommentConfirm();
     });
   }
 

@@ -1554,7 +1554,7 @@ function processMomentsInteractionsOnTrigger(){
         name: aiName,
         avatar: aiAvatar,
         replyToName: item.actor,
-        text: makeNaturalMomentComment(item.post.text || item.post.imageText || '', item.comment && item.comment.text ? item.comment.text : ''),
+        text: makeNaturalMomentComment(item.post.text || item.post.imageText || '', item.comment && item.comment.text ? item.comment.text : '', item.actor),
         at: Date.now()
       });
       item.post.comments = comments;
@@ -1732,16 +1732,39 @@ function forceVisualMomentLine(seed, aiLine){
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-function makeNaturalMomentComment(seed, aiText){
-  var fromSeed = stripMomentDirectiveText(seed);
-  var fromAi = stripMomentDirectiveText(aiText);
-  var base = fromAi || fromSeed;
-  if(!base || base.length < 2){
-    var fallback = ['这条很有感觉。','看到这里有点共鸣。','认真看完了，挺喜欢。','这句写得真好。'];
-    return fallback[Math.floor(Math.random() * fallback.length)];
+function makeNaturalMomentComment(seed, incomingText, replyToName){
+  var postText = stripMomentDirectiveText(seed);
+  var incoming = stripMomentDirectiveText(incomingText);
+  var persona = String((character && (character.personality || character.description || '')) || '').toLowerCase();
+  var target = String(replyToName || '').trim();
+  var prefix = target ? ('@' + target + ' ') : '';
+  var tone = 'normal';
+  if(/温柔|体贴|治愈|暖|gentle|soft|care/i.test(persona)) tone = 'warm';
+  else if(/傲娇|毒舌|嘴硬|sharp|tsundere/i.test(persona)) tone = 'tease';
+  else if(/高冷|冷淡|克制|cool|cold|reserved/i.test(persona)) tone = 'cool';
+  else if(/沙雕|搞笑|幽默|funny|playful/i.test(persona)) tone = 'playful';
+
+  var pools = {
+    warm: ['收到啦，看到你这条我会心一笑。','懂你这个点，心情被你点亮了一下。','这个细节我记住了，挺戳心的。','谢谢你留这句，温度很够。'],
+    tease: ['行啊，你这句还挺会拿捏。','嘴上不说，心里其实挺受用。','你这评论有点东西，我记下了。','哟，这句挺会挑重点。'],
+    cool: ['看到了，点得很到位。','这句有效，我收下。','嗯，信息量够了。','这个角度不错。'],
+    playful: ['你这句很会，差点把我逗笑。','行行行，被你拿捏到了。','哈哈，这条评论挺有梗。','你这波互动我给满分。'],
+    normal: ['看到了，这条评论挺有感觉。','收到，这句我记住了。','你这个反馈很到位。','这条互动我挺喜欢。']
+  };
+  var base = pools[tone] || pools.normal;
+  var picked = base[Math.floor(Math.random() * base.length)];
+
+  var hint = '';
+  if(incoming){
+    if(/辣|面|吃|饭|餐|外卖/.test(incoming)) hint = '下次按你这个口味来。';
+    else if(/好看|漂亮|美|绝|好帅|帅/.test(incoming)) hint = '审美在线，懂我。';
+    else if(/想你|喜欢|爱|亲|抱|贴/.test(incoming)) hint = '这句我会反复回味。';
+    else if(/加油|辛苦|心疼|照顾|休息/.test(incoming)) hint = '被你这句安抚到了。';
+  }else if(postText){
+    hint = '这条我会认真收着。';
   }
-  base = base.replace(/^(我去|我来|我给你|我会)\s*(评论|点赞|回复)\s*/,'');
-  return truncateMomentText(base, 36);
+  var out = (prefix + picked + (hint ? (' ' + hint) : '')).trim();
+  return truncateMomentText(out, 40);
 }
 
 function sanitizeAssistantTextForChat(raw){
@@ -1862,7 +1885,7 @@ function maybeRunAiMomentsFromChat(text, msgType){
       name: aiName,
       avatar: aiAvatar,
       replyToName: replyTarget,
-      text: makeNaturalMomentComment(latest.text || latest.imageText || seed, latest.text || latest.imageText || aiLine),
+      text: makeNaturalMomentComment(latest.text || latest.imageText || seed, latest.text || latest.imageText || aiLine, replyTarget),
       at: Date.now()
     });
     latest.comments = comments;
