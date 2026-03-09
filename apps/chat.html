@@ -631,7 +631,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
     <div class="confirm-title" id="blockConfirmTitle">确定拉黑对方？</div>
     <div class="confirm-actions">
       <button class="confirm-btn" onclick="closeBlockConfirm()">取消</button>
-      <button class="confirm-btn primary" onclick="confirmBlockFromSettings()">拉黑</button>
+      <button class="confirm-btn primary" id="blockConfirmPrimaryBtn" onclick="confirmBlockAction()">拉黑</button>
     </div>
   </div>
 </div>
@@ -649,15 +649,15 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 
 <div class="blocked-wall" id="blockedWallOverlay">
   <div class="blocked-wall-card" id="blockedWallCard">
-    <div class="blocked-wall-title">您已被拉黑...</div>
-    <div class="blocked-wall-desc">发送好友申请后，对方才可能重新通过你。</div>
+    <div class="blocked-wall-title" id="blockedWallTitle">您已被拉黑...</div>
+    <div class="blocked-wall-desc" id="blockedWallDesc">发送好友申请后，对方才可能重新通过你。</div>
     <textarea id="blockedWallInput" placeholder="写一段好友申请内容（不能为空）"></textarea>
     <div class="blocked-wall-actions">
       <button class="confirm-btn" type="button" onclick="minimizeBlockedRequestCard()">取消</button>
       <button class="confirm-btn primary" type="button" onclick="sendBlockedRequestCard()">发送</button>
     </div>
   </div>
-  <button class="blocked-wall-mini" id="blockedWallMini" type="button" onclick="openBlockedRequestCard()">好友申请</button>
+  <button class="blocked-wall-mini" id="blockedWallMini" type="button" onclick="onBlockedWallMiniClick()">好友申请</button>
 </div>
 
 <script>
@@ -692,6 +692,7 @@ var momentsLastActionAt = 0;
 var needsFriendRequestGate = false;
 var blockAppealState = null;
 var pendingBlockTargetName = '';
+var pendingBlockAction = '';
 var blockedWallMinimized = false;
 
 function normalizeNameLite(v){
@@ -853,7 +854,7 @@ function updateBlockedUi(){
   if(blockBtn){
     blockBtn.textContent = blockedByUser ? '解除拉黑' : '拉黑对方';
   }
-  syncBlockedWall(blockedByChar);
+  syncBlockedWall(blockedByChar ? 'char' : (blockedByUser ? 'user' : 'none'));
 }
 
 function canSendNow(){
@@ -872,33 +873,63 @@ function canSendNow(){
   return true;
 }
 
-function syncBlockedWall(visible){
+function syncBlockedWall(mode){
   var wall = document.getElementById('blockedWallOverlay');
+  var card = document.getElementById('blockedWallCard');
+  var mini = document.getElementById('blockedWallMini');
+  var title = document.getElementById('blockedWallTitle');
+  var desc = document.getElementById('blockedWallDesc');
+  var input = document.getElementById('blockedWallInput');
+  if(!wall || !card || !mini || !title || !desc || !input) return;
+  var isCharMode = mode === 'char';
+  var isUserMode = mode === 'user';
   if(!wall) return;
-  if(!visible){
+  if(!isCharMode && !isUserMode){
     blockedWallMinimized = false;
     wall.classList.remove('open');
     wall.classList.remove('mini');
-    var input = document.getElementById('blockedWallInput');
-    if(input) input.value = '';
+    input.value = '';
     return;
   }
+  if(isUserMode) blockedWallMinimized = true;
+  card.style.display = isCharMode ? '' : 'none';
+  mini.textContent = isUserMode ? '解除拉黑' : '好友申请';
+  title.textContent = '您已被拉黑...';
+  desc.textContent = '发送好友申请后，对方才可能重新通过你。';
   wall.classList.add('open');
-  wall.classList.toggle('mini', !!blockedWallMinimized);
-  if(!blockedWallMinimized){
-    var focusInput = document.getElementById('blockedWallInput');
-    if(focusInput) setTimeout(function(){ focusInput.focus(); }, 30);
+  wall.classList.toggle('mini', !!blockedWallMinimized || isUserMode);
+  if(isCharMode && !blockedWallMinimized){
+    setTimeout(function(){ input.focus(); }, 30);
   }
 }
 
 function openBlockedRequestCard(){
+  var state = loadBlockState();
+  if(state.userBlocked){
+    openUnblockConfirmFromWall();
+    return;
+  }
   blockedWallMinimized = false;
-  syncBlockedWall(true);
+  syncBlockedWall('char');
 }
 
 function minimizeBlockedRequestCard(){
+  if(loadBlockState().userBlocked){
+    blockedWallMinimized = true;
+    syncBlockedWall('user');
+    return;
+  }
   blockedWallMinimized = true;
-  syncBlockedWall(true);
+  syncBlockedWall('char');
+}
+
+function onBlockedWallMiniClick(){
+  var state = loadBlockState();
+  if(state.userBlocked){
+    openUnblockConfirmFromWall();
+    return;
+  }
+  openBlockedRequestCard();
 }
 
 async function sendBlockedRequestCard(){
@@ -908,6 +939,8 @@ async function sendBlockedRequestCard(){
     toast('好友申请内容不能为空');
     return;
   }
+  blockedWallMinimized = true;
+  syncBlockedWall('char');
   await submitUserReAddRequest(txt);
 }
 
@@ -2386,6 +2419,10 @@ async function submitUserReAddRequest(){
     var decision = await aiDecideAppeal('用户发来好友申请附言：' + (txt || '（无附言）') + '\n你现在处于“你拉黑了用户”的状态。请决定是否原谅。JSON 增加字段 accept:true|false。');
     bs = loadBlockState();
     if(decision.accept){
+      var reqEntry = makeChatEntry('user', txt, 'text');
+      reqEntry.replyToId = null;
+      chatLog.push(reqEntry);
+      addMessage('user', reqEntry.content, true, 'text', reqEntry.id);
       bs.charBlocked = false;
       bs.charBlockedAt = 0;
       bs.appealCount = 0;
@@ -2402,8 +2439,8 @@ async function submitUserReAddRequest(){
       bs.charBlocked = true;
       bs.charBlockedAt = bs.charBlockedAt || Date.now();
       saveBlockState(bs);
-      blockedWallMinimized = false;
-      syncBlockedWall(true);
+      blockedWallMinimized = true;
+      syncBlockedWall('char');
       toast('好友申请被拒绝');
       var rejectMsg = decision.text || '现在还不想加回。';
       var rejEntry = makeChatEntry('assistant', rejectMsg, 'text');
@@ -2456,22 +2493,40 @@ function toggleBlockFromSettings(){
   if(!character) return;
   var state = loadBlockState();
   if(state.userBlocked){
-    state.userBlocked = false;
-    state.appealCount = 0;
-    saveBlockState(state);
-    updateBlockedUi();
-    toast('已解除拉黑');
+    openUnblockConfirmFromWall();
     return;
   }
   pendingBlockTargetName = String(character.nickname || character.name || '对方');
+  pendingBlockAction = 'block_user';
   var title = document.getElementById('blockConfirmTitle');
+  var primary = document.getElementById('blockConfirmPrimaryBtn');
   if(title) title.textContent = '确定拉黑' + pendingBlockTargetName + '？';
+  if(primary) primary.textContent = '拉黑';
   document.getElementById('blockConfirmOverlay')?.classList.add('open');
 }
 
 function closeBlockConfirm(){
   pendingBlockTargetName = '';
+  pendingBlockAction = '';
   document.getElementById('blockConfirmOverlay')?.classList.remove('open');
+}
+
+function openUnblockConfirmFromWall(){
+  if(!character) return;
+  pendingBlockTargetName = String(character.nickname || character.name || '对方');
+  pendingBlockAction = 'unblock_user';
+  var title = document.getElementById('blockConfirmTitle');
+  var primary = document.getElementById('blockConfirmPrimaryBtn');
+  if(title) title.textContent = '确认解除对' + pendingBlockTargetName + '的拉黑？';
+  if(primary) primary.textContent = '确认';
+  document.getElementById('blockConfirmOverlay')?.classList.add('open');
+}
+
+function confirmBlockAction(){
+  if(pendingBlockAction === 'unblock_user'){
+    return confirmUnblockFromSettings();
+  }
+  return confirmBlockFromSettings();
 }
 
 function confirmBlockFromSettings(){
@@ -2485,6 +2540,18 @@ function confirmBlockFromSettings(){
   updateBlockedUi();
   toast('已拉黑对方');
   attemptCharAppeal('用户刚刚拉黑了你。请决定是否发好友申请挽留。', 1);
+}
+
+function confirmUnblockFromSettings(){
+  if(!character) return;
+  closeBlockConfirm();
+  var state = loadBlockState();
+  state.userBlocked = false;
+  state.appealCount = 0;
+  saveBlockState(state);
+  blockedWallMinimized = false;
+  updateBlockedUi();
+  toast('已解除拉黑');
 }
 
 // ════════════════════════════════════════════
