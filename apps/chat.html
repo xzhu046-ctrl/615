@@ -1140,22 +1140,6 @@ function isBlockedMemePayload(raw){
   return false;
 }
 
-function splitHumanLikeTextBubbles(raw){
-  var text = String(raw || '').trim();
-  if(!text) return [];
-  if(text.length < 18) return [text];
-  if(!/[，,。！？!?；;：:]/.test(text)) return [text];
-  var pieces = text
-    .split(/[，,。！？!?；;：:]+/)
-    .map(function(s){ return String(s || '').trim(); })
-    .filter(Boolean);
-  if(pieces.length <= 1) return [text];
-  if(pieces.length > 8){
-    pieces = pieces.slice(0, 8);
-  }
-  return pieces;
-}
-
 function maybeRunAiMomentsFromChat(text, msgType){
   var now = Date.now();
   var aiName = getMomentsAiName();
@@ -3818,28 +3802,6 @@ async function deliverAiReply(text){
     parts.push(rawParts.shift());
   }
   if(!parts.length) parts = [{text:String(text||'(空消息)'), t:'text'}];
-  var expandedParts = [];
-  parts.forEach(function(part){
-    var kind = normalizeMessageType(part && part.t ? part.t : 'text');
-    if(kind !== 'text'){
-      expandedParts.push(part);
-      return;
-    }
-    var bubbles = splitHumanLikeTextBubbles(part.text || '');
-    if(!bubbles.length){
-      expandedParts.push(part);
-      return;
-    }
-    bubbles.forEach(function(seg){
-      expandedParts.push({
-        text: seg,
-        t: 'text',
-        replyTo: part.replyTo || '',
-        replyRole: part.replyRole || ''
-      });
-    });
-  });
-  parts = expandedParts.length ? expandedParts : parts;
   var sentCount = 0;
   for(var i = 0; i < parts.length; i++){
     var p = parts[i];
