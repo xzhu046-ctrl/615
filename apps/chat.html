@@ -144,6 +144,17 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .blocked-apply-btn{display:none;border:var(--bd);border-radius:999px;background:var(--w);color:var(--b);padding:8px 10px;font-family:var(--fontd);font-size:11px;font-weight:900;line-height:1;cursor:pointer;box-shadow:var(--sh);flex-shrink:0;white-space:nowrap}
 .blocked-apply-btn.show{display:flex;align-items:center;justify-content:center}
 .blocked-apply-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
+.blocked-wall{position:fixed;inset:0;z-index:230;display:none;align-items:center;justify-content:center;padding:22px;background:rgba(255,255,255,.24);backdrop-filter:blur(10px) saturate(110%);-webkit-backdrop-filter:blur(10px) saturate(110%)}
+.blocked-wall.open{display:flex}
+.blocked-wall-card{width:min(320px,100%);background:var(--w);border:var(--bd);border-radius:16px;box-shadow:var(--sh);padding:14px;display:flex;flex-direction:column;gap:10px}
+.blocked-wall-title{font-family:var(--fontd);font-size:14px;font-weight:900}
+.blocked-wall-desc{font-size:12px;font-weight:600;line-height:1.6}
+.blocked-wall textarea{width:100%;border:var(--bd);border-radius:12px;min-height:86px;padding:10px;font-family:var(--font);font-size:12px;font-weight:600;outline:none;background:var(--off);line-height:1.6;resize:none}
+.blocked-wall textarea:focus{box-shadow:2px 2px 0 var(--b)}
+.blocked-wall-actions{display:flex;gap:8px}
+.blocked-wall-mini{display:none;align-items:center;justify-content:center;padding:10px 14px;border:var(--bd);border-radius:14px;background:var(--w);box-shadow:var(--sh);font-family:var(--fontd);font-size:12px;font-weight:900;cursor:pointer}
+.blocked-wall.mini .blocked-wall-card{display:none}
+.blocked-wall.mini .blocked-wall-mini{display:flex}
 
 /* gen = triggers AI reply — black prominent button */
 .gen-btn{width:38px;height:38px;border-radius:50%;border:var(--bd);background:var(--w);color:var(--b);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--sh);transition:transform .12s,box-shadow .12s}
@@ -636,6 +647,19 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
   </div>
 </div>
 
+<div class="blocked-wall" id="blockedWallOverlay">
+  <div class="blocked-wall-card" id="blockedWallCard">
+    <div class="blocked-wall-title">您已被拉黑...</div>
+    <div class="blocked-wall-desc">发送好友申请后，对方才可能重新通过你。</div>
+    <textarea id="blockedWallInput" placeholder="写一段好友申请内容（不能为空）"></textarea>
+    <div class="blocked-wall-actions">
+      <button class="confirm-btn" type="button" onclick="minimizeBlockedRequestCard()">取消</button>
+      <button class="confirm-btn primary" type="button" onclick="sendBlockedRequestCard()">发送</button>
+    </div>
+  </div>
+  <button class="blocked-wall-mini" id="blockedWallMini" type="button" onclick="openBlockedRequestCard()">好友申请</button>
+</div>
+
 <script>
 // ════════════════════════════════════════════
 //  State
@@ -668,6 +692,7 @@ var momentsLastActionAt = 0;
 var needsFriendRequestGate = false;
 var blockAppealState = null;
 var pendingBlockTargetName = '';
+var blockedWallMinimized = false;
 
 function normalizeNameLite(v){
   return String(v || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g,'');
@@ -782,7 +807,7 @@ function blockStateKey(charId){
 }
 
 function loadBlockState(){
-  if(!character || !character.id) return { userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0 };
+  if(!character || !character.id) return { userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0, charBlockedAt:0, lastUserReAddAt:0 };
   try{
     var raw = JSON.parse(localStorage.getItem(blockStateKey(character.id)) || 'null');
     if(raw && typeof raw === 'object'){
@@ -790,16 +815,18 @@ function loadBlockState(){
         userBlocked: !!raw.userBlocked,
         charBlocked: !!raw.charBlocked,
         appealCount: parseInt(raw.appealCount || '0', 10) || 0,
-        abuseCount: parseInt(raw.abuseCount || '0', 10) || 0
+        abuseCount: parseInt(raw.abuseCount || '0', 10) || 0,
+        charBlockedAt: parseInt(raw.charBlockedAt || '0', 10) || 0,
+        lastUserReAddAt: parseInt(raw.lastUserReAddAt || '0', 10) || 0
       };
     }
   }catch(e){}
-  return { userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0 };
+  return { userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0, charBlockedAt:0, lastUserReAddAt:0 };
 }
 
 function saveBlockState(state){
   if(!character || !character.id) return;
-  var next = Object.assign({ userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0 }, state || {});
+  var next = Object.assign({ userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0, charBlockedAt:0, lastUserReAddAt:0 }, state || {});
   try{ localStorage.setItem(blockStateKey(character.id), JSON.stringify(next)); }catch(e){}
 }
 
@@ -826,12 +853,14 @@ function updateBlockedUi(){
   if(blockBtn){
     blockBtn.textContent = blockedByUser ? '解除拉黑' : '拉黑对方';
   }
+  syncBlockedWall(blockedByChar);
 }
 
 function canSendNow(){
   var state = loadBlockState();
   if(state.charBlocked){
     toast('你已被拉黑，请先发送好友申请');
+    openBlockedRequestCard();
     updateBlockedUi();
     return false;
   }
@@ -841,6 +870,45 @@ function canSendNow(){
     return false;
   }
   return true;
+}
+
+function syncBlockedWall(visible){
+  var wall = document.getElementById('blockedWallOverlay');
+  if(!wall) return;
+  if(!visible){
+    blockedWallMinimized = false;
+    wall.classList.remove('open');
+    wall.classList.remove('mini');
+    var input = document.getElementById('blockedWallInput');
+    if(input) input.value = '';
+    return;
+  }
+  wall.classList.add('open');
+  wall.classList.toggle('mini', !!blockedWallMinimized);
+  if(!blockedWallMinimized){
+    var focusInput = document.getElementById('blockedWallInput');
+    if(focusInput) setTimeout(function(){ focusInput.focus(); }, 30);
+  }
+}
+
+function openBlockedRequestCard(){
+  blockedWallMinimized = false;
+  syncBlockedWall(true);
+}
+
+function minimizeBlockedRequestCard(){
+  blockedWallMinimized = true;
+  syncBlockedWall(true);
+}
+
+async function sendBlockedRequestCard(){
+  var input = document.getElementById('blockedWallInput');
+  var txt = String((input && input.value) || '').trim();
+  if(!txt){
+    toast('好友申请内容不能为空');
+    return;
+  }
+  await submitUserReAddRequest(txt);
 }
 
 function normalizeMessageType(type){
@@ -2267,6 +2335,8 @@ function acceptBlockAppeal(){
   if(state.from === 'char'){
     bs.userBlocked = false;
     bs.appealCount = 0;
+    bs.charBlockedAt = 0;
+    bs.lastUserReAddAt = 0;
     saveBlockState(bs);
     var acceptedText = String(state.text || '').trim() || '谢谢你愿意再给我一次机会。';
     var thanks = makeChatEntry('assistant', acceptedText, 'text');
@@ -2278,6 +2348,11 @@ function acceptBlockAppeal(){
 }
 
 function openUserReAddRequest(){
+  var state = loadBlockState();
+  if(state.charBlocked){
+    openBlockedRequestCard();
+    return;
+  }
   document.getElementById('userReAddInput').value = '';
   document.getElementById('userReAddOverlay')?.classList.add('open');
 }
@@ -2287,14 +2362,29 @@ function closeUserReAddRequest(){
 }
 
 async function submitUserReAddRequest(){
-  var txt = (document.getElementById('userReAddInput').value || '').trim();
-  closeUserReAddRequest();
+  var txt = '';
+  if(arguments.length){
+    txt = String(arguments[0] || '').trim();
+  }else{
+    txt = (document.getElementById('userReAddInput').value || '').trim();
+    closeUserReAddRequest();
+  }
+  if(!txt){
+    toast('好友申请内容不能为空');
+    return;
+  }
   try{
-    var decision = await aiDecideAppeal('用户发来好友申请附言：' + (txt || '（无附言）') + '\n你现在处于“你拉黑了用户”的状态。请决定是否原谅。JSON 增加字段 accept:true|false。');
     var bs = loadBlockState();
+    bs.lastUserReAddAt = Date.now();
+    saveBlockState(bs);
+    var decision = await aiDecideAppeal('用户发来好友申请附言：' + (txt || '（无附言）') + '\n你现在处于“你拉黑了用户”的状态。请决定是否原谅。JSON 增加字段 accept:true|false。');
+    bs = loadBlockState();
     if(decision.accept){
       bs.charBlocked = false;
+      bs.charBlockedAt = 0;
+      bs.appealCount = 0;
       saveBlockState(bs);
+      blockedWallMinimized = false;
       updateBlockedUi();
       var msg = decision.text || '行吧，这次就先加回来。';
       var entry = makeChatEntry('assistant', msg, 'text');
@@ -2303,6 +2393,11 @@ async function submitUserReAddRequest(){
       saveChat();
       toast('对方通过了你的好友申请');
     }else{
+      bs.charBlocked = true;
+      bs.charBlockedAt = bs.charBlockedAt || Date.now();
+      saveBlockState(bs);
+      blockedWallMinimized = false;
+      syncBlockedWall(true);
       toast('好友申请被拒绝');
       var rejectMsg = decision.text || '现在还不想加回。';
       var rejEntry = makeChatEntry('assistant', rejectMsg, 'text');
@@ -2340,7 +2435,10 @@ function maybeAutoBlockByChar(aiText){
     return;
   }
   state.charBlocked = true;
+  state.charBlockedAt = Date.now();
+  state.lastUserReAddAt = 0;
   saveBlockState(state);
+  blockedWallMinimized = false;
   updateBlockedUi();
   toast('对方已拉黑你');
 }
@@ -2865,6 +2963,12 @@ var _mdc = document.getElementById('multiDeleteConfirm');
   var _bco = document.getElementById('blockConfirmOverlay');
   if(_bco){
     _bco.addEventListener('click', function(e){ if(e.target === _bco) closeBlockConfirm(); });
+  }
+  var _bwo = document.getElementById('blockedWallOverlay');
+  if(_bwo){
+    _bwo.addEventListener('click', function(e){
+      if(e.target === _bwo) minimizeBlockedRequestCard();
+    });
   }
   var _uro = document.getElementById('userReAddOverlay');
   if(_uro){

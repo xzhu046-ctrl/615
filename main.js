@@ -332,6 +332,32 @@ function writeBackgroundMoments(accountId, posts){
   try{ localStorage.setItem(key, JSON.stringify(Array.isArray(posts) ? posts : [])); }catch(e){}
 }
 
+function readBackgroundBlockState(charId, accountId){
+  var key = scopedKeyForAccount('chat_block_state_' + charId, accountId);
+  var raw = null;
+  try{
+    raw = JSON.parse(localStorage.getItem(key) || localStorage.getItem('chat_block_state_' + charId) || 'null');
+  }catch(e){ raw = null; }
+  if(!raw || typeof raw !== 'object'){
+    return { userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0, charBlockedAt:0, lastUserReAddAt:0 };
+  }
+  return {
+    userBlocked: !!raw.userBlocked,
+    charBlocked: !!raw.charBlocked,
+    appealCount: parseInt(raw.appealCount || '0', 10) || 0,
+    abuseCount: parseInt(raw.abuseCount || '0', 10) || 0,
+    charBlockedAt: parseInt(raw.charBlockedAt || '0', 10) || 0,
+    lastUserReAddAt: parseInt(raw.lastUserReAddAt || '0', 10) || 0
+  };
+}
+
+function writeBackgroundBlockState(charId, accountId, state){
+  var key = scopedKeyForAccount('chat_block_state_' + charId, accountId);
+  var next = Object.assign({ userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0, charBlockedAt:0, lastUserReAddAt:0 }, state || {});
+  try{ localStorage.setItem(key, JSON.stringify(next)); }catch(e){}
+  try{ localStorage.setItem('chat_block_state_' + charId, JSON.stringify(next)); }catch(e){}
+}
+
 function getBackgroundProviderConfig(){
   var provider = localStorage.getItem('provider') || 'openai';
   var key = localStorage.getItem('key_' + provider) || '';
@@ -558,6 +584,60 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
   return '';
 }
 
+function parseBgUnblockDecision(raw){
+  var text = String(raw || '').trim();
+  if(!text) return { unblock:false, text:'' };
+  if(text.startsWith('```')){
+    text = text.replace(/^```[a-zA-Z]*\s*/, '');
+    if(text.endsWith('```')) text = text.slice(0, -3);
+    text = text.trim();
+  }
+  try{
+    var obj = JSON.parse(text);
+    if(obj && typeof obj === 'object'){
+      var unblock = !!(obj.unblock || obj.forgive || obj.accept);
+      var msg = String(obj.text || obj.message || obj.content || '').trim();
+      return { unblock: unblock, text: msg };
+    }
+  }catch(e){}
+  var loose = /解除|放出来|恢复|原谅|加回|unblock|forgive|accept/i.test(text);
+  return { unblock: loose, text: text };
+}
+
+async function maybeUnblockFromBackground(cfg, character, accountId, history, shortHistory){
+  var state = readBackgroundBlockState(character.id, accountId);
+  if(!state.charBlocked) return false;
+  var now = Date.now();
+  var idleAnchor = Math.max(state.lastUserReAddAt || 0, state.charBlockedAt || 0);
+  if(!idleAnchor) idleAnchor = now;
+  var idleMs = now - idleAnchor;
+  if(idleMs < 8 * 60 * 1000) return false;
+  var sysPrompt = [
+    '你是聊天角色本人，请判断是否在“被你拉黑后很久没有好友申请”的情况下，主动解除拉黑。',
+    '只返回 JSON，不要解释。',
+    '格式：{"unblock":true|false,"text":"..."}',
+    '如果 unblock=true，text 是你解除拉黑后主动发给用户的一句自然消息。'
+  ].join('\n');
+  var userPrompt = [
+    '角色名：' + (character.nickname || character.name || '角色'),
+    '角色本名：' + (character.name || '角色'),
+    '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
+    shortHistory ? ('最近聊天：\n' + shortHistory) : '最近聊天：无',
+    '你已拉黑用户，距离用户上次好友申请已过去约 ' + Math.round(idleMs / 60000) + ' 分钟。',
+    '请按人设决定：继续拉黑，或主动解除拉黑。'
+  ].join('\n\n');
+  var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
+  var decision = parseBgUnblockDecision(raw);
+  if(!decision.unblock) return false;
+  state.charBlocked = false;
+  state.appealCount = 0;
+  state.charBlockedAt = 0;
+  state.lastUserReAddAt = 0;
+  writeBackgroundBlockState(character.id, accountId, state);
+  appendBackgroundAiMessage(character, accountId, decision.text || '我把你从黑名单里放出来了。');
+  return true;
+}
+
 async function runAiBackgroundActivity(){
   var enabled = localStorage.getItem(AI_BG_ENABLED_KEY) === '1';
   if(!enabled) return false;
@@ -578,6 +658,11 @@ async function runAiBackgroundActivity(){
     var kind = p && p.type === 'dynamic' ? '动态' : '说说';
     return kind + '：' + String((p && (p.text || p.imageText)) || '').replace(/\s+/g, ' ').trim();
   }).join('\n');
+
+  var state = readBackgroundBlockState(character.id, defaultId);
+  if(state.charBlocked){
+    return await maybeUnblockFromBackground(cfg, character, defaultId, history, shortHistory);
+  }
 
   var sysPrompt = [
     '你正在执行“后台活动”任务，请扮演聊天角色，输出一个严格 JSON 对象。',
