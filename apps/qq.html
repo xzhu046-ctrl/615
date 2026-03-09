@@ -33,6 +33,7 @@ body{font-family:var(--font);background:var(--off);color:var(--b);min-height:100
 .snip{font-size:12px;color:var(--g);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .badge{font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;border:1.5px solid var(--b);background:#f3f3f3;color:var(--b)}
 .item.pinned .badge{background:var(--w);color:var(--b)}
+.badge.unread{min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:#d22;color:#fff;border:1.5px solid #7e0000;display:inline-flex;align-items:center;justify-content:center;font-family:var(--fontd);font-size:10px;font-weight:900;box-shadow:1px 1px 0 rgba(0,0,0,.32)}
 .pin-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);display:none;align-items:center;justify-content:center;z-index:60;padding:20px}
 .pin-overlay.open{display:flex}
 .pin-card{width:min(280px,100%);background:var(--b);color:var(--w);border:2px solid var(--w);border-radius:18px;box-shadow:0 14px 30px rgba(0,0,0,.3), 4px 4px 0 #000;padding:16px 14px;display:flex;flex-direction:column;gap:14px;text-align:center}
@@ -50,6 +51,9 @@ body{font-family:var(--font);background:var(--off);color:var(--b);min-height:100
 .qq-bottom-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
 .qq-bottom-btn.icon-only{padding:10px 0}
 .qq-bottom-btn.icon-only img{width:26px;height:26px;display:block;filter:grayscale(1) contrast(120%)}
+.qq-btn-wrap{position:relative;display:inline-flex}
+.qq-nav-badge{position:absolute;top:-7px;right:-11px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#d22;color:#fff;border:1.5px solid #7e0000;display:none;align-items:center;justify-content:center;font-family:var(--fontd);font-size:9px;font-weight:900;line-height:1;box-shadow:1px 1px 0 rgba(0,0,0,.35)}
+.qq-nav-badge.show{display:inline-flex}
 </style>
 </head>
 <body>
@@ -67,7 +71,10 @@ body{font-family:var(--font);background:var(--off);color:var(--b);min-height:100
 
   <div class="qq-bottom-nav">
     <button class="qq-bottom-btn primary icon-only" type="button" aria-label="朋友圈" title="朋友圈" onclick="openMomentsPage()">
-      <img src="assets/moments-icon.svg" alt="">
+      <span class="qq-btn-wrap">
+        <img src="assets/moments-icon.svg" alt="">
+        <span class="qq-nav-badge" id="momentsBadge">0</span>
+      </span>
     </button>
     <button class="qq-bottom-btn" type="button" onclick="openPlaceholderFeature('占位功能 A')">
       <span>占位A</span>
@@ -99,6 +106,8 @@ var activePressId = null;
 var toastTimer = null;
 var LONG_PRESS_MS = 420;
 var avatarAssetCache = {};
+var MOMENTS_POSTS_KEY = 'qq_moments_posts';
+var MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 
 function accountScopedKey(base){
   if(window.AccountManager){
@@ -168,6 +177,7 @@ function loadChars(){
     }
   }
   renderList();
+  renderMomentsBadge();
 }
 function getPinnedChatIds(){
   try{
@@ -201,6 +211,92 @@ function lastMsgOf(c){
     if(msgs.length) return normalizePreviewMessage(msgs[msgs.length-1]);
   }catch(e){}
   return {content:c.description||'', type:'text'};
+}
+
+function unreadCountOf(c){
+  try{
+    var saved = JSON.parse(localStorage.getItem(accountScopedKey('chat_' + c.id)) || 'null');
+    var msgs = (saved && (saved.messages || saved.history)) || [];
+    if(!Array.isArray(msgs)) return 0;
+    var count = 0;
+    msgs.forEach(function(m){
+      if(m && m.role === 'assistant' && !m.readAt) count++;
+    });
+    return count;
+  }catch(e){
+    return 0;
+  }
+}
+
+function formatBadgeCount(n){
+  if(!n || n < 1) return '';
+  return n > 9 ? '9+' : String(n);
+}
+
+function markChatAsRead(charId){
+  if(!charId) return;
+  var key = accountScopedKey('chat_' + charId);
+  try{
+    var saved = JSON.parse(localStorage.getItem(key) || 'null');
+    if(!saved) return;
+    var list = saved.messages || saved.history;
+    if(!Array.isArray(list)) return;
+    var now = Date.now();
+    var changed = false;
+    list = list.map(function(m){
+      if(m && m.role === 'assistant' && !m.readAt){
+        changed = true;
+        var next = Object.assign({}, m);
+        next.readAt = now;
+        return next;
+      }
+      return m;
+    });
+    if(!changed) return;
+    localStorage.setItem(key, JSON.stringify({ history:list, messages:list }));
+  }catch(e){}
+}
+
+function getMomentsUnreadCount(){
+  var key = accountScopedKey(MOMENTS_POSTS_KEY);
+  var seenKey = accountScopedKey(MOMENTS_LAST_SEEN_KEY);
+  var seenAt = 0;
+  try{ seenAt = parseInt(localStorage.getItem(seenKey) || '0', 10); }catch(e){ seenAt = 0; }
+  if(Number.isNaN(seenAt)) seenAt = 0;
+  var posts = [];
+  try{
+    posts = JSON.parse(localStorage.getItem(key) || '[]');
+    if(!Array.isArray(posts)) posts = [];
+  }catch(e){ posts = []; }
+  var myName = '';
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      myName = String((acct && acct.name) || '').trim();
+    }
+  }catch(e){}
+  var count = 0;
+  posts.forEach(function(p){
+    if(!p) return;
+    if((p.createdAt || 0) <= seenAt) return;
+    var author = String(p.authorName || '').trim();
+    if(myName && author && author === myName) return;
+    count++;
+  });
+  return count;
+}
+
+function renderMomentsBadge(){
+  var el = document.getElementById('momentsBadge');
+  if(!el) return;
+  var count = getMomentsUnreadCount();
+  if(count > 0){
+    el.textContent = formatBadgeCount(count);
+    el.classList.add('show');
+  }else{
+    el.textContent = '';
+    el.classList.remove('show');
+  }
 }
 
 function normalizeChatPreviewType(type){
@@ -241,6 +337,7 @@ function renderList(){
     var av = avSrc ? '<img src="'+avSrc+'">' : (c.avatar||'🌸');
     var displayName = c.nickname || c.name || '未命名';
     var last = lastMsgOf(c);
+    var unread = unreadCountOf(c);
     var snip = '';
     var lastType = normalizeChatPreviewType(last && last.type);
     if(lastType === 'voice') snip = '语音消息 ' + Math.max(1, Math.min(60, Math.ceil((last.content||'').length/6))) + "''";
@@ -250,7 +347,7 @@ function renderList(){
     return '<li class="item' + (pinned ? ' pinned' : '') + '" data-chat-id="'+esc(c.id)+'">' +
       '<div class="av">'+av+'</div>' +
       '<div class="meta"><div class="name">'+esc(displayName)+(pinned ? '<span class="pin-chip">置顶</span>' : '')+'</div><div class="snip">'+esc(snip)+'</div></div>' +
-      '<div class="badge">进入</div>' +
+      (unread > 0 ? ('<div class="badge unread">' + esc(formatBadgeCount(unread)) + '</div>') : '') +
       '</li>';
   }).join('');
   bindListInteractions();
@@ -259,6 +356,7 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function openChat(id){
   var c = chars.find(function(x){return x.id===id;});
   if(!c) return;
+  markChatAsRead(id);
   var slim = slimChar(c);
   var isDefault = true;
   try{
@@ -364,6 +462,8 @@ function switchTab(v){
   document.querySelectorAll('.view').forEach(function(s){s.classList.toggle('active', s.id===v);});
 }
 function openMomentsPage(){
+  try{ localStorage.setItem(accountScopedKey(MOMENTS_LAST_SEEN_KEY), String(Date.now())); }catch(e){}
+  renderMomentsBadge();
   window.location.href = 'qq_moments.html';
 }
 
@@ -392,8 +492,8 @@ function openProfileCenter(){
 }
 window.addEventListener('message', function(e){
   var d=e.data||{};
-  if(d.type==='CHARACTER_IMPORTED'){ loadChars(); forward(d); }
-  if(d.type==='CHAT_UPDATED'){ loadChars(); forward(d); }
+  if(d.type==='CHARACTER_IMPORTED'){ loadChars(); renderMomentsBadge(); forward(d); }
+  if(d.type==='CHAT_UPDATED'){ loadChars(); renderMomentsBadge(); forward(d); }
   if(d.type==='SET_ACTIVE_CHARACTER' || d.type==='OPEN_CHAT_WITH' || d.type==='OPEN_APP_WITH'){ forward(d); }
 });
 function forward(msg){
@@ -401,6 +501,7 @@ function forward(msg){
 }
 loadChars();
 hydrateAvatarAssets();
+setInterval(function(){ loadChars(); renderMomentsBadge(); }, 3000);
 ensureParentTopbarVisible();
 window.addEventListener('pageshow', ensureParentTopbarVisible);
 </script>

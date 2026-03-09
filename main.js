@@ -149,6 +149,16 @@ function getLiveDanmakuEnabled(){
   return true;
 }
 
+function mainScopedKey(base){
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      return window.AccountManager.scopedKey(base);
+    }
+  }catch(e){}
+  return base;
+}
+
 function applyLiveDanmakuVisibility(enabled){
   document.body.classList.toggle('live-danmaku-off', !enabled);
 }
@@ -1514,6 +1524,7 @@ window.addEventListener('message',(e)=>{
     try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
     cacheAvatar(payload);
     renderBondWidget(payload);
+    renderHomeDockBadges();
     postToChat({ type:'SET_ACTIVE_CHARACTER', payload: slim });
   }
   if(type==='CHARACTER_IMPORTED'){
@@ -1523,6 +1534,7 @@ window.addEventListener('message',(e)=>{
     setWidgetCharacter(payload);
     try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
     renderBondWidget(payload);
+    renderHomeDockBadges();
   }
   if(type==='OPEN_CHAT_WITH'){
     openApp('chat');
@@ -1577,6 +1589,7 @@ window.addEventListener('message',(e)=>{
       }
       document.getElementById('wgt-sub').textContent = formatCharSub(subText);
       renderBondWidget(payload.data || ac);
+      renderHomeDockBadges();
     }
   }
 });
@@ -1701,6 +1714,69 @@ function setWidgetCharacter(c){
   }
 }
 
+function normalizeUnreadBadgeCount(n){
+  if(!n || n < 1) return '';
+  return n > 9 ? '9+' : String(n);
+}
+
+function getQqUnreadCountForActive(){
+  var activeId = '';
+  try{
+    if(window.AccountManager){
+      var active = window.AccountManager.getActive();
+      activeId = (active && active.id) || '';
+    }
+  }catch(e){}
+  var chars = [];
+  try{
+    chars = JSON.parse(localStorage.getItem('characters') || '[]');
+    if(!Array.isArray(chars)) chars = [];
+  }catch(e){ chars = []; }
+  var defaultId = '';
+  try{ defaultId = window.AccountManager ? (window.AccountManager.getDefaultId() || '') : ''; }catch(e){ defaultId = ''; }
+  chars = chars.map(function(c){
+    if(c && typeof c === 'object' && !c.ownerAccountId && defaultId){
+      c.ownerAccountId = defaultId;
+    }
+    return c;
+  });
+  if(activeId){
+    chars = chars.filter(function(c){ return c && c.ownerAccountId === activeId; });
+  }
+  var total = 0;
+  chars.forEach(function(c){
+    if(!c || !c.id) return;
+    try{
+      var saved = JSON.parse(localStorage.getItem(mainScopedKey('chat_' + c.id)) || 'null');
+      var list = (saved && (saved.messages || saved.history)) || [];
+      if(!Array.isArray(list)) return;
+      list.forEach(function(m){
+        if(m && m.role === 'assistant' && !m.readAt) total++;
+      });
+    }catch(e){}
+  });
+  return total;
+}
+
+function renderHomeDockBadges(){
+  var qqBtn = document.querySelector('.home-app-btn[data-app="qq"]');
+  if(!qqBtn) return;
+  var badge = qqBtn.querySelector('.home-app-badge');
+  if(!badge){
+    badge = document.createElement('span');
+    badge.className = 'home-app-badge';
+    qqBtn.appendChild(badge);
+  }
+  var count = getQqUnreadCountForActive();
+  if(count > 0){
+    badge.textContent = normalizeUnreadBadgeCount(count);
+    badge.classList.add('show');
+  }else{
+    badge.textContent = '';
+    badge.classList.remove('show');
+  }
+}
+
 let aiBgTickTimer = null;
 let aiBgRunning = false;
 
@@ -1778,6 +1854,7 @@ function restoreState(){
     if(c){ setWidgetCharacter(c); }
     renderBondWidget(c);
   }catch(e){}
+  renderHomeDockBadges();
   try{
     homePageIndex = Math.max(0, Math.min(1, Number(localStorage.getItem('home_page_index') || '0') || 0));
   }catch(e){
@@ -1807,7 +1884,9 @@ window.addEventListener('focus', ()=>renderBondWidget());
 document.addEventListener('visibilitychange', ()=>{
   if(!document.hidden){
     renderBondWidget();
+    renderHomeDockBadges();
     maybeRunAiBgTick(false);
   }
 });
 window.addEventListener('resize', ()=>renderHomePages(true));
+setInterval(renderHomeDockBadges, 2500);

@@ -141,6 +141,9 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .send-btn{width:38px;height:38px;border-radius:50%;border:var(--bd);background:var(--w);color:var(--b);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--sh);transition:transform .12s,box-shadow .12s}
 .send-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .send-btn:disabled{opacity:.4;cursor:not-allowed}
+.blocked-apply-btn{display:none;border:var(--bd);border-radius:999px;background:var(--w);color:var(--b);padding:8px 10px;font-family:var(--fontd);font-size:11px;font-weight:900;line-height:1;cursor:pointer;box-shadow:var(--sh);flex-shrink:0;white-space:nowrap}
+.blocked-apply-btn.show{display:flex;align-items:center;justify-content:center}
+.blocked-apply-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 
 /* gen = triggers AI reply — black prominent button */
 .gen-btn{width:38px;height:38px;border-radius:50%;border:var(--bd);background:var(--w);color:var(--b);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--sh);transition:transform .12s,box-shadow .12s}
@@ -228,6 +231,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 
 .cs-save-btn{font-family:var(--fontd);font-weight:900;border:var(--bd);border-radius:12px;padding:12px;font-size:13px;cursor:pointer;box-shadow:var(--sh);background:var(--b);color:var(--w);width:100%;text-align:center;transition:transform .12s,box-shadow .12s}
 .cs-save-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
+.cs-danger-btn{font-family:var(--fontd);font-weight:900;border:var(--bd);border-radius:12px;padding:11px;font-size:13px;cursor:pointer;box-shadow:var(--sh);background:#fff;color:#b00;width:100%;text-align:center;transition:transform .12s,box-shadow .12s}
+.cs-danger-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 
 /* toast */
 .toast{position:fixed;bottom:74px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--b);color:var(--w);padding:9px 18px;border-radius:18px;font-weight:700;font-size:12px;opacity:0;transition:all .28s;pointer-events:none;white-space:nowrap;z-index:999}
@@ -374,6 +379,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
   </div>
   <!-- Gen: triggers AI reply — LEFT of send -->
   <button class="gen-btn" id="genBtn" onclick="triggerReply()" title="触发 AI 回复">✦</button>
+  <button class="blocked-apply-btn" id="blockedApplyBtn" type="button" onclick="openUserReAddRequest()">好友申请</button>
   <!-- Send: only sends user msg, no AI -->
   <button class="send-btn" id="sendBtn" onclick="sendOnly()" title="只发送不触发回复">➤</button>
 </div>
@@ -458,6 +464,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
     </div>
 
     <button class="cs-save-btn" onclick="saveChatSettings()">保存并应用</button>
+    <button class="cs-danger-btn" id="blockToggleBtn" type="button" onclick="toggleBlockFromSettings()">拉黑对方</button>
   </div>
 </div>
 
@@ -587,6 +594,28 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
   </div>
 </div>
 
+<div class="confirm-overlay" id="blockAppealOverlay">
+  <div class="confirm-card">
+    <div class="confirm-title">好友申请</div>
+    <div class="confirm-desc" id="blockAppealText">对方向你发送了好友申请。</div>
+    <div class="confirm-actions">
+      <button class="confirm-btn" onclick="ignoreBlockAppeal()">无视</button>
+      <button class="confirm-btn primary" onclick="acceptBlockAppeal()">原谅</button>
+    </div>
+  </div>
+</div>
+
+<div class="confirm-overlay" id="userReAddOverlay">
+  <div class="confirm-card">
+    <div class="confirm-title">发送好友申请</div>
+    <textarea id="userReAddInput" style="width:100%;border:var(--bd);border-radius:12px;min-height:84px;padding:10px;font-family:var(--font);font-size:12px;font-weight:600;outline:none;background:var(--off);line-height:1.6" placeholder="写点想说的话，增加被原谅概率..."></textarea>
+    <div class="confirm-actions">
+      <button class="confirm-btn" onclick="closeUserReAddRequest()">取消</button>
+      <button class="confirm-btn primary" onclick="submitUserReAddRequest()">发送</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ════════════════════════════════════════════
 //  State
@@ -617,6 +646,7 @@ var MOMENTS_DEFAULT_USER_NAME = '我哥天下第一好';
 var momentsIntentFromUser = null;
 var momentsLastActionAt = 0;
 var needsFriendRequestGate = false;
+var blockAppealState = null;
 
 function normalizeNameLite(v){
   return String(v || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g,'');
@@ -682,6 +712,71 @@ function greetingStorageKey(charId){
 }
 function momentStorageKey(base){
   return accountScopedKey(base);
+}
+
+function blockStateKey(charId){
+  return accountScopedKey('chat_block_state_' + charId);
+}
+
+function loadBlockState(){
+  if(!character || !character.id) return { userBlocked:false, charBlocked:false, appealCount:0 };
+  try{
+    var raw = JSON.parse(localStorage.getItem(blockStateKey(character.id)) || 'null');
+    if(raw && typeof raw === 'object'){
+      return {
+        userBlocked: !!raw.userBlocked,
+        charBlocked: !!raw.charBlocked,
+        appealCount: parseInt(raw.appealCount || '0', 10) || 0
+      };
+    }
+  }catch(e){}
+  return { userBlocked:false, charBlocked:false, appealCount:0 };
+}
+
+function saveBlockState(state){
+  if(!character || !character.id) return;
+  var next = Object.assign({ userBlocked:false, charBlocked:false, appealCount:0 }, state || {});
+  try{ localStorage.setItem(blockStateKey(character.id), JSON.stringify(next)); }catch(e){}
+}
+
+function updateBlockedUi(){
+  var state = loadBlockState();
+  var blockedByChar = !!state.charBlocked;
+  var blockedByUser = !!state.userBlocked;
+  var input = document.getElementById('msg-input');
+  var sendBtn = document.getElementById('sendBtn');
+  var genBtn = document.getElementById('genBtn');
+  var addonBtn = document.getElementById('addonBtn');
+  var applyBtn = document.getElementById('blockedApplyBtn');
+  var blockBtn = document.getElementById('blockToggleBtn');
+  if(input){
+    input.disabled = blockedByChar || blockedByUser;
+    if(blockedByChar) input.placeholder = '你已被对方拉黑，请先发送好友申请';
+    else if(blockedByUser) input.placeholder = '你已拉黑对方，暂不可发送';
+    else input.placeholder = replyTargetId ? '回复消息...' : '输入消息...';
+  }
+  if(sendBtn) sendBtn.disabled = blockedByChar || blockedByUser;
+  if(genBtn) genBtn.disabled = blockedByChar || blockedByUser || isTyping;
+  if(addonBtn) addonBtn.disabled = blockedByChar || blockedByUser;
+  if(applyBtn) applyBtn.classList.toggle('show', blockedByChar);
+  if(blockBtn){
+    blockBtn.textContent = blockedByUser ? '解除拉黑' : '拉黑对方';
+  }
+}
+
+function canSendNow(){
+  var state = loadBlockState();
+  if(state.charBlocked){
+    toast('你已被拉黑，请先发送好友申请');
+    updateBlockedUi();
+    return false;
+  }
+  if(state.userBlocked){
+    toast('你已拉黑对方，解除后才能聊天');
+    updateBlockedUi();
+    return false;
+  }
+  return true;
 }
 
 function normalizeMessageType(type){
@@ -1556,6 +1651,9 @@ function init() {
     }
     loadWorldBook();
     restoreOrStartChat();
+    updateBlockedUi();
+  }else{
+    updateBlockedUi();
   }
 }
 
@@ -1927,6 +2025,254 @@ function buildSystemPrompt() {
   return [pmPrompt, replyGuide].concat(parts.filter(Boolean)).join('\n\n---\n\n');
 }
 
+async function callAIWithCustomPrompts(systemPrompt, userPrompt){
+  var provider = localStorage.getItem('provider') || 'openai';
+  var key = localStorage.getItem('key_' + provider);
+  if (!key && provider !== 'custom') throw new Error('未配置 API key');
+  var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider);
+  var maxTokens = Math.min(800, parseInt(localStorage.getItem('maxtokens') || '800', 10) || 800);
+  var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.9');
+
+  if (provider === 'openai') {
+    var res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      body: JSON.stringify({ model: model, temperature: temperature, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] })
+    });
+    var d = await res.json();
+    if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
+    return d.choices && d.choices[0] && d.choices[0].message ? d.choices[0].message.content : '';
+  }
+
+  if (provider === 'claude') {
+    var resClaude = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({ model: model, max_tokens: maxTokens, temperature: temperature, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] })
+    });
+    var dClaude = await resClaude.json();
+    if (dClaude.error) throw new Error(dClaude.error.message || JSON.stringify(dClaude.error));
+    return dClaude.content && dClaude.content[0] ? dClaude.content[0].text : '';
+  }
+
+  if (provider === 'gemini') {
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+    var resGemini = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          { role: 'user', parts: [{ text: '[系统提示]\\n' + systemPrompt }] },
+          { role: 'model', parts: [{ text: '好的，我会按要求返回。' }] },
+          { role: 'user', parts: [{ text: userPrompt }] }
+        ],
+        generationConfig: { maxOutputTokens: maxTokens, temperature: temperature }
+      })
+    });
+    var dGemini = await resGemini.json();
+    if (dGemini.error) throw new Error(dGemini.error.message || dGemini.error.status || JSON.stringify(dGemini.error));
+    return dGemini.candidates && dGemini.candidates[0] && dGemini.candidates[0].content && dGemini.candidates[0].content.parts && dGemini.candidates[0].content.parts[0]
+      ? dGemini.candidates[0].content.parts[0].text : '';
+  }
+
+  if (provider === 'openrouter') {
+    var resOr = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + key,
+        'HTTP-Referer': 'https://ephone.app',
+        'X-Title': 'Ephone'
+      },
+      body: JSON.stringify({ model: model, temperature: temperature, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] })
+    });
+    var dOr = await resOr.json();
+    if (dOr.error) throw new Error(dOr.error.message || JSON.stringify(dOr.error));
+    return dOr.choices && dOr.choices[0] && dOr.choices[0].message ? dOr.choices[0].message.content : '';
+  }
+
+  if (provider === 'custom') {
+    var baseUrl = (localStorage.getItem('custom_url') || '').replace(/\/$/, '');
+    if (!baseUrl) throw new Error('未设置反代地址');
+    var headers = { 'Content-Type': 'application/json' };
+    if (key) headers['Authorization'] = 'Bearer ' + key;
+    var customModel = localStorage.getItem('model_custom_manual') || model;
+    var resCustom = await fetch(baseUrl + '/chat/completions', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({ model: customModel, temperature: temperature, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] })
+    });
+    var dCustom = await resCustom.json();
+    if (dCustom.error) throw new Error(dCustom.error.message || JSON.stringify(dCustom.error));
+    return dCustom.choices && dCustom.choices[0] && dCustom.choices[0].message ? dCustom.choices[0].message.content : '';
+  }
+
+  return '';
+}
+
+function parseAppealDecision(raw){
+  var txt = String(raw || '').trim();
+  if(!txt) return { appeal:false, text:'我还是想加回你。' };
+  if(txt.startsWith('```')){
+    txt = txt.replace(/^```[a-zA-Z]*\s*/,'');
+    if(txt.endsWith('```')) txt = txt.slice(0,-3);
+    txt = txt.trim();
+  }
+  try{
+    var obj = JSON.parse(txt);
+    if(obj && typeof obj === 'object'){
+      var appeal = !!(obj.appeal || obj.apply || obj.request || obj.send_request);
+      var accept = !!(obj.accept || obj.forgive);
+      var message = String(obj.text || obj.message || obj.content || '').trim();
+      return { appeal: appeal, accept: accept, text: message || '我还是想加回你。' };
+    }
+  }catch(e){}
+  return { appeal:true, text: txt };
+}
+
+async function aiDecideAppeal(promptExtra){
+  if(!character) return { appeal:false, text:'' };
+  var persona = String(character.personality || character.description || '').slice(0, 1200);
+  var history = chatLog.slice(-6).map(function(m){
+    return (m.role === 'user' ? 'User' : 'Char') + ': ' + String(m.content || '').replace(/\s+/g, ' ').trim();
+  }).join('\n');
+  var sys = [
+    '你是角色本人，按人设决定是否发好友申请挽留。',
+    '只返回 JSON：{"appeal":true|false,"text":"..."}',
+    'text 用自然口语，不要解释规则，不要 markdown。'
+  ].join('\n');
+  var user = [
+    '角色名：' + (character.nickname || character.name || '角色'),
+    '角色人设：' + persona,
+    history ? ('最近聊天：\n' + history) : '最近聊天：无',
+    promptExtra || ''
+  ].join('\n\n');
+  var raw = await callAIWithCustomPrompts(sys, user);
+  return parseAppealDecision(raw);
+}
+
+async function attemptCharAppeal(extra, round){
+  var state = loadBlockState();
+  if(!state.userBlocked) return;
+  var currentRound = round || 1;
+  if(currentRound > 3) return;
+  try{
+    var decision = await aiDecideAppeal(extra || '你刚被用户拉黑。请决定是否发好友申请挽留。');
+    if(!decision.appeal) return;
+    blockAppealState = { from: 'char', round: currentRound };
+    var text = document.getElementById('blockAppealText');
+    if(text) text.textContent = decision.text || '我还是想和你聊聊，可以原谅我吗？';
+    document.getElementById('blockAppealOverlay')?.classList.add('open');
+  }catch(err){
+    console.error('appeal failed', err);
+  }
+}
+
+function ignoreBlockAppeal(){
+  var state = blockAppealState || { from: 'char', round: 1 };
+  document.getElementById('blockAppealOverlay')?.classList.remove('open');
+  if(state.from === 'char'){
+    setTimeout(function(){ attemptCharAppeal('用户忽略了你的好友申请。你要不要再试一次？', (state.round || 1) + 1); }, 220);
+  }
+}
+
+function acceptBlockAppeal(){
+  var state = blockAppealState || { from: 'char' };
+  document.getElementById('blockAppealOverlay')?.classList.remove('open');
+  var bs = loadBlockState();
+  if(state.from === 'char'){
+    bs.userBlocked = false;
+    bs.appealCount = 0;
+    saveBlockState(bs);
+    var thanks = makeChatEntry('assistant','谢谢你愿意再给我一次机会。','text');
+    chatLog.push(thanks);
+    addMessage('ai', thanks.content, true, 'text', thanks.id);
+    saveChat();
+  }
+  updateBlockedUi();
+}
+
+function openUserReAddRequest(){
+  document.getElementById('userReAddInput').value = '';
+  document.getElementById('userReAddOverlay')?.classList.add('open');
+}
+
+function closeUserReAddRequest(){
+  document.getElementById('userReAddOverlay')?.classList.remove('open');
+}
+
+async function submitUserReAddRequest(){
+  var txt = (document.getElementById('userReAddInput').value || '').trim();
+  closeUserReAddRequest();
+  try{
+    var decision = await aiDecideAppeal('用户发来好友申请附言：' + (txt || '（无附言）') + '\n你现在处于“你拉黑了用户”的状态。请决定是否原谅。JSON 增加字段 accept:true|false。');
+    var bs = loadBlockState();
+    if(decision.accept){
+      bs.charBlocked = false;
+      saveBlockState(bs);
+      updateBlockedUi();
+      var msg = decision.text || '行吧，这次就先加回来。';
+      var entry = makeChatEntry('assistant', msg, 'text');
+      chatLog.push(entry);
+      addMessage('ai', msg, true, 'text', entry.id);
+      saveChat();
+      toast('对方通过了你的好友申请');
+    }else{
+      toast('好友申请被拒绝');
+      var rejectMsg = decision.text || '现在还不想加回。';
+      var rejEntry = makeChatEntry('assistant', rejectMsg, 'text');
+      chatLog.push(rejEntry);
+      addMessage('ai', rejectMsg, true, 'text', rejEntry.id);
+      saveChat();
+    }
+  }catch(err){
+    console.error('user re-add failed', err);
+    toast('申请发送失败');
+  }
+}
+
+function maybeAutoBlockByChar(aiText){
+  if(!character) return;
+  var state = loadBlockState();
+  if(state.charBlocked || state.userBlocked) return;
+  var lastUser = '';
+  for(var i = chatLog.length - 1; i >= 0; i--){
+    if(chatLog[i] && chatLog[i].role === 'user'){ lastUser = String(chatLog[i].content || ''); break; }
+  }
+  var hitUser = /(滚|傻|去死|闭嘴|恶心|烦死|你有病|垃圾|废物|讨厌)/.test(lastUser);
+  var hitAi = /(生气|别再|受够|不想理|到此为止|别联系|拉黑)/.test(String(aiText || ''));
+  if(!(hitUser || hitAi)) return;
+  if(Math.random() > 0.45) return;
+  state.charBlocked = true;
+  saveBlockState(state);
+  updateBlockedUi();
+  toast('对方已拉黑你');
+}
+
+function toggleBlockFromSettings(){
+  if(!character) return;
+  var state = loadBlockState();
+  if(state.userBlocked){
+    state.userBlocked = false;
+    state.appealCount = 0;
+    saveBlockState(state);
+    updateBlockedUi();
+    toast('已解除拉黑');
+    return;
+  }
+  state.userBlocked = true;
+  state.appealCount = 0;
+  saveBlockState(state);
+  updateBlockedUi();
+  toast('已拉黑对方');
+  attemptCharAppeal('用户刚刚拉黑了你。请决定是否发好友申请挽留。', 1);
+}
+
 // ════════════════════════════════════════════
 //  Messaging — SPLIT: sendOnly vs triggerReply
 // ════════════════════════════════════════════
@@ -1944,6 +2290,7 @@ function onKey(e) {
 
 // Just adds the user's message to the chat — no AI call
 function sendOnly() {
+  if(!canSendNow()) return;
   var input = document.getElementById('msg-input');
   var text = input.value.trim();
   if (!text || isTyping) return;
@@ -1960,6 +2307,7 @@ function sendOnly() {
 
 // Triggers AI to reply (either to existing last message or sends+replies)
 async function triggerReply() {
+  if(!canSendNow()) return;
   if (isTyping) return;
 
   // If there's text in the input, send it first
@@ -2400,9 +2748,17 @@ if(_mao){
   _mao.addEventListener('click', function(e){ if(e.target === _mao) closeMessageActions(); });
 }
 var _mdc = document.getElementById('multiDeleteConfirm');
-if(_mdc){
-  _mdc.addEventListener('click', function(e){ if(e.target === _mdc) closeMultiDeleteConfirm(); });
-}
+  if(_mdc){
+    _mdc.addEventListener('click', function(e){ if(e.target === _mdc) closeMultiDeleteConfirm(); });
+  }
+  var _bao = document.getElementById('blockAppealOverlay');
+  if(_bao){
+    _bao.addEventListener('click', function(e){ if(e.target === _bao) document.getElementById('blockAppealOverlay')?.classList.remove('open'); });
+  }
+  var _uro = document.getElementById('userReAddOverlay');
+  if(_uro){
+    _uro.addEventListener('click', function(e){ if(e.target === _uro) closeUserReAddRequest(); });
+  }
 
 function hideTyping() {
   var t = document.getElementById('typing-ind'); if (t) t.remove();
@@ -2787,6 +3143,7 @@ function openChatSettings() {
   if(greetingsCard) greetingsCard.style.display = canPickGreeting ? '' : 'none';
   if(canPickGreeting) populateGreetings();
   refreshUserAvatars();
+  updateBlockedUi();
   hideParentTopbarForSettings();
   document.getElementById('chatSettings').classList.add('open');
 }
@@ -3059,12 +3416,14 @@ async function deliverAiReply(text){
     entry.replyToId = resolveReplyTargetId(p.replyTo, p.replyRole);
     chatLog.push(entry);
     addMessage('ai', p.text, true, t, entry.id);
+    maybeAutoBlockByChar(p.text);
     maybeRunAiMomentsFromChat(p.text, t);
     await sleep(130 + Math.floor(Math.random()*120));
     if(i < parts.length - 1){
       await sleep(170 + Math.floor(Math.random()*260));
     }
   }
+  updateBlockedUi();
 }
 
 // ════════════════════════════════════════════
@@ -3097,6 +3456,7 @@ window.addEventListener('message', function(e) {
     updateHeader();
     updateModelLabel();
     loadWorldBook();
+    updateBlockedUi();
     if (!sameChar) {
       // Reset chat only when切换到不同角色
       closeMessageActions();
@@ -3117,7 +3477,7 @@ window.addEventListener('message', function(e) {
       updateFloatingUi();
     }
   }
-  if (d.type === 'WORLDBOOK_UPDATED') { loadWorldBook(); }
+  if (d.type === 'WORLDBOOK_UPDATED') { loadWorldBook(); updateBlockedUi(); }
   if (d.type === 'SETTINGS_SAVED') { updateModelLabel(); }
 });
 
