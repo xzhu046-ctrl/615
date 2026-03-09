@@ -1627,10 +1627,27 @@ function makeWbBookKey(bucketKey, wb, idx) {
 
 function isWbEntryEnabled(entry){
   if(!entry) return false;
-  if(entry.enabled === false) return false;
-  if(entry.active === false) return false;
-  if(entry.disabled === true) return false;
-  if(entry.disable === true) return false;
+  function off(v){
+    if(v === false || v === 0) return true;
+    if(typeof v === 'string'){
+      var s = v.trim().toLowerCase();
+      if(s === 'false' || s === '0' || s === 'off' || s === 'disabled' || s === 'no') return true;
+    }
+    return false;
+  }
+  function on(v){
+    if(v === true || v === 1) return true;
+    if(typeof v === 'string'){
+      var s = v.trim().toLowerCase();
+      if(s === 'true' || s === '1' || s === 'on' || s === 'enabled' || s === 'yes') return true;
+    }
+    return false;
+  }
+  if(off(entry.enabled)) return false;
+  if(off(entry.active)) return false;
+  if(on(entry.disabled)) return false;
+  if(on(entry.disable)) return false;
+  if(typeof entry.content === 'string' && !entry.content.trim()) return false;
   return true;
 }
 
@@ -1732,6 +1749,20 @@ function loadWorldBook() {
   renderWbBookList();
 }
 
+function getStrictPromptWorldbookEntries(){
+  if(!character || !wbEnabled) return [];
+  var currentBooks = getApplicableWorldBooks();
+  var strictEntries = [];
+  currentBooks.forEach(function(book){
+    if(!book || !book.enabled) return;
+    var entries = Array.isArray(book.entries) ? book.entries : [];
+    entries.forEach(function(e){
+      if(isWbEntryEnabled(e)) strictEntries.push(e);
+    });
+  });
+  return strictEntries;
+}
+
 function restoreOrStartChat() {
   var msgs = document.getElementById('messages');
   replyTargetId = null;
@@ -1810,8 +1841,9 @@ function getPromptGreeting(){
 // ════════════════════════════════════════════
 function buildSystemPrompt() {
   var wbBefore = [], wbMid = [], wbAfter = [];
-  if (wbEnabled && wbEntries.length) {
-    wbEntries.forEach(function(e) {
+  var strictWbEntries = getStrictPromptWorldbookEntries();
+  if (strictWbEntries.length) {
+    strictWbEntries.forEach(function(e) {
       if (e.position === 'before') wbBefore.push(e.content);
       else if (e.position === 'mid') wbMid.push(e.content);
       else wbAfter.push(e.content);
