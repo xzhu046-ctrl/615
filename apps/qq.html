@@ -260,11 +260,27 @@ function openChat(id){
   var c = chars.find(function(x){return x.id===id;});
   if(!c) return;
   var slim = slimChar(c);
-  try { localStorage.setItem('activeCharacter', JSON.stringify(slim)); } catch(e){}
+  var isDefault = true;
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      isDefault = !!(acct && acct.isDefault);
+    }
+  }catch(e){}
+  if(isDefault){
+    try { localStorage.setItem('activeCharacter', JSON.stringify(slim)); } catch(e){}
+  }
   try { localStorage.setItem('pendingChatChar', JSON.stringify(slim)); } catch(e){}
   var host = window.parent || window.top;
-  try { if(host && host.localStorage){ host.localStorage.setItem('activeCharacter', JSON.stringify(slim)); host.localStorage.setItem('pendingChatChar', JSON.stringify(slim)); } } catch(e){}
-  try { host?.postMessage({type:'SET_ACTIVE_CHARACTER', payload:slim}, '*'); } catch(e){}
+  try {
+    if(host && host.localStorage){
+      if(isDefault) host.localStorage.setItem('activeCharacter', JSON.stringify(slim));
+      host.localStorage.setItem('pendingChatChar', JSON.stringify(slim));
+    }
+  } catch(e){}
+  if(isDefault){
+    try { host?.postMessage({type:'SET_ACTIVE_CHARACTER', payload:slim}, '*'); } catch(e){}
+  }
   try { host?.postMessage({type:'OPEN_CHAT_WITH', payload:slim}, '*'); } catch(e){}
   try { if(typeof host?.openApp === 'function') host.openApp('chat'); } catch(e){}
   // standalone fallback

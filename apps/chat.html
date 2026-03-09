@@ -657,6 +657,15 @@ function getMainMomentsName(){
 function discoveredKey(charId){
   return accountScopedKey('char_discovered_' + charId);
 }
+function isDefaultAccountContext(){
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      return !!(acct && acct.isDefault);
+    }
+  }catch(e){}
+  return true;
+}
 
 function accountScopedKey(base){
   if(window.AccountManager){
@@ -1504,6 +1513,9 @@ function confirmFriendRequestFlow(){
     toast('已通过好友申请');
     loadWorldBook();
     restoreOrStartChat();
+    setTimeout(function(){
+      if(!isTyping) triggerReply();
+    }, 120);
   }, 950);
 }
 
@@ -1519,8 +1531,10 @@ function init() {
   }
   // 2. Fall back to activeCharacter
   if (!character) {
-    var ac = localStorage.getItem('activeCharacter');
-    if (ac) try { character = JSON.parse(ac); } catch(e){}
+    if(isDefaultAccountContext()){
+      var ac = localStorage.getItem('activeCharacter');
+      if (ac) try { character = JSON.parse(ac); } catch(e){}
+    }
   }
   ensureMsgRange();
 
@@ -1718,31 +1732,11 @@ function restoreOrStartChat() {
   }
   // Fresh start — show greeting
   var greeting = getGreeting();
-  var introKey = 'pending_friend_req_intro_' + character.id;
-  var intro = '';
-  try{ intro = localStorage.getItem(introKey) || ''; }catch(e){}
-  var hasIntroMarker = !!intro;
-  var isDefaultAccount = true;
-  try{
-    if(window.AccountManager){
-      var acct = window.AccountManager.getActive();
-      isDefaultAccount = !!(acct && acct.isDefault);
-    }
-  }catch(e){}
   msgs.innerHTML = '';
   if (greeting) {
     var first = makeChatEntry('assistant', greeting, 'text');
     chatLog = [first];
     addMessage('ai', greeting, false, 'text', first.id);
-  } else if(!isDefaultAccount && hasIntroMarker && needsFriendRequestGate === false && isSubAccountNeedFriend(character.id) === false) {
-    var hello = intro
-      ? ('你好，我看到了你的好友申请。' + intro.slice(0, 24) + '。先认识一下吧。')
-      : '你好，好友申请通过了。我们先认识一下吧。';
-    var firstHello = makeChatEntry('assistant', hello, 'text');
-    chatLog = [firstHello];
-    addMessage('ai', hello, false, 'text', firstHello.id);
-    saveChat();
-    try{ localStorage.removeItem(introKey); }catch(e){}
   } else {
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">' + esc(character.name) + '</div><div class="welcome-sub">发送消息开始对话，或按 ✦ 触发回复</div></div>';
   }
@@ -1768,6 +1762,24 @@ function getGreeting() {
   if (!all.length) return '';
   var idx = curGreetingIdx;
   if(!isDefault && window.AccountManager){
+    var did = window.AccountManager.getDefaultId();
+    if(did){
+      var mainIdxRaw = localStorage.getItem('greeting_idx_' + character.id + '__acct_' + did);
+      var mainIdx = parseInt(mainIdxRaw || '0');
+      if(!Number.isNaN(mainIdx)) idx = mainIdx;
+    }
+  }
+  return all[Math.min(idx, all.length - 1)] || '';
+}
+
+function getPromptGreeting(){
+  if(!character) return '';
+  var all = [];
+  if (character.first_mes) all.push(character.first_mes);
+  if (Array.isArray(character.alternate_greetings)) all = all.concat(character.alternate_greetings);
+  if (!all.length) return '';
+  var idx = curGreetingIdx;
+  if(!isDefaultAccountContext() && window.AccountManager){
     var did = window.AccountManager.getDefaultId();
     if(did){
       var mainIdxRaw = localStorage.getItem('greeting_idx_' + character.id + '__acct_' + did);
@@ -1822,11 +1834,21 @@ function buildSystemPrompt() {
     if (userPersona) u += '\n设定：' + userPersona;
     parts.push(u);
   }
+  if(character && !isDefaultAccountContext()){
+    var intro = '';
+    try{ intro = localStorage.getItem('pending_friend_req_intro_' + character.id) || ''; }catch(e){}
+    parts.push([
+      '【当前会话关系】',
+      '这是一个刚通过好友申请的陌生账号，不是你的默认熟人会话。',
+      intro ? ('对方申请附言：' + intro) : '对方未写附言。',
+      '请先像真人一样自然开场：可先试探“你是谁/为什么加我”，或按人设给出合理的第一反应。'
+    ].join('\n'));
+  }
 
   if (wbAfter.length) parts.push(wbAfter.join('\n\n'));
 
   var wbAll = [].concat(wbBefore, wbMid, wbAfter).join('\n\n');
-  var curGreeting = getGreeting();
+  var curGreeting = getPromptGreeting();
   var pmPrompt = (promptManager.singleChatPrompt ? promptManager.singleChatPrompt({
     originalName: character ? character.name : '角色',
     nickname: character ? (character.nickname || '') : '',
@@ -2383,9 +2405,11 @@ function saveChat() {
   if (!character) return;
   localStorage.setItem(chatStorageKey(character.id), JSON.stringify({ history: chatLog, messages: chatLog }));
   var lastMsg = chatLog.length ? chatLog[chatLog.length-1].content : '';
-  try {
-    window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id: character.id, data: character, last: lastMsg, lastType: chatLog.length ? chatLog[chatLog.length-1].type : 'text' } }, '*');
-  } catch(e){}
+  if(isDefaultAccountContext()){
+    try {
+      window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id: character.id, data: character, last: lastMsg, lastType: chatLog.length ? chatLog[chatLog.length-1].type : 'text' } }, '*');
+    } catch(e){}
+  }
 }
 
 function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -2833,7 +2857,9 @@ function saveChatSettings() {
     character.msgMax = isFinite(cmx) && cmx>=character.msgMin ? cmx : Math.max(character.msgMin,3);
     updateHeader();
     persistCharacter();
-    try{ window.parent.postMessage({type:'SET_ACTIVE_CHARACTER', payload: compactChar(character)}, '*'); }catch(e){}
+    if(isDefaultAccountContext()){
+      try{ window.parent.postMessage({type:'SET_ACTIVE_CHARACTER', payload: compactChar(character)}, '*'); }catch(e){}
+    }
   }
   toast('设置已保存！');
   // Persist chat log so changes survive leaving page
@@ -2847,7 +2873,7 @@ function persistCharacter(){
     var idx = list.findIndex(function(c){ return c.id === character.id; });
     if(idx >= 0){ list[idx] = character; localStorage.setItem('characters', JSON.stringify(list)); }
     var slim = compactChar(character);
-    if(slim) localStorage.setItem('activeCharacter', JSON.stringify(slim));
+    if(slim && isDefaultAccountContext()) localStorage.setItem('activeCharacter', JSON.stringify(slim));
   }catch(e){}
 }
 
@@ -2969,7 +2995,9 @@ window.addEventListener('message', function(e) {
     var incoming = d.payload || {};
     var sameChar = character && incoming.id && incoming.id === character.id;
     character = incoming;
-    localStorage.setItem('activeCharacter', JSON.stringify(character));
+    if(isDefaultAccountContext()){
+      localStorage.setItem('activeCharacter', JSON.stringify(character));
+    }
     ensureMsgRange();
     curGreetingIdx = parseInt(localStorage.getItem(greetingStorageKey(character.id)) || '0');
     updateHeader();
