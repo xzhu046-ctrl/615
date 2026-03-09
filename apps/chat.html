@@ -1173,13 +1173,14 @@ async function maybeCreateMemorySummaries(){
   var summaryEvery = loadSummaryEverySize();
   if(summaryEvery < MIN_CONTEXT_WINDOW) return;
   var store = loadMemorySummaryStore();
-  var progress = Math.max(0, Math.min(store.progress || store.covered || 0, chatLog.length));
-  if(chatLog.length - progress < summaryEvery) return;
+  var covered = Math.max(0, Math.min(store.covered || 0, chatLog.length));
+  var buffer = MIN_CONTEXT_WINDOW;
+  if(chatLog.length - covered < (summaryEvery + buffer)) return;
   memorySummaryBusy = true;
   try{
-    while(chatLog.length - progress >= summaryEvery){
-      var from = progress;
-      var to = progress + summaryEvery;
+    while(chatLog.length - covered >= (summaryEvery + buffer)){
+      var from = covered;
+      var to = covered + summaryEvery;
       var slice = chatLog.slice(from, to);
       if(!slice.length) break;
       var text = await generateMemorySummary(slice);
@@ -1192,8 +1193,8 @@ async function maybeCreateMemorySummaries(){
         createdAt: Date.now()
       };
       store.items.push(item);
-      progress = to;
-      store.progress = progress;
+      covered = to;
+      store.progress = Math.max(store.progress || 0, covered);
       saveMemorySummaryStore(store);
     }
     store = await maybeCompactMemorySummaries(store);
@@ -1434,15 +1435,14 @@ async function runManualSummaryNow(){
   count = Math.max(6, Math.min(120, count));
   if(input) input.value = String(count);
   var store = loadMemorySummaryStore();
-  var progress = Math.max(0, Math.min(store.progress || store.covered || 0, chatLog.length));
-  var remaining = chatLog.length - progress;
-  if(remaining <= 0){
-    toast('暂无可总结的新消息');
+  var covered = Math.max(0, Math.min(store.covered || 0, chatLog.length));
+  var remaining = chatLog.length - covered;
+  if(remaining < count){
+    toast('可总结消息不足 ' + count + ' 条（当前 ' + Math.max(0, remaining) + ' 条）');
     return;
   }
-  var take = Math.min(count, remaining);
-  var from = progress;
-  var to = progress + take;
+  var from = covered;
+  var to = covered + count;
   var slice = chatLog.slice(from, to);
   if(!slice.length){
     toast('暂无可总结的新消息');
@@ -1459,10 +1459,10 @@ async function runManualSummaryNow(){
       tokens: approxTokenCount(text),
       createdAt: Date.now()
     });
-    store.progress = to;
+    store.progress = Math.max(store.progress || 0, to);
     saveMemorySummaryStore(store);
     await maybeCompactMemorySummaries(store);
-    toast('已手动总结 ' + take + ' 条消息');
+    toast('已手动总结并隐藏 ' + count + ' 条消息');
   }finally{
     memorySummaryBusy = false;
     refreshMemoryUi();
