@@ -235,6 +235,8 @@ try {
 }
 var avatarAssetCache = {};
 var pendingFriendCharId = '';
+var pendingFriendResolve = null;
+var pendingFriendReject = null;
 
 function normalizeNameLite(v){
   return String(v || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g,'');
@@ -261,6 +263,20 @@ function getDefaultAccountName(){
   var did = window.AccountManager.getDefaultId();
   var d = (accounts || []).find(function(a){ return a.id === did; });
   return d ? (d.name || '') : '';
+}
+
+function getMainPersonaNameForChar(charId){
+  if(!window.AccountManager || !charId) return '';
+  var did = window.AccountManager.getDefaultId();
+  if(!did) return '';
+  return String(localStorage.getItem('user_name_' + charId + '__acct_' + did) || '').trim();
+}
+
+function getMainMomentsName(){
+  if(!window.AccountManager) return '';
+  var did = window.AccountManager.getDefaultId();
+  if(!did) return '';
+  return String(localStorage.getItem('qq_moments_bubble_name__acct_' + did) || '').trim();
 }
 
 function loadStoredAsset(key){
@@ -348,6 +364,22 @@ function slimChar(c){
 // ── Storage ──
 function load() {
   try { chars = JSON.parse(localStorage.getItem('characters') || '[]'); } catch(e){ chars=[]; }
+  if(window.AccountManager){
+    var active = window.AccountManager.getActive();
+    var defaultId = window.AccountManager.getDefaultId();
+    var changed = false;
+    chars = (Array.isArray(chars) ? chars : []).map(function(c){
+      if(!c || typeof c !== 'object') return c;
+      if(!c.ownerAccountId){
+        c.ownerAccountId = defaultId || (active && active.id) || '';
+        changed = true;
+      }
+      return c;
+    });
+    if(changed){
+      try{ localStorage.setItem('characters', JSON.stringify(chars)); }catch(err){}
+    }
+  }
   try { var a = JSON.parse(localStorage.getItem('activeCharacter')||'null'); if(a) activeCharId=a.id||''; } catch(e){}
   updateCount();
 }
@@ -377,9 +409,8 @@ function save() { return saveCharsWithFallback(null); }
 function getVisibleChars(){
   if(!window.AccountManager) return chars.slice();
   var acct = window.AccountManager.getActive();
-  if(!acct || acct.isDefault) return chars.slice();
-  var friendSet = new Set(Array.isArray(acct.friends) ? acct.friends : []);
-  return chars.filter(function(c){ return friendSet.has(c.id); });
+  if(!acct) return chars.slice();
+  return chars.filter(function(c){ return c && c.ownerAccountId === acct.id; });
 }
 function updateCount() {
   var visible = getVisibleChars();
@@ -534,6 +565,10 @@ function createChar() {
   var desc = document.getElementById('cr-desc').value.trim();
   var id = 'char_' + Date.now();
   var c = { id:id, name:name, nickname:nick, avatar:avatar, description:desc, alternate_greetings:[], first_mes:'', personality:desc, scenario:'', system_prompt:'', msgMin:1, msgMax:3 };
+  if(window.AccountManager){
+    var acct = window.AccountManager.getActive();
+    c.ownerAccountId = acct ? acct.id : '';
+  }
   if(avatarUpload){
     c.imageData = avatarUploadIsGif ? null : avatarUpload;
     saveStoredAsset('char_avatar_' + id, avatarUpload);
@@ -570,23 +605,42 @@ function evaluateFriendAcceptanceByChar(charId, introText){
     activeName = (acct && acct.name) || '';
   }catch(e){}
   var defaultName = getDefaultAccountName();
-  var similarity = calcNameSimilarity(activeName, defaultName);
-  if(similarity >= 0.78) prob -= 0.14;
-  if(similarity >= 0.9) prob -= 0.08;
+  var mainPersonaName = getMainPersonaNameForChar(charId);
+  var mainMomentsName = getMainMomentsName();
+  var similarity = Math.max(
+    calcNameSimilarity(activeName, defaultName),
+    calcNameSimilarity(activeName, mainPersonaName),
+    calcNameSimilarity(activeName, mainMomentsName)
+  );
+  if(similarity >= 0.78) prob += 0.16;
+  if(similarity >= 0.9) prob += 0.1;
 
   if(intro.length >= 6) prob += 0.08;
   if(intro.length >= 14) prob += 0.06;
   if(/(你好|打扰了|谢谢|麻烦|希望|请|可以|想和你聊|很喜欢|久仰)/.test(intro)) prob += 0.07;
-  if(/(我就是|其实是我|你猜我是谁|小号|马甲|另一个号)/i.test(intro)) prob -= 0.1;
+  if(/(我就是|其实是我|你猜我是谁|小号|马甲|另一个号)/i.test(intro)) prob += 0.1;
+  if(c && /(熟悉|记得|认出来|妹妹|旧识|老朋友|认识很久)/.test(String(c.personality||'') + String(c.description||''))) prob += 0.04;
 
   prob = Math.max(0.06, Math.min(0.92, prob));
-  return Math.random() < prob;
+  return { accepted: Math.random() < prob, similarity: similarity };
 }
 
 function maybeAskFriendRequest(charId){
   if(!window.AccountManager || isDefaultAccount()) return;
   if(window.AccountManager.isFriend(charId)) return;
   pendingFriendCharId = charId || '';
+  pendingFriendResolve = null;
+  pendingFriendReject = null;
+  var intro = document.getElementById('friendReqIntro');
+  if(intro) intro.value = '';
+  var mask = document.getElementById('friendReqMask');
+  if(mask) mask.style.display = 'flex';
+}
+
+function askFriendRequestWithCallbacks(charId, onAccept, onReject){
+  pendingFriendCharId = charId || '';
+  pendingFriendResolve = typeof onAccept === 'function' ? onAccept : null;
+  pendingFriendReject = typeof onReject === 'function' ? onReject : null;
   var intro = document.getElementById('friendReqIntro');
   if(intro) intro.value = '';
   var mask = document.getElementById('friendReqMask');
@@ -594,11 +648,15 @@ function maybeAskFriendRequest(charId){
 }
 
 function cancelFriendReq(){
+  var rejectCb = pendingFriendReject;
   pendingFriendCharId = '';
+  pendingFriendResolve = null;
+  pendingFriendReject = null;
   var intro = document.getElementById('friendReqIntro');
   if(intro) intro.value = '';
   var mask = document.getElementById('friendReqMask');
   if(mask) mask.style.display = 'none';
+  if(rejectCb) rejectCb();
 }
 
 function confirmFriendReq(){
@@ -612,17 +670,31 @@ function confirmFriendReq(){
   setTimeout(function(){
     if(wait) wait.style.display = 'none';
     if(!charId){ pendingFriendCharId = ''; return; }
-    var accepted = evaluateFriendAcceptanceByChar(charId, intro);
-    if(!accepted){
+    var evalRes = evaluateFriendAcceptanceByChar(charId, intro);
+    if(!evalRes.accepted){
       var reject = document.getElementById('friendRejectMask');
       if(reject) reject.style.display = 'flex';
+      var rej = pendingFriendReject;
       pendingFriendCharId = '';
+      pendingFriendResolve = null;
+      pendingFriendReject = null;
+      if(rej) rej();
       return;
     }
     window.AccountManager.addFriend(charId);
+    try{
+      if(evalRes.similarity >= 0.78){
+        var acct = window.AccountManager.getActive();
+        localStorage.setItem('char_discovered_' + charId + '__acct_' + (acct ? acct.id : ''), '1');
+      }
+    }catch(e){}
+    var okCb = pendingFriendResolve;
     pendingFriendCharId = '';
+    pendingFriendResolve = null;
+    pendingFriendReject = null;
     log('好友申请已通过');
     renderList();
+    if(okCb) okCb();
   }, 920);
 }
 
@@ -630,6 +702,8 @@ function closeFriendReject(){
   var reject = document.getElementById('friendRejectMask');
   if(reject) reject.style.display = 'none';
   pendingFriendCharId = '';
+  pendingFriendResolve = null;
+  pendingFriendReject = null;
 }
 
 var avatarUpload = '';
@@ -923,7 +997,8 @@ function parseCard(jsonStr, imageData, filename) {
       spec_version: d.spec_version || '',
       imageData: imageData || null,
       msgMin: d.msg_min || 1,
-      msgMax: d.msg_max || 3
+      msgMax: d.msg_max || 3,
+      ownerAccountId: window.AccountManager ? ((window.AccountManager.getActive()||{}).id || '') : ''
     };
     if(card.imageData && card.imageData.length > 200000){
       console.warn('avatar still large after shrink, dropping imageData');
@@ -933,23 +1008,35 @@ function parseCard(jsonStr, imageData, filename) {
     // Auto-import character_book entries as world book
     if (charBook) autoImportWorldBook(card, charBook);
 
-    // Upsert: match by id (never by name to avoid cross-card collisions)
-    var existIdx = chars.findIndex(function(c){ return c.id === card.id; });
-  if (existIdx >= 0) {
-    var oldId = chars[existIdx].id;
-    card.id = oldId; // keep same id so chat history preserved
-    chars[existIdx] = card;
-    log('已更新: ' + card.name + (charBook ? ' (含世界书 ✓)' : ''));
-  } else {
-    chars.push(card);
-    log('已导入: ' + card.name + (charBook ? ' · 世界书已载入 ✓' : '') +
-        (card.alternate_greetings.length ? ' · ' + (card.alternate_greetings.length+1) + '条开场白' : ''));
-  }
+    function doImportNow(){
+      var existIdx = chars.findIndex(function(c){
+        return c && c.id === card.id && c.ownerAccountId === card.ownerAccountId;
+      });
+      if (existIdx >= 0) {
+        var oldId = chars[existIdx].id;
+        card.id = oldId;
+        chars[existIdx] = card;
+        log('已更新: ' + card.name + (charBook ? ' (含世界书 ✓)' : ''));
+      } else {
+        chars.push(card);
+        log('已导入: ' + card.name + (charBook ? ' · 世界书已载入 ✓' : '') +
+          (card.alternate_greetings.length ? ' · ' + (card.alternate_greetings.length+1) + '条开场白' : ''));
+      }
+      if(card.imageData){ saveStoredAsset('char_avatar_' + card.id, card.imageData); avatarAssetCache[card.id] = card.imageData; }
+      saveCharsWithFallback(card); updateCount(); renderList();
+      window.parent.postMessage({ type:'CHARACTER_IMPORTED', payload:card }, '*');
+    }
 
-    if(card.imageData){ saveStoredAsset('char_avatar_' + card.id, card.imageData); avatarAssetCache[card.id] = card.imageData; }
-    saveCharsWithFallback(card); updateCount(); renderList();
-    window.parent.postMessage({ type:'CHARACTER_IMPORTED', payload:card }, '*');
-    maybeAskFriendRequest(card.id);
+    if(window.AccountManager && !isDefaultAccount()){
+      askFriendRequestWithCallbacks(
+        card.id,
+        function(){ doImportNow(); },
+        function(){ log('好友申请被拒绝，角色未导入'); }
+      );
+      return;
+    }
+
+    doImportNow();
 
   } catch(e) {
     log('解析失败: ' + e.message);

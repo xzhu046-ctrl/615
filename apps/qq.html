@@ -100,6 +100,14 @@ var toastTimer = null;
 var LONG_PRESS_MS = 420;
 var avatarAssetCache = {};
 
+function accountScopedKey(base){
+  if(window.AccountManager){
+    window.AccountManager.ensure();
+    return window.AccountManager.scopedKey(base);
+  }
+  return base;
+}
+
 function loadStoredAsset(key){
   if(window.assetStore) return window.assetStore.load(key);
   try{ return Promise.resolve(localStorage.getItem(key) || ''); }catch(e){ return Promise.resolve(''); }
@@ -138,6 +146,22 @@ function loadChars(){
   if(window.AccountManager){
     window.AccountManager.ensure();
     var acct = window.AccountManager.getActive();
+    var defaultId = window.AccountManager.getDefaultId();
+    var changed = false;
+    chars = chars.map(function(c){
+      if(!c || typeof c !== 'object') return c;
+      if(!c.ownerAccountId){
+        c.ownerAccountId = defaultId || (acct && acct.id) || '';
+        changed = true;
+      }
+      return c;
+    });
+    if(changed){
+      try{ localStorage.setItem('characters', JSON.stringify(chars)); }catch(err){}
+    }
+    if(acct){
+      chars = chars.filter(function(c){ return c && c.ownerAccountId === acct.id; });
+    }
     if(acct && !acct.isDefault){
       var friendSet = new Set(Array.isArray(acct.friends) ? acct.friends : []);
       chars = chars.filter(function(c){ return friendSet.has(c.id); });
@@ -172,7 +196,7 @@ function unpinChat(id){
 }
 function lastMsgOf(c){
   try{
-    var saved=JSON.parse(localStorage.getItem('chat_'+c.id)||'null');
+    var saved=JSON.parse(localStorage.getItem(accountScopedKey('chat_'+c.id))||'null');
     var msgs=(saved&&saved.messages)||[];
     if(msgs.length) return normalizePreviewMessage(msgs[msgs.length-1]);
   }catch(e){}

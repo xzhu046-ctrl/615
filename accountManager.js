@@ -159,6 +159,15 @@
       'user_avatar_'
     ];
     try{
+      try{
+        var chars = JSON.parse(localStorage.getItem('characters') || '[]');
+        if(Array.isArray(chars)){
+          var nextChars = chars.filter(function(c){ return !c || c.ownerAccountId !== id; });
+          if(nextChars.length !== chars.length){
+            localStorage.setItem('characters', JSON.stringify(nextChars));
+          }
+        }
+      }catch(err){}
       for(var i=localStorage.length-1;i>=0;i--){
         var k = localStorage.key(i);
         if(!k) continue;

@@ -642,6 +642,21 @@ function getDefaultAccountName(){
   var d = (accounts || []).find(function(a){ return a.id === did; });
   return d ? (d.name || '') : '';
 }
+function getMainPersonaNameForChar(charId){
+  if(!window.AccountManager || !charId) return '';
+  var did = window.AccountManager.getDefaultId();
+  if(!did) return '';
+  return String(localStorage.getItem('user_name_' + charId + '__acct_' + did) || '').trim();
+}
+function getMainMomentsName(){
+  if(!window.AccountManager) return '';
+  var did = window.AccountManager.getDefaultId();
+  if(!did) return '';
+  return String(localStorage.getItem('qq_moments_bubble_name__acct_' + did) || '').trim();
+}
+function discoveredKey(charId){
+  return accountScopedKey('char_discovered_' + charId);
+}
 
 function accountScopedKey(base){
   if(window.AccountManager){
@@ -1425,17 +1440,21 @@ function evaluateFriendAcceptance(introText){
     activeName = (acct && acct.name) || '';
   }catch(e){}
   var defaultName = getDefaultAccountName();
-  var similarity = calcNameSimilarity(activeName, defaultName);
-  if(similarity >= 0.78) prob -= 0.14;
-  if(similarity >= 0.9) prob -= 0.08;
+  var similarity = Math.max(
+    calcNameSimilarity(activeName, defaultName),
+    calcNameSimilarity(activeName, getMainPersonaNameForChar(character && character.id)),
+    calcNameSimilarity(activeName, getMainMomentsName())
+  );
+  if(similarity >= 0.78) prob += 0.16;
+  if(similarity >= 0.9) prob += 0.1;
 
   if(intro.length >= 6) prob += 0.08;
   if(intro.length >= 14) prob += 0.06;
   if(/(你好|打扰了|谢谢|麻烦|希望|请|可以|想和你聊|很喜欢|久仰)/.test(intro)) prob += 0.07;
-  if(/(我就是|其实是我|你猜我是谁|小号|马甲|另一个号)/i.test(intro)) prob -= 0.1;
+  if(/(我就是|其实是我|你猜我是谁|小号|马甲|另一个号)/i.test(intro)) prob += 0.1;
 
   prob = Math.max(0.06, Math.min(0.92, prob));
-  return Math.random() < prob;
+  return { accepted: Math.random() < prob, similarity: similarity };
 }
 
 function openFriendRequestConfirm(){
@@ -1468,15 +1487,18 @@ function confirmFriendRequestFlow(){
   var intro = (document.getElementById('friendReqIntro')?.value || '').trim();
   try{ if(character && character.id) localStorage.setItem('pending_friend_req_intro_' + character.id, intro); }catch(e){}
   setTimeout(function(){
-    var accepted = evaluateFriendAcceptance(intro);
+    var evalRes = evaluateFriendAcceptance(intro);
     document.getElementById('friendReqWaiting')?.classList.remove('open');
-    if(!accepted){
+    if(!evalRes.accepted){
       document.getElementById('friendReqRejected')?.classList.add('open');
       needsFriendRequestGate = true;
       return;
     }
     if(window.AccountManager && character && character.id){
       window.AccountManager.addFriend(character.id);
+      if(evalRes.similarity >= 0.78){
+        localStorage.setItem(discoveredKey(character.id), '1');
+      }
     }
     needsFriendRequestGate = false;
     toast('已通过好友申请');
@@ -1729,11 +1751,31 @@ function restoreOrStartChat() {
 
 function getGreeting() {
   if (!character) return '';
+  var isDefault = true;
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      isDefault = !!(acct && acct.isDefault);
+    }
+  }catch(e){}
+  if(!isDefault){
+    var discovered = String(localStorage.getItem(discoveredKey(character.id)) || '') === '1';
+    if(!discovered) return '';
+  }
   var all = [];
   if (character.first_mes) all.push(character.first_mes);
   if (Array.isArray(character.alternate_greetings)) all = all.concat(character.alternate_greetings);
   if (!all.length) return '';
-  return all[Math.min(curGreetingIdx, all.length - 1)] || '';
+  var idx = curGreetingIdx;
+  if(!isDefault && window.AccountManager){
+    var did = window.AccountManager.getDefaultId();
+    if(did){
+      var mainIdxRaw = localStorage.getItem('greeting_idx_' + character.id + '__acct_' + did);
+      var mainIdx = parseInt(mainIdxRaw || '0');
+      if(!Number.isNaN(mainIdx)) idx = mainIdx;
+    }
+  }
+  return all[Math.min(idx, all.length - 1)] || '';
 }
 
 // ════════════════════════════════════════════
