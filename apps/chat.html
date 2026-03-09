@@ -570,6 +570,14 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
         </div>
         <div class="toggle-switch on" id="charBgToggle" onclick="toggleCharBgSwitch()"></div>
       </div>
+      <div style="margin-top:10px">
+        <span class="cs-label">朋友圈频率</span>
+        <select class="cs-input" id="csMomentsFreq">
+          <option value="low">低（克制）</option>
+          <option value="medium">中（默认）</option>
+          <option value="high">高（活跃）</option>
+        </select>
+      </div>
     </div>
 
     <div class="cs-card">
@@ -834,6 +842,7 @@ var MOMENTS_BUBBLE_NAME_KEY = 'qq_moments_bubble_name';
 var MOMENTS_DEFAULT_USER_NAME = '我哥天下第一好';
 var momentsIntentFromUser = null;
 var momentsLastActionAt = 0;
+var pendingMomentsChatCue = '';
 var needsFriendRequestGate = false;
 var blockAppealState = null;
 var pendingBlockTargetName = '';
@@ -844,6 +853,7 @@ var MIN_CONTEXT_WINDOW = 6;
 var MAX_CONTEXT_WINDOW = 120;
 var DEFAULT_SUMMARY_EVERY = 30;
 var DEFAULT_MEMORY_MERGE_THRESHOLD = 10;
+var DEFAULT_MOMENTS_FREQ = 'medium';
 var memorySummaryBusy = false;
 var pendingCharBgEnabled = null;
 var memoryEditingId = '';
@@ -1218,6 +1228,16 @@ function charBgEnabledKey(charId){
   return accountScopedKey('char_bg_activity_enabled_' + charId);
 }
 
+function charMomentsFreqKey(charId){
+  return accountScopedKey('char_moments_freq_' + charId);
+}
+
+function normalizeMomentsFreq(value){
+  var v = String(value || '').toLowerCase();
+  if(v === 'low' || v === 'high' || v === 'medium') return v;
+  return DEFAULT_MOMENTS_FREQ;
+}
+
 function loadCharBgEnabled(charId){
   if(!charId) return true;
   var key = charBgEnabledKey(charId);
@@ -1236,6 +1256,20 @@ function loadCharBgEnabled(charId){
 function saveCharBgEnabled(charId, enabled){
   if(!charId) return;
   try{ localStorage.setItem(charBgEnabledKey(charId), enabled ? '1' : '0'); }catch(e){}
+}
+
+function loadCharMomentsFreq(charId){
+  if(!charId) return DEFAULT_MOMENTS_FREQ;
+  try{
+    return normalizeMomentsFreq(localStorage.getItem(charMomentsFreqKey(charId)) || DEFAULT_MOMENTS_FREQ);
+  }catch(e){
+    return DEFAULT_MOMENTS_FREQ;
+  }
+}
+
+function saveCharMomentsFreq(charId, level){
+  if(!charId) return;
+  try{ localStorage.setItem(charMomentsFreqKey(charId), normalizeMomentsFreq(level)); }catch(e){}
 }
 
 function renderCharBgToggle(){
@@ -1427,6 +1461,133 @@ function writeMomentsPosts(posts){
   localStorage.setItem(momentStorageKey(MOMENTS_POSTS_KEY), JSON.stringify(Array.isArray(posts) ? posts : []));
 }
 
+function momentsSocialStateKey(){
+  return character && character.id ? accountScopedKey('moments_social_state_' + character.id) : '';
+}
+
+function loadMomentsSocialState(){
+  if(!character || !character.id) return { commentIds: [], likeKeys: [] };
+  try{
+    var raw = JSON.parse(localStorage.getItem(momentsSocialStateKey()) || '{}');
+    var commentIds = Array.isArray(raw.commentIds) ? raw.commentIds.map(String) : [];
+    var likeKeys = Array.isArray(raw.likeKeys) ? raw.likeKeys.map(String) : [];
+    return { commentIds: commentIds.slice(-300), likeKeys: likeKeys.slice(-300) };
+  }catch(e){
+    return { commentIds: [], likeKeys: [] };
+  }
+}
+
+function saveMomentsSocialState(state){
+  if(!character || !character.id) return;
+  var next = state || { commentIds: [], likeKeys: [] };
+  next.commentIds = Array.isArray(next.commentIds) ? next.commentIds.slice(-300) : [];
+  next.likeKeys = Array.isArray(next.likeKeys) ? next.likeKeys.slice(-300) : [];
+  try{ localStorage.setItem(momentsSocialStateKey(), JSON.stringify(next)); }catch(e){}
+}
+
+function getMomentsFreqProfile(){
+  var level = loadCharMomentsFreq(character && character.id);
+  if(level === 'low'){
+    return { level: level, cooldownMs: 36000, mentionPostChance: 0.3, moodPostChance: 0.34, idleLikeChance: 0.07 };
+  }
+  if(level === 'high'){
+    return { level: level, cooldownMs: 9000, mentionPostChance: 0.78, moodPostChance: 0.82, idleLikeChance: 0.22 };
+  }
+  return { level: 'medium', cooldownMs: 18000, mentionPostChance: 0.62, moodPostChance: 0.68, idleLikeChance: 0.16 };
+}
+
+function summarizeNames(list, maxN){
+  var arr = Array.from(new Set((list || []).map(function(v){ return String(v || '').trim(); }).filter(Boolean)));
+  if(!arr.length) return '';
+  var max = Math.max(1, maxN || 3);
+  var head = arr.slice(0, max);
+  if(arr.length > max) head.push('等' + arr.length + '人');
+  return head.join('、');
+}
+
+function processMomentsInteractionsOnTrigger(){
+  if(!character || !character.id) return '';
+  var aiName = getMomentsAiName();
+  var aiAvatar = getMomentsAiAvatar();
+  var posts = readMomentsPosts();
+  if(!Array.isArray(posts) || !posts.length) return '';
+  var state = loadMomentsSocialState();
+  var seenComment = new Set(state.commentIds || []);
+  var seenLike = new Set(state.likeKeys || []);
+  var freshComments = [];
+  var freshLikes = [];
+  posts.forEach(function(post){
+    if(!post) return;
+    if(String(post.authorName || '').trim() !== aiName) return;
+    var pid = String(post.id || '');
+    var comments = Array.isArray(post.comments) ? post.comments : [];
+    comments.forEach(function(c, idx){
+      if(!c) return;
+      var actor = String(c.name || '').trim();
+      if(!actor || actor === aiName) return;
+      var cid = String(c.id || ('idx_' + idx + '_' + (c.at || '0')));
+      var key = 'c:' + pid + ':' + cid;
+      if(seenComment.has(key)) return;
+      freshComments.push({ key: key, post: post, actor: actor, comment: c, at: Number(c.at || 0) || 0 });
+    });
+    var likes = Array.isArray(post.likes) ? post.likes : [];
+    likes.forEach(function(name){
+      var actor = String(name || '').trim();
+      if(!actor || actor === aiName) return;
+      var key = 'l:' + pid + ':' + actor;
+      if(seenLike.has(key)) return;
+      freshLikes.push({ key: key, post: post, actor: actor });
+    });
+  });
+  if(!freshComments.length && !freshLikes.length) return '';
+
+  var changed = false;
+  var mentionCommentNames = [];
+  freshComments.sort(function(a, b){ return (b.at || 0) - (a.at || 0); });
+  var replyBudget = 2;
+  freshComments.forEach(function(item){
+    seenComment.add(item.key);
+    if(replyBudget > 0 && Math.random() < 0.72){
+      var comments = Array.isArray(item.post.comments) ? item.post.comments : [];
+      comments.push({
+        id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        name: aiName,
+        avatar: aiAvatar,
+        replyToName: item.actor,
+        text: makeNaturalMomentComment(item.post.text || item.post.imageText || '', item.comment && item.comment.text ? item.comment.text : ''),
+        at: Date.now()
+      });
+      item.post.comments = comments;
+      changed = true;
+      replyBudget--;
+    }else{
+      mentionCommentNames.push(item.actor);
+    }
+  });
+
+  var mentionLikeNames = [];
+  freshLikes.forEach(function(item){
+    seenLike.add(item.key);
+    mentionLikeNames.push(item.actor);
+  });
+
+  state.commentIds = Array.from(seenComment).slice(-300);
+  state.likeKeys = Array.from(seenLike).slice(-300);
+  saveMomentsSocialState(state);
+  if(changed) writeMomentsPosts(posts);
+
+  var cues = [];
+  var cNames = summarizeNames(mentionCommentNames, 3);
+  if(cNames){
+    cues.push('朋友圈里 ' + cNames + ' 留了言，你已经看到了；若语境自然，可在聊天里顺带提起。');
+  }
+  var lNames = summarizeNames(mentionLikeNames, 4);
+  if(lNames){
+    cues.push('朋友圈里 ' + lNames + ' 点了赞；若语境自然，可轻描淡写提一句。');
+  }
+  return cues.join('\n');
+}
+
 function getMomentsUserName(){
   var fromAccount = '';
   if(window.AccountManager){
@@ -1608,6 +1769,7 @@ function isBlockedMemePayload(raw){
 
 function maybeRunAiMomentsFromChat(text, msgType){
   var now = Date.now();
+  var freq = getMomentsFreqProfile();
   var aiName = getMomentsAiName();
   var aiAvatar = getMomentsAiAvatar();
   var sig = getSignalsForMoments(text, msgType);
@@ -1632,10 +1794,10 @@ function maybeRunAiMomentsFromChat(text, msgType){
   if(sig.wantsPostDynamic) forcedPostType = 'dynamic';
   else if(sig.wantsPostSay && !forcedPostType) forcedPostType = 'say';
   if(!forceActions.length && pending && pending.mentionsMoments && !pending.wantsLike && !pending.wantsComment && !pending.wantsReply){
-    if(Math.random() < 0.62) forceActions.push('post');
+    if(Math.random() < freq.mentionPostChance) forceActions.push('post');
   }
 
-  if(!forceActions.length && now - momentsLastActionAt < 12000) return;
+  if(!forceActions.length && now - momentsLastActionAt < freq.cooldownMs) return;
 
   var posts = readMomentsPosts();
   if(!Array.isArray(posts)) return;
@@ -1707,10 +1869,10 @@ function maybeRunAiMomentsFromChat(text, msgType){
     changed = true;
   }
 
-  var shouldPostByMood = !forceActions.length && (sig.emotional || sig.reflective || sig.imageHint || (pending && (pending.emotional || pending.reflective))) && Math.random() < 0.68;
+  var shouldPostByMood = !forceActions.length && (sig.emotional || sig.reflective || sig.imageHint || (pending && (pending.emotional || pending.reflective))) && Math.random() < freq.moodPostChance;
   if(onlySocialAction) shouldPostByMood = false;
   if(shouldPostByMood) forceActions.push('post');
-  if(!forceActions.length && posts.length && Math.random() < 0.16) forceActions.push('like');
+  if(!forceActions.length && posts.length && Math.random() < freq.idleLikeChance) forceActions.push('like');
   if(!forceActions.length) return;
 
   if(forceActions.indexOf('post') !== -1) addPost();
@@ -2681,6 +2843,9 @@ function buildSystemPrompt() {
     }).join('\n');
     parts.push(['【历史记忆总结】', memText].join('\n'));
   }
+  if(pendingMomentsChatCue){
+    parts.push(['【朋友圈新互动】', pendingMomentsChatCue].join('\n'));
+  }
 
   var wbAll = [].concat(wbBefore, wbMid, wbAfter).join('\n\n');
   var curGreeting = getPromptGreeting();
@@ -3196,6 +3361,7 @@ async function triggerReply() {
     return;
   }
   hideError();
+  pendingMomentsChatCue = processMomentsInteractionsOnTrigger();
 
   isTyping = true;
   document.getElementById('genBtn').disabled = true;
@@ -3207,6 +3373,7 @@ async function triggerReply() {
     hideTyping();
     await deliverAiReply(reply);
     saveChat();
+    pendingMomentsChatCue = '';
   } catch(err) {
     hideTyping();
     var errMsg = err.message || String(err);
@@ -4409,6 +4576,8 @@ function openChatSettings() {
   document.getElementById('csContextWindow').value = loadContextWindowSize();
   document.getElementById('csSummaryEvery').value = loadSummaryEverySize();
   document.getElementById('csMemoryMergeThreshold').value = loadMemoryMergeThreshold();
+  var freqSel = document.getElementById('csMomentsFreq');
+  if(freqSel) freqSel.value = loadCharMomentsFreq(character && character.id);
   // Greetings (small account cannot pick opening lines)
   var greetingsCard = document.getElementById('greetingsCard');
   var canPickGreeting = true;
@@ -4568,6 +4737,7 @@ function saveChatSettings() {
   var cwin = parseInt(document.getElementById('csContextWindow').value || String(DEFAULT_CONTEXT_WINDOW), 10);
   var severy = parseInt(document.getElementById('csSummaryEvery').value || String(DEFAULT_SUMMARY_EVERY), 10);
   var mergeThreshold = parseInt(document.getElementById('csMemoryMergeThreshold').value || String(DEFAULT_MEMORY_MERGE_THRESHOLD), 10);
+  var momentsFreq = normalizeMomentsFreq(document.getElementById('csMomentsFreq').value || DEFAULT_MOMENTS_FREQ);
   localStorage.setItem(userKey('user_name'), un);
   localStorage.setItem(userKey('user_persona'), up);
   saveContextWindowSize(cwin);
@@ -4591,6 +4761,7 @@ function saveChatSettings() {
     if(pendingCharBgEnabled !== null){
       saveCharBgEnabled(character.id, pendingCharBgEnabled);
     }
+    saveCharMomentsFreq(character.id, momentsFreq);
     pendingCharBgEnabled = null;
   }
   chatSettingsSavedAtLeastOnce = true;
