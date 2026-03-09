@@ -990,17 +990,38 @@ function loadMemorySummaryStore(){
         createdAt: Number((it && it.createdAt) || Date.now()) || Date.now()
       };
     }).filter(function(it){ return !!it.text; });
+    var covered = computeMemoryCoveredFromItems(items);
+    var progressRaw = Math.max(0, Number(raw.progress || raw.covered || 0) || 0);
     return {
-      covered: Math.max(0, Number(raw.covered || 0) || 0),
+      covered: covered,
+      progress: Math.max(covered, progressRaw),
       items: items
     };
   }catch(e){
     return { covered: 0, items: [] };
   }
 }
+function computeMemoryCoveredFromItems(items){
+  var list = Array.isArray(items) ? items.slice() : [];
+  list.sort(function(a, b){
+    return (Number(a.from || 0) || 0) - (Number(b.from || 0) || 0);
+  });
+  var covered = 0;
+  for(var i=0;i<list.length;i++){
+    var it = list[i] || {};
+    var from = Math.max(0, Number(it.from || 0) || 0);
+    var to = Math.max(from, Number(it.to || 0) || 0);
+    if(from > covered) break;
+    if(to > covered) covered = to;
+  }
+  return Math.max(0, covered);
+}
 function saveMemorySummaryStore(store){
   if(!character) return;
   var next = store || { covered: 0, items: [] };
+  next.items = Array.isArray(next.items) ? next.items : [];
+  next.covered = computeMemoryCoveredFromItems(next.items);
+  next.progress = Math.max(next.covered, Number(next.progress || 0) || 0);
   try{ localStorage.setItem(memorySummaryKey(), JSON.stringify(next)); }catch(e){}
 }
 function clearMemorySummaries(){
@@ -1106,13 +1127,13 @@ async function maybeCreateMemorySummaries(){
   var summaryEvery = loadSummaryEverySize();
   if(summaryEvery < MIN_CONTEXT_WINDOW) return;
   var store = loadMemorySummaryStore();
-  var covered = Math.max(0, Math.min(store.covered || 0, chatLog.length));
-  if(chatLog.length - covered < summaryEvery) return;
+  var progress = Math.max(0, Math.min(store.progress || store.covered || 0, chatLog.length));
+  if(chatLog.length - progress < summaryEvery) return;
   memorySummaryBusy = true;
   try{
-    while(chatLog.length - covered >= summaryEvery){
-      var from = covered;
-      var to = covered + summaryEvery;
+    while(chatLog.length - progress >= summaryEvery){
+      var from = progress;
+      var to = progress + summaryEvery;
       var slice = chatLog.slice(from, to);
       if(!slice.length) break;
       var text = await generateMemorySummary(slice);
@@ -1125,8 +1146,8 @@ async function maybeCreateMemorySummaries(){
         createdAt: Date.now()
       };
       store.items.push(item);
-      covered = to;
-      store.covered = covered;
+      progress = to;
+      store.progress = progress;
       saveMemorySummaryStore(store);
     }
     store = await maybeCompactMemorySummaries(store);
@@ -1153,15 +1174,6 @@ function getVisibleChatForModel(){
   var tailStart = Math.max(0, chatLog.length - windowSize);
   var covered = Math.max(0, Math.min(chatLog.length, getMemoryCoveredCount()));
   var start = Math.max(tailStart, covered);
-  // Safety: always keep the latest user turn visible for reply generation.
-  // This avoids edge cases where summary coverage trims away fresh user input.
-  for(var i = chatLog.length - 1; i >= 0; i--){
-    if(chatLog[i] && chatLog[i].role === 'user'){
-      var forceStart = Math.max(0, i - 2);
-      start = Math.min(start, forceStart);
-      break;
-    }
-  }
   return chatLog.slice(start);
 }
 function loadInnerVoiceStore(){
