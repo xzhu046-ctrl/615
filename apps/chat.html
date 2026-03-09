@@ -1534,6 +1534,11 @@ function init() {
     if(isDefaultAccountContext()){
       var ac = localStorage.getItem('activeCharacter');
       if (ac) try { character = JSON.parse(ac); } catch(e){}
+    }else{
+      try{
+        var scopedAc = localStorage.getItem(accountScopedKey('activeCharacter'));
+        if(scopedAc) character = JSON.parse(scopedAc);
+      }catch(e){}
     }
   }
   ensureMsgRange();
@@ -1619,6 +1624,15 @@ function makeWbBookKey(bucketKey, wb, idx) {
   return [bucketKey || '', (wb && wb.id) || ('wb_' + idx), (wb && wb.name) || '世界书'].join('::');
 }
 
+function isWbEntryEnabled(entry){
+  if(!entry) return false;
+  if(entry.enabled === false) return false;
+  if(entry.active === false) return false;
+  if(entry.disabled === true) return false;
+  if(entry.disable === true) return false;
+  return true;
+}
+
 function getApplicableWorldBooks() {
   if (!character) return [];
   var allWbs = {};
@@ -1631,7 +1645,7 @@ function getApplicableWorldBooks() {
       var isRoleBook = bucketKey === character.id;
       var isGlobalBook = !!wb.global;
       if (!isRoleBook && !isGlobalBook) return;
-      var entries = (wb.entries || []).filter(function(e) { return e && e.enabled; });
+      var entries = (wb.entries || []).filter(function(e) { return isWbEntryEnabled(e); });
       var key = makeWbBookKey(bucketKey, wb, idx);
       var enabled = savedStates[key];
       books.push({
@@ -1702,7 +1716,7 @@ function loadWorldBook() {
     wbBooks.forEach(function(book) {
       if (!book.enabled) return;
       book.entries.forEach(function(e) {
-        wbEntries.push(e);
+        if(isWbEntryEnabled(e)) wbEntries.push(e);
       });
     });
   } catch(e) {
@@ -2870,10 +2884,17 @@ function persistCharacter(){
   if(!character) return;
   try{
     var list = JSON.parse(localStorage.getItem('characters') || '[]');
-    var idx = list.findIndex(function(c){ return c.id === character.id; });
+    var activeAcctId = '';
+    try{ if(window.AccountManager) activeAcctId = (window.AccountManager.getActive()||{}).id || ''; }catch(err){}
+    var idx = list.findIndex(function(c){
+      if(!c || c.id !== character.id) return false;
+      if(!activeAcctId) return true;
+      return c.ownerAccountId === activeAcctId;
+    });
     if(idx >= 0){ list[idx] = character; localStorage.setItem('characters', JSON.stringify(list)); }
     var slim = compactChar(character);
     if(slim && isDefaultAccountContext()) localStorage.setItem('activeCharacter', JSON.stringify(slim));
+    if(slim) localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim));
   }catch(e){}
 }
 
@@ -2998,6 +3019,7 @@ window.addEventListener('message', function(e) {
     if(isDefaultAccountContext()){
       localStorage.setItem('activeCharacter', JSON.stringify(character));
     }
+    try{ localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(character)); }catch(err){}
     ensureMsgRange();
     curGreetingIdx = parseInt(localStorage.getItem(greetingStorageKey(character.id)) || '0');
     updateHeader();
