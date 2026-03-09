@@ -5084,10 +5084,22 @@ function onUserImg(file) {
     var av = document.getElementById('csUserAvatar');
     av.innerHTML = '<img src="' + d + '"><div class="avatar-pick-hint">换头像</div>';
     saveStoredAsset(userKey('user_avatar'), d);
+    if(character && character.id) saveStoredAsset('user_avatar_' + character.id, d);
     refreshUserAvatars();
     postSettingsPreviewSync();
   };
   r.readAsDataURL(file);
+}
+
+function postToShell(msg){
+  try{ if(window.parent) window.parent.postMessage(msg, '*'); }catch(e){}
+  try{ if(window.top && window.top !== window.parent) window.top.postMessage(msg, '*'); }catch(e){}
+}
+
+function persistActiveCharacterSnapshot(slim){
+  if(!slim) return;
+  try{ localStorage.setItem('activeCharacter', JSON.stringify(slim)); }catch(e){}
+  try{ localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim)); }catch(e){}
 }
 
 function postSettingsPreviewSync(){
@@ -5107,13 +5119,16 @@ function postSettingsPreviewSync(){
   var userAvatar = String((userImg && userImg.src) || '').trim();
   if(!(userAvatar && userAvatar.startsWith('data:'))) userAvatar = '';
   var slim = compactChar(draft);
-  try{ window.parent.postMessage({ type:'SET_ACTIVE_CHARACTER', payload: slim }, '*'); }catch(e){}
-  try{
-    window.parent.postMessage({
-      type:'BOND_WIDGET_PREVIEW',
-      payload:{ char: slim, userName: userName, userAvatar: userAvatar }
-    }, '*');
-  }catch(e){}
+  persistActiveCharacterSnapshot(slim);
+  if(character && character.id){
+    try{ localStorage.setItem('user_name_' + character.id, userName); }catch(e){}
+    if(userAvatar) saveStoredAsset('user_avatar_' + character.id, userAvatar);
+  }
+  postToShell({ type:'SET_ACTIVE_CHARACTER', payload: slim });
+  postToShell({
+    type:'BOND_WIDGET_PREVIEW',
+    payload:{ char: slim, userName: userName, userAvatar: userAvatar }
+  });
 }
 
 function saveChatSettings() {
@@ -5131,6 +5146,7 @@ function saveChatSettings() {
   var momentsFreq = normalizeMomentsFreq(document.getElementById('csMomentsFreq').value || DEFAULT_MOMENTS_FREQ);
   localStorage.setItem(userKey('user_name'), un);
   localStorage.setItem(userKey('user_persona'), up);
+  if(character && character.id) localStorage.setItem('user_name_' + character.id, un);
   saveContextWindowSize(cwin);
   saveSummaryEverySize(severy);
   saveManualSummarySize(manualSize);
@@ -5143,7 +5159,9 @@ function saveChatSettings() {
     character.msgMax = isFinite(cmx) && cmx>=character.msgMin ? cmx : Math.max(character.msgMin,3);
     updateHeader();
     persistCharacter();
-    try{ window.parent.postMessage({type:'SET_ACTIVE_CHARACTER', payload: compactChar(character)}, '*'); }catch(e){}
+    var slim = compactChar(character);
+    persistActiveCharacterSnapshot(slim);
+    postToShell({type:'SET_ACTIVE_CHARACTER', payload: slim});
     localStorage.setItem(getWbEnabledKey(), wbEnabled ? 'true' : 'false');
     var nextStates = {};
     wbBooks.forEach(function(book){ nextStates[book.key] = !!book.enabled; });
