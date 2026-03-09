@@ -262,6 +262,19 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .mem-editor-input{width:100%;border:var(--bd);border-radius:12px;min-height:120px;padding:10px;font-family:var(--font);font-size:12px;font-weight:700;line-height:1.6;resize:none;outline:none;background:var(--off)}
 .mem-editor-input:focus{box-shadow:2px 2px 0 var(--b)}
 .mem-editor-actions{display:flex;gap:8px}
+.inner-voice-overlay{position:fixed;inset:0;z-index:240;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(255,255,255,.4);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.inner-voice-overlay.open{display:flex}
+.inner-voice-card{width:min(380px,100%);max-height:min(82vh,700px);background:var(--w);border:var(--bd);border-radius:18px;box-shadow:var(--sh);overflow:hidden;display:flex;flex-direction:column}
+.inner-voice-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:var(--bd)}
+.inner-voice-head-left{display:flex;align-items:center;gap:6px}
+.inner-voice-mini{width:28px;height:28px;border:var(--bd);border-radius:999px;background:var(--w);color:var(--b);font-weight:900;font-size:13px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:1px 1px 0 var(--b)}
+.inner-voice-mini:active{transform:translate(1px,1px);box-shadow:0 0 0}
+.inner-voice-title{font-family:var(--fontd);font-size:13px;font-weight:900}
+.inner-voice-body{padding:12px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.inner-voice-box{border:var(--bd);border-radius:12px;padding:10px 12px;font-size:12px;font-weight:700;line-height:1.7;white-space:pre-wrap}
+.inner-voice-box.normal{background:#fff;color:var(--b)}
+.inner-voice-box.desire{background:#505050;color:#fff;border-color:#2f2f2f}
+.inner-voice-meta{font-size:10px;color:var(--g);font-weight:800}
 
 /* greeting selector */
 .greeting-list{display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto}
@@ -740,6 +753,19 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
   </div>
 </div>
 
+<div class="inner-voice-overlay" id="innerVoiceOverlay">
+  <div class="inner-voice-card">
+    <div class="inner-voice-head">
+      <div class="inner-voice-head-left">
+        <button class="inner-voice-mini" type="button" onclick="toggleInnerVoiceHistory()" title="历史心声">🕘</button>
+      </div>
+      <div class="inner-voice-title" id="innerVoiceTitle">心声</div>
+      <button class="inner-voice-mini" type="button" onclick="closeInnerVoiceOverlay()">×</button>
+    </div>
+    <div class="inner-voice-body" id="innerVoiceBody"></div>
+  </div>
+</div>
+
 <div class="confirm-overlay" id="userReAddOverlay">
   <div class="confirm-card">
     <div class="confirm-title">发送好友申请</div>
@@ -807,12 +833,16 @@ var memorySummaryBusy = false;
 var pendingCharBgEnabled = null;
 var memoryEditingId = '';
 var chatSettingsSavedAtLeastOnce = false;
+var innerVoiceHistoryMode = false;
 
 function contextWindowKey(){
   return character && character.id ? accountScopedKey('ctx_window_' + character.id) : '';
 }
 function memorySummaryKey(){
   return character && character.id ? accountScopedKey('memory_summaries_' + character.id) : '';
+}
+function innerVoiceKey(){
+  return character && character.id ? accountScopedKey('inner_voice_' + character.id) : '';
 }
 function summaryEveryKey(){
   return character && character.id ? accountScopedKey('summary_every_' + character.id) : '';
@@ -931,18 +961,23 @@ function fallbackMetaSummaryText(items){
   return '本阶段聊天记忆显示，' + joined;
 }
 async function generateMemorySummary(slice){
-  var userPrompt = [
-    '请只返回一段纯文本总结，不要标题，不要编号，不要额外解释。',
-    '总结范围是以下聊天记录：',
-    buildMemorySummaryPromptLines(slice)
-  ].join('\n\n');
-  var systemPrompt = [
-    '你是“聊天记忆压缩器”。',
-    '必须使用第三人称，不使用第一人称或第二人称。',
-    '必须保持中性客观，不带任何个人情感色彩。',
-    '完整且精简地描述发生过的事情与对话进展，保留有意义细节，不啰嗦，也不过度压缩。',
-    '不要捏造未出现的信息，不要输出建议。'
-  ].join('\n');
+  var promptLines = buildMemorySummaryPromptLines(slice);
+  var systemPrompt = (promptManager && typeof promptManager.memorySummarySystemPrompt === 'function')
+    ? promptManager.memorySummarySystemPrompt()
+    : [
+      '你是“聊天记忆压缩器”。',
+      '必须使用第三人称，不使用第一人称或第二人称。',
+      '必须保持中性客观，不带任何个人情感色彩。',
+      '完整且精简地描述发生过的事情与对话进展，保留有意义细节，不啰嗦，也不过度压缩。',
+      '不要捏造未出现的信息，不要输出建议。'
+    ].join('\n');
+  var userPrompt = (promptManager && typeof promptManager.memorySummaryUserPrompt === 'function')
+    ? promptManager.memorySummaryUserPrompt(promptLines)
+    : [
+      '请只返回一段纯文本总结，不要标题，不要编号，不要额外解释。',
+      '总结范围是以下聊天记录：',
+      promptLines
+    ].join('\n\n');
   try{
     var raw = await callAIWithCustomPrompts(systemPrompt, userPrompt);
     var txt = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
@@ -955,18 +990,22 @@ async function generateMemoryMetaSummary(items){
   var lines = (items || []).map(function(it, idx){
     return (idx + 1) + '. ' + String((it && it.text) || '').replace(/\s+/g, ' ').trim();
   }).join('\n');
-  var userPrompt = [
-    '请只返回一段纯文本总结，不要标题，不要编号，不要额外解释。',
-    '请将以下“记忆总结列表”再压缩为一条新的总记忆：',
-    lines
-  ].join('\n\n');
-  var systemPrompt = [
-    '你是“聊天记忆压缩器”。',
-    '必须使用第三人称，不使用第一人称或第二人称。',
-    '必须保持中性客观，不带任何个人情感色彩。',
-    '完整且精简地描述发生过的事情与对话进展，保留有意义细节，不啰嗦，也不过度压缩。',
-    '不要捏造未出现的信息，不要输出建议。'
-  ].join('\n');
+  var systemPrompt = (promptManager && typeof promptManager.memorySummarySystemPrompt === 'function')
+    ? promptManager.memorySummarySystemPrompt()
+    : [
+      '你是“聊天记忆压缩器”。',
+      '必须使用第三人称，不使用第一人称或第二人称。',
+      '必须保持中性客观，不带任何个人情感色彩。',
+      '完整且精简地描述发生过的事情与对话进展，保留有意义细节，不啰嗦，也不过度压缩。',
+      '不要捏造未出现的信息，不要输出建议。'
+    ].join('\n');
+  var userPrompt = (promptManager && typeof promptManager.memoryMetaSummaryUserPrompt === 'function')
+    ? promptManager.memoryMetaSummaryUserPrompt(lines)
+    : [
+      '请只返回一段纯文本总结，不要标题，不要编号，不要额外解释。',
+      '请将以下“记忆总结列表”再压缩为一条新的总记忆：',
+      lines
+    ].join('\n\n');
   try{
     var raw = await callAIWithCustomPrompts(systemPrompt, userPrompt);
     var txt = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
@@ -1049,6 +1088,39 @@ function getVisibleChatForModel(){
   var covered = Math.max(0, Math.min(chatLog.length, getMemoryCoveredCount()));
   var start = Math.max(tailStart, covered);
   return chatLog.slice(start);
+}
+function loadInnerVoiceStore(){
+  if(!character) return { current: null, items: [] };
+  try{
+    var raw = JSON.parse(localStorage.getItem(innerVoiceKey()) || '{}');
+    var items = Array.isArray(raw.items) ? raw.items : [];
+    items = items.map(function(it){
+      return {
+        id: String((it && it.id) || ''),
+        normal: String((it && it.normal) || '').trim(),
+        desire: String((it && it.desire) || '').trim(),
+        at: Number((it && it.at) || Date.now()) || Date.now()
+      };
+    }).filter(function(it){ return it.normal || it.desire; });
+    var current = raw.current && typeof raw.current === 'object' ? {
+      id: String(raw.current.id || ''),
+      normal: String(raw.current.normal || '').trim(),
+      desire: String(raw.current.desire || '').trim(),
+      at: Number(raw.current.at || Date.now()) || Date.now()
+    } : (items.length ? items[items.length - 1] : null);
+    return { current: current, items: items };
+  }catch(e){
+    return { current: null, items: [] };
+  }
+}
+function saveInnerVoiceStore(store){
+  if(!character) return;
+  var next = store || { current: null, items: [] };
+  try{ localStorage.setItem(innerVoiceKey(), JSON.stringify(next)); }catch(e){}
+}
+function clearInnerVoiceStore(){
+  if(!character) return;
+  try{ localStorage.removeItem(innerVoiceKey()); }catch(e){}
 }
 
 function normalizeNameLite(v){
@@ -2597,6 +2669,9 @@ function buildSystemPrompt() {
 
   var wbAll = [].concat(wbBefore, wbMid, wbAfter).join('\n\n');
   var curGreeting = getPromptGreeting();
+  var policyBundle = (promptManager && typeof promptManager.chatPolicyBundle === 'function')
+    ? promptManager.chatPolicyBundle()
+    : {};
   var pmPrompt = (promptManager.singleChatPrompt ? promptManager.singleChatPrompt({
     originalName: character ? character.name : '角色',
     nickname: character ? (character.nickname || '') : '',
@@ -2607,16 +2682,8 @@ function buildSystemPrompt() {
     greeting: curGreeting,
     msgMin: character ? (character.msgMin || 1) : 1,
     msgMax: character ? (character.msgMax || 3) : 3,
-    momentsPolicy: [
-      '你可以发说说/动态/点赞/评论/回复；不要说“不能发朋友圈”。',
-      '按语境自主选择动作，不要频繁刷屏；评论/点赞/回复与发帖要区分。',
-      '动态图片相关内容必须是图像描述，不能用普通聊天句代替。'
-    ].join('\n'),
-    blockPolicy: [
-      '你具备拉黑/解除拉黑/好友申请能力，按人设与关系边界自主决定。',
-      '越界辱骂或持续冒犯可拉黑；用户明确要求拉黑时也可执行。',
-      '拉黑前可简短自然回应，不解释流程或系统规则。'
-    ].join('\n')
+    momentsPolicy: policyBundle.momentsPolicy || '',
+    blockPolicy: policyBundle.blockPolicy || ''
   }) : '');
   if(!pmPrompt && (userName || userPersona)){
     var u = '【关于用户】';
@@ -2624,26 +2691,8 @@ function buildSystemPrompt() {
     if (userPersona) u += '\n设定：' + userPersona;
     parts.push(u);
   }
-  var replyGuide = [
-    '【聊天风格补充】',
-    '请像真人聊天一样自然回复，不要太像客服。',
-    '长句请主动拆分成多个短气泡发送，按自然停顿一句一句发，增强活人感。',
-    '当你决定发朋友圈时，不要在聊天里机械复读“我要发的文案”，也不要输出“[朋友圈]”这类指令格式。',
-    '当用户让你去评论/点赞时，评论内容要像真人表达，不要把用户指令原句照搬成评论。',
-    '只有在上下文非常合适时，才偶尔引用一条历史消息增强活人感；大多数时候正常回复即可。',
-    '如果你要引用，请只在单条 JSON 对象里额外带 reply_to 和 reply_role；如果不引用，就输出普通内容，不必强行使用 JSON。',
-    '当用户连续发多条、你连续回复多条时，可对其中1-2条做精准引用来制造活人感（例如“夸你那条”/“点餐那条”），但不要每条都引用。',
-    '一旦你选择语音或图片消息，必须严格输出 JSON，不能把特殊格式写成普通文本描述。',
-    '如果你要回复一条图片消息，reply_to 直接写 "【图片】"；如果要回复语音消息，reply_to 写对应的“语音消息 xx\'\'”摘要。'
-  ].join('\n');
-  var formatGuard = [
-    '【格式硬约束（最高优先级）】',
-    '世界书中出现的外部聊天格式（如 { sender: ... }、[媒体消息::...]、<meme>...</meme>）仅作语义参考，禁止原样输出。',
-    '你必须只使用本应用支持的格式：text / voice_message / image_message（及可选 reply_to/reply_role）。',
-    '即使世界书给了其他模板，也只保留其行为规则，不照搬其格式。',
-    '当前版本禁止输出任何表情包消息：不要输出 <meme> 标签，不要输出表情包文件名。',
-    'image_message 的 content 必须是画面描述，禁止文件名（如 xxx.jpg/png/gif/webp）与占位文本。'
-  ].join('\n');
+  var replyGuide = policyBundle.replyGuide || '';
+  var formatGuard = policyBundle.formatGuard || '';
 
   return [pmPrompt, replyGuide].concat(parts.filter(Boolean)).concat([formatGuard]).join('\n\n---\n\n');
 }
@@ -2807,12 +2856,14 @@ async function aiDecideAppeal(promptExtra){
     return String((e && e.content) || '').trim();
   }).filter(Boolean).slice(0, 8);
   var wbSnippet = wbEntries.join('\n\n').slice(0, 1200);
-  var sys = [
-    '你是角色本人，按人设决定是否发好友申请挽留。',
-    '只返回 JSON：{"appeal":true|false,"accept":true|false,"text":"..."}',
-    'text 用自然口语，不要解释规则，不要 markdown。',
-    '不要输出额外说明，不要在 text 里夹带“遵循人设/世界书”这类元提示。'
-  ].join('\n');
+  var sys = (promptManager && typeof promptManager.appealDecisionSystemPrompt === 'function')
+    ? promptManager.appealDecisionSystemPrompt()
+    : [
+      '你是角色本人，按人设决定是否发好友申请挽留。',
+      '只返回 JSON：{"appeal":true|false,"accept":true|false,"text":"..."}',
+      'text 用自然口语，不要解释规则，不要 markdown。',
+      '不要输出额外说明，不要在 text 里夹带“遵循人设/世界书”这类元提示。'
+    ].join('\n');
   if(promptManager && typeof promptManager.appealPolicy === 'function'){
     sys += '\n\n' + promptManager.appealPolicy({
       originalName: character.name || '角色',
@@ -3290,6 +3341,12 @@ function addMessage(role, content, doScroll, msgType, msgId) {
     loadStoredAsset('char_avatar_' + (character.id || '')).then(function(ovr){
       if (ovr && ovr.startsWith('data:')) av.innerHTML = '<img src="' + ovr + '">';
     });
+    av.style.cursor = 'pointer';
+    av.addEventListener('click', function(evt){
+      evt.stopPropagation();
+      if(multiSelectMode || editingMessageId) return;
+      openInnerVoiceOverlay();
+    });
   } else if (viewRole === 'user') {
     av.textContent = '+';
     loadStoredAsset(userKey('user_avatar')).then(function(uav){
@@ -3565,6 +3622,10 @@ var _mdc = document.getElementById('multiDeleteConfirm');
   if(_memEdit){
     _memEdit.addEventListener('click', function(e){ if(e.target === _memEdit) closeMemoryEditor(); });
   }
+  var _ivoInner = document.getElementById('innerVoiceOverlay');
+  if(_ivoInner){
+    _ivoInner.addEventListener('click', function(e){ if(e.target === _ivoInner) closeInnerVoiceOverlay(); });
+  }
   var _bwo = document.getElementById('blockedWallOverlay');
   if(_bwo){
     _bwo.addEventListener('click', function(e){
@@ -3755,6 +3816,116 @@ function deleteMemoryItem(id){
   toast('记忆已删除');
 }
 
+function renderInnerVoiceOverlay(){
+  var title = document.getElementById('innerVoiceTitle');
+  var body = document.getElementById('innerVoiceBody');
+  if(!title || !body) return;
+  var store = loadInnerVoiceStore();
+  if(innerVoiceHistoryMode){
+    title.textContent = '全部心声';
+    if(!store.items.length){
+      body.innerHTML = '<div class="mem-empty">暂无历史心声。</div>';
+      return;
+    }
+    body.innerHTML = store.items.slice().reverse().map(function(it){
+      return '<div class="inner-voice-meta">' + esc(new Date(it.at || Date.now()).toLocaleString()) + '</div>' +
+        '<div class="inner-voice-box normal">' + esc(it.normal || '（空）') + '</div>' +
+        '<div class="inner-voice-box desire">' + esc(it.desire || '（空）') + '</div>';
+    }).join('');
+    return;
+  }
+  title.textContent = '心声';
+  if(!store.current){
+    body.innerHTML = '<div class="mem-empty">暂无心声，等角色回复后会自动刷新。</div>';
+    return;
+  }
+  body.innerHTML = '<div class="inner-voice-box normal">' + esc(store.current.normal || '（空）') + '</div>' +
+    '<div class="inner-voice-box desire">' + esc(store.current.desire || '（空）') + '</div>' +
+    '<div class="inner-voice-meta">每次角色回复后会刷新</div>';
+}
+
+function openInnerVoiceOverlay(){
+  innerVoiceHistoryMode = false;
+  renderInnerVoiceOverlay();
+  document.getElementById('innerVoiceOverlay')?.classList.add('open');
+}
+function closeInnerVoiceOverlay(){
+  document.getElementById('innerVoiceOverlay')?.classList.remove('open');
+}
+function toggleInnerVoiceHistory(){
+  innerVoiceHistoryMode = !innerVoiceHistoryMode;
+  renderInnerVoiceOverlay();
+}
+
+function parseInnerVoiceResult(raw){
+  var txt = String(raw || '').trim();
+  if(!txt) return null;
+  if(txt.startsWith('```')){
+    txt = txt.replace(/^```[a-zA-Z]*\s*/,'');
+    if(txt.endsWith('```')) txt = txt.slice(0,-3);
+    txt = txt.trim();
+  }
+  try{
+    var obj = JSON.parse(txt);
+    if(obj && typeof obj === 'object'){
+      return {
+        normal: String(obj.normal || obj.thought || '').trim(),
+        desire: String(obj.desire || obj.dark || '').trim()
+      };
+    }
+  }catch(e){}
+  return null;
+}
+
+async function refreshInnerVoiceFromAi(seedText){
+  if(!character) return;
+  var policyBundle = (promptManager && typeof promptManager.chatPolicyBundle === 'function')
+    ? promptManager.chatPolicyBundle()
+    : {};
+  var baseSys = policyBundle.innerVoiceSystem || [
+    '你是角色本人的“内心独白生成器”。',
+    '仅返回 JSON：{"normal":"...","desire":"..."}，不要 markdown，不要解释。',
+    'normal：写角色当下正常内心想法，简短自然。',
+    'desire：写角色不受道德约束的隐秘欲望，允许大胆直白，但仍需与当前关系和对话相关。',
+    '不要复读用户原句，不要输出文件名，不要输出空字符串。'
+  ].join('\n');
+  var shortHistory = chatLog.slice(-8).map(function(m){
+    return (m.role === 'user' ? '用户' : '角色') + '：' + String(m.content || '').replace(/\s+/g, ' ').trim();
+  }).join('\n');
+  var userPrompt = (promptManager && typeof promptManager.innerVoiceUserPrompt === 'function')
+    ? promptManager.innerVoiceUserPrompt({
+      name: character.nickname || character.name || '角色',
+      persona: character.personality || character.description || '',
+      history: shortHistory,
+      latestReply: seedText || ''
+    })
+    : [
+      '角色名：' + (character.nickname || character.name || '角色'),
+      '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
+      shortHistory ? ('最近对话：\n' + shortHistory) : '最近对话：无',
+      seedText ? ('本轮角色回复：' + seedText) : ''
+    ].join('\n\n');
+  try{
+    var raw = await callAIWithCustomPrompts(baseSys, userPrompt);
+    var parsed = parseInnerVoiceResult(raw);
+    if(!parsed) return;
+    if(!parsed.normal || !parsed.desire) return;
+    var item = {
+      id: 'iv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+      normal: parsed.normal,
+      desire: parsed.desire,
+      at: Date.now()
+    };
+    var store = loadInnerVoiceStore();
+    store.current = item;
+    store.items = (store.items || []).concat([item]).slice(-120);
+    saveInnerVoiceStore(store);
+    if(document.getElementById('innerVoiceOverlay')?.classList.contains('open')){
+      renderInnerVoiceOverlay();
+    }
+  }catch(e){}
+}
+
 function openClearChatConfirm(){
   document.getElementById('clearChatConfirmOverlay')?.classList.add('open');
 }
@@ -3772,6 +3943,7 @@ function clearChatData(opts){
   chatLog = [];
   if (character) localStorage.removeItem(chatStorageKey(character.id));
   if(options.clearMemory) clearMemorySummaries();
+  if(options.clearMemory) clearInnerVoiceStore();
   var msgs = document.getElementById('messages');
   msgs.innerHTML = '';
   if(options.keepGreeting){
@@ -4435,6 +4607,7 @@ async function deliverAiReply(text){
   }
   if(!parts.length) parts = [{text:String(text||'(空消息)'), t:'text'}];
   var sentCount = 0;
+  var sentTexts = [];
   var autoReplyMax = Math.min(2, Math.max(0, Math.floor(parts.length / 2)));
   var autoReplyCount = 0;
   var usedReplyTargets = new Set();
@@ -4463,6 +4636,10 @@ async function deliverAiReply(text){
     }
     chatLog.push(entry);
     addMessage('ai', p.text, true, t, entry.id);
+    if(t === 'text'){
+      var line = String(p.text || '').trim();
+      if(line) sentTexts.push(line);
+    }
     sentCount++;
     maybeAutoBlockByChar(p.text);
     maybeRunAiMomentsFromChat(p.text, t);
@@ -4475,6 +4652,10 @@ async function deliverAiReply(text){
     var fallbackEntry = makeChatEntry('assistant', '收到', 'text');
     chatLog.push(fallbackEntry);
     addMessage('ai', fallbackEntry.content, true, 'text', fallbackEntry.id);
+    sentTexts.push(fallbackEntry.content);
+  }
+  if(sentTexts.length){
+    refreshInnerVoiceFromAi(sentTexts.join(' / '));
   }
   updateBlockedUi();
 }
@@ -4498,6 +4679,9 @@ window.addEventListener('message', function(e) {
     }
     chatLog.push(incoming);
     addMessage('ai', incoming.content, true, incoming.type, incoming.id);
+    if(incoming.role === 'assistant' && normalizeMessageType(incoming.type || 'text') === 'text'){
+      refreshInnerVoiceFromAi(String(incoming.content || '').trim());
+    }
     saveChat();
     return;
   }
