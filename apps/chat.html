@@ -1110,11 +1110,24 @@ function makeNaturalMomentComment(seed, aiText){
 function sanitizeAssistantTextForChat(raw){
   var t = String(raw || '').trim();
   if(!t) return t;
+  if(isBlockedMemePayload(t)) return '';
+  t = t.replace(/<\s*meme\s*>[\s\S]*?<\s*\/\s*meme\s*>/ig, '');
+  t = t.replace(/^\s*<\s*meme\s*>[\s\S]*$/ig, '');
+  t = t.replace(/^[a-z0-9_\-\u4e00-\u9fa5]+\.(png|jpe?g|gif|webp)\s*$/ig, '');
   t = t.replace(/^\s*\[(朋友圈|说说|动态|评论|点赞|回复)\]\s*/ig, '');
   t = t.replace(/^\s*(我来|我去|我会|我帮你)\s*(发|写|评论|点赞|回复)[^，。！？!?\n]*[，。！？!?\s]*/i, '');
   t = t.replace(/我(没法|不能|无法)(发|写).{0,8}(朋友圈|说说|动态)/g, '我记下来了');
   t = t.trim();
   return t || '嗯，记下了。';
+}
+
+function isBlockedMemePayload(raw){
+  var t = String(raw || '').trim();
+  if(!t) return false;
+  if(/<\s*\/?\s*meme\s*>/i.test(t)) return true;
+  if(/^\s*[a-z0-9_\-\u4e00-\u9fa5]+\.(png|jpe?g|gif|webp)\s*$/i.test(t)) return true;
+  if(/^\s*\[(表情包|meme)\s*[:：]/i.test(t)) return true;
+  return false;
 }
 
 function maybeRunAiMomentsFromChat(text, msgType){
@@ -2197,7 +2210,8 @@ function buildSystemPrompt() {
     '【格式硬约束（最高优先级）】',
     '世界书中出现的外部聊天格式（如 { sender: ... }、[媒体消息::...]、<meme>...</meme>）仅作语义参考，禁止原样输出。',
     '你必须只使用本应用支持的格式：text / voice_message / image_message（及可选 reply_to/reply_role）。',
-    '即使世界书给了其他模板，也只保留其行为规则，不照搬其格式。'
+    '即使世界书给了其他模板，也只保留其行为规则，不照搬其格式。',
+    '当前版本禁止输出任何表情包消息：不要输出 <meme> 标签，不要输出表情包文件名。'
   ].join('\n');
 
   return [pmPrompt, replyGuide].concat(parts.filter(Boolean)).concat([formatGuard]).join('\n\n---\n\n');
@@ -3768,22 +3782,31 @@ async function deliverAiReply(text){
     parts.push(rawParts.shift());
   }
   if(!parts.length) parts = [{text:String(text||'(空消息)'), t:'text'}];
+  var sentCount = 0;
   for(var i = 0; i < parts.length; i++){
     var p = parts[i];
     var t = normalizeMessageType(p.t || 'text');
+    if(isBlockedMemePayload(p.text)) continue;
     if(t === 'text'){
       p.text = sanitizeAssistantTextForChat(p.text);
+      if(!p.text) continue;
     }
     var entry = makeChatEntry('assistant', p.text, t);
     entry.replyToId = resolveReplyTargetId(p.replyTo, p.replyRole);
     chatLog.push(entry);
     addMessage('ai', p.text, true, t, entry.id);
+    sentCount++;
     maybeAutoBlockByChar(p.text);
     maybeRunAiMomentsFromChat(p.text, t);
     await sleep(130 + Math.floor(Math.random()*120));
     if(i < parts.length - 1){
       await sleep(170 + Math.floor(Math.random()*260));
     }
+  }
+  if(sentCount === 0){
+    var fallbackEntry = makeChatEntry('assistant', '收到', 'text');
+    chatLog.push(fallbackEntry);
+    addMessage('ai', fallbackEntry.content, true, 'text', fallbackEntry.id);
   }
   updateBlockedUi();
 }
@@ -3800,6 +3823,11 @@ window.addEventListener('message', function(e) {
     if(!incoming || !incoming.id) return;
     var exists = chatLog.some(function(m){ return m && m.id === incoming.id; });
     if(exists) return;
+    if(incoming.role === 'assistant' && isBlockedMemePayload(incoming.content || '')) return;
+    if(incoming.role === 'assistant' && normalizeMessageType(incoming.type || 'text') === 'text'){
+      incoming.content = sanitizeAssistantTextForChat(incoming.content || '');
+      if(!incoming.content) return;
+    }
     chatLog.push(incoming);
     addMessage('ai', incoming.content, true, incoming.type, incoming.id);
     saveChat();
