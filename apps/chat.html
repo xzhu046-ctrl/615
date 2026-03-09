@@ -524,11 +524,15 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
         <span class="cs-label">AI 读取最近消息条数（X）</span>
         <input class="cs-input" id="csContextWindow" type="number" min="6" max="120" step="1" placeholder="如 30">
       </div>
-      <div style="margin-bottom:10px">
-        <span class="cs-label">自动总结间隔（X）</span>
-        <input class="cs-input" id="csSummaryEvery" type="number" min="6" max="120" step="1" placeholder="如 30">
-      </div>
+    <div style="margin-bottom:10px">
+      <span class="cs-label">自动总结间隔（X）</span>
+      <input class="cs-input" id="csSummaryEvery" type="number" min="6" max="120" step="1" placeholder="如 30">
     </div>
+    <div style="margin-bottom:10px">
+      <span class="cs-label">记忆合并阈值（达到 X 条后合并为 1 条）</span>
+      <input class="cs-input" id="csMemoryMergeThreshold" type="number" min="2" max="50" step="1" placeholder="默认 10">
+    </div>
+  </div>
     <div class="cs-card">
       <div class="cs-card-title">后台活动</div>
       <div class="toggle-row">
@@ -798,6 +802,7 @@ var DEFAULT_CONTEXT_WINDOW = 30;
 var MIN_CONTEXT_WINDOW = 6;
 var MAX_CONTEXT_WINDOW = 120;
 var DEFAULT_SUMMARY_EVERY = 30;
+var DEFAULT_MEMORY_MERGE_THRESHOLD = 10;
 var memorySummaryBusy = false;
 var pendingCharBgEnabled = null;
 var memoryEditingId = '';
@@ -811,6 +816,9 @@ function memorySummaryKey(){
 }
 function summaryEveryKey(){
   return character && character.id ? accountScopedKey('summary_every_' + character.id) : '';
+}
+function memoryMergeThresholdKey(){
+  return character && character.id ? accountScopedKey('memory_merge_threshold_' + character.id) : '';
 }
 function loadContextWindowSize(){
   if(!character) return DEFAULT_CONTEXT_WINDOW;
@@ -837,6 +845,19 @@ function saveSummaryEverySize(n){
   if(Number.isNaN(next)) next = DEFAULT_SUMMARY_EVERY;
   next = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, next));
   localStorage.setItem(summaryEveryKey(), String(next));
+}
+function loadMemoryMergeThreshold(){
+  if(!character) return DEFAULT_MEMORY_MERGE_THRESHOLD;
+  var n = parseInt(localStorage.getItem(memoryMergeThresholdKey()) || String(DEFAULT_MEMORY_MERGE_THRESHOLD), 10);
+  if(Number.isNaN(n)) n = DEFAULT_MEMORY_MERGE_THRESHOLD;
+  return Math.max(2, Math.min(50, n));
+}
+function saveMemoryMergeThreshold(n){
+  if(!character) return;
+  var next = parseInt(n || String(DEFAULT_MEMORY_MERGE_THRESHOLD), 10);
+  if(Number.isNaN(next)) next = DEFAULT_MEMORY_MERGE_THRESHOLD;
+  next = Math.max(2, Math.min(50, next));
+  localStorage.setItem(memoryMergeThresholdKey(), String(next));
 }
 function approxTokenCount(text){
   var src = String(text || '');
@@ -902,6 +923,13 @@ function fallbackSummaryText(slice){
   if(!joined) joined = '本段聊天围绕日常交流展开，没有出现可提炼的新信息。';
   return '本段聊天记录中，' + joined;
 }
+function fallbackMetaSummaryText(items){
+  var joined = (items || []).map(function(it){
+    return String((it && it.text) || '').replace(/\s+/g, ' ').trim();
+  }).filter(Boolean).join('；');
+  if(!joined) return '本阶段聊天围绕日常交流展开，没有新增关键事件。';
+  return '本阶段聊天记忆显示，' + joined;
+}
 async function generateMemorySummary(slice){
   var userPrompt = [
     '请只返回一段纯文本总结，不要标题，不要编号，不要额外解释。',
@@ -922,6 +950,51 @@ async function generateMemorySummary(slice){
   }catch(e){
     return fallbackSummaryText(slice);
   }
+}
+async function generateMemoryMetaSummary(items){
+  var lines = (items || []).map(function(it, idx){
+    return (idx + 1) + '. ' + String((it && it.text) || '').replace(/\s+/g, ' ').trim();
+  }).join('\n');
+  var userPrompt = [
+    '请只返回一段纯文本总结，不要标题，不要编号，不要额外解释。',
+    '请将以下“记忆总结列表”再压缩为一条新的总记忆：',
+    lines
+  ].join('\n\n');
+  var systemPrompt = [
+    '你是“聊天记忆压缩器”。',
+    '必须使用第三人称，不使用第一人称或第二人称。',
+    '必须保持中性客观，不带任何个人情感色彩。',
+    '完整且精简地描述发生过的事情与对话进展，保留有意义细节，不啰嗦，也不过度压缩。',
+    '不要捏造未出现的信息，不要输出建议。'
+  ].join('\n');
+  try{
+    var raw = await callAIWithCustomPrompts(systemPrompt, userPrompt);
+    var txt = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+    return txt || fallbackMetaSummaryText(items);
+  }catch(e){
+    return fallbackMetaSummaryText(items);
+  }
+}
+async function maybeCompactMemorySummaries(store){
+  if(!character) return store;
+  var next = store || loadMemorySummaryStore();
+  var threshold = loadMemoryMergeThreshold();
+  while((next.items || []).length >= threshold){
+    var segment = next.items.slice(0, threshold);
+    if(!segment.length) break;
+    var mergedText = await generateMemoryMetaSummary(segment);
+    var merged = {
+      id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+      from: segment[0].from || 0,
+      to: segment[segment.length - 1].to || 0,
+      text: mergedText,
+      tokens: approxTokenCount(mergedText),
+      createdAt: Date.now()
+    };
+    next.items = [merged].concat(next.items.slice(segment.length));
+  }
+  saveMemorySummaryStore(next);
+  return next;
 }
 async function maybeCreateMemorySummaries(){
   if(!character || memorySummaryBusy) return;
@@ -951,6 +1024,7 @@ async function maybeCreateMemorySummaries(){
       store.covered = covered;
       saveMemorySummaryStore(store);
     }
+    store = await maybeCompactMemorySummaries(store);
   }finally{
     memorySummaryBusy = false;
     refreshMemoryUi();
@@ -3584,7 +3658,7 @@ function closeMemoryEditor(){
   memoryEditingId = '';
   document.getElementById('memEditorOverlay')?.classList.remove('open');
 }
-function confirmMemoryEditor(){
+async function confirmMemoryEditor(){
   if(!character) return;
   var input = document.getElementById('memEditorInput');
   var text = String((input && input.value) || '').trim();
@@ -3611,6 +3685,7 @@ function confirmMemoryEditor(){
     });
   }
   saveMemorySummaryStore(store);
+  store = await maybeCompactMemorySummaries(store);
   closeMemoryEditor();
   refreshMemoryUi();
   toast('记忆已保存');
@@ -4004,6 +4079,7 @@ function openChatSettings() {
   renderWbBookList();
   document.getElementById('csContextWindow').value = loadContextWindowSize();
   document.getElementById('csSummaryEvery').value = loadSummaryEverySize();
+  document.getElementById('csMemoryMergeThreshold').value = loadMemoryMergeThreshold();
   // Greetings (small account cannot pick opening lines)
   var greetingsCard = document.getElementById('greetingsCard');
   var canPickGreeting = true;
@@ -4162,10 +4238,12 @@ function saveChatSettings() {
   var cmx = parseInt(document.getElementById('csMsgMax').value || '3');
   var cwin = parseInt(document.getElementById('csContextWindow').value || String(DEFAULT_CONTEXT_WINDOW), 10);
   var severy = parseInt(document.getElementById('csSummaryEvery').value || String(DEFAULT_SUMMARY_EVERY), 10);
+  var mergeThreshold = parseInt(document.getElementById('csMemoryMergeThreshold').value || String(DEFAULT_MEMORY_MERGE_THRESHOLD), 10);
   localStorage.setItem(userKey('user_name'), un);
   localStorage.setItem(userKey('user_persona'), up);
   saveContextWindowSize(cwin);
   saveSummaryEverySize(severy);
+  saveMemoryMergeThreshold(mergeThreshold);
   if (character) {
     if (cn) { character.name = cn; }
     character.nickname = ck;
