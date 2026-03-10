@@ -63,6 +63,12 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg.ai .msg-main{align-items:flex-start}
 .msg-read{font-size:9px;line-height:1;color:#8a8a8a;font-weight:800;padding:0 4px;margin-top:4px}
 .msg.user .msg-read{margin-top:1px}
+.msg.familycard-msg{max-width:min(88%, 420px);gap:0}
+.msg.familycard-msg .msg-avatar{display:none}
+.msg.familycard-msg .msg-main{width:100%}
+.msg.user.familycard-msg .msg-main{align-items:flex-end}
+.msg.ai.familycard-msg .msg-main{align-items:flex-start}
+.msg.user.familycard-msg .msg-read{margin-top:8px;padding-right:6px}
 .msg.select-mode{max-width:100%;cursor:pointer}
 .msg.selected .msg-bubble{outline:2px solid var(--b);outline-offset:2px}
 .msg-bubble{padding:10px 12px;border-radius:16px;font-size:13px;line-height:1.5;font-weight:600;max-width:100%;white-space:pre-wrap;word-break:break-word;min-height:40px;display:flex;align-items:center;transition:transform .08s linear}
@@ -72,6 +78,77 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg-bubble.familycard-shell{padding:0;background:transparent;border:none;box-shadow:none;min-height:0;overflow:visible}
 .msg.user .msg-bubble.image-card,.msg.ai .msg-bubble.image-card{background:transparent;border:none;box-shadow:none;padding:0}
 .msg.user .msg-bubble.familycard-shell,.msg.ai .msg-bubble.familycard-shell{background:transparent;border:none;box-shadow:none;padding:0}
+.family-card-bubble{
+  width:min(100%,360px);
+  display:grid;
+  grid-template-columns:46px minmax(0,1fr) 32px;
+  align-items:center;
+  gap:10px;
+  padding:10px 12px;
+  border:var(--bd);
+  border-radius:24px;
+  background:linear-gradient(180deg,#ffffff 0%,#f1f1f1 100%);
+  box-shadow:var(--sh);
+}
+.msg.user .family-card-bubble{
+  background:linear-gradient(180deg,#ffffff 0%,#f3f3f3 100%);
+}
+.family-card-avatar{
+  width:46px;height:46px;border-radius:16px;border:var(--bd);background:#fff;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  box-shadow:1px 1px 0 var(--b);
+  font-family:var(--fontd);font-size:11px;font-weight:900;color:var(--b);
+}
+.family-card-avatar img{width:100%;height:100%;object-fit:cover}
+.family-card-avatar.tail{
+  width:32px;height:32px;border-radius:12px;background:#fff;opacity:.96;
+}
+.family-card-panel{
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:10px 12px;
+  border:1.5px solid rgba(10,10,10,.26);
+  border-radius:18px;
+  background:rgba(255,255,255,.94);
+}
+.family-card-kicker{
+  font-size:9px;line-height:1;color:#6f6f6f;font-weight:900;letter-spacing:.08em;
+}
+.family-card-text{
+  color:var(--b);
+  font-size:13px;
+  line-height:1.4;
+  font-weight:800;
+  word-break:break-word;
+}
+.family-card-meta{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.family-card-amount{
+  font-size:11px;
+  font-weight:900;
+  color:var(--b);
+}
+.family-card-status{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:54px;
+  padding:4px 8px;
+  border:1.5px solid var(--b);
+  border-radius:999px;
+  background:#fff;
+  font-size:10px;
+  line-height:1;
+  font-weight:900;
+  color:var(--b);
+}
 .msg-bubble.is-editing{display:block;padding:10px 12px}
 .reply-snippet{width:100%;border:var(--bd);border-radius:10px;background:var(--w);padding:6px 8px;margin-bottom:8px;box-shadow:1px 1px 0 var(--b);color:var(--b)}
 .msg.user .reply-snippet{background:var(--w);border-color:var(--b);color:var(--b)}
@@ -3591,7 +3668,6 @@ async function triggerReply() {
   if(!canSendNow()) return;
   if (isTyping) return;
 
-  // If there's text in the input, send it first
   var input = document.getElementById('msg-input');
   var text = input.value.trim();
   if (text) {
@@ -3603,13 +3679,12 @@ async function triggerReply() {
     clearReplyTarget();
     captureUserMomentIntent(text, 'text');
   }
+  if(await handlePendingFamilyCardReply()){
+    return;
+  }
   if(markUserMessagesReadByChar()){
     saveChat();
     renderChatLog(true);
-  }
-
-  if(await handlePendingFamilyCardReply()){
-    return;
   }
 
   // Now get AI reply
@@ -3761,6 +3836,7 @@ function addMessage(role, content, doScroll, msgType, msgId) {
   var isVoice = msgType === 'voice';
   var isImage = msgType === 'image';
   div.className = 'msg ' + viewRole + (isVoice ? ' voice-msg' : '') + (isImage ? ' image-msg' : '');
+  if(msgType === 'familycard') div.classList.add('familycard-msg');
   if(msgId){
     div.dataset.msgId = msgId;
     if(multiSelectMode) div.classList.add('select-mode');
@@ -3942,35 +4018,83 @@ function familyCardSummaryText(payload){
   return String(data.summary || '');
 }
 
-function familyCardAvatarHtml(src, fallback){
+function familyCardAvatarHtml(src, fallback, extraClass){
   var safeSrc = String(src || '').trim();
+  var cls = 'family-card-avatar' + (extraClass ? (' ' + extraClass) : '');
   if(safeSrc){
-    return '<div class="family-card-avatar"><img src="' + escAttr(safeSrc) + '" alt=""></div>';
+    return '<div class="' + cls + '"><img src="' + escAttr(safeSrc) + '" alt=""></div>';
   }
   var label = String(fallback || '').trim();
   if(label.length > 4) label = label.slice(0, 4);
-  return '<div class="family-card-avatar">' + esc(label || '头像') + '</div>';
+  return '<div class="' + cls + '">' + esc(label || '头像') + '</div>';
+}
+
+function currentUserAvatarForFamily(charId){
+  var keys = [];
+  if(charId) keys.push(userKey('user_avatar'));
+  keys.push(accountScopedKey('user_avatar'));
+  keys.push('user_avatar');
+  for(var i=0;i<keys.length;i++){
+    var src = String(localStorage.getItem(keys[i]) || '').trim();
+    if(src) return src;
+  }
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      if(acct && acct.avatar) return String(acct.avatar).trim();
+    }
+  }catch(e){}
+  return '';
+}
+
+function currentCharAvatarForFamily(charId){
+  var keys = [];
+  if(charId) keys.push('char_avatar_' + charId);
+  for(var i=0;i<keys.length;i++){
+    var src = String(localStorage.getItem(keys[i]) || '').trim();
+    if(src) return src;
+  }
+  if(character && String(character.id || '') === String(charId || '')){
+    return String(character.imageData || '').trim();
+  }
+  return '';
+}
+
+function familyCardResolvedAvatar(data, roleSide){
+  if(roleSide === 'char'){
+    return {
+      src: String((data && data.charAvatar) || '').trim() || currentCharAvatarForFamily(data && data.charId),
+      fallback: String((data && data.charName) || 'Char')
+    };
+  }
+  return {
+    src: String((data && data.userAvatar) || '').trim() || currentUserAvatarForFamily(data && data.charId),
+    fallback: String((data && data.userName) || userDisplayNameForFamily() || 'User')
+  };
 }
 
 function renderFamilyCardBubble(bubble, raw){
   var data = parseFamilyCardPayload(raw) || {};
-  var amount = Number(data.amount || 0).toFixed(2);
+  var amount = Number(data.amount || 0);
   var showStatus = String(data.kind || 'request') === 'request';
-  var avatarSrc = '';
-  var avatarFallback = '';
-  if(String(data.kind || 'request') === 'decision'){
-    avatarSrc = data.charAvatar || '';
-    avatarFallback = data.charName || 'Char';
-  }else{
-    avatarSrc = data.userAvatar || '';
-    avatarFallback = data.userName || 'User';
-  }
+  var isDecision = String(data.kind || 'request') === 'decision';
+  var side = isDecision ? 'char' : 'user';
+  var avatar = familyCardResolvedAvatar(data, side);
+  var kicker = '亲属卡';
+  if(String(data.kind || '') === 'revoke') kicker = '亲密付已解除';
+  else if(isDecision) kicker = '亲属卡回复';
+  else kicker = '亲属卡邀请';
+  var metaParts = [];
+  if(amount > 0) metaParts.push('<span class="family-card-amount">额度/笔 ¥' + esc(amount.toFixed(2)) + '</span>');
+  if(showStatus) metaParts.push('<span class="family-card-status">' + esc(familyCardStatusLabel(data.status || 'pending')) + '</span>');
   bubble.innerHTML = '<div class="family-card-bubble">'
-    + familyCardAvatarHtml(avatarSrc, avatarFallback)
+    + familyCardAvatarHtml(avatar.src, avatar.fallback)
     + '<div class="family-card-panel">'
+    + '<div class="family-card-kicker">' + esc(kicker) + '</div>'
     + '<div class="family-card-text">' + esc(data.summary || '') + '</div>'
-    + '<div class="family-card-meta"><span class="family-card-amount">¥' + esc(amount) + '</span>' + (showStatus ? ('<span class="family-card-status">' + esc(familyCardStatusLabel(data.status || 'pending')) + '</span>') : '') + '</div>'
+    + (metaParts.length ? ('<div class="family-card-meta">' + metaParts.join('') + '</div>') : '')
     + '</div>'
+    + familyCardAvatarHtml(avatar.src, avatar.fallback, 'tail')
     + '</div>';
 }
 
