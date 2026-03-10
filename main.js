@@ -1200,13 +1200,31 @@ function getChatUserName(charId){
 }
 
 function getChatUserAvatar(charId){
-  if(!charId) return Promise.resolve('');
   var activeId = getActiveAccountId();
-  var scoped = scopedKeyForAccount('user_avatar_' + charId, activeId);
-  return loadStoredAsset(scoped).then(function(src){
-    if(src && src.startsWith('data:')) return src;
-    return loadStoredAsset('user_avatar_' + charId);
-  });
+  var keys = [];
+  if(charId) keys.push(scopedKeyForAccount('user_avatar_' + charId, activeId));
+  keys.push(scopedKeyForAccount('user_avatar', activeId));
+  if(charId) keys.push('user_avatar_' + charId);
+  keys.push('user_avatar');
+  keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
+  keys.push('qq_profile_avatar_asset');
+  function loadAt(idx){
+    if(idx >= keys.length){
+      try{
+        if(window.AccountManager){
+          var acct = window.AccountManager.getActive();
+          var avatar = String((acct && acct.avatar) || '').trim();
+          if(avatar) return Promise.resolve(avatar);
+        }
+      }catch(e){}
+      return Promise.resolve('');
+    }
+    return loadStoredAsset(keys[idx]).then(function(src){
+      if(src && src.startsWith('data:')) return src;
+      return loadAt(idx + 1);
+    });
+  }
+  return loadAt(0);
 }
 
 function getStoredChatMessages(charId){

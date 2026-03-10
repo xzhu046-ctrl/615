@@ -996,6 +996,7 @@ var editingDraft = '';
 var longPressTimer = null;
 var LONG_PRESS_MS = 420;
 var replyTargetId = null;
+var pendingFamilyFollowupCue = '';
 var IMAGE_SNIPPET = '【图片】';
 var IMAGE_BUBBLE_URL = 'https://files.catbox.moe/6ruu03.jpeg';
 var MOMENTS_POSTS_KEY = 'qq_moments_posts';
@@ -3196,6 +3197,9 @@ function buildSystemPrompt() {
   if(pendingMomentsChatCue){
     parts.push(['【朋友圈新互动】', pendingMomentsChatCue].join('\n'));
   }
+  if(pendingFamilyFollowupCue){
+    parts.push(pendingFamilyFollowupCue);
+  }
 
   var wbAll = [].concat(wbBefore, wbMid, wbAfter).join('\n\n');
   var curGreeting = getPromptGreeting();
@@ -3712,7 +3716,7 @@ async function triggerReply() {
   }
   hideError();
   pendingMomentsChatCue = processMomentsInteractionsOnTrigger();
-  transientHiddenModelMsgIds = familyReplyId ? [familyReplyId] : [];
+  transientHiddenModelMsgIds = [];
 
   isTyping = true;
   document.getElementById('genBtn').disabled = true;
@@ -3732,6 +3736,7 @@ async function triggerReply() {
     console.error('callAI error:', err);
   } finally {
     transientHiddenModelMsgIds = [];
+    pendingFamilyFollowupCue = '';
   }
 
   isTyping = false;
@@ -4203,6 +4208,17 @@ function popPendingFamilyRequest(charId){
   return picked;
 }
 
+function removeFamilyBindingsForChar(charId){
+  var key = String(charId || '');
+  if(!key) return;
+  savePendingFamilyQueue(loadPendingFamilyQueue().filter(function(item){
+    return String((item && item.charId) || '') !== key;
+  }));
+  saveActiveFamilyCards(loadActiveFamilyCards().filter(function(item){
+    return String((item && item.charId) || '') !== key;
+  }));
+}
+
 function loadActiveFamilyCards(){
   try{
     var raw = JSON.parse(localStorage.getItem(familyActiveKey()) || '[]');
@@ -4290,6 +4306,18 @@ function updateWalletRecordForFamily(requestId, accept){
   }catch(e){}
 }
 
+function ensureFamilyRequestInChatLog(payload){
+  if(!payload || !payload.id) return;
+  var exists = chatLog.some(function(entry){
+    return String((entry && entry.id) || '') === String(payload.id || '');
+  });
+  if(exists) return;
+  var requestEntry = makeChatEntry('user', JSON.stringify(payload), 'family_card');
+  requestEntry.id = payload.id;
+  chatLog.push(requestEntry);
+  addMessage('user', requestEntry.content, true, 'family_card', requestEntry.id);
+}
+
 async function decideFamilyCardOutcome(payload){
   var sys = [
     '你是聊天中的角色本人。',
@@ -4322,6 +4350,7 @@ async function handlePendingFamilyCardReply(){
   if(!character) return false;
   var pending = popPendingFamilyRequest(character.id);
   if(!pending) return '';
+  ensureFamilyRequestInChatLog(pending);
   var accept = await decideFamilyCardOutcome(pending);
   updateFamilyCardStatus(pending.id, accept ? 'accepted' : 'rejected');
   updateWalletRecordForFamily(pending.id, accept);
@@ -4334,6 +4363,12 @@ async function handlePendingFamilyCardReply(){
   var replyEntry = makeChatEntry('assistant', JSON.stringify(responsePayload), 'family_card');
   chatLog.push(replyEntry);
   addMessage('ai', replyEntry.content, true, 'family_card', replyEntry.id);
+  pendingFamilyFollowupCue = [
+    '【当前回合必须先延续亲属卡】',
+    '你刚刚已经通过亲属卡卡片作出了决定：' + (accept ? '同意' : '不同意') + '。',
+    '现在继续像角色本人一样自然接一句正文回复。',
+    '不要再输出 JSON，不要再发一张亲属卡卡片，也不要重复格式化结论。'
+  ].join('\n');
   saveChat();
   return replyEntry.id;
 }
@@ -5023,8 +5058,10 @@ function clearChatData(opts){
   editingMessageId = null;
   editingDraft = '';
   replyTargetId = null;
+  pendingFamilyFollowupCue = '';
   chatLog = [];
   if (character) localStorage.removeItem(chatStorageKey(character.id));
+  if (character && character.id) removeFamilyBindingsForChar(character.id);
   if(options.clearMemory) clearMemorySummaries();
   if(options.clearMemory) clearInnerVoiceStore();
   var msgs = document.getElementById('messages');
