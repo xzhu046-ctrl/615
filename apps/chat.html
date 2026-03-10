@@ -8,6 +8,7 @@
 <script src="../promptManager.js"></script>
 <script src="../accountManager.js"></script>
 <script src="../assetStore.js"></script>
+<script src="./paymentCommon.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -152,6 +153,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .addon-icon{display:block;width:26px;height:26px;flex:0 0 auto;color:var(--b)}
 .addon-icon.voice{width:24px;height:24px}
 .addon-icon svg{display:block;width:100%;height:100%}
+.addon-icon.money img{display:block;width:100%;height:100%;object-fit:contain}
 
 /* send = just sends text, no AI trigger */
 .send-btn{width:38px;height:38px;border-radius:50%;border:var(--bd);background:var(--w);color:var(--b);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--sh);transition:transform .12s,box-shadow .12s;margin-bottom:2px}
@@ -176,6 +178,24 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .gen-btn{width:38px;height:38px;border-radius:50%;border:var(--bd);background:var(--w);color:var(--b);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--sh);transition:transform .12s,box-shadow .12s;margin-bottom:2px}
 .gen-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .gen-btn:disabled{opacity:.4;cursor:not-allowed}
+.payment-summary-card{border:var(--bd);border-radius:18px;background:rgba(255,255,255,.94);box-shadow:var(--sh);padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:210px}
+.payment-summary-title{font-family:var(--fontd);font-size:14px;font-weight:900}
+.payment-summary-meta{font-size:12px;font-weight:800;line-height:1.45;white-space:pre-wrap}
+.payment-summary-amount{font-family:var(--fontd);font-size:22px;font-weight:900}
+.payment-summary-status{font-size:11px;font-weight:900;color:#666}
+.pay-overlay{position:fixed;inset:0;background:rgba(255,255,255,.44);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;padding:16px;z-index:260}
+.pay-overlay.open{display:flex}
+.pay-card{width:min(360px,100%);border:var(--bd);border-radius:34px;background:linear-gradient(180deg,#f7f7f7 0%,#ececec 100%);box-shadow:var(--sh);padding:16px;display:flex;flex-direction:column;gap:12px}
+.pay-field{display:flex;align-items:center;justify-content:space-between;gap:12px;border:var(--bd);border-radius:16px;background:#fff;padding:12px 14px}
+.pay-field-label{font-family:var(--fontd);font-size:16px;font-weight:900}
+.pay-field input{border:none;background:transparent;outline:none;text-align:right;font-size:16px;font-weight:800;width:50%;padding:0}
+.pay-field.cover{opacity:.55}
+.pay-big-amount{font-family:var(--fontd);font-size:62px;line-height:1;font-weight:900;text-align:center;margin:8px 0 2px}
+.pay-submit{align-self:center;min-width:170px;border:var(--bd);border-radius:16px;background:#fff;box-shadow:var(--sh);padding:12px 18px;font-family:var(--fontd);font-size:18px;font-weight:900}
+.pay-account-title{font-family:var(--fontd);font-size:18px;font-weight:900}
+.pay-accounts{display:flex;flex-direction:column;gap:10px}
+.pay-account-btn{width:100%;border:var(--bd);border-radius:16px;background:#fff;box-shadow:var(--sh);padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-family:var(--font);font-size:13px;font-weight:800}
+.pay-account-btn:active,.pay-submit:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--b)}
 
 /* ── Chat Settings Panel ── */
 .csettings{position:absolute;inset:0;background:var(--w);z-index:50;transform:translateX(100%);transition:transform .32s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;overflow:hidden}
@@ -462,6 +482,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
     <button class="addon-item" type="button" title="图片卡片" aria-label="图片卡片" onclick="openImageCardInput()"><span class="addon-icon image" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="2.5" y="4" width="19" height="16" rx="2.8"></rect><circle cx="8" cy="9" r="2" fill="#f7f7f7"></circle><path d="M5 18h14l-4.3-5.1a1 1 0 0 0-1.53-.03L10.8 15.5l-1.9-2.16a1 1 0 0 0-1.52.02L5 16.2V18z" fill="#f7f7f7"></path></svg></span></button>
     <button class="addon-item" type="button" title="语音输入" aria-label="语音输入" onclick="openVoiceInput()"><span class="addon-icon voice" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.2a3.9 3.9 0 0 0-3.9 3.9v5.5a3.9 3.9 0 1 0 7.8 0V6.1A3.9 3.9 0 0 0 12 2.2Z"></path><path d="M6 10.8a1 1 0 1 0-2 0 8 8 0 0 0 7 7.92V21H8.4a1 1 0 1 0 0 2h7.2a1 1 0 1 0 0-2H13v-2.28a8 8 0 0 0 7-7.92 1 1 0 1 0-2 0 6 6 0 0 1-12 0Z"></path></svg></span></button>
     <button class="addon-item" type="button" title="重新生成" aria-label="重新生成" onclick="rerollLast()"><span class="addon-icon reroll" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3.5a8.5 8.5 0 1 1-7.9 11.65 1 1 0 0 1 1.86-.72A6.5 6.5 0 1 0 7.2 7.1H10a1 1 0 1 1 0 2H4.8a1 1 0 0 1-1-1V3a1 1 0 1 1 2 0v2.65A8.44 8.44 0 0 1 12 3.5Z"></path></svg></span></button>
+    <button class="addon-item" type="button" title="转账红包" aria-label="转账红包" onclick="openMoneyComposer()"><span class="addon-icon money" aria-hidden="true"><img src="assets/Bill-Dollar-2--Streamline-Sharp.png" alt=""></span></button>
   </div>
   <div class="input-wrap">
     <div class="reply-preview" id="replyPreview">
@@ -653,6 +674,28 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
       <button class="voice-btn" onclick="closeImageCardInput()">取消</button>
       <button class="voice-btn primary" onclick="sendImageCardInput()">发送</button>
     </div>
+  </div>
+</div>
+
+<div class="pay-overlay" id="moneyComposerOverlay">
+  <div class="pay-card">
+    <div class="pay-field"><div class="pay-field-label">金额</div><input id="moneyAmountInput" type="number" min="0" step="0.01" value="0.00" oninput="syncMoneyComposerAmount()"></div>
+    <div class="pay-field"><div class="pay-field-label">备注</div><input id="moneyNoteInput" type="text" maxlength="18" value="爱你"></div>
+    <div class="pay-field cover"><div class="pay-field-label">红包封面</div><div class="pay-field-label">▶</div></div>
+    <div class="pay-big-amount" id="moneyAmountPreview">¥ 0.00</div>
+    <button class="pay-submit" type="button" onclick="openPaymentAccountPicker()">发红包</button>
+    <div class="payment-preview-list">
+      <div class="payment-preview-card"><div class="payment-preview-avatar">U</div><div class="payment-preview-text">user转账给Char\n¥100.00\n待处理...</div><div class="payment-preview-avatar">U</div></div>
+      <div class="payment-preview-card alt"><div class="payment-preview-avatar">C</div><div class="payment-preview-text">Char收取了User\n¥100.00</div><div class="payment-preview-avatar">C</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="pay-overlay" id="paymentAccountOverlay">
+  <div class="pay-card">
+    <div class="pay-account-title">选择账户</div>
+    <div class="pay-accounts" id="paymentAccountList"></div>
+    <button class="pay-submit" type="button" onclick="closePaymentAccountPicker()">取消</button>
   </div>
 </div>
 
@@ -895,6 +938,8 @@ var editingDraft = '';
 var longPressTimer = null;
 var LONG_PRESS_MS = 420;
 var replyTargetId = null;
+var pendingPaymentAccountId = '';
+var pendingPaymentMode = 'redpacket';
 var IMAGE_SNIPPET = '【图片】';
 var IMAGE_BUBBLE_URL = 'https://files.catbox.moe/6ruu03.jpeg';
 var MOMENTS_POSTS_KEY = 'qq_moments_posts';
@@ -1620,6 +1665,7 @@ async function sendBlockedRequestCard(){
 function normalizeMessageType(type){
   if(type === 'voice_message' || type === 'voice') return 'voice';
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
+  if(type === 'payment' || type === 'payment_card' || type === 'redpacket' || type === 'transfer' || type === 'family_card') return 'payment';
   return 'text';
 }
 
@@ -2186,6 +2232,18 @@ function formatMessageForModel(msg){
     content = '【语音消息转写 ' + duration + "''】\n" + content;
   } else if(kind === 'image'){
     content = '【图片消息】\n图片里的文字是：' + content;
+  } else if(kind === 'payment'){
+    var payData = parsePaymentPayload(content) || {};
+    content = [
+      '【支付互动】',
+      '标题：' + String(payData.title || '支付记录'),
+      '金额：¥' + (window.PaymentService ? window.PaymentService.formatCny(payData.amount || 0) : '0.00'),
+      payData.summary ? ('摘要：' + String(payData.summary)) : '',
+      payData.note ? ('备注：' + String(payData.note)) : '',
+      payData.status ? ('状态：' + String(payData.status)) : '',
+      payData.mode ? ('模式：' + String(payData.mode)) : '',
+      payData.cardType ? ('类型：' + String(payData.cardType)) : ''
+    ].filter(Boolean).join('\n');
   }
   if(msg.replyToId){
     var target = getMessageById(msg.replyToId);
@@ -2967,6 +3025,7 @@ function restoreOrStartChat() {
       chatLog = obj.history || obj.messages || [];
       chatLog = chatLog.map(normalizeChatEntry);
       renderChatLog(false);
+      setTimeout(function(){ processQueuedPaymentEvents(); }, 40);
       return;
     } catch(e) {}
   }
@@ -2981,6 +3040,7 @@ function restoreOrStartChat() {
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">' + esc(character.name) + '</div><div class="welcome-sub">发送消息开始对话，或按 ✦ 触发回复</div></div>';
   }
   renderReplyPreview();
+  setTimeout(function(){ processQueuedPaymentEvents(); }, 40);
 }
 
 function getGreeting() {
@@ -3810,6 +3870,8 @@ function addMessage(role, content, doScroll, msgType, msgId) {
       if(multiSelectMode || editingMessageId) return;
       openImageViewer(safeText);
     });
+  } else if(msgType === 'payment'){
+    renderPaymentBubble(bubble, safeText);
   } else {
     bubble.appendChild(document.createTextNode(safeText));
   }
@@ -3882,6 +3944,317 @@ function rerollLast(){
   saveChat();
   renderChatLog(false);
   triggerReply();
+}
+
+function parsePaymentPayload(raw){
+  if(!raw) return null;
+  if(typeof raw === 'object') return raw;
+  try{
+    var obj = JSON.parse(String(raw));
+    return obj && typeof obj === 'object' ? obj : null;
+  }catch(e){
+    return null;
+  }
+}
+
+function summarizePaymentPayload(payload){
+  var data = parsePaymentPayload(payload) || {};
+  var amount = window.PaymentService ? window.PaymentService.formatCny(data.amount || 0) : '0.00';
+  if(data.summary) return String(data.summary);
+  return String(data.title || '支付记录') + ' ¥' + amount;
+}
+
+function renderPaymentBubble(bubble, content){
+  var data = parsePaymentPayload(content) || {};
+  var amount = window.PaymentService ? window.PaymentService.formatCny(data.amount || 0) : '0.00';
+  bubble.innerHTML = '<div class="payment-summary-card">'
+    + '<div class="payment-summary-title">' + esc(data.title || '支付记录') + '</div>'
+    + '<div class="payment-summary-amount">¥' + esc(amount) + '</div>'
+    + '<div class="payment-summary-meta">' + esc(data.note || data.summary || '') + '</div>'
+    + '<div class="payment-summary-status">' + esc(data.status || 'pending') + '</div>'
+    + '</div>';
+}
+
+function paymentSummaryText(payload){
+  return summarizePaymentPayload(payload);
+}
+
+function getPaymentAccounts(){
+  if(window.PaymentService && typeof window.PaymentService.ensureAccounts === 'function'){
+    return window.PaymentService.ensureAccounts() || [];
+  }
+  if(window.AccountManager && typeof window.AccountManager.ensure === 'function'){
+    return window.AccountManager.ensure() || [];
+  }
+  return [];
+}
+
+function getActivePaymentAccountId(){
+  var acct = window.PaymentService && typeof window.PaymentService.getActiveAccount === 'function'
+    ? window.PaymentService.getActiveAccount()
+    : (window.AccountManager && window.AccountManager.getActive ? window.AccountManager.getActive() : null);
+  return acct && acct.id ? acct.id : '';
+}
+
+function escAttr(s){
+  return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function closeMoneyComposer(){
+  document.getElementById('moneyComposerOverlay')?.classList.remove('open');
+}
+
+function syncMoneyComposerAmount(){
+  var val = Number((document.getElementById('moneyAmountInput') || {}).value || 0);
+  if(!Number.isFinite(val) || val < 0) val = 0;
+  document.getElementById('moneyAmountPreview').textContent = '¥ ' + (window.PaymentService ? window.PaymentService.formatCny(val) : val.toFixed(2));
+}
+
+function openMoneyComposer(){
+  document.getElementById('addonPanel')?.classList.remove('open');
+  pendingPaymentMode = 'redpacket';
+  pendingPaymentAccountId = '';
+  var amountInput = document.getElementById('moneyAmountInput');
+  var noteInput = document.getElementById('moneyNoteInput');
+  if(amountInput) amountInput.value = '0.00';
+  if(noteInput) noteInput.value = '爱你';
+  syncMoneyComposerAmount();
+  document.getElementById('moneyComposerOverlay')?.classList.add('open');
+  setTimeout(function(){
+    document.getElementById('moneyAmountInput')?.focus();
+    document.getElementById('moneyAmountInput')?.select();
+  }, 20);
+}
+
+function closePaymentAccountPicker(){
+  document.getElementById('paymentAccountOverlay')?.classList.remove('open');
+}
+
+function renderPaymentAccountPicker(){
+  var host = document.getElementById('paymentAccountList');
+  if(!host) return;
+  var accounts = getPaymentAccounts();
+  if(!accounts.length){
+    host.innerHTML = '<div class="wallet-empty">暂无可用账户。</div>';
+    return;
+  }
+  host.innerHTML = accounts.map(function(acc){
+    var id = String((acc && acc.id) || '');
+    var balance = window.PaymentService ? window.PaymentService.getBalance(id) : 0;
+    return '<button class="pay-account-btn" type="button" onclick="selectPaymentAccount(\'' + escAttr(id) + '\')">'
+      + '<span>' + esc(String((acc && acc.name) || '账户')) + '</span>'
+      + '<span>¥' + esc(window.PaymentService ? window.PaymentService.formatCny(balance) : '0.00') + '</span>'
+      + '</button>';
+  }).join('');
+}
+
+function openPaymentAccountPicker(){
+  var amount = Number((document.getElementById('moneyAmountInput') || {}).value || 0);
+  if(!Number.isFinite(amount) || amount <= 0){
+    toast('请输入金额');
+    return;
+  }
+  renderPaymentAccountPicker();
+  document.getElementById('paymentAccountOverlay')?.classList.add('open');
+}
+
+function buildPaymentPayload(kind, amount, note, accountId){
+  var charName = character ? (character.nickname || character.name || 'Char') : 'Char';
+  return {
+    cardType: kind || 'redpacket',
+    title: '转账给' + charName,
+    amount: amount,
+    note: note || '',
+    summary: '转账给' + charName + ' ¥' + (window.PaymentService ? window.PaymentService.formatCny(amount) : Number(amount || 0).toFixed(2)),
+    status: 'pending',
+    accountId: accountId || getActivePaymentAccountId(),
+    charId: character ? character.id : '',
+    charName: charName
+  };
+}
+
+function appendPaymentEntry(role, payload){
+  var entry = makeChatEntry(role, JSON.stringify(payload || {}), 'payment');
+  chatLog.push(entry);
+  addMessage(role === 'assistant' ? 'ai' : 'user', entry.content, true, 'payment', entry.id);
+  return entry;
+}
+
+function buildPaymentDecisionFallback(payload){
+  var amount = Number((payload && payload.amount) || 0);
+  var type = String((payload && payload.cardType) || '');
+  var mode = String((payload && payload.mode) || '');
+  var charName = character ? (character.nickname || character.name || 'Char') : 'Char';
+  var accept = true;
+  if(type === 'family' && mode === 'request' && amount > 2000) accept = false;
+  if((type === 'redpacket' || type === 'transfer') && amount > 5200) accept = false;
+  return {
+    accept: accept,
+    reply: accept ? '行，我收下了。' : '这个我先不收。',
+    title: accept ? (charName + '已处理转账') : (charName + '拒绝了这笔转账'),
+    status: accept ? 'accepted' : 'rejected'
+  };
+}
+
+function parsePaymentDecision(raw){
+  if(!raw) return null;
+  try{
+    var obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if(obj && typeof obj === 'object') return obj;
+  }catch(e){}
+  return null;
+}
+
+async function decidePaymentAction(payload){
+  if(!character) return buildPaymentDecisionFallback(payload);
+  var persona = String(character.personality || character.description || '').slice(0, 1800);
+  var wbText = getStrictPromptWorldbookEntries().map(function(entry){
+    return String((entry && entry.content) || '').trim();
+  }).filter(Boolean).slice(0, 10).join('\n\n').slice(0, 1800);
+  var history = getVisibleChatForModel().slice(-12).map(function(msg){
+    return (msg.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(msg);
+  }).join('\n');
+  var sys = [
+    '你是聊天中的角色本人，要像真人一样判断是否接受一笔支付互动或亲密付请求。',
+    '必须结合角色人设、世界书、最近聊天，不要机械同意，也不要复述用户原话。',
+    '只返回 JSON，不要 markdown，不要额外解释。',
+    'JSON 格式：{"accept":true|false,"reply":"角色自然口语回复","title":"卡片标题","status":"accepted|rejected"}'
+  ].join('\n');
+  var user = [
+    '角色名：' + (character.nickname || character.name || '角色'),
+    '角色人设：' + persona,
+    wbText ? ('世界书：\n' + wbText) : '世界书：无',
+    history ? ('最近聊天：\n' + history) : '最近聊天：无',
+    '支付事件：\n' + JSON.stringify(payload || {}, null, 2),
+    '要求：回复必须自然、像真人，不要照抄“接受/拒绝”的模板，也不要输出任何 JSON 之外的内容。'
+  ].join('\n\n');
+  try{
+    var raw = await callAIWithCustomPrompts(sys, user);
+    var parsed = parsePaymentDecision(raw);
+    if(parsed && typeof parsed.accept === 'boolean') return parsed;
+  }catch(err){
+    console.error('payment decision failed', err);
+  }
+  return buildPaymentDecisionFallback(payload);
+}
+
+function finalizePaymentLog(payload, decision){
+  if(!window.PaymentService || !payload || !payload.logId) return;
+  var accept = !!(decision && decision.accept);
+  var status = accept ? 'accepted' : 'rejected';
+  var patch = { status: status, detail: (decision && decision.reply) || payload.summary || '' };
+  window.PaymentService.updateLog(payload.logId, patch);
+  if(!accept) return;
+  if(payload.cardType === 'redpacket' || payload.cardType === 'transfer'){
+    var amount = Number(payload.amount || 0);
+    if(amount > 0){
+      window.PaymentService.changeBalance(payload.accountId, -amount);
+    }
+  }
+}
+
+function buildAssistantPaymentPayload(sourcePayload, decision){
+  var data = sourcePayload || {};
+  var res = decision || {};
+  return {
+    cardType: data.cardType || 'payment',
+    title: res.title || ((character ? (character.nickname || character.name || 'Char') : 'Char') + (res.accept ? '已接受' : '已拒绝')),
+    amount: Number(data.amount || 0),
+    note: res.reply || '',
+    summary: res.reply || '',
+    status: res.status || (res.accept ? 'accepted' : 'rejected'),
+    mode: data.mode || '',
+    accountId: data.accountId || '',
+    charId: character ? character.id : '',
+    charName: character ? (character.nickname || character.name || 'Char') : 'Char',
+    logId: data.logId || ''
+  };
+}
+
+async function respondToPaymentPayload(payload){
+  if(!payload || !character || String(payload.charId || '') !== String(character.id || '')) return;
+  if(isTyping) return;
+  var provider = localStorage.getItem('provider') || 'openai';
+  var key = localStorage.getItem('key_' + provider);
+  if(!key && provider !== 'custom'){
+    toast('未配置 API key');
+    return;
+  }
+  hideError();
+  isTyping = true;
+  document.getElementById('genBtn').disabled = true;
+  document.getElementById('sendBtn').disabled = true;
+  showTyping();
+  try{
+    var decision = await decidePaymentAction(payload);
+    hideTyping();
+    finalizePaymentLog(payload, decision);
+    var cardPayload = buildAssistantPaymentPayload(payload, decision);
+    appendPaymentEntry('assistant', cardPayload);
+    if(decision && decision.reply){
+      var textEntry = makeChatEntry('assistant', sanitizeAssistantTextForChat(decision.reply) || decision.reply, 'text');
+      chatLog.push(textEntry);
+      addMessage('ai', textEntry.content, true, 'text', textEntry.id);
+      refreshInnerVoiceFromAi(textEntry.content);
+    }
+    saveChat();
+  }catch(err){
+    hideTyping();
+    console.error('respondToPaymentPayload failed', err);
+    toast('支付处理失败');
+  }
+  isTyping = false;
+  document.getElementById('genBtn').disabled = false;
+  document.getElementById('sendBtn').disabled = false;
+}
+
+async function selectPaymentAccount(accountId){
+  pendingPaymentAccountId = String(accountId || '');
+  var amount = Number((document.getElementById('moneyAmountInput') || {}).value || 0);
+  var note = String((document.getElementById('moneyNoteInput') || {}).value || '').trim();
+  if(!Number.isFinite(amount) || amount <= 0){
+    toast('请输入金额');
+    return;
+  }
+  if(window.PaymentService && window.PaymentService.getBalance(pendingPaymentAccountId) < amount){
+    toast('余额不足');
+    return;
+  }
+  closePaymentAccountPicker();
+  closeMoneyComposer();
+  var payload = buildPaymentPayload(pendingPaymentMode, amount, note, pendingPaymentAccountId);
+  var log = window.PaymentService ? window.PaymentService.appendLog({
+    accountId: pendingPaymentAccountId,
+    kind: pendingPaymentMode,
+    title: payload.title,
+    amount: amount,
+    direction: 'out',
+    status: 'pending',
+    targetId: payload.charId,
+    targetName: payload.charName,
+    note: note,
+    detail: payload.summary
+  }) : null;
+  if(log) payload.logId = log.id;
+  appendPaymentEntry('user', payload);
+  saveChat();
+  await respondToPaymentPayload(payload);
+}
+
+async function processQueuedPaymentEvents(){
+  if(!window.PaymentService || !character || !character.id) return;
+  if(isTyping) return;
+  var provider = localStorage.getItem('provider') || 'openai';
+  var key = localStorage.getItem('key_' + provider);
+  if(!key && provider !== 'custom') return;
+  var events = window.PaymentService.popEventsForChar(character.id);
+  if(!Array.isArray(events) || !events.length) return;
+  for(var i = 0; i < events.length; i++){
+    var item = events[i] || {};
+    if(item.payload){
+      await respondToPaymentPayload(item.payload);
+    }
+  }
 }
 
 function rollbackInnerVoiceOnReroll(){
@@ -4615,6 +4988,10 @@ function saveChat() {
   if(!lastEntry && chatLog.length) lastEntry = chatLog[chatLog.length - 1];
   var lastMsg = lastEntry ? (lastEntry.content || '') : '';
   var lastType = lastEntry ? (lastEntry.type || 'text') : 'text';
+  if(normalizeMessageType(lastType) === 'payment'){
+    lastMsg = paymentSummaryText(lastMsg);
+    lastType = 'text';
+  }
   try {
     window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id: character.id, data: character, last: lastMsg, lastType: lastType } }, '*');
   } catch(e){}
@@ -5431,6 +5808,7 @@ window.addEventListener('message', function(e) {
       saveChat();
       updateFloatingUi();
     }
+    setTimeout(function(){ processQueuedPaymentEvents(); }, 40);
   }
   if (d.type === 'WORLDBOOK_UPDATED') { loadWorldBook(); updateBlockedUi(); }
   if (d.type === 'SETTINGS_SAVED') { updateModelLabel(); }
