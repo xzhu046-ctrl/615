@@ -278,6 +278,10 @@ function getMainMomentsName(){
   if(!did) return '';
   return String(localStorage.getItem('qq_moments_bubble_name__acct_' + did) || '').trim();
 }
+function pendingFirstUserTurnKey(charId){
+  if(window.AccountManager) return window.AccountManager.scopedKey('friend_first_user_turn_' + charId);
+  return 'friend_first_user_turn_' + charId;
+}
 
 function loadStoredAsset(key){
   if(window.assetStore) return window.assetStore.load(key);
@@ -682,6 +686,7 @@ function confirmFriendReq(){
       return;
     }
     window.AccountManager.addFriend(charId);
+    try{ localStorage.setItem(pendingFirstUserTurnKey(charId), '1'); }catch(e){}
     try{
       if(evalRes.similarity >= 0.78){
         var acct = window.AccountManager.getActive();
@@ -1027,16 +1032,14 @@ function parseCard(jsonStr, imageData, filename) {
       window.parent.postMessage({ type:'CHARACTER_IMPORTED', payload:card }, '*');
     }
 
-    if(window.AccountManager && !isDefaultAccount()){
+    doImportNow();
+    if(window.AccountManager && !isDefaultAccount() && !window.AccountManager.isFriend(card.id)){
       askFriendRequestWithCallbacks(
         card.id,
-        function(){ doImportNow(); },
-        function(){ log('好友申请被拒绝，角色未导入'); }
+        function(){ log('好友申请已通过'); },
+        function(){ log('好友申请被拒绝，角色已保留，可稍后再试'); }
       );
-      return;
     }
-
-    doImportNow();
 
   } catch(e) {
     log('解析失败: ' + e.message);

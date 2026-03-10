@@ -634,10 +634,11 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
           <input class="cs-input" id="csUserName" placeholder="你的名字..." type="text">
         </div>
       </div>
-      <div style="margin-top:10px">
+      <div style="margin-top:10px" id="csUserPersonaWrap">
         <span class="cs-label">你的人物设定（会注入到 AI 上下文）</span>
         <textarea class="cs-textarea" id="csUserPersona" rows="3" placeholder="描述你自己，例如：我是一个喜欢猫咪的大学生..."></textarea>
       </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--g);display:none" id="csSubUserHint">小号使用个人设置里的头像和网名；persona 已关闭。</div>
     </div>
 
     <div class="cs-card" id="greetingsCard">
@@ -1414,6 +1415,64 @@ function getMainMomentsName(){
   var did = window.AccountManager.getDefaultId();
   if(!did) return '';
   return String(localStorage.getItem('qq_moments_bubble_name__acct_' + did) || '').trim();
+}
+function pendingFirstUserTurnKey(charId){
+  return accountScopedKey('friend_first_user_turn_' + charId);
+}
+function shouldWaitForFirstUserTurn(charId){
+  if(!charId) return false;
+  return String(localStorage.getItem(pendingFirstUserTurnKey(charId)) || '') === '1';
+}
+function markNeedFirstUserTurn(charId){
+  if(!charId) return;
+  try{ localStorage.setItem(pendingFirstUserTurnKey(charId), '1'); }catch(e){}
+}
+function consumeFirstUserTurn(charId){
+  if(!charId) return;
+  try{ localStorage.removeItem(pendingFirstUserTurnKey(charId)); }catch(e){}
+}
+function getActiveAccountProfileName(){
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      return String((acct && acct.name) || '').trim();
+    }
+  }catch(e){}
+  return '';
+}
+function getActiveAccountProfileAvatar(){
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      return String((acct && acct.avatar) || '').trim();
+    }
+  }catch(e){}
+  return '';
+}
+function getSubAccountIdentityHint(){
+  if(isDefaultAccountContext()) return '';
+  var activeName = getActiveAccountProfileName();
+  var similarity = Math.max(
+    calcNameSimilarity(activeName, getDefaultAccountName()),
+    calcNameSimilarity(activeName, getMainPersonaNameForChar(character && character.id)),
+    calcNameSimilarity(activeName, getMainMomentsName())
+  );
+  var discovered = !!(character && String(localStorage.getItem(discoveredKey(character.id)) || '') === '1');
+  if(discovered || similarity >= 0.78){
+    return [
+      '【身份线索】',
+      '这个陌生账号的名字很像你熟悉的人。',
+      discovered ? '你已经明显起疑，可能会试探对方是不是某人的小号。' : '你可以自然试探，但不要把猜测当成已经确认的事实。'
+    ].join('\n');
+  }
+  if(similarity >= 0.6){
+    return [
+      '【身份线索】',
+      '这个陌生账号的名字有一点熟悉感。',
+      '如果语气和情境合适，你可以轻轻试探一下，但不要立刻认定身份。'
+    ].join('\n');
+  }
+  return '';
 }
 function discoveredKey(charId){
   return accountScopedKey('char_discovered_' + charId);
@@ -2929,6 +2988,7 @@ function confirmFriendRequestFlow(){
     }
     if(window.AccountManager && character && character.id){
       window.AccountManager.addFriend(character.id);
+      markNeedFirstUserTurn(character.id);
       if(evalRes.similarity >= 0.78){
         localStorage.setItem(discoveredKey(character.id), '1');
       }
@@ -2937,9 +2997,6 @@ function confirmFriendRequestFlow(){
     toast('已通过好友申请');
     loadWorldBook();
     restoreOrStartChat();
-    setTimeout(function(){
-      if(!isTyping) triggerReply();
-    }, 120);
   }, 950);
 }
 
@@ -3221,6 +3278,7 @@ function restoreOrStartChat() {
   }
   // Fresh start — show greeting
   var greeting = getGreeting();
+  if(shouldWaitForFirstUserTurn(character && character.id)) greeting = '';
   msgs.innerHTML = '';
   if (greeting) {
     var first = makeChatEntry('assistant', greeting, 'text');
@@ -3326,8 +3384,8 @@ function buildSystemPrompt() {
   }
 
   // User persona
-  var userName = localStorage.getItem(userKey('user_name')) || '';
-  var userPersona = localStorage.getItem(userKey('user_persona')) || '';
+  var userName = isDefaultAccountContext() ? (localStorage.getItem(userKey('user_name')) || '') : getActiveAccountProfileName();
+  var userPersona = isDefaultAccountContext() ? (localStorage.getItem(userKey('user_persona')) || '') : '';
   if(character && !isDefaultAccountContext()){
     var intro = '';
     try{ intro = localStorage.getItem('pending_friend_req_intro_' + character.id) || ''; }catch(e){}
@@ -3346,6 +3404,8 @@ function buildSystemPrompt() {
     }).join('\n');
     parts.push(['【历史记忆总结】', memText].join('\n'));
   }
+  var identityHint = getSubAccountIdentityHint();
+  if(identityHint) parts.push(identityHint);
   if(pendingMomentsChatCue){
     parts.push(['【朋友圈新互动】', pendingMomentsChatCue].join('\n'));
   }
@@ -3829,6 +3889,7 @@ function sendOnly() {
   input.value = ''; input.style.height = 'auto';
   var entry = makeChatEntry('user', text, 'text');
   entry.replyToId = replyTargetId;
+  consumeFirstUserTurn(character && character.id);
   chatLog.push(entry);
   addMessage('user', text, true, 'text', entry.id);
   saveChat();
@@ -3851,6 +3912,7 @@ async function triggerReply() {
     input.value = ''; input.style.height = 'auto';
     var entry = makeChatEntry('user', text, 'text');
     entry.replyToId = replyTargetId;
+    consumeFirstUserTurn(character && character.id);
     chatLog.push(entry);
     addMessage('user', text, true, 'text', entry.id);
     clearReplyTarget();
@@ -4829,6 +4891,7 @@ function sendVoiceInput(){
   closeVoiceInput();
   var entry = makeChatEntry('user', text, 'voice');
   entry.replyToId = replyTargetId;
+  consumeFirstUserTurn(character && character.id);
   chatLog.push(entry);
   addMessage('user', text, true, 'voice', entry.id);
   saveChat();
@@ -4844,6 +4907,7 @@ function sendImageCardInput(){
   closeImageCardInput();
   var entry = makeChatEntry('user', text, 'image');
   entry.replyToId = replyTargetId;
+  consumeFirstUserTurn(character && character.id);
   chatLog.push(entry);
   addMessage('user', text, true, 'image', entry.id);
   saveChat();
@@ -5815,6 +5879,7 @@ function openChatSettings() {
   chatSettingsSavedAtLeastOnce = false;
   pendingCharBgEnabled = null;
   pendingAutoSummaryEnabled = null;
+  var isDefault = isDefaultAccountContext();
   // Populate char
   if (character) {
     var av = document.getElementById('csCharAvatar');
@@ -5832,11 +5897,17 @@ function openChatSettings() {
   // Populate user
   var uav = document.getElementById('csUserAvatar');
   uav.innerHTML = getAvatarPlaceholderHtml('user', '+');
-  loadStoredAsset(userKey('user_avatar')).then(function(savedUav){
+  var userAvatarKey = isDefault ? userKey('user_avatar') : accountScopedKey('qq_profile_avatar_asset');
+  loadStoredAsset(userAvatarKey).then(function(savedUav){
+    savedUav = String(savedUav || '').trim() || getActiveAccountProfileAvatar();
     if (savedUav && savedUav.startsWith('data:')) { uav.innerHTML = '<img src="' + savedUav + '"><div class="avatar-pick-hint">换头像</div>'; }
   });
-  document.getElementById('csUserName').value = localStorage.getItem(userKey('user_name')) || '';
-  document.getElementById('csUserPersona').value = localStorage.getItem(userKey('user_persona')) || '';
+  document.getElementById('csUserName').value = isDefault ? (localStorage.getItem(userKey('user_name')) || '') : getActiveAccountProfileName();
+  document.getElementById('csUserName').disabled = !isDefault;
+  document.getElementById('csUserAvatar').style.pointerEvents = isDefault ? '' : 'none';
+  document.getElementById('csUserPersona').value = isDefault ? (localStorage.getItem(userKey('user_persona')) || '') : '';
+  document.getElementById('csUserPersonaWrap').style.display = isDefault ? '' : 'none';
+  document.getElementById('csSubUserHint').style.display = isDefault ? 'none' : 'block';
   // WB
   document.getElementById('wbToggle').classList.toggle('on', wbEnabled);
   updateWbInfoText();
@@ -6019,6 +6090,7 @@ function persistActiveCharacterSnapshot(slim){
 
 function postSettingsPreviewSync(){
   if(!character) return;
+  var isDefault = isDefaultAccountContext();
   var nameEl = document.getElementById('csCharName');
   var nickEl = document.getElementById('csCharNick');
   var userEl = document.getElementById('csUserName');
@@ -6029,13 +6101,14 @@ function postSettingsPreviewSync(){
   var charImg = document.querySelector('#csCharAvatar img');
   var charImgSrc = String((charImg && charImg.src) || '').trim();
   if(charImgSrc && charImgSrc.startsWith('data:')) draft.imageData = charImgSrc;
-  var userName = String((userEl && userEl.value) || '').trim();
+  var userName = isDefault ? String((userEl && userEl.value) || '').trim() : getActiveAccountProfileName();
   var userImg = document.querySelector('#csUserAvatar img');
   var userAvatar = String((userImg && userImg.src) || '').trim();
+  if(!isDefault) userAvatar = getActiveAccountProfileAvatar();
   if(!(userAvatar && userAvatar.startsWith('data:'))) userAvatar = '';
   var slim = compactChar(draft);
   persistActiveCharacterSnapshot(slim);
-  if(character && character.id){
+  if(isDefault && character && character.id){
     try{ localStorage.setItem('user_name_' + character.id, userName); }catch(e){}
     if(userAvatar) saveStoredAsset('user_avatar_' + character.id, userAvatar);
   }
@@ -6047,8 +6120,9 @@ function postSettingsPreviewSync(){
 }
 
 function saveChatSettings() {
-  var un = document.getElementById('csUserName').value.trim();
-  var up = document.getElementById('csUserPersona').value.trim();
+  var isDefault = isDefaultAccountContext();
+  var un = isDefault ? document.getElementById('csUserName').value.trim() : getActiveAccountProfileName();
+  var up = isDefault ? document.getElementById('csUserPersona').value.trim() : '';
   var cn = document.getElementById('csCharName').value.trim();
   var ck = document.getElementById('csCharNick').value.trim();
   var cp = document.getElementById('csCharPersona').value.trim() || (character ? (character.description || character.name || '无') : '无');
@@ -6059,9 +6133,13 @@ function saveChatSettings() {
   var manualSize = parseInt(document.getElementById('csManualSummarySize').value || String(DEFAULT_MANUAL_SUMMARY_SIZE), 10);
   var mergeThreshold = parseInt(document.getElementById('csMemoryMergeThreshold').value || String(DEFAULT_MEMORY_MERGE_THRESHOLD), 10);
   var momentsFreq = normalizeMomentsFreq(document.getElementById('csMomentsFreq').value || DEFAULT_MOMENTS_FREQ);
-  localStorage.setItem(userKey('user_name'), un);
-  localStorage.setItem(userKey('user_persona'), up);
-  if(character && character.id) localStorage.setItem('user_name_' + character.id, un);
+  if(isDefault){
+    localStorage.setItem(userKey('user_name'), un);
+    localStorage.setItem(userKey('user_persona'), up);
+    if(character && character.id) localStorage.setItem('user_name_' + character.id, un);
+  }else{
+    try{ localStorage.removeItem(userKey('user_persona')); }catch(e){}
+  }
   saveContextWindowSize(cwin);
   saveSummaryEverySize(severy);
   saveManualSummarySize(manualSize);
