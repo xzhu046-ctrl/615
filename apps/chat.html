@@ -980,6 +980,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 var chatLog = [];
 var character = null;
 var isTyping = false;
+var transientHiddenModelMsgIds = [];
 var wbEnabled = false;
 var wbEntries = [];
 var wbBooks = [];
@@ -1328,7 +1329,14 @@ function getVisibleChatForModel(){
   var tailStart = Math.max(0, chatLog.length - windowSize);
   var covered = Math.max(0, Math.min(chatLog.length, getMemoryCoveredCount()));
   var start = Math.max(tailStart, covered);
-  return chatLog.slice(start);
+  var visible = chatLog.slice(start);
+  if(Array.isArray(transientHiddenModelMsgIds) && transientHiddenModelMsgIds.length){
+    var hidden = new Set(transientHiddenModelMsgIds.map(function(id){ return String(id || ''); }).filter(Boolean));
+    visible = visible.filter(function(msg){
+      return !hidden.has(String((msg && msg.id) || ''));
+    });
+  }
+  return visible;
 }
 function loadInnerVoiceStore(){
   if(!character) return { current: null, items: [] };
@@ -3692,7 +3700,7 @@ async function triggerReply() {
     clearReplyTarget();
     captureUserMomentIntent(text, 'text');
   }
-  await handlePendingFamilyCardReply();
+  var familyReplyId = await handlePendingFamilyCardReply();
   if(markUserMessagesReadByChar()){
     saveChat();
     renderChatLog(true);
@@ -3707,6 +3715,7 @@ async function triggerReply() {
   }
   hideError();
   pendingMomentsChatCue = processMomentsInteractionsOnTrigger();
+  transientHiddenModelMsgIds = familyReplyId ? [familyReplyId] : [];
 
   isTyping = true;
   document.getElementById('genBtn').disabled = true;
@@ -3724,6 +3733,8 @@ async function triggerReply() {
     var errMsg = err.message || String(err);
     showError('AI 回复失败: ' + errMsg);
     console.error('callAI error:', err);
+  } finally {
+    transientHiddenModelMsgIds = [];
   }
 
   isTyping = false;
@@ -4311,7 +4322,7 @@ async function decideFamilyCardOutcome(payload){
 async function handlePendingFamilyCardReply(){
   if(!character) return false;
   var pending = popPendingFamilyRequest(character.id);
-  if(!pending) return false;
+  if(!pending) return '';
   var accept = await decideFamilyCardOutcome(pending);
   updateFamilyCardStatus(pending.id, accept ? 'accepted' : 'rejected');
   updateWalletRecordForFamily(pending.id, accept);
@@ -4325,7 +4336,7 @@ async function handlePendingFamilyCardReply(){
   chatLog.push(replyEntry);
   addMessage('ai', replyEntry.content, true, 'family_card', replyEntry.id);
   saveChat();
-  return true;
+  return replyEntry.id;
 }
 
 function rollbackInnerVoiceOnReroll(){
