@@ -2179,6 +2179,61 @@ function makeNaturalMomentPost(seed, aiText, snapshot){
   picked = picked.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
   return truncateMomentText(picked, 42);
 }
+function sanitizeMomentCaptionText(text){
+  var t = String(text || '').replace(/\s+/g, ' ').trim();
+  if(!t) return '';
+  t = t.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+  t = t.replace(/^(文案|caption|text)\s*[:：]\s*/i, '').trim();
+  return truncateMomentText(t, 42);
+}
+function sanitizeMomentImageText(text){
+  var t = String(text || '').replace(/\s+/g, ' ').trim();
+  if(!t) return '';
+  t = t.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+  t = t.replace(/^(图片|配图|画面|image|imageText)\s*[:：]\s*/i, '').trim();
+  return truncateMomentText(t, 48);
+}
+async function generateMomentPostViaAi(seed, aiText, snapshot, postType){
+  var ctx = snapshot || buildMomentContextSnapshot(seed, aiText);
+  var recent = ((ctx && ctx.recent) || []).slice(-10).map(function(line, idx){
+    return (idx + 1) + '. ' + line;
+  }).join('\n');
+  var wb = ((ctx && ctx.worldbook) || []).slice(0, 8).join('\n');
+  var isDynamic = postType === 'dynamic';
+  var sys = [
+    '你是角色本人，要发一条朋友圈/说说，不能像 AI 模板文。',
+    '你必须结合角色人设、已启用世界书、最近10条聊天上下文，先思考角色此刻会不会发、会发什么。',
+    '角色可以发和用户无关的生活内容，像真实的人一样，有自己的工作、日常、情绪和观察。',
+    '只返回 JSON，不要解释，不要 markdown。',
+    isDynamic
+      ? '格式：{"text":"朋友圈文案","imageText":"纯画面描写"}'
+      : '格式：{"text":"说说文案"}',
+    'text 是角色发出来的感想/文案，不能像说明书，也不要复读用户命令。',
+    '如果有 imageText，它只能是画面描写，不能和 text 一样，不能写成感想。'
+  ].join('\n');
+  var user = [
+    '角色名：' + String((character && (character.nickname || character.name)) || '角色'),
+    '角色人设：' + String((character && (character.personality || character.description)) || ''),
+    wb ? ('已启用世界书：\n' + wb) : '已启用世界书：无',
+    recent ? ('最近10条聊天：\n' + recent) : '最近10条聊天：无',
+    '当前想法线索：' + String(seed || ''),
+    '角色刚回复/当前语气：' + String(aiText || ''),
+    '要发的类型：' + (isDynamic ? '动态（带图）' : '说说（纯文字）')
+  ].join('\n\n');
+  try{
+    var raw = await callAIWithCustomPrompts(sys, user);
+    var cleaned = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+    var parsed = JSON.parse(cleaned || '{}');
+    if(!parsed || typeof parsed !== 'object') return null;
+    var text = sanitizeMomentCaptionText(parsed.text || parsed.caption || parsed.content || '');
+    var imageText = isDynamic ? sanitizeMomentImageText(parsed.imageText || parsed.image || parsed.description || '') : '';
+    if(!text) return null;
+    if(isDynamic && (!imageText || normalizeHeartText(text) === normalizeHeartText(imageText))) return null;
+    return { text: text, imageText: imageText };
+  }catch(e){
+    return null;
+  }
+}
 
 function forceVisualMomentLine(seed, aiLine, caption, snapshot){
   var ctx = snapshot || buildMomentContextSnapshot(seed, aiLine);
@@ -2268,7 +2323,7 @@ function isBlockedMemePayload(raw){
   return false;
 }
 
-function maybeRunAiMomentsFromChat(text, msgType){
+async function maybeRunAiMomentsFromChat(text, msgType){
   var now = Date.now();
   var freq = getMomentsFreqProfile();
   var aiName = getMomentsAiName();
@@ -2316,12 +2371,13 @@ function maybeRunAiMomentsFromChat(text, msgType){
     return Math.random() < 0.45 ? 'dynamic' : 'say';
   }
 
-  function addPost(){
+  async function addPost(){
     var postType = inferPostType();
     var hasImage = postType === 'dynamic';
     var snapshot = buildMomentContextSnapshot(seed, aiLine);
-    var caption = makeNaturalMomentPost(seed, aiLine, snapshot);
-    var imageText = hasImage ? forceVisualMomentLine(seed, aiLine, caption, snapshot) : '';
+    var aiPost = await generateMomentPostViaAi(seed, aiLine, snapshot, postType);
+    var caption = (aiPost && aiPost.text) || makeNaturalMomentPost(seed, aiLine, snapshot);
+    var imageText = hasImage ? (((aiPost && aiPost.imageText) || '').trim() || forceVisualMomentLine(seed, aiLine, caption, snapshot)) : '';
     if(hasImage && normalizeHeartText(caption) === normalizeHeartText(imageText)){
       imageText = forceVisualMomentLine('', '', caption, snapshot);
     }
@@ -2353,7 +2409,7 @@ function maybeRunAiMomentsFromChat(text, msgType){
   function commentLatest(replyMode){
     var latest = getLatestMoment(posts);
     if(!latest){
-      addPost();
+      return addPost();
       latest = getLatestMoment(posts);
       if(!latest) return;
     }
@@ -2381,7 +2437,7 @@ function maybeRunAiMomentsFromChat(text, msgType){
   if(!forceActions.length && posts.length && Math.random() < freq.idleLikeChance) forceActions.push('like');
   if(!forceActions.length) return;
 
-  if(forceActions.indexOf('post') !== -1) addPost();
+  if(forceActions.indexOf('post') !== -1) await addPost();
   if(forceActions.indexOf('like') !== -1) likeLatest();
   if(forceActions.indexOf('comment') !== -1) commentLatest(false);
   if(forceActions.indexOf('reply') !== -1) commentLatest(true);
@@ -6279,9 +6335,7 @@ async function deliverAiReply(text, limitOverride){
     if(msgParts.length > 1) return msgParts;
     var lines = cleaned.split(/\n+/).map(function(line){ return line.trim(); }).filter(Boolean);
     if(lines.length >= 2){
-      var shortEnough = lines.every(function(line){
-        return line.length <= 36 && !/[。！？!?]\s*["”’']?$/.test(line + ' ');
-      });
+      var shortEnough = lines.every(function(line){ return line.length <= 36; });
       var totalLen = lines.reduce(function(sum, line){ return sum + line.length; }, 0);
       if(shortEnough && totalLen <= 120){
         return lines.map(function(line){ return { text: line, t: 'text' }; });
@@ -6472,7 +6526,7 @@ async function deliverAiReply(text, limitOverride){
     }
     sentCount++;
     maybeAutoBlockByChar(p.text);
-    maybeRunAiMomentsFromChat(p.text, t);
+    await maybeRunAiMomentsFromChat(p.text, t);
     await sleep(130 + Math.floor(Math.random()*120));
     if(i < parts.length - 1){
       await sleep(170 + Math.floor(Math.random()*260));
