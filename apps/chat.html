@@ -69,7 +69,9 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg-bubble.has-reply{flex-direction:column;align-items:flex-start}
 .msg-bubble.voice{flex-direction:column;align-items:flex-start;gap:6px;width:100%}
 .msg-bubble.image-card{padding:0;background:transparent;border:none;box-shadow:none;overflow:visible}
+.msg-bubble.familycard-shell{padding:0;background:transparent;border:none;box-shadow:none;min-height:0;overflow:visible}
 .msg.user .msg-bubble.image-card,.msg.ai .msg-bubble.image-card{background:transparent;border:none;box-shadow:none;padding:0}
+.msg.user .msg-bubble.familycard-shell,.msg.ai .msg-bubble.familycard-shell{background:transparent;border:none;box-shadow:none;padding:0}
 .msg-bubble.is-editing{display:block;padding:10px 12px}
 .reply-snippet{width:100%;border:var(--bd);border-radius:10px;background:var(--w);padding:6px 8px;margin-bottom:8px;box-shadow:1px 1px 0 var(--b);color:var(--b)}
 .msg.user .reply-snippet{background:var(--w);border-color:var(--b);color:var(--b)}
@@ -177,7 +179,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .gen-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .gen-btn:disabled{opacity:.4;cursor:not-allowed}
 .family-card-bubble{min-width:215px;border:var(--bd);border-radius:24px;background:linear-gradient(180deg,#fbfbfb 0%,#efefef 100%);box-shadow:var(--sh);padding:10px 12px;display:flex;align-items:center;gap:10px}
-.family-card-panel{flex:1;min-width:0;border:var(--bd);border-radius:18px;background:rgba(255,255,255,.92);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.family-card-panel{flex:1;min-width:0;border:none;border-radius:18px;background:rgba(255,255,255,.92);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
 .family-card-text{font-family:var(--fontd);font-size:15px;line-height:1.28;font-weight:900;color:#555;white-space:pre-wrap}
 .family-card-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .family-card-amount{font-family:var(--fontd);font-size:18px;font-weight:900}
@@ -3793,6 +3795,7 @@ function addMessage(role, content, doScroll, msgType, msgId) {
 
   var bubble = document.createElement('div');
   bubble.className = 'msg-bubble' + (msgType==='voice' ? ' voice' : '') + (msgType==='image' ? ' image-card' : '');
+  if(msgType === 'familycard') bubble.classList.add('familycard-shell');
   var entry = msgId ? getMessageById(msgId) : null;
 
   var safeText = content || '(空消息)';
@@ -3911,6 +3914,10 @@ function familyQueueKey(){
   return accountScopedKey('qq_family_card_queue');
 }
 
+function familyActiveKey(){
+  return accountScopedKey('qq_family_card_active');
+}
+
 function parseFamilyCardPayload(raw){
   if(!raw) return null;
   if(typeof raw === 'object') return raw;
@@ -3936,10 +3943,11 @@ function familyCardSummaryText(payload){
 function renderFamilyCardBubble(bubble, raw){
   var data = parseFamilyCardPayload(raw) || {};
   var amount = Number(data.amount || 0).toFixed(2);
+  var showStatus = String(data.kind || 'request') === 'request';
   bubble.innerHTML = '<div class="family-card-bubble">'
     + '<div class="family-card-panel">'
     + '<div class="family-card-text">' + esc(data.summary || '') + '</div>'
-    + '<div class="family-card-meta"><span class="family-card-amount">¥' + esc(amount) + '</span><span class="family-card-status">' + esc(familyCardStatusLabel(data.status || 'pending')) + '</span></div>'
+    + '<div class="family-card-meta"><span class="family-card-amount">¥' + esc(amount) + '</span>' + (showStatus ? ('<span class="family-card-status">' + esc(familyCardStatusLabel(data.status || 'pending')) + '</span>') : '') + '</div>'
     + '</div>'
     + '</div>';
 }
@@ -3970,9 +3978,44 @@ function popPendingFamilyRequest(charId){
   return picked;
 }
 
+function loadActiveFamilyCards(){
+  try{
+    var raw = JSON.parse(localStorage.getItem(familyActiveKey()) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  }catch(e){
+    return [];
+  }
+}
+
+function saveActiveFamilyCards(list){
+  try{ localStorage.setItem(familyActiveKey(), JSON.stringify(Array.isArray(list) ? list : [])); }catch(e){}
+}
+
+function upsertActiveFamilyCard(payload){
+  var list = loadActiveFamilyCards().filter(function(item){
+    return String((item && item.id) || '') !== String((payload && payload.id) || '');
+  });
+  list.unshift({
+    id: String((payload && payload.id) || ''),
+    charId: String((payload && payload.charId) || ''),
+    charName: String((payload && payload.charName) || ''),
+    userName: String((payload && payload.userName) || ''),
+    mode: String((payload && payload.mode) || 'gift'),
+    amount: Number((payload && payload.amount) || 0) || 0,
+    startedAt: Number((payload && payload.createdAt) || Date.now()) || Date.now()
+  });
+  saveActiveFamilyCards(list);
+}
+
 function userDisplayNameForFamily(){
-  var name = String(localStorage.getItem(userKey('user_name')) || '').trim();
-  if(name) return name;
+  var keys = [];
+  if(character && character.id) keys.push(userKey('user_name'));
+  keys.push(accountScopedKey('user_name'));
+  keys.push('user_name');
+  for(var i=0;i<keys.length;i++){
+    var name = String(localStorage.getItem(keys[i]) || '').trim();
+    if(name) return name;
+  }
   try{
     if(window.AccountManager){
       var acct = window.AccountManager.getActive();
@@ -4054,7 +4097,9 @@ async function handlePendingFamilyCardReply(){
   var accept = await decideFamilyCardOutcome(pending);
   updateFamilyCardStatus(pending.id, accept ? 'accepted' : 'rejected');
   updateWalletRecordForFamily(pending.id, accept);
+  if(accept) upsertActiveFamilyCard(pending);
   var responsePayload = Object.assign({}, pending, {
+    kind: 'decision',
     status: accept ? 'accepted' : 'rejected',
     summary: familyResponseText(pending, accept)
   });
