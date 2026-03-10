@@ -40,8 +40,11 @@ button,input,textarea,select{color:var(--b);-webkit-text-fill-color:var(--b)}
 .modal h3{font-family:var(--fontd);font-size:16px;font-weight:900}
 .modal .sub{font-size:12px;color:#666;font-weight:700;line-height:1.5}
 .actions{display:flex;gap:8px}
-.actions button{flex:1;border:var(--bd);border-radius:12px;background:#fff;box-shadow:var(--sh);padding:10px;font-family:var(--fontd);font-size:12px;font-weight:900;cursor:pointer}
-.actions button:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
+.actions button,.account-item button{flex:1;border:var(--bd);border-radius:12px;background:#fff;box-shadow:var(--sh);padding:10px;font-family:var(--fontd);font-size:12px;font-weight:900;cursor:pointer}
+.actions button:active,.account-item button:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
+.account-list{display:flex;flex-direction:column;gap:8px;max-height:280px;overflow:auto}
+.account-item{border:var(--bd);border-radius:14px;background:#f7f7f7;padding:10px;display:flex;flex-direction:column;gap:8px}
+.account-main{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .badges{display:flex;gap:6px;flex-wrap:wrap}
 .badge{font-size:9px;border:var(--bd);border-radius:999px;padding:2px 7px;font-weight:900;background:#111;color:#fff}
 .fav-list{display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:auto;padding:2px 0;-webkit-overflow-scrolling:touch}
@@ -126,13 +129,18 @@ button,input,textarea,select{color:var(--b);-webkit-text-fill-color:var(--b)}
     <button class="row-btn" type="button" onclick="openFavorites()">
       <span>收藏</span><span class="row-sub" id="favCount">0条</span>
     </button>
-    <button class="row-btn" type="button" onclick="showAccountPlaceholder()">
-      <span>账号</span><span class="row-sub">还在开发中</span>
+    <button class="row-btn" type="button" onclick="openAccountCenter()">
+      <span>账号</span><span class="row-sub">切换 / 创建</span>
     </button>
   </section>
 
+  <div class="del-wrap">
+    <button class="del-btn" type="button" onclick="confirmDeleteAccount()">删除当前账号</button>
+  </div>
+
   <input id="avatarInput" type="file" accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg">
 
+  <div class="overlay" id="accountOverlay"><div class="modal"><h3>账号中心</h3><div class="account-list" id="accountList"></div><div class="actions"><button type="button" onclick="createAccountAction()">创建账号</button><button type="button" onclick="closeOverlay('accountOverlay')">关闭</button></div></div></div>
   <div class="overlay" id="favOverlay"><div class="modal"><h3>收藏</h3><div class="fav-list" id="favList"></div><div class="actions"><button type="button" onclick="closeOverlay('favOverlay')">关闭</button></div></div></div>
   <div class="overlay" id="confirmOverlay"><div class="modal" id="confirmModal"></div></div>
 
@@ -292,8 +300,13 @@ function openFavorites(){ renderFavorites(); document.getElementById('favOverlay
 function removeFavoriteById(id){ if(!id) return; window.AccountManager.updateActive((a)=>{ const arr=Array.isArray(a.favorites)?a.favorites:[]; a.favorites=arr.filter((it)=>String(it&&it.id||'')!==String(id)); }); renderProfile(); renderFavorites(); }
 function confirmRemoveFavorite(id){ confirmModal('取消收藏','确定取消收藏？',()=>{ removeFavoriteById(id); }); }
 function bindFavoriteSwipeDelete(){ const list=document.getElementById('favList'); if(!list) return; list.querySelectorAll('.fav-item').forEach((item)=>{ let startX=0,startY=0,dx=0,dragging=false,pointerId=null; const reset=()=>{ item.classList.remove('swiping'); item.style.transform=''; dragging=false; pointerId=null; }; item.addEventListener('pointerdown',(e)=>{ if(e.pointerType==='mouse'&&e.button!==0) return; pointerId=e.pointerId; startX=e.clientX; startY=e.clientY; dx=0; dragging=true; item.classList.add('swiping'); try{ item.setPointerCapture(pointerId); }catch(err){} }); item.addEventListener('pointermove',(e)=>{ if(!dragging || (pointerId!==null&&e.pointerId!==pointerId)) return; const moveX=e.clientX-startX; const moveY=e.clientY-startY; if(Math.abs(moveY)>16 && Math.abs(moveY)>Math.abs(moveX)){ reset(); return; } dx=Math.min(0,Math.max(-68,moveX)); item.style.transform='translateX(' + dx + 'px)'; }); item.addEventListener('pointerup',(e)=>{ if(!dragging || (pointerId!==null&&e.pointerId!==pointerId)) return; const swipe=dx; const id=item.getAttribute('data-fav-id')||''; reset(); if(swipe<=-42){ confirmRemoveFavorite(id); } }); item.addEventListener('pointercancel',reset); item.addEventListener('lostpointercapture',reset); }); }
-function showAccountPlaceholder(){ showToast('还在开发中'); }
+function renderAccountList(){ const list=document.getElementById('accountList'); const accounts=window.AccountManager.ensure(); const activeId=active().id; const defaultId=window.AccountManager.getDefaultId(); list.innerHTML=accounts.map((a)=>'<div class="account-item"><div class="account-main"><strong>'+esc(a.name||'未命名')+'</strong><div class="badges">'+(a.id===activeId?'<span class="badge">当前</span>':'')+(a.id===defaultId?'<span class="badge">默认</span>':'')+'</div></div><div class="actions"><button type="button" onclick="switchAccount(\''+escAttr(a.id)+'\')">切换</button><button type="button" onclick="setDefaultAccount(\''+escAttr(a.id)+'\')">设为默认</button></div></div>').join(''); }
+function openAccountCenter(){ renderAccountList(); document.getElementById('accountOverlay').classList.add('open'); }
 function confirmModal(title,desc,onConfirm){ const m=document.getElementById('confirmModal'); m.innerHTML='<h3>'+esc(title)+'</h3><div class="sub">'+esc(desc)+'</div><div class="actions"><button type="button" onclick="closeOverlay(\'confirmOverlay\')">取消</button><button type="button" id="confirmYesBtn">确认</button></div>'; document.getElementById('confirmOverlay').classList.add('open'); document.getElementById('confirmYesBtn').onclick=function(){ closeOverlay('confirmOverlay'); onConfirm&&onConfirm(); }; }
+function createAccountAction(){ const accounts=window.AccountManager.ensure(); if(accounts.length>=2){ showToast('最多只能拥有两个账号'); return; } confirmModal('创建新账号','创建后将切换到新账号并重置为默认头像与名字，继续吗？',()=>{ const res=window.AccountManager.createAccount(); if(!res){ showToast('创建失败'); return; } location.reload(); }); }
+function switchAccount(id){ window.AccountManager.setActive(id); location.reload(); }
+function setDefaultAccount(id){ window.AccountManager.setDefault(id); renderAccountList(); showToast('已设为默认账号'); }
+function confirmDeleteAccount(){ const acc=active(); confirmModal('删除账号','删除后该账号的聊天与朋友圈数据会被清空，确认删除？',()=>{ const res=window.AccountManager.deleteAccount(acc.id); if(!res.ok){ if(res.reason==='default') showToast('不能删除默认账号，请先切换默认账号'); else if(res.reason==='need_one') showToast('至少要保留一个账号'); else showToast('删除失败'); return; } location.reload(); }); }
 
 function esc(s){ return String(s||'').replace(/[&<>\"]/g,(m)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m])); }
 function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -301,7 +314,7 @@ function fmtTime(ts){ const d=new Date(ts||Date.now()); const p=(n)=>String(n).p
 
 document.getElementById('nameInput').addEventListener('change', saveName);
 document.getElementById('nameInput').addEventListener('blur', saveName);
-['favOverlay','confirmOverlay'].forEach((id)=>{ const el=document.getElementById(id); el.addEventListener('click',(evt)=>{ if(evt.target===el) el.classList.remove('open'); }); });
+['accountOverlay','favOverlay','confirmOverlay'].forEach((id)=>{ const el=document.getElementById(id); el.addEventListener('click',(evt)=>{ if(evt.target===el) el.classList.remove('open'); }); });
 
 window.AccountManager.ensure();
 bindAvatarInput();
