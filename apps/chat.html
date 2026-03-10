@@ -2070,6 +2070,8 @@ function sanitizeAssistantTextForChat(raw){
   var t = String(raw || '').trim();
   if(!t) return t;
   if(isBlockedMemePayload(t)) return '';
+  if(/^【亲属卡】[\s\S]*[；;]状态[：:](待处理|已同意|已拒绝)\s*$/.test(t)) return '';
+  if(/^\[family_card\s+[^\]]+\]$/i.test(t)) return '';
   t = t.replace(/<\s*meme\s*>[\s\S]*?<\s*\/\s*meme\s*>/ig, '');
   t = t.replace(/^\s*<\s*meme\s*>[\s\S]*$/ig, '');
   t = t.replace(/^[a-z0-9_\-\u4e00-\u9fa5]+\.(png|jpe?g|gif|webp)\s*$/ig, '');
@@ -2302,11 +2304,11 @@ function formatMessageForModel(msg){
     content = '【图片消息】\n图片里的文字是：' + content;
   } else if(kind === 'familycard'){
     var familyPayload = parseFamilyCardPayload(content) || {};
-    var familyMode = familyPayload.mode === 'request' ? '索要' : '赠送';
-    var familyAmount = '¥' + Number(familyPayload.amount || 0).toFixed(2);
-    var familyStatus = familyCardStatusLabel(familyPayload.status || 'pending');
-    var familySummary = String(familyPayload.summary || '').trim() || '亲属卡互动';
-    content = '【亲属卡】' + familySummary + '；模式：' + familyMode + '；额度/笔：' + familyAmount + '；状态：' + familyStatus;
+    var familyMode = familyPayload.mode === 'request' ? 'request' : 'gift';
+    var familyStatus = String(familyPayload.status || 'pending');
+    var familyAmount = Number(familyPayload.amount || 0).toFixed(2);
+    var familyKind = String(familyPayload.kind || 'request');
+    content = '[family_card kind=' + familyKind + ' mode=' + familyMode + ' amount=' + familyAmount + ' status=' + familyStatus + ']';
   }
   if(msg.replyToId){
     var target = getMessageById(msg.replyToId);
