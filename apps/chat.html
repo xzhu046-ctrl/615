@@ -179,6 +179,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .voice-row{display:flex;align-items:center;gap:10px;cursor:pointer;width:100%;justify-content:space-between}
 .voice-row.ai-row{gap:6px}
 .voice-row.user-row{gap:6px;justify-content:flex-start}
+.voice-row.ai-row .voice-duration{margin-left:auto}
 .voice-row.user-row .voice-duration{margin-left:auto}
 .voice-waves{display:flex;align-items:center;gap:3px}
 .voice-wave{width:6px;height:8px;border-radius:12px;background:var(--b);opacity:0.4;transform-origin:50% 100%;}
@@ -195,6 +196,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg-typing{padding:6px 10px;min-height:40px;height:40px;}
 .msg.user .msg-bubble{background:var(--b);color:var(--w);border-bottom-right-radius:4px;border-top-right-radius:6px;border-top-left-radius:16px;border-bottom-left-radius:16px}
 .msg.user .msg-bubble.voice{align-items:stretch}
+.msg.ai .msg-bubble.voice{width:auto;min-width:132px;max-width:min(240px,100%);align-items:stretch;padding:8px 10px}
 .msg.ai   .msg-bubble{background:var(--w);border:var(--bd);color:var(--b);border-bottom-left-radius:4px;border-top-left-radius:6px;border-top-right-radius:16px;border-bottom-right-radius:16px;box-shadow:var(--sh)}
 .msg-avatar{width:40px;height:40px;border-radius:12px;border:var(--bd);background:var(--pale);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;overflow:visible;align-self:flex-start;box-shadow:var(--sh);position:relative}
 .msg-avatar img{width:100%;height:100%;object-fit:cover;border-radius:10px}
@@ -3101,6 +3103,26 @@ function restoreOrStartChat() {
   renderReplyPreview();
 }
 
+function syncChatLogFromStorageForCurrentCharacter(){
+  if(!character || !character.id) return false;
+  try{
+    var saved = localStorage.getItem(chatStorageKey(character.id));
+    if(saved === null) return false;
+    var obj = JSON.parse(saved);
+    var next = (obj && (obj.history || obj.messages)) || [];
+    if(!Array.isArray(next)) return false;
+    var normalized = next.map(normalizeChatEntry);
+    var currentSig = JSON.stringify(chatLog.map(function(item){ return [item.id, item.role, item.type, item.content, item.readAt || 0]; }));
+    var nextSig = JSON.stringify(normalized.map(function(item){ return [item.id, item.role, item.type, item.content, item.readAt || 0]; }));
+    if(currentSig === nextSig) return false;
+    chatLog = normalized;
+    renderChatLog(false);
+    return true;
+  }catch(e){
+    return false;
+  }
+}
+
 function getGreeting() {
   if (!character) return '';
   var isDefault = true;
@@ -3690,6 +3712,7 @@ function sendOnly() {
 async function triggerReply() {
   if(!canSendNow()) return;
   if (isTyping) return;
+  syncChatLogFromStorageForCurrentCharacter();
 
   var input = document.getElementById('msg-input');
   var text = input.value.trim();
@@ -4382,6 +4405,12 @@ function parseFamilyReplyBundle(raw, fallbackAccept){
   return { accept: accept, replies: replies };
 }
 
+function fallbackFamilyFollowupText(accept, payload){
+  var charName = String((payload && payload.charName) || (character && (character.nickname || character.name)) || '我').trim() || '我';
+  if(accept) return charName + '会认真收着的。';
+  return '这个我不能答应，但我还是想好好和你说。';
+}
+
 async function composePendingFamilyCardReply(payload){
   var fallbackAccept = (payload && payload.mode === 'gift');
   var maxTotal = character && character.msgMax ? character.msgMax : 3;
@@ -4435,9 +4464,11 @@ async function handlePendingFamilyCardReply(){
   var replyEntry = makeChatEntry('assistant', JSON.stringify(responsePayload), 'family_card');
   chatLog.push(replyEntry);
   addMessage('ai', replyEntry.content, true, 'family_card', replyEntry.id);
-  if(Array.isArray(bundle.replies) && bundle.replies.length){
-    await deliverAiReply(bundle.replies, Math.max(0, (character && character.msgMax ? character.msgMax : 3) - 1));
+  var followups = Array.isArray(bundle.replies) ? bundle.replies.slice() : [];
+  if(!followups.length){
+    followups = [{ type:'text', content:fallbackFamilyFollowupText(accept, pending) }];
   }
+  await deliverAiReply(followups, Math.max(0, (character && character.msgMax ? character.msgMax : 3) - 1));
   saveChat();
   return replyEntry.id;
 }
