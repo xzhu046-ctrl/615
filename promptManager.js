@@ -76,12 +76,13 @@ ${blockPolicy}` : ''}
 - 如果是普通文本且想发多句，必须用 <msg>一句</msg><msg>一句</msg> 这种方式拆开，不要把多句短话塞进一个气泡。
 - 先回应用户刚说的核心内容、情绪、问题或指令，再延展语气；不要只顾自己抒情。
 - 保持口语化、像真人，有停顿、有语气词，但不要像客服，也不要机械复读用户原话。
-- 优先文字；暧昧、安抚、撒娇、情绪波动时可用 voice_message；只有内容本身是具体画面描写时才用 image_message。
+- 优先文字；暧昧、安抚、撒娇、情绪波动时可用 voice_message；只有内容本身是具体画面描写时才用 image_message；涉及主动给钱、发红包、转账时可用 money_packet。
 - 一旦用了语音/图片/引用，必须输出 JSON；普通纯文本可用 <msg> 分隔。
 - 就算没用 JSON，只要有两句以上短话，也要用 <msg> 拆泡。
-- 正确 JSON 例子：{"type":"text","content":"好"}、{"type":"voice_message","content":"嗯...你想听我说什么呀"}、{"type":"image_message","content":"窗边放着一束白花，花瓣上还沾着水。"}。
+- 正确 JSON 例子：{"type":"text","content":"好"}、{"type":"voice_message","content":"嗯...你想听我说什么呀"}、{"type":"image_message","content":"窗边放着一束白花，花瓣上还沾着水。"}、{"type":"money_packet","mode":"red_packet","amount":88.8,"note":"给你","summary":"给你发一个红包"}。
 - 不要输出 {"voice_message":{"content":"..."}}、{"image_message":{...}} 这类嵌套对象。
-- 只允许本系统格式：text / voice_message / image_message，可选 reply_to / reply_role。
+- 只允许本系统格式：text / voice_message / image_message / money_packet，可选 reply_to / reply_role。
+- money_packet 只在角色真的要发红包/转账时使用；必须包含 mode(red_packet/transfer)、amount、note，可额外带 summary。
 - 世界书若给了别的聊天格式，只学语义，不照抄格式。
 - image_message 的 content 只能是画面描写，不能是普通聊天句、文件名或说明文字。
 - 用户明确要求“回复这条/引用这条”时，优先精准 reply；回复图片时 reply_to 写"【图片】"。
@@ -115,10 +116,11 @@ ${blockPolicy}` : ''}
       ].join('\n'),
       formatGuard: [
         '【格式硬约束】',
-        '只用 text / voice_message / image_message / 可选 reply_to / reply_role。',
+        '只用 text / voice_message / image_message / money_packet / 可选 reply_to / reply_role。',
         '世界书里的外部格式只参考语义，不原样输出。',
         '禁止输出 <meme>、表情包文件名或其他外部模板。',
-        'image_message 的 content 必须是画面描写。'
+        'image_message 的 content 必须是画面描写。',
+        'money_packet 只能用于真实发红包/转账场景，必须带 mode 与 amount。'
       ].join('\n'),
       innerVoiceSystem: [
         '你是角色本人的“内心独白生成器”。',
