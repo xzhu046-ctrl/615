@@ -2308,7 +2308,9 @@ function formatMessageForModel(msg){
     var familyStatus = String(familyPayload.status || 'pending');
     var familyAmount = Number(familyPayload.amount || 0).toFixed(2);
     var familyKind = String(familyPayload.kind || 'request');
-    content = '[family_card kind=' + familyKind + ' mode=' + familyMode + ' amount=' + familyAmount + ' status=' + familyStatus + ']';
+    var ownerSide = familyMode === 'gift' ? 'user' : 'char';
+    var spenderSide = familyMode === 'gift' ? 'char' : 'user';
+    content = '[family_card kind=' + familyKind + ' mode=' + familyMode + ' owner=' + ownerSide + ' spender=' + spenderSide + ' amount=' + familyAmount + ' status=' + familyStatus + ']';
   }
   if(msg.replyToId){
     var target = getMessageById(msg.replyToId);
@@ -2857,6 +2859,7 @@ function init() {
     restoreOrStartChat();
     updateBlockedUi();
     refreshMemoryUi();
+    maybeAutoTriggerFamilyReply(character.id);
   }else{
     updateBlockedUi();
     refreshMemoryUi();
@@ -4063,6 +4066,33 @@ function familyActiveKey(){
   return accountScopedKey('qq_family_card_active');
 }
 
+function pendingFamilyAutoTriggerKey(charId){
+  return accountScopedKey('pending_family_auto_trigger_' + charId);
+}
+
+function consumePendingFamilyAutoTrigger(charId){
+  if(!charId) return false;
+  try{
+    var key = pendingFamilyAutoTriggerKey(charId);
+    var raw = localStorage.getItem(key);
+    if(raw !== '1') return false;
+    localStorage.removeItem(key);
+    return true;
+  }catch(e){
+    return false;
+  }
+}
+
+function maybeAutoTriggerFamilyReply(charId){
+  if(!charId || !consumePendingFamilyAutoTrigger(charId)) return;
+  setTimeout(function(){
+    if(!character || String(character.id || '') !== String(charId || '')) return;
+    if(isTyping) return;
+    syncChatLogFromStorageForCurrentCharacter();
+    triggerReply();
+  }, 80);
+}
+
 function parseFamilyCardPayload(raw){
   if(!raw) return null;
   if(typeof raw === 'object') return raw;
@@ -4326,8 +4356,10 @@ function familyResponseText(payload, accept){
   var data = payload || {};
   var charName = String(data.charName || (character && (character.nickname || character.name)) || 'Char');
   var userName = String(data.userName || userDisplayNameForFamily() || 'User');
-  var action = data.mode === 'request' ? '来花钱' : '来掏钱';
-  return charName + (accept ? '同意' : '不同意') + userName + action;
+  if(data.mode === 'request'){
+    return charName + (accept ? '同意' : '不同意') + userName + '用她的亲属卡';
+  }
+  return charName + (accept ? '收下了' : '没有收下') + userName + '送来的亲属卡';
 }
 
 function updateFamilyCardStatus(requestId, nextStatus){
@@ -6148,6 +6180,7 @@ window.addEventListener('message', function(e) {
     loadWorldBook();
     updateBlockedUi();
     refreshMemoryUi();
+    syncChatLogFromStorageForCurrentCharacter();
     if (!sameChar) {
       // Reset chat only when切换到不同角色
       closeMessageActions();
@@ -6167,6 +6200,7 @@ window.addEventListener('message', function(e) {
       saveChat();
       updateFloatingUi();
     }
+    maybeAutoTriggerFamilyReply(character && character.id);
   }
   if (d.type === 'WORLDBOOK_UPDATED') { loadWorldBook(); updateBlockedUi(); }
   if (d.type === 'SETTINGS_SAVED') { updateModelLabel(); }
