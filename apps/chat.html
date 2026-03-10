@@ -4105,8 +4105,44 @@ function maybeAutoTriggerFamilyReply(charId, attempt){
     if(isTyping) return;
     if(!hasPendingFamilyRequestForChar(charId)) return;
     syncChatLogFromStorageForCurrentCharacter();
-    triggerReply();
+    processPendingFamilyAutoReply();
   }, 80);
+}
+
+async function processPendingFamilyAutoReply(){
+  if(!canSendNow()) return;
+  if(isTyping || familyReplyBusy) return;
+  syncChatLogFromStorageForCurrentCharacter();
+  if(!character || !hasPendingFamilyRequestForChar(character.id)) return;
+  var familyReplyId = '';
+  isTyping = true;
+  document.getElementById('genBtn').disabled = true;
+  document.getElementById('sendBtn').disabled = true;
+  showTyping();
+  try{
+    familyReplyId = await handlePendingFamilyCardReply();
+    hideTyping();
+    if(markUserMessagesReadByChar()){
+      saveChat();
+      renderChatLog(true);
+    }
+    if(!familyReplyId) return;
+    pendingMomentsChatCue = '';
+    pendingFamilyFollowupCue = '';
+    pendingModelUserCue = '';
+  }catch(err){
+    hideTyping();
+    var errMsg = err && (err.message || String(err)) || '未知错误';
+    showError('亲属卡回复失败: ' + errMsg);
+    console.error('family auto reply error:', err);
+  }finally{
+    transientHiddenModelMsgIds = [];
+    pendingFamilyFollowupCue = '';
+    pendingModelUserCue = '';
+    isTyping = false;
+    document.getElementById('genBtn').disabled = false;
+    document.getElementById('sendBtn').disabled = false;
+  }
 }
 
 function parseFamilyCardPayload(raw){
