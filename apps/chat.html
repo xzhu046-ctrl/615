@@ -1029,6 +1029,8 @@ var innerVoiceHistoryMode = false;
 var innerVoiceEditingId = '';
 var innerVoicePendingDeleteId = '';
 var lastFamilyReplyRound = null;
+var lastFamilyHandledAt = 0;
+var familyReplyBusy = false;
 
 function contextWindowKey(){
   return character && character.id ? accountScopedKey('ctx_window_' + character.id) : '';
@@ -3724,6 +3726,8 @@ async function triggerReply() {
 
   var input = document.getElementById('msg-input');
   var text = input.value.trim();
+  var hasFreshFamilyCooldown = !!(character && !text && !hasPendingFamilyRequestForChar(character.id) && (Date.now() - lastFamilyHandledAt < 1800));
+  if(hasFreshFamilyCooldown) return;
   if (text) {
     input.value = ''; input.style.height = 'auto';
     var entry = makeChatEntry('user', text, 'text');
@@ -4266,6 +4270,14 @@ function loadPendingFamilyQueue(){
   }
 }
 
+function hasPendingFamilyRequestForChar(charId){
+  var key = String(charId || '');
+  if(!key) return false;
+  return loadPendingFamilyQueue().some(function(item){
+    return String((item && item.charId) || '') === key;
+  });
+}
+
 function savePendingFamilyQueue(queue){
   try{ localStorage.setItem(familyQueueKey(), JSON.stringify(Array.isArray(queue) ? queue : [])); }catch(e){}
 }
@@ -4560,7 +4572,9 @@ async function composePendingFamilyCardReply(payload){
 }
 
 async function handlePendingFamilyCardReply(){
-  if(!character) return false;
+  if(!character || familyReplyBusy) return false;
+  familyReplyBusy = true;
+  try{
   var pending = popPendingFamilyRequest(character.id);
   if(!pending) return '';
   ensureFamilyRequestInChatLog(pending);
@@ -4591,8 +4605,12 @@ async function handlePendingFamilyCardReply(){
     pendingPayload: Object.assign({}, pending),
     assistantIds: [replyEntry.id].concat(followupIds || [])
   };
+  lastFamilyHandledAt = Date.now();
   saveChat();
   return replyEntry.id;
+  } finally {
+    familyReplyBusy = false;
+  }
 }
 
 function rollbackInnerVoiceOnReroll(){
