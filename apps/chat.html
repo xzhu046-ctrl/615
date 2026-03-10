@@ -1504,11 +1504,37 @@ function worldbookScopedKey(base){
   }
   return base;
 }
+function getSharedCharacterId(){
+  var currentId = String((character && character.id) || '').trim();
+  if(!window.AccountManager || !character) return currentId;
+  try{
+    var did = window.AccountManager.getDefaultId() || '';
+    if(!did) return currentId;
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    if(!Array.isArray(list)) return currentId;
+    var currentName = normalizeNameLite(character.nickname || character.name || '');
+    var match = list.find(function(item){
+      return item && item.ownerAccountId === did && String(item.id || '') === currentId;
+    });
+    if(!match && currentName){
+      match = list.find(function(item){
+        if(!item || item.ownerAccountId !== did) return false;
+        var itemName = normalizeNameLite(item.nickname || item.name || '');
+        return !!itemName && itemName === currentName;
+      });
+    }
+    return String((match && match.id) || currentId);
+  }catch(e){
+    return currentId;
+  }
+}
 function chatStorageKey(charId){
   return accountScopedKey('chat_' + charId);
 }
 function greetingStorageKey(charId){
-  return accountScopedKey('greeting_idx_' + charId);
+  var sharedId = String(charId || '').trim();
+  if(character && sharedId === String(character.id || '')) sharedId = getSharedCharacterId();
+  return worldbookScopedKey('greeting_idx_' + sharedId);
 }
 function momentStorageKey(base){
   return accountScopedKey(base);
@@ -3164,11 +3190,11 @@ function updateModelLabel() {
 }
 
 function getWbBookStateKey() {
-  return character ? worldbookScopedKey('wb_book_states_' + character.id) : '';
+  return character ? worldbookScopedKey('wb_book_states_' + getSharedCharacterId()) : '';
 }
 
 function getWbEnabledKey() {
-  return character ? worldbookScopedKey('wb_enabled_' + character.id) : '';
+  return character ? worldbookScopedKey('wb_enabled_' + getSharedCharacterId()) : '';
 }
 
 function getSavedWbBookStates() {
@@ -3234,11 +3260,12 @@ function getApplicableWorldBooks() {
   var allWbs = {};
   try { allWbs = JSON.parse(localStorage.getItem('worldbooks') || '{}'); } catch(e) { allWbs = {}; }
   var savedStates = getSavedWbBookStates();
+  var sharedCharId = getSharedCharacterId();
   var books = [];
   Object.keys(allWbs || {}).forEach(function(bucketKey) {
     (allWbs[bucketKey] || []).forEach(function(wb, idx) {
       if (!wb) return;
-      var isRoleBook = bucketKey === character.id;
+      var isRoleBook = bucketKey === character.id || (!!sharedCharId && bucketKey === sharedCharId);
       var isGlobalBook = !!wb.global;
       if (!isRoleBook && !isGlobalBook) return;
       var entries = (wb.entries || []).filter(function(e) { return isWbEntryEnabled(e); });
@@ -3323,6 +3350,7 @@ function loadWorldBook() {
     wbEntries = [];
   }
   var saved = localStorage.getItem(getWbEnabledKey());
+  if(saved === null) saved = localStorage.getItem('wb_enabled_' + getSharedCharacterId());
   if(saved === null) saved = localStorage.getItem('wb_enabled_' + character.id);
   wbEnabled = saved === null ? wbBooks.length > 0 : saved === 'true';
   var tog = document.getElementById('wbToggle');
