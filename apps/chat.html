@@ -6160,6 +6160,47 @@ async function deliverAiReply(text, limitOverride){
     return [{ text: cleaned, t: 'text' }];
   };
   var parsed = null;
+  var rawParts = [];
+  var appendRawPart = function(item){
+    if(!item || typeof item !== 'object') return;
+    if(item.type === 'thought_chain') return;
+    var c = '';
+    var t = normalizeMessageType(item.type || 'text');
+    if(typeof item.content === 'string') c = item.content;
+    else if(typeof item.reply_content === 'string') c = item.reply_content;
+    else if(typeof item.description === 'string') c = item.description;
+    else if(typeof item.text === 'string') c = item.text;
+    if(!c){
+      if(item.voice_message && typeof item.voice_message === 'object'){
+        c = item.voice_message.content || item.voice_message.text || '';
+        t = 'voice';
+      }else if(item.image_message && typeof item.image_message === 'object'){
+        c = item.image_message.content || item.image_message.text || item.image_message.description || '';
+        t = 'image';
+      }else if(item.text && typeof item.text === 'object'){
+        c = item.text.content || item.text.text || '';
+        t = 'text';
+      }
+    }
+    if(t === 'image' && !looksLikeVisualDescription(c)) t = 'text';
+    if(!c) return;
+    rawParts.push({
+      text: c,
+      t: t,
+      replyTo: item.reply_to || item.replyTo || '',
+      replyRole: item.reply_role || item.replyRole || ''
+    });
+  };
+  var appendRawPartsFromEnvelope = function(obj){
+    if(!obj || typeof obj !== 'object') return false;
+    var list = null;
+    if(Array.isArray(obj)) list = obj;
+    else if(Array.isArray(obj.messages)) list = obj.messages;
+    else if(Array.isArray(obj.history)) list = obj.history;
+    if(!Array.isArray(list) || !list.length) return false;
+    list.forEach(appendRawPart);
+    return rawParts.length > 0;
+  };
 
   // If API already returned structured content
   if(Array.isArray(text)) {
@@ -6175,17 +6216,8 @@ async function deliverAiReply(text, limitOverride){
     }catch(e){}
   }
 
-  var rawParts = [];
   if(Array.isArray(parsed)){
-    parsed.forEach(function(item){
-      if(!item || typeof item !== 'object') return;
-      if(item.type === 'thought_chain') return; // skip inner thoughts
-      var c = item.content || item.reply_content || item.description;
-      if(!c) return;
-      var t = normalizeMessageType(item.type || 'text');
-      if(t === 'image' && !looksLikeVisualDescription(c)) t = 'text';
-      rawParts.push({text:c, t:t, replyTo:item.reply_to || item.replyTo || '', replyRole:item.reply_role || item.replyRole || ''});
-    });
+    parsed.forEach(appendRawPart);
   }
 
   if(!rawParts.length && text){
@@ -6193,22 +6225,7 @@ async function deliverAiReply(text, limitOverride){
     try{
       var obj = JSON.parse(text);
       if(obj && typeof obj === 'object'){
-        var c = obj.content || obj.reply_content || obj.description;
-        var t = normalizeMessageType(obj.type || 'text');
-        if(!c){
-          if(obj.voice_message && typeof obj.voice_message === 'object'){
-            c = obj.voice_message.content || obj.voice_message.text || '';
-            t = 'voice';
-          }else if(obj.image_message && typeof obj.image_message === 'object'){
-            c = obj.image_message.content || obj.image_message.text || obj.image_message.description || '';
-            t = 'image';
-          }else if(obj.text && typeof obj.text === 'object'){
-            c = obj.text.content || obj.text.text || '';
-            t = 'text';
-          }
-        }
-        if(t === 'image' && !looksLikeVisualDescription(c)) t = 'text';
-        if(c) rawParts = [{text:c, t:t, replyTo:obj.reply_to || obj.replyTo || '', replyRole:obj.reply_role || obj.replyRole || ''}];
+        if(!appendRawPartsFromEnvelope(obj)) appendRawPart(obj);
       }
     }catch(e){}
   }
