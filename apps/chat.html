@@ -176,6 +176,12 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .gen-btn{width:38px;height:38px;border-radius:50%;border:var(--bd);background:var(--w);color:var(--b);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--sh);transition:transform .12s,box-shadow .12s;margin-bottom:2px}
 .gen-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .gen-btn:disabled{opacity:.4;cursor:not-allowed}
+.family-card-bubble{min-width:215px;border:var(--bd);border-radius:24px;background:linear-gradient(180deg,#fbfbfb 0%,#efefef 100%);box-shadow:var(--sh);padding:10px 12px;display:flex;align-items:center;gap:10px}
+.family-card-panel{flex:1;min-width:0;border:var(--bd);border-radius:18px;background:rgba(255,255,255,.92);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.family-card-text{font-family:var(--fontd);font-size:15px;line-height:1.28;font-weight:900;color:#555;white-space:pre-wrap}
+.family-card-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.family-card-amount{font-family:var(--fontd);font-size:18px;font-weight:900}
+.family-card-status{display:inline-flex;align-items:center;justify-content:center;padding:3px 8px;border:var(--bd);border-radius:999px;background:#fff;font-size:10px;font-weight:900;letter-spacing:.04em}
 
 /* ── Chat Settings Panel ── */
 .csettings{position:absolute;inset:0;background:var(--w);z-index:50;transform:translateX(100%);transition:transform .32s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;overflow:hidden}
@@ -1620,6 +1626,7 @@ async function sendBlockedRequestCard(){
 function normalizeMessageType(type){
   if(type === 'voice_message' || type === 'voice') return 'voice';
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
+  if(type === 'family_card' || type === 'familycard') return 'familycard';
   return 'text';
 }
 
@@ -2186,6 +2193,16 @@ function formatMessageForModel(msg){
     content = '【语音消息转写 ' + duration + "''】\n" + content;
   } else if(kind === 'image'){
     content = '【图片消息】\n图片里的文字是：' + content;
+  } else if(kind === 'familycard'){
+    var familyPayload = parseFamilyCardPayload(content) || {};
+    content = [
+      '【亲属卡互动】',
+      '对象：' + String(familyPayload.charName || '角色'),
+      '模式：' + (familyPayload.mode === 'request' ? '索要' : '赠送'),
+      '额度/笔：¥' + Number(familyPayload.amount || 0).toFixed(2),
+      '状态：' + familyCardStatusLabel(familyPayload.status || 'pending'),
+      '摘要：' + String(familyPayload.summary || '')
+    ].join('\n');
   }
   if(msg.replyToId){
     var target = getMessageById(msg.replyToId);
@@ -3587,6 +3604,10 @@ async function triggerReply() {
     renderChatLog(true);
   }
 
+  if(await handlePendingFamilyCardReply()){
+    return;
+  }
+
   // Now get AI reply
   var provider = localStorage.getItem('provider') || 'openai';
   var key = localStorage.getItem('key_' + provider);
@@ -3810,6 +3831,8 @@ function addMessage(role, content, doScroll, msgType, msgId) {
       if(multiSelectMode || editingMessageId) return;
       openImageViewer(safeText);
     });
+  } else if(msgType === 'familycard'){
+    renderFamilyCardBubble(bubble, safeText);
   } else {
     bubble.appendChild(document.createTextNode(safeText));
   }
@@ -3882,6 +3905,164 @@ function rerollLast(){
   saveChat();
   renderChatLog(false);
   triggerReply();
+}
+
+function familyQueueKey(){
+  return accountScopedKey('qq_family_card_queue');
+}
+
+function parseFamilyCardPayload(raw){
+  if(!raw) return null;
+  if(typeof raw === 'object') return raw;
+  try{
+    var obj = JSON.parse(String(raw));
+    return obj && typeof obj === 'object' ? obj : null;
+  }catch(e){
+    return null;
+  }
+}
+
+function familyCardStatusLabel(status){
+  if(status === 'accepted') return '已同意';
+  if(status === 'rejected') return '已拒绝';
+  return '待处理';
+}
+
+function familyCardSummaryText(payload){
+  var data = parseFamilyCardPayload(payload) || {};
+  return String(data.summary || '');
+}
+
+function renderFamilyCardBubble(bubble, raw){
+  var data = parseFamilyCardPayload(raw) || {};
+  var amount = Number(data.amount || 0).toFixed(2);
+  bubble.innerHTML = '<div class="family-card-bubble">'
+    + '<div class="family-card-panel">'
+    + '<div class="family-card-text">' + esc(data.summary || '') + '</div>'
+    + '<div class="family-card-meta"><span class="family-card-amount">¥' + esc(amount) + '</span><span class="family-card-status">' + esc(familyCardStatusLabel(data.status || 'pending')) + '</span></div>'
+    + '</div>'
+    + '</div>';
+}
+
+function loadPendingFamilyQueue(){
+  try{
+    var raw = JSON.parse(localStorage.getItem(familyQueueKey()) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  }catch(e){
+    return [];
+  }
+}
+
+function savePendingFamilyQueue(queue){
+  try{ localStorage.setItem(familyQueueKey(), JSON.stringify(Array.isArray(queue) ? queue : [])); }catch(e){}
+}
+
+function popPendingFamilyRequest(charId){
+  var key = String(charId || '');
+  var queue = loadPendingFamilyQueue();
+  var picked = null;
+  var rest = [];
+  queue.forEach(function(item){
+    if(!picked && String((item && item.charId) || '') === key) picked = item;
+    else rest.push(item);
+  });
+  savePendingFamilyQueue(rest);
+  return picked;
+}
+
+function userDisplayNameForFamily(){
+  var name = String(localStorage.getItem(userKey('user_name')) || '').trim();
+  if(name) return name;
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      if(acct && acct.name) return String(acct.name).trim();
+    }
+  }catch(e){}
+  return 'User';
+}
+
+function familyResponseText(payload, accept){
+  var data = payload || {};
+  var charName = String(data.charName || (character && (character.nickname || character.name)) || 'Char');
+  var userName = String(data.userName || userDisplayNameForFamily() || 'User');
+  var action = data.mode === 'request' ? '来花钱' : '来掏钱';
+  return charName + (accept ? '同意' : '不同意') + userName + action;
+}
+
+function updateFamilyCardStatus(requestId, nextStatus){
+  var changed = false;
+  chatLog = chatLog.map(function(entry){
+    if(!entry || entry.id !== requestId || normalizeMessageType(entry.type || 'text') !== 'familycard') return entry;
+    var payload = parseFamilyCardPayload(entry.content) || {};
+    payload.status = nextStatus;
+    entry.content = JSON.stringify(payload);
+    changed = true;
+    return entry;
+  });
+  if(changed) renderChatLog(false);
+}
+
+function updateWalletRecordForFamily(requestId, accept){
+  var key = accountScopedKey('qq_wallet_state');
+  try{
+    var raw = JSON.parse(localStorage.getItem(key) || 'null');
+    if(!raw || !Array.isArray(raw.records)) return;
+    raw.records = raw.records.map(function(item){
+      if(String((item && item.relatedId) || '') !== String(requestId || '')) return item;
+      var next = Object.assign({}, item);
+      next.status = accept ? 'accepted' : 'rejected';
+      next.note = accept ? '亲属卡已同意' : '亲属卡已拒绝';
+      return next;
+    });
+    localStorage.setItem(key, JSON.stringify(raw));
+  }catch(e){}
+}
+
+async function decideFamilyCardOutcome(payload){
+  var sys = [
+    '你是聊天中的角色本人。',
+    '现在用户发来一张亲属卡邀请，你要结合角色人设、世界书、最近聊天，像真人一样判断接受或拒绝。',
+    '只返回 JSON，不要解释，不要 markdown。',
+    '格式：{"accept":true|false}'
+  ].join('\n');
+  var recent = getVisibleChatForModel().slice(-10).map(function(m){
+    return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
+  }).join('\n');
+  var wbText = getStrictPromptWorldbookEntries().map(function(entry){
+    return String((entry && entry.content) || '').trim();
+  }).filter(Boolean).slice(0, 8).join('\n\n');
+  var user = [
+    '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
+    '角色人设：' + String((character && (character.personality || character.description)) || ''),
+    wbText ? ('世界书：\n' + wbText) : '世界书：无',
+    recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    '亲属卡事件：\n' + JSON.stringify(payload || {}, null, 2)
+  ].join('\n\n');
+  try{
+    var raw = await callAIWithCustomPrompts(sys, user);
+    var parsed = JSON.parse(String(raw || '{}'));
+    if(parsed && typeof parsed.accept === 'boolean') return parsed.accept;
+  }catch(e){}
+  return (payload && payload.mode === 'gift');
+}
+
+async function handlePendingFamilyCardReply(){
+  if(!character) return false;
+  var pending = popPendingFamilyRequest(character.id);
+  if(!pending) return false;
+  var accept = await decideFamilyCardOutcome(pending);
+  updateFamilyCardStatus(pending.id, accept ? 'accepted' : 'rejected');
+  updateWalletRecordForFamily(pending.id, accept);
+  var responsePayload = Object.assign({}, pending, {
+    status: accept ? 'accepted' : 'rejected',
+    summary: familyResponseText(pending, accept)
+  });
+  var replyEntry = makeChatEntry('assistant', JSON.stringify(responsePayload), 'family_card');
+  chatLog.push(replyEntry);
+  addMessage('ai', replyEntry.content, true, 'family_card', replyEntry.id);
+  saveChat();
+  return true;
 }
 
 function rollbackInnerVoiceOnReroll(){
@@ -4615,6 +4796,10 @@ function saveChat() {
   if(!lastEntry && chatLog.length) lastEntry = chatLog[chatLog.length - 1];
   var lastMsg = lastEntry ? (lastEntry.content || '') : '';
   var lastType = lastEntry ? (lastEntry.type || 'text') : 'text';
+  if(normalizeMessageType(lastType) === 'familycard'){
+    lastMsg = familyCardSummaryText(lastMsg);
+    lastType = 'text';
+  }
   try {
     window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id: character.id, data: character, last: lastMsg, lastType: lastType } }, '*');
   } catch(e){}

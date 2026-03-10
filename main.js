@@ -1846,12 +1846,21 @@ function compactCharKey(key){
 function normalizeChatPreviewType(type){
   if(type === 'voice_message' || type === 'voice') return 'voice';
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
+  if(type === 'family_card' || type === 'familycard') return 'familycard';
   return 'text';
 }
 
 function normalizePreviewMessage(msg){
   var next = msg && typeof msg === 'object' ? msg : { content:'', type:'text' };
   var kind = normalizeChatPreviewType(next.type || 'text');
+  if(kind === 'familycard'){
+    try{
+      var family = typeof next.content === 'string' ? JSON.parse(next.content) : next.content;
+      if(family && typeof family === 'object'){
+        return { content: String(family.summary || ''), type: 'text' };
+      }
+    }catch(e){}
+  }
   if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
     try{
       var parsed = JSON.parse(next.content);

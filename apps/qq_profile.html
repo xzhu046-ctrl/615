@@ -91,6 +91,19 @@ button,input,textarea{color:var(--b);-webkit-text-fill-color:var(--b)}
 .wallet-input{width:100%;border:var(--bd);border-radius:14px;background:#fff;box-shadow:var(--sh);padding:12px 14px;font-family:var(--fontd);font-size:22px;font-weight:900;outline:none}
 .wallet-input::placeholder{color:#999;-webkit-text-fill-color:#999}
 .wallet-note{font-size:12px;color:#666;font-weight:700;line-height:1.5}
+.family-card-modal{display:flex;flex-direction:column;gap:12px}
+.family-card-title{font-family:var(--fontd);font-size:24px;font-weight:900;text-align:center}
+.family-select{width:100%;border:var(--bd);border-radius:16px;background:#fff;box-shadow:var(--sh);padding:13px 14px;font-family:var(--fontd);font-size:16px;font-weight:900;outline:none}
+.family-mode-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.family-mode-btn{border:var(--bd);border-radius:16px;background:#fff;box-shadow:var(--sh);padding:12px 14px;display:flex;align-items:center;justify-content:space-between;font-family:var(--fontd);font-size:18px;font-weight:900;cursor:pointer}
+.family-mode-btn .check{font-size:18px;line-height:1}
+.family-mode-btn.active{background:#111;color:#fff}
+.family-mode-btn.active .check{color:#fff}
+.family-line{height:2px;background:#d2d2d2}
+.family-amount-wrap{display:flex;flex-direction:column;gap:6px;padding-top:2px}
+.family-amount-label{font-family:var(--fontd);font-size:15px;font-weight:900;color:#666}
+.family-amount-input{width:100%;border:none;border-bottom:2px solid #0a0a0a;background:transparent;padding:8px 4px 10px;font-family:var(--fontd);font-size:44px;font-weight:900;text-align:center;outline:none}
+.family-amount-input::placeholder{color:#999;-webkit-text-fill-color:#999}
 </style>
 </head>
 <body>
@@ -170,9 +183,9 @@ button,input,textarea{color:var(--b);-webkit-text-fill-color:var(--b)}
       <section class="wallet-strip">
         <div class="wallet-strip-copy">
           <div class="wallet-strip-title">开通亲密付</div>
-          <div class="wallet-strip-sub">占位中，下一步再接具体逻辑</div>
+          <div class="wallet-strip-sub">可赠送给角色，或向角色索要亲属卡</div>
         </div>
-        <button class="wallet-plus" type="button" onclick="toast('亲密付下一步再做')">+</button>
+        <button class="wallet-plus" type="button" onclick="openFamilyCardModal()">+</button>
       </section>
       <div class="wallet-divider"></div>
       <section class="wallet-ledger" id="walletLedger"></section>
@@ -238,6 +251,7 @@ function saveStoredAsset(key, value){
 
 function active(){ return window.AccountManager.getActive(); }
 function walletKey(){ return window.AccountManager.scopedKey('qq_wallet_state'); }
+function familyQueueKey(){ return window.AccountManager.scopedKey('qq_family_card_queue'); }
 
 function defaultWalletState(){
   return { balance: 0, records: [] };
@@ -300,6 +314,114 @@ function pushWalletRecord(partial){
   state.records = state.records.slice(0, 120);
   saveWalletState(state);
   return record;
+}
+
+function loadFamilyQueue(){
+  try{
+    var raw = JSON.parse(localStorage.getItem(familyQueueKey()) || '[]');
+    return Array.isArray(raw) ? raw : [];
+  }catch(e){
+    return [];
+  }
+}
+
+function saveFamilyQueue(queue){
+  localStorage.setItem(familyQueueKey(), JSON.stringify(Array.isArray(queue) ? queue : []));
+}
+
+function queueFamilyRequest(payload){
+  var queue = loadFamilyQueue();
+  queue.push(payload);
+  saveFamilyQueue(queue);
+}
+
+function accountScopedChatKey(charId){
+  return window.AccountManager.scopedKey('chat_' + charId);
+}
+
+function loadWalletCharacters(){
+  var chars = [];
+  try{ chars = JSON.parse(localStorage.getItem('characters') || '[]'); }catch(e){ chars = []; }
+  var acct = active();
+  var defaultId = window.AccountManager.getDefaultId();
+  chars = Array.isArray(chars) ? chars.map(function(c){
+    if(c && !c.ownerAccountId) c.ownerAccountId = defaultId || (acct && acct.id) || '';
+    return c;
+  }) : [];
+  if(acct){
+    chars = chars.filter(function(c){ return c && c.ownerAccountId === acct.id; });
+    if(!acct.isDefault){
+      var friendSet = new Set(Array.isArray(acct.friends) ? acct.friends : []);
+      chars = chars.filter(function(c){ return friendSet.has(c.id); });
+    }
+  }
+  return chars;
+}
+
+function currentActiveCharId(){
+  try{
+    var scoped = localStorage.getItem(window.AccountManager.scopedKey('activeCharacter')) || '';
+    var global = localStorage.getItem('activeCharacter') || '';
+    var parsed = JSON.parse(scoped || global || 'null');
+    return parsed && parsed.id ? String(parsed.id) : '';
+  }catch(e){
+    return '';
+  }
+}
+
+function getUserDisplayName(){
+  var base = String((active() && active().name) || '').trim();
+  return base || 'User';
+}
+
+function getCharDisplayName(charObj){
+  return String((charObj && (charObj.nickname || charObj.name)) || '').trim() || 'Char';
+}
+
+function buildFamilyInviteText(userName, charName, mode){
+  return userName + '邀请' + charName + (mode === 'request' ? '来掏钱' : '来花钱');
+}
+
+function createFamilyCardPayload(charObj, mode, amount){
+  var userName = getUserDisplayName();
+  var charName = getCharDisplayName(charObj);
+  return {
+    id: 'family_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+    type: 'family_card',
+    status: 'pending',
+    mode: mode === 'request' ? 'request' : 'gift',
+    amount: Number(amount || 0) || 0,
+    userName: userName,
+    charName: charName,
+    charId: String((charObj && charObj.id) || ''),
+    summary: buildFamilyInviteText(userName, charName, mode),
+    createdAt: Date.now()
+  };
+}
+
+function appendFamilyCardToChat(charObj, payload){
+  if(!charObj || !charObj.id || !payload) return;
+  var scopedKey = accountScopedChatKey(charObj.id);
+  var legacyKey = 'chat_' + charObj.id;
+  var store = null;
+  try{ store = JSON.parse(localStorage.getItem(scopedKey) || localStorage.getItem(legacyKey) || 'null'); }catch(e){ store = null; }
+  var list = store && (store.history || store.messages);
+  if(!Array.isArray(list)) list = [];
+  list.push({
+    id: payload.id,
+    role: 'user',
+    content: JSON.stringify(payload),
+    type: 'family_card',
+    replyToId: null,
+    sentAt: Date.now(),
+    readAt: null
+  });
+  var next = { history: list, messages: list };
+  try{ localStorage.setItem(scopedKey, JSON.stringify(next)); }catch(e){}
+  try{ localStorage.setItem(legacyKey, JSON.stringify(next)); }catch(e){}
+  try{
+    window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id: charObj.id, data: charObj, last: payload.summary, lastType: 'text' } }, '*');
+  }catch(e){}
 }
 
 function renderProfile(){
@@ -408,6 +530,83 @@ function openWalletRecordDetail(id){
     + '<div class="wallet-note">金额：' + esc(walletAmountText(item)) + '<br>时间：' + esc(walletTime(item.at)) + '<br>备注：' + esc(item.note || '无') + '</div>'
     + '<div class="actions"><button type="button" onclick="closeOverlay(\'confirmOverlay\')">关闭</button></div>';
   document.getElementById('confirmOverlay').classList.add('open');
+}
+
+function openFamilyCardModal(){
+  var chars = loadWalletCharacters();
+  if(!chars.length){
+    showToast('还没有可选角色');
+    return;
+  }
+  var activeId = currentActiveCharId();
+  var options = ['<option value="">选择对象</option>'].concat(chars.map(function(charObj){
+    var cid = String(charObj.id || '');
+    var selected = cid === activeId ? ' selected' : '';
+    return '<option value="' + escAttr(cid) + '"' + selected + '>' + esc(getCharDisplayName(charObj)) + '</option>';
+  }));
+  const m = document.getElementById('confirmModal');
+  m.innerHTML = '<div class="family-card-modal">'
+    + '<div class="family-card-title">亲属卡</div>'
+    + '<select class="family-select" id="familyCharSelect">' + options.join('') + '</select>'
+    + '<div class="family-mode-row">'
+    + '<button class="family-mode-btn active" type="button" id="familyGiftBtn" onclick="setFamilyMode(\'gift\')"><span>赠送</span><span class="check">☑</span></button>'
+    + '<button class="family-mode-btn" type="button" id="familyRequestBtn" onclick="setFamilyMode(\'request\')"><span>索要</span><span class="check">☐</span></button>'
+    + '</div>'
+    + '<div class="family-line"></div>'
+    + '<div class="family-amount-wrap"><div class="family-amount-label">额度/笔</div><input class="family-amount-input" id="familyAmountInput" type="number" min="0" step="0.01" placeholder="¥ 0.00"></div>'
+    + '<div class="actions"><button type="button" onclick="closeOverlay(\'confirmOverlay\')">取消</button><button type="button" id="confirmYesBtn">确认</button></div>'
+    + '</div>';
+  document.getElementById('confirmOverlay').classList.add('open');
+  window.__familyCardMode = 'gift';
+  document.getElementById('confirmYesBtn').onclick = submitFamilyCardRequest;
+}
+
+function setFamilyMode(mode){
+  window.__familyCardMode = mode === 'request' ? 'request' : 'gift';
+  var giftBtn = document.getElementById('familyGiftBtn');
+  var requestBtn = document.getElementById('familyRequestBtn');
+  if(giftBtn){
+    giftBtn.classList.toggle('active', window.__familyCardMode === 'gift');
+    giftBtn.querySelector('.check').textContent = window.__familyCardMode === 'gift' ? '☑' : '☐';
+  }
+  if(requestBtn){
+    requestBtn.classList.toggle('active', window.__familyCardMode === 'request');
+    requestBtn.querySelector('.check').textContent = window.__familyCardMode === 'request' ? '☑' : '☐';
+  }
+}
+
+function submitFamilyCardRequest(){
+  var charId = String((document.getElementById('familyCharSelect') || {}).value || '').trim();
+  var amount = Number((document.getElementById('familyAmountInput') || {}).value || 0);
+  if(!charId){
+    showToast('请选择对象');
+    return;
+  }
+  if(!Number.isFinite(amount) || amount < 0){
+    showToast('金额无效');
+    return;
+  }
+  var chars = loadWalletCharacters();
+  var target = chars.find(function(item){ return String((item && item.id) || '') === charId; });
+  if(!target){
+    showToast('对象不存在');
+    return;
+  }
+  var payload = createFamilyCardPayload(target, window.__familyCardMode || 'gift', amount);
+  appendFamilyCardToChat(target, payload);
+  queueFamilyRequest(payload);
+  pushWalletRecord({
+    title: payload.summary,
+    amount: payload.amount,
+    direction: payload.mode === 'request' ? 'in' : 'out',
+    note: '亲属卡待处理',
+    status: 'pending',
+    relatedId: payload.id,
+    at: payload.createdAt
+  });
+  closeOverlay('confirmOverlay');
+  renderWallet();
+  showToast('亲属卡邀请已发送');
 }
 
 function saveName(){
