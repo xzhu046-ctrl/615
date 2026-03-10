@@ -2074,6 +2074,7 @@ function sanitizeAssistantTextForChat(raw){
   if(isBlockedMemePayload(t)) return '';
   if(/^【亲属卡】[\s\S]*[；;]状态[：:](待处理|已同意|已拒绝)\s*$/.test(t)) return '';
   if(/^\[family_card\s+[^\]]+\]$/i.test(t)) return '';
+  t = t.replace(/<\/?msg>/ig, '');
   t = t.replace(/\[family_card\s+[^\]]+\]/ig, '');
   t = t.replace(/【亲属卡】[\s\S]*?[；;]状态[：:](待处理|已同意|已拒绝)/g, '');
   t = t.replace(/<\s*meme\s*>[\s\S]*?<\s*\/\s*meme\s*>/ig, '');
@@ -4089,11 +4090,20 @@ function consumePendingFamilyAutoTrigger(charId){
   }
 }
 
-function maybeAutoTriggerFamilyReply(charId){
-  if(!charId || !consumePendingFamilyAutoTrigger(charId)) return;
+function maybeAutoTriggerFamilyReply(charId, attempt){
+  var tries = Number(attempt || 0) || 0;
+  if(!charId) return;
+  if(!hasPendingFamilyRequestForChar(charId)){
+    if(tries < 8){
+      setTimeout(function(){ maybeAutoTriggerFamilyReply(charId, tries + 1); }, 120);
+    }
+    return;
+  }
+  if(!consumePendingFamilyAutoTrigger(charId)) return;
   setTimeout(function(){
     if(!character || String(character.id || '') !== String(charId || '')) return;
     if(isTyping) return;
+    if(!hasPendingFamilyRequestForChar(charId)) return;
     syncChatLogFromStorageForCurrentCharacter();
     triggerReply();
   }, 80);
@@ -5968,7 +5978,7 @@ async function deliverAiReply(text, limitOverride){
   if(maxN <= 0) return [];
   var clean = function(raw){
     if(!raw) return '';
-    var t = String(raw).trim();
+    var t = String(raw).replace(/<\/?msg>/ig, '<msg>').trim();
     if(t.startsWith('```')){
       t = t.replace(/^```[a-zA-Z]*\s*/,'');
       if(t.endsWith('```')) t = t.slice(0,-3);
