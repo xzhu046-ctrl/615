@@ -5921,6 +5921,25 @@ async function deliverAiReply(text, limitOverride){
     }
     return t.trim();
   };
+  var splitPlainTextToParts = function(raw){
+    var cleaned = clean(raw);
+    if(!cleaned) return [];
+    var msgParts = cleaned.split(/<msg>/i).map(function(p){
+      return { text: p.trim(), t: 'text' };
+    }).filter(function(o){ return o.text; });
+    if(msgParts.length > 1) return msgParts;
+    var lines = cleaned.split(/\n+/).map(function(line){ return line.trim(); }).filter(Boolean);
+    if(lines.length >= 2){
+      var shortEnough = lines.every(function(line){
+        return line.length <= 36 && !/[。！？!?]\s*["”’']?$/.test(line + ' ');
+      });
+      var totalLen = lines.reduce(function(sum, line){ return sum + line.length; }, 0);
+      if(shortEnough && totalLen <= 120){
+        return lines.map(function(line){ return { text: line, t: 'text' }; });
+      }
+    }
+    return [{ text: cleaned, t: 'text' }];
+  };
   var parsed = null;
 
   // If API already returned structured content
@@ -6006,7 +6025,7 @@ async function deliverAiReply(text, limitOverride){
   }
 
   if(!rawParts.length && text){
-    rawParts = clean(text).split(/<msg>/i).map(function(p){ return {text:p.trim(), t:'text'}; }).filter(function(o){return o.text;});
+    rawParts = splitPlainTextToParts(text);
   }
   if(!rawParts.length) rawParts = [{text:String(text||'(空消息)'), t:'text'}];
   if(rawParts.length > maxN){
