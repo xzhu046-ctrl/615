@@ -2072,6 +2072,8 @@ function sanitizeAssistantTextForChat(raw){
   if(isBlockedMemePayload(t)) return '';
   if(/^【亲属卡】[\s\S]*[；;]状态[：:](待处理|已同意|已拒绝)\s*$/.test(t)) return '';
   if(/^\[family_card\s+[^\]]+\]$/i.test(t)) return '';
+  t = t.replace(/\[family_card\s+[^\]]+\]/ig, '');
+  t = t.replace(/【亲属卡】[\s\S]*?[；;]状态[：:](待处理|已同意|已拒绝)/g, '');
   t = t.replace(/<\s*meme\s*>[\s\S]*?<\s*\/\s*meme\s*>/ig, '');
   t = t.replace(/^\s*<\s*meme\s*>[\s\S]*$/ig, '');
   t = t.replace(/^[a-z0-9_\-\u4e00-\u9fa5]+\.(png|jpe?g|gif|webp)\s*$/ig, '');
@@ -4413,6 +4415,7 @@ async function decideFamilyCardOutcome(payload){
   var sys = [
     '你是聊天中的角色本人。',
     '现在用户发来一张亲属卡邀请，你要结合角色人设、世界书、最近聊天，像真人一样判断接受或拒绝。',
+    '语义必须严格正确：mode=gift 表示用户把亲属卡送给你，你花用户的钱；mode=request 表示用户想用你的亲属卡，花你的钱。',
     '只返回 JSON，不要解释，不要 markdown。',
     '格式：{"accept":true|false}'
   ].join('\n');
@@ -4483,6 +4486,7 @@ function sanitizeFamilyFollowups(items, accept, payload){
       var normalized = content.replace(/\s+/g, '');
       if(summary && normalized === summary) continue;
       if(/亲属卡/.test(content) && /(同意|不同意|拒绝|接受)/.test(content)) continue;
+      if(/family_card|owner=|spender=|status=|mode=|amount=/i.test(content)) continue;
     }
     var dedupeKey = type + '::' + content.replace(/\s+/g, ' ');
     if(seen.has(dedupeKey)) continue;
@@ -4524,10 +4528,13 @@ async function composePendingFamilyCardReply(payload){
   var sys = [
     '你是聊天中的角色本人。',
     '现在用户发来一张亲属卡邀请。你要先按人设判断接受或拒绝，然后紧接着给出你会继续发送的正文回复。',
+    '语义必须严格正确：mode=gift 表示用户把亲属卡送给你，你花用户的钱；mode=request 表示用户想用你的亲属卡，花你的钱。',
+    '不要把 gift 理解成“用户要花你的钱”，也不要把 request 理解成“用户在送你卡”。',
     '只返回 JSON，不要解释，不要 markdown。',
     '格式：{"accept":true|false,"replies":[{"type":"text","content":"..."}]}',
     'replies 是决定卡之后紧接着会发送的正文消息列表。',
     '不要把亲属卡决定写进 replies，不要重复“同意/拒绝亲属卡”这种结论。',
+    '不要输出任何 [family_card ...]、【亲属卡】摘要、字段名、状态字样。',
     'replies 数量不能超过 ' + maxFollowups + '。'
   ].join('\n');
   var recent = getVisibleChatForModel().slice(-10).map(function(m){
