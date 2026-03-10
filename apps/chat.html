@@ -997,6 +997,7 @@ var longPressTimer = null;
 var LONG_PRESS_MS = 420;
 var replyTargetId = null;
 var pendingFamilyFollowupCue = '';
+var pendingModelUserCue = '';
 var IMAGE_SNIPPET = '【图片】';
 var IMAGE_BUBBLE_URL = 'https://files.catbox.moe/6ruu03.jpeg';
 var MOMENTS_POSTS_KEY = 'qq_moments_posts';
@@ -3716,6 +3717,9 @@ async function triggerReply() {
   }
   hideError();
   pendingMomentsChatCue = processMomentsInteractionsOnTrigger();
+  pendingModelUserCue = familyReplyId
+    ? '你刚刚已经对亲属卡作出决定。现在请紧接着上一条亲属卡回复之后，继续发送一条自然的正文消息。不要重复卡片结论，不要输出 JSON。'
+    : '';
   transientHiddenModelMsgIds = [];
 
   isTyping = true;
@@ -3737,6 +3741,7 @@ async function triggerReply() {
   } finally {
     transientHiddenModelMsgIds = [];
     pendingFamilyFollowupCue = '';
+    pendingModelUserCue = '';
   }
 
   isTyping = false;
@@ -3754,6 +3759,9 @@ async function callAI(provider, key) {
   var msgs = getVisibleChatForModel().map(function(m){
     return { role: m.role, content: formatMessageForModel(m) };
   }); // user-configurable context window
+  if(pendingModelUserCue){
+    msgs.push({ role: 'user', content: pendingModelUserCue });
+  }
 
   if (provider === 'openai') {
     var res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -5799,6 +5807,9 @@ async function deliverAiReply(text){
     rawParts = clean(text).split(/<msg>/i).map(function(p){ return {text:p.trim(), t:'text'}; }).filter(function(o){return o.text;});
   }
   if(!rawParts.length) rawParts = [{text:String(text||'(空消息)'), t:'text'}];
+  if(rawParts.length > maxN){
+    rawParts = rawParts.slice(0, maxN);
+  }
 
   var target = Math.max(minN, Math.min(maxN, rawParts.length, targetRand));
   var parts = [];
