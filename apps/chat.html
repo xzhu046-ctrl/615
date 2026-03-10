@@ -179,6 +179,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .gen-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .gen-btn:disabled{opacity:.4;cursor:not-allowed}
 .family-card-bubble{min-width:215px;border:var(--bd);border-radius:24px;background:linear-gradient(180deg,#fbfbfb 0%,#efefef 100%);box-shadow:var(--sh);padding:10px 12px;display:flex;align-items:center;gap:10px}
+.family-card-avatar{width:56px;height:56px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);display:flex;align-items:center;justify-content:center;font-family:var(--fontd);font-size:12px;font-weight:900;line-height:1.2;text-align:center;flex-shrink:0;overflow:hidden}
+.family-card-avatar img{width:100%;height:100%;object-fit:cover}
 .family-card-panel{flex:1;min-width:0;border:none;border-radius:18px;background:rgba(255,255,255,.92);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
 .family-card-text{font-family:var(--fontd);font-size:15px;line-height:1.28;font-weight:900;color:#555;white-space:pre-wrap}
 .family-card-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
@@ -3940,11 +3942,31 @@ function familyCardSummaryText(payload){
   return String(data.summary || '');
 }
 
+function familyCardAvatarHtml(src, fallback){
+  var safeSrc = String(src || '').trim();
+  if(safeSrc){
+    return '<div class="family-card-avatar"><img src="' + escAttr(safeSrc) + '" alt=""></div>';
+  }
+  var label = String(fallback || '').trim();
+  if(label.length > 4) label = label.slice(0, 4);
+  return '<div class="family-card-avatar">' + esc(label || '头像') + '</div>';
+}
+
 function renderFamilyCardBubble(bubble, raw){
   var data = parseFamilyCardPayload(raw) || {};
   var amount = Number(data.amount || 0).toFixed(2);
   var showStatus = String(data.kind || 'request') === 'request';
+  var avatarSrc = '';
+  var avatarFallback = '';
+  if(String(data.kind || 'request') === 'decision'){
+    avatarSrc = data.charAvatar || '';
+    avatarFallback = data.charName || 'Char';
+  }else{
+    avatarSrc = data.userAvatar || '';
+    avatarFallback = data.userName || 'User';
+  }
   bubble.innerHTML = '<div class="family-card-bubble">'
+    + familyCardAvatarHtml(avatarSrc, avatarFallback)
     + '<div class="family-card-panel">'
     + '<div class="family-card-text">' + esc(data.summary || '') + '</div>'
     + '<div class="family-card-meta"><span class="family-card-amount">¥' + esc(amount) + '</span>' + (showStatus ? ('<span class="family-card-status">' + esc(familyCardStatusLabel(data.status || 'pending')) + '</span>') : '') + '</div>'
@@ -3999,6 +4021,7 @@ function upsertActiveFamilyCard(payload){
     id: String((payload && payload.id) || ''),
     charId: String((payload && payload.charId) || ''),
     charName: String((payload && payload.charName) || ''),
+    charAvatar: String((payload && payload.charAvatar) || ''),
     userName: String((payload && payload.userName) || ''),
     mode: String((payload && payload.mode) || 'gift'),
     amount: Number((payload && payload.amount) || 0) || 0,
@@ -4853,6 +4876,7 @@ function saveChat() {
 }
 
 function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escAttr(s) { return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function toast(msg) { var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(function(){t.classList.remove('show');},2200); }
 
 function getCharAvatarHTML() {
