@@ -3707,6 +3707,12 @@ async function triggerReply() {
     saveChat();
     renderChatLog(true);
   }
+  if(familyReplyId){
+    pendingMomentsChatCue = '';
+    pendingFamilyFollowupCue = '';
+    pendingModelUserCue = '';
+    return;
+  }
 
   // Now get AI reply
   var provider = localStorage.getItem('provider') || 'openai';
@@ -4354,12 +4360,70 @@ async function decideFamilyCardOutcome(payload){
   return (payload && payload.mode === 'gift');
 }
 
+function parseFamilyReplyBundle(raw, fallbackAccept){
+  var accept = !!fallbackAccept;
+  var replies = [];
+  var cleaned = String(raw || '').trim();
+  if(cleaned.startsWith('```')){
+    cleaned = cleaned.replace(/^```[a-zA-Z]*\s*/,'');
+    if(cleaned.endsWith('```')) cleaned = cleaned.slice(0,-3);
+    cleaned = cleaned.trim();
+  }
+  try{
+    var parsed = JSON.parse(cleaned || '{}');
+    if(parsed && typeof parsed === 'object'){
+      if(typeof parsed.accept === 'boolean') accept = parsed.accept;
+      if(Array.isArray(parsed.replies)) replies = parsed.replies.slice();
+      else if(Array.isArray(parsed.messages)) replies = parsed.messages.slice();
+      else if(parsed.reply && typeof parsed.reply === 'string') replies = [{ type:'text', content: parsed.reply }];
+      else if(parsed.content && typeof parsed.content === 'string') replies = [{ type:'text', content: parsed.content }];
+    }
+  }catch(e){}
+  return { accept: accept, replies: replies };
+}
+
+async function composePendingFamilyCardReply(payload){
+  var fallbackAccept = (payload && payload.mode === 'gift');
+  var maxTotal = character && character.msgMax ? character.msgMax : 3;
+  var maxFollowups = Math.max(0, maxTotal - 1);
+  var sys = [
+    '你是聊天中的角色本人。',
+    '现在用户发来一张亲属卡邀请。你要先按人设判断接受或拒绝，然后紧接着给出你会继续发送的正文回复。',
+    '只返回 JSON，不要解释，不要 markdown。',
+    '格式：{"accept":true|false,"replies":[{"type":"text","content":"..."}]}',
+    'replies 是决定卡之后紧接着会发送的正文消息列表。',
+    '不要把亲属卡决定写进 replies，不要重复“同意/拒绝亲属卡”这种结论。',
+    'replies 数量不能超过 ' + maxFollowups + '。'
+  ].join('\n');
+  var recent = getVisibleChatForModel().slice(-10).map(function(m){
+    return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
+  }).join('\n');
+  var wbText = getStrictPromptWorldbookEntries().map(function(entry){
+    return String((entry && entry.content) || '').trim();
+  }).filter(Boolean).slice(0, 8).join('\n\n');
+  var user = [
+    '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
+    '角色人设：' + String((character && (character.personality || character.description)) || ''),
+    wbText ? ('世界书：\n' + wbText) : '世界书：无',
+    recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    '亲属卡事件：\n' + JSON.stringify(payload || {}, null, 2),
+    '本次 replies 最多允许 ' + maxFollowups + ' 条。'
+  ].join('\n\n');
+  try{
+    var raw = await callAIWithCustomPrompts(sys, user);
+    return parseFamilyReplyBundle(raw, fallbackAccept);
+  }catch(e){
+    return { accept: fallbackAccept, replies: [] };
+  }
+}
+
 async function handlePendingFamilyCardReply(){
   if(!character) return false;
   var pending = popPendingFamilyRequest(character.id);
   if(!pending) return '';
   ensureFamilyRequestInChatLog(pending);
-  var accept = await decideFamilyCardOutcome(pending);
+  var bundle = await composePendingFamilyCardReply(pending);
+  var accept = !!bundle.accept;
   updateFamilyCardStatus(pending.id, accept ? 'accepted' : 'rejected');
   updateWalletRecordForFamily(pending.id, accept);
   if(accept) upsertActiveFamilyCard(pending);
@@ -4371,12 +4435,9 @@ async function handlePendingFamilyCardReply(){
   var replyEntry = makeChatEntry('assistant', JSON.stringify(responsePayload), 'family_card');
   chatLog.push(replyEntry);
   addMessage('ai', replyEntry.content, true, 'family_card', replyEntry.id);
-  pendingFamilyFollowupCue = [
-    '【当前回合必须先延续亲属卡】',
-    '你刚刚已经通过亲属卡卡片作出了决定：' + (accept ? '同意' : '不同意') + '。',
-    '现在继续像角色本人一样自然接一句正文回复。',
-    '不要再输出 JSON，不要再发一张亲属卡卡片，也不要重复格式化结论。'
-  ].join('\n');
+  if(Array.isArray(bundle.replies) && bundle.replies.length){
+    await deliverAiReply(bundle.replies, Math.max(0, (character && character.msgMax ? character.msgMax : 3) - 1));
+  }
   saveChat();
   return replyEntry.id;
 }
@@ -5727,10 +5788,13 @@ function sleep(ms){
   return new Promise(function(resolve){ setTimeout(resolve, ms); });
 }
 
-async function deliverAiReply(text){
+async function deliverAiReply(text, limitOverride){
+  var hardMax = Number(limitOverride);
+  var maxN = Number.isFinite(hardMax) ? Math.max(0, Math.floor(hardMax)) : (character && character.msgMax ? character.msgMax : 3);
   var minN = character && character.msgMin ? character.msgMin : 1;
-  var maxN = character && character.msgMax ? character.msgMax : 3;
+  minN = Math.max(0, Math.min(minN, maxN));
   var targetRand = Math.max(minN, Math.min(maxN, Math.round(minN + Math.random()*(maxN-minN))));
+  if(maxN <= 0) return;
   var clean = function(raw){
     if(!raw) return '';
     var t = String(raw).trim();
