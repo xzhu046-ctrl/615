@@ -282,6 +282,33 @@ function pendingFirstUserTurnKey(charId){
   if(window.AccountManager) return window.AccountManager.scopedKey('friend_first_user_turn_' + charId);
   return 'friend_first_user_turn_' + charId;
 }
+function chatStorageKeyForChar(charId){
+  if(window.AccountManager) return window.AccountManager.scopedKey('chat_' + charId);
+  return 'chat_' + charId;
+}
+function appendFriendIntroToChat(charId, intro){
+  var text = String(intro || '').trim();
+  if(!charId || !text) return;
+  try{
+    var key = chatStorageKeyForChar(charId);
+    var raw = localStorage.getItem(key) || localStorage.getItem('chat_' + charId) || '';
+    var store = raw ? JSON.parse(raw) : null;
+    var list = (store && (store.history || store.messages)) || [];
+    if(!Array.isArray(list)) list = [];
+    var last = list.length ? list[list.length - 1] : null;
+    if(last && last.role === 'user' && String(last.content || '').trim() === text) return;
+    list.push({
+      id: 'msg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,7),
+      role: 'user',
+      content: text,
+      type: 'text',
+      replyToId: null,
+      sentAt: Date.now(),
+      readAt: null
+    });
+    localStorage.setItem(key, JSON.stringify({ history: list }));
+  }catch(e){}
+}
 
 function loadStoredAsset(key){
   if(window.assetStore) return window.assetStore.load(key);
@@ -687,6 +714,7 @@ function confirmFriendReq(){
     }
     window.AccountManager.addFriend(charId);
     try{ localStorage.setItem(pendingFirstUserTurnKey(charId), '1'); }catch(e){}
+    appendFriendIntroToChat(charId, intro);
     try{
       if(evalRes.similarity >= 0.78){
         var acct = window.AccountManager.getActive();
