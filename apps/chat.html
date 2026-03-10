@@ -3670,6 +3670,7 @@ async function triggerReply() {
 
   var input = document.getElementById('msg-input');
   var text = input.value.trim();
+  var handledPendingFamily = false;
   if (text) {
     input.value = ''; input.style.height = 'auto';
     var entry = makeChatEntry('user', text, 'text');
@@ -3679,12 +3680,13 @@ async function triggerReply() {
     clearReplyTarget();
     captureUserMomentIntent(text, 'text');
   }
-  if(await handlePendingFamilyCardReply()){
-    return;
-  }
+  handledPendingFamily = await handlePendingFamilyCardReply();
   if(markUserMessagesReadByChar()){
     saveChat();
     renderChatLog(true);
+  }
+  if(handledPendingFamily && !text){
+    return;
   }
 
   // Now get AI reply
@@ -4018,10 +4020,14 @@ function familyCardSummaryText(payload){
   return String(data.summary || '');
 }
 
+function isRenderableAvatarSrc(src){
+  return /^(data:|https?:|blob:)/i.test(String(src || '').trim());
+}
+
 function familyCardAvatarHtml(src, fallback, extraClass){
   var safeSrc = String(src || '').trim();
   var cls = 'family-card-avatar' + (extraClass ? (' ' + extraClass) : '');
-  if(safeSrc){
+  if(isRenderableAvatarSrc(safeSrc)){
     return '<div class="' + cls + '"><img src="' + escAttr(safeSrc) + '" alt=""></div>';
   }
   var label = String(fallback || '').trim();
@@ -4036,12 +4042,12 @@ function currentUserAvatarForFamily(charId){
   keys.push('user_avatar');
   for(var i=0;i<keys.length;i++){
     var src = String(localStorage.getItem(keys[i]) || '').trim();
-    if(src) return src;
+    if(isRenderableAvatarSrc(src)) return src;
   }
   try{
     if(window.AccountManager){
       var acct = window.AccountManager.getActive();
-      if(acct && acct.avatar) return String(acct.avatar).trim();
+      if(acct && isRenderableAvatarSrc(acct.avatar)) return String(acct.avatar).trim();
     }
   }catch(e){}
   return '';
@@ -4052,12 +4058,30 @@ function currentCharAvatarForFamily(charId){
   if(charId) keys.push('char_avatar_' + charId);
   for(var i=0;i<keys.length;i++){
     var src = String(localStorage.getItem(keys[i]) || '').trim();
-    if(src) return src;
+    if(isRenderableAvatarSrc(src)) return src;
   }
   if(character && String(character.id || '') === String(charId || '')){
-    return String(character.imageData || '').trim();
+    var current = String(character.imageData || '').trim();
+    if(isRenderableAvatarSrc(current)) return current;
   }
   return '';
+}
+
+function loadFirstAvatarAsset(keys){
+  var list = (keys || []).filter(Boolean);
+  var i = 0;
+  function next(){
+    if(i >= list.length) return Promise.resolve('');
+    var key = list[i++];
+    return loadStoredAsset(key).then(function(src){
+      src = String(src || '').trim();
+      if(isRenderableAvatarSrc(src)) return src;
+      return next();
+    }).catch(function(){
+      return next();
+    });
+  }
+  return next();
 }
 
 function familyCardResolvedAvatar(data, roleSide){
@@ -4071,6 +4095,46 @@ function familyCardResolvedAvatar(data, roleSide){
     src: String((data && data.userAvatar) || '').trim() || currentUserAvatarForFamily(data && data.charId),
     fallback: String((data && data.userName) || userDisplayNameForFamily() || 'User')
   };
+}
+
+function resolveFamilyCardAvatarAsync(data, roleSide){
+  var sync = familyCardResolvedAvatar(data, roleSide);
+  if(isRenderableAvatarSrc(sync.src)) return Promise.resolve(sync);
+  if(roleSide === 'char'){
+    var charKeys = [];
+    if(data && data.charId) charKeys.push('char_avatar_' + data.charId);
+    return loadFirstAvatarAsset(charKeys).then(function(src){
+      return { src: src || currentCharAvatarForFamily(data && data.charId), fallback: sync.fallback };
+    });
+  }
+  var userKeys = [];
+  if(data && data.charId) userKeys.push(accountScopedKey('user_avatar_' + data.charId));
+  userKeys.push(accountScopedKey('user_avatar'));
+  if(data && data.charId) userKeys.push('user_avatar_' + data.charId);
+  userKeys.push('user_avatar');
+  return loadFirstAvatarAsset(userKeys).then(function(src){
+    return { src: src || currentUserAvatarForFamily(data && data.charId), fallback: sync.fallback };
+  });
+}
+
+function setFamilyCardAvatarNode(node, avatar){
+  if(!node) return;
+  var src = String((avatar && avatar.src) || '').trim();
+  var fallback = String((avatar && avatar.fallback) || '').trim();
+  if(isRenderableAvatarSrc(src)){
+    node.innerHTML = '<img src="' + escAttr(src) + '" alt="">';
+    return;
+  }
+  if(fallback.length > 4) fallback = fallback.slice(0, 4);
+  node.textContent = fallback || '头像';
+}
+
+function hydrateFamilyCardBubble(bubble, data, roleSide){
+  if(!bubble) return;
+  resolveFamilyCardAvatarAsync(data, roleSide).then(function(avatar){
+    setFamilyCardAvatarNode(bubble.querySelector('.family-card-avatar.primary'), avatar);
+    setFamilyCardAvatarNode(bubble.querySelector('.family-card-avatar.tail'), avatar);
+  }).catch(function(){});
 }
 
 function renderFamilyCardBubble(bubble, raw){
@@ -4088,7 +4152,7 @@ function renderFamilyCardBubble(bubble, raw){
   if(amount > 0) metaParts.push('<span class="family-card-amount">额度/笔 ¥' + esc(amount.toFixed(2)) + '</span>');
   if(showStatus) metaParts.push('<span class="family-card-status">' + esc(familyCardStatusLabel(data.status || 'pending')) + '</span>');
   bubble.innerHTML = '<div class="family-card-bubble">'
-    + familyCardAvatarHtml(avatar.src, avatar.fallback)
+    + familyCardAvatarHtml(avatar.src, avatar.fallback, 'primary')
     + '<div class="family-card-panel">'
     + '<div class="family-card-kicker">' + esc(kicker) + '</div>'
     + '<div class="family-card-text">' + esc(data.summary || '') + '</div>'
@@ -4096,6 +4160,7 @@ function renderFamilyCardBubble(bubble, raw){
     + '</div>'
     + familyCardAvatarHtml(avatar.src, avatar.fallback, 'tail')
     + '</div>';
+  hydrateFamilyCardBubble(bubble, data, side);
 }
 
 function loadPendingFamilyQueue(){
