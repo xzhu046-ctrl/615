@@ -1854,12 +1854,7 @@ function normalizePreviewMessage(msg){
   var next = msg && typeof msg === 'object' ? msg : { content:'', type:'text' };
   var kind = normalizeChatPreviewType(next.type || 'text');
   if(kind === 'familycard'){
-    try{
-      var family = typeof next.content === 'string' ? JSON.parse(next.content) : next.content;
-      if(family && typeof family === 'object'){
-        return { content: String(family.summary || ''), type: 'text' };
-      }
-    }catch(e){}
+    return { content: '【亲属卡】', type: 'text' };
   }
   if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
     try{
