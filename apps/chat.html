@@ -1977,6 +1977,58 @@ function truncateMomentText(value, max){
   return text.slice(0, Math.max(0, max - 1)) + '…';
 }
 
+function getRecentMomentContextLines(limit){
+  var max = Math.max(1, Number(limit || 10) || 10);
+  return chatLog.slice(-max).map(function(m){
+    if(!m) return '';
+    var kind = normalizeMessageType(m.type || 'text');
+    if(kind === 'familycard') return '';
+    var text = String(m.content || '').replace(/\s+/g, ' ').trim();
+    if(!text) return '';
+    if(kind === 'voice') text = '语音：' + text;
+    if(kind === 'image') text = '图片：' + text;
+    return text;
+  }).filter(Boolean);
+}
+
+function getMomentWorldbookHints(limit){
+  return getStrictPromptWorldbookEntries().map(function(entry){
+    return String((entry && entry.content) || '').replace(/\s+/g, ' ').trim();
+  }).filter(Boolean).slice(0, Math.max(1, Number(limit || 6) || 6));
+}
+
+function getMomentPersonaFlavor(){
+  var persona = String((character && (character.personality || character.description || '')) || '').toLowerCase();
+  if(/温柔|体贴|治愈|暖|gentle|soft|care/.test(persona)) return 'warm';
+  if(/傲娇|毒舌|嘴硬|sharp|tsundere/.test(persona)) return 'tease';
+  if(/高冷|冷淡|克制|cool|cold|reserved/.test(persona)) return 'cool';
+  if(/沙雕|搞笑|幽默|funny|playful/.test(persona)) return 'playful';
+  return 'normal';
+}
+
+function buildMomentContextSnapshot(seed, aiText){
+  return {
+    flavor: getMomentPersonaFlavor(),
+    seed: stripMomentDirectiveText(seed),
+    ai: stripMomentDirectiveText(aiText),
+    recent: getRecentMomentContextLines(10),
+    worldbook: getMomentWorldbookHints(6)
+  };
+}
+
+function pickMomentLifeTheme(snapshot){
+  var joined = []
+    .concat((snapshot && snapshot.recent) || [])
+    .concat((snapshot && snapshot.worldbook) || [])
+    .join(' ');
+  if(/上班|工作|会议|通勤|加班|工位|项目|同事|汇报/.test(joined)) return 'work';
+  if(/上课|考试|图书馆|作业|论文|老师|自习|社团/.test(joined)) return 'study';
+  if(/做饭|吃饭|面|咖啡|奶茶|外卖|甜品|餐厅/.test(joined)) return 'food';
+  if(/雨|风|路灯|夜色|晚霞|阳光|街道|窗边|地铁|车站/.test(joined)) return 'city';
+  if(/猫|狗|花|植物|树|海|天空|云/.test(joined)) return 'nature';
+  return 'daily';
+}
+
 function makeMomentLineFromAi(aiText, fallback, max){
   var raw = String(aiText || '').replace(/\s+/g, ' ').trim();
   if(!raw) raw = String(fallback || '').replace(/\s+/g, ' ').trim();
@@ -1998,9 +2050,10 @@ function stripMomentDirectiveText(value){
   return text.trim();
 }
 
-function makeNaturalMomentPost(seed, aiText){
-  var fromSeed = stripMomentDirectiveText(seed);
-  var fromAi = stripMomentDirectiveText(aiText);
+function makeNaturalMomentPost(seed, aiText, snapshot){
+  var ctx = snapshot || buildMomentContextSnapshot(seed, aiText);
+  var fromSeed = ctx.seed;
+  var fromAi = ctx.ai;
   var picked = '';
   if(fromSeed && fromSeed.length >= 4) picked = fromSeed;
   else if(fromAi && fromAi.length >= 4) picked = fromAi;
@@ -2014,23 +2067,83 @@ function makeNaturalMomentPost(seed, aiText){
     picked = '';
   }
   if(!picked){
-    var pool = ['把今天的小情绪记下来。','这一刻想悄悄收藏。','留一条给未来的自己。','有感而发，就写在这里。'];
+    var theme = pickMomentLifeTheme(ctx);
+    var pools = {
+      work: {
+        warm: ['今天也算稳稳接住了一天。','忙完以后反而松了一口气。','把一点小成就悄悄记下来。'],
+        tease: ['今天又把一堆事摁着做完了。','嘴上嫌麻烦，最后还是搞定了。','工作这种东西，拿下就行。'],
+        cool: ['今天的节奏还算可控。','把事情一件件收住了。','忙归忙，结果还行。'],
+        playful: ['今天也是被工作追着跑的一天。','差点被待办清单吃掉。','幸好最后还是活着下班了。'],
+        normal: ['今天的事总算告一段落。','把这一点日常记录一下。','普通的一天，也值得留个痕。']
+      },
+      study: {
+        warm: ['今天的进度比想象里顺一点。','把这点认真记下来。','慢慢来也算是在往前走。'],
+        tease: ['书是读了，脑子有没有跟上另说。','今天也在和任务互相较劲。','又被学习安排得明明白白。'],
+        cool: ['今天的任务推进了一些。','节奏一般，但没停。','先记下这段进度。'],
+        playful: ['今天和待办清单打了个平手。','脑子有点转不动，但还在撑。','学习这种事，做一点算一点。'],
+        normal: ['今天也往前推了一点点。','把这一页日常折一下角。','慢慢积累，也挺好。']
+      },
+      food: {
+        warm: ['这种小满足，适合单独记一笔。','今天被一口热乎的东西安慰到了。','平淡日子里也会有好味道。'],
+        tease: ['嘴上说随便吃，最后还是认真挑了。','今天的快乐来得很具体。','这口下去，心情算是回来了。'],
+        cool: ['味道不错，记一下。','普通一餐，也有值得记住的瞬间。','这一口刚刚好。'],
+        playful: ['今天的情绪被一顿饭救回来了。','食欲回来了，人也活了。','谁懂这口热乎的含金量。'],
+        normal: ['今天吃到了一点小满足。','把这个瞬间留一下。','平常的一餐，也挺有记忆点。']
+      },
+      city: {
+        warm: ['今天的风景刚好够让我停一下。','有些瞬间安静得值得收着。','这一眼看过去，心也慢了半拍。'],
+        tease: ['路过的时候还是被景色绊了一下。','本来没想停，结果还是多看了两眼。','嘴上说普通，还是记下来了。'],
+        cool: ['这一刻的城市状态不错。','刚好看到一点顺眼的景色。','这种光线值得留一下。'],
+        playful: ['今天被路边景色轻轻拿捏了一下。','走着走着，突然觉得这一刻还挺行。','路过的时候顺手把心情存了个档。'],
+        normal: ['把这一瞬间留给今天。','城市里也会有让人想停一下的时候。','随手记一个喜欢的片段。']
+      },
+      nature: {
+        warm: ['这种安静的东西总能让我缓一下。','自然一点点把心情理顺了。','今天被很轻的美感安慰到了。'],
+        tease: ['本来只是随便看看，结果还是被打动。','嘴上装淡定，心里已经记下来了。','这种好看很难装作没看见。'],
+        cool: ['这一眼值得记住。','今天的景色状态很好。','简单，但足够顺眼。'],
+        playful: ['今天被自然界轻轻哄了一下。','这一幕有点太会了。','路过的时候顺手收藏一眼。'],
+        normal: ['今天看见一点很舒服的东西。','这一幕适合留一下。','简单记录一个喜欢的画面。']
+      },
+      daily: {
+        warm: ['把今天的小情绪记下来。','这一刻想悄悄收藏。','平常日子里也有值得留住的瞬间。'],
+        tease: ['嘴上说没什么，其实还是想记一下。','本来想装作普通，结果还是留了。','今天这点心情不记可惜。'],
+        cool: ['留一条给今天。','这一刻可以记一下。','把这点状态收着。'],
+        playful: ['日常也能被我过出一点情绪来。','给今天偷偷存个档。','这一刻不记一下有点亏。'],
+        normal: ['留一条给未来的自己。','有感而发，就写在这里。','普通生活也值得被记录。']
+      }
+    };
+    var flavor = ctx.flavor || 'normal';
+    var flavorPool = (pools[theme] && pools[theme][flavor]) || (pools[theme] && pools[theme].normal) || pools.daily.normal;
+    var pool = flavorPool;
     picked = pool[Math.floor(Math.random() * pool.length)];
   }
   picked = picked.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
   return truncateMomentText(picked, 42);
 }
 
-function forceVisualMomentLine(seed, aiLine){
-  var src = stripMomentDirectiveText(aiLine) || stripMomentDirectiveText(seed);
+function forceVisualMomentLine(seed, aiLine, caption, snapshot){
+  var ctx = snapshot || buildMomentContextSnapshot(seed, aiLine);
+  var src = ctx.ai || ctx.seed;
   src = String(src || '').replace(/\s+/g, ' ').trim();
-  if(looksLikeVisualDescription(src)) return truncateMomentText(src, 48);
-  var pool = [
-    '夜色里路灯把潮湿路面照得发亮，店门口的暖光落在外套袖口。',
-    '桌面上冒着热气的面碗边放着红辣椒，筷子斜靠在白瓷碗沿。',
-    '窗边的玻璃映出街景和人影，风把发梢轻轻吹乱。'
-  ];
-  return pool[Math.floor(Math.random() * pool.length)];
+  var safeCaption = String(caption || '').replace(/\s+/g, ' ').trim();
+  if(looksLikeVisualDescription(src) && normalizeHeartText(src) !== normalizeHeartText(safeCaption)){
+    return truncateMomentText(src, 48);
+  }
+  var theme = pickMomentLifeTheme(ctx);
+  var visualPools = {
+    work: ['办公桌边的冷白灯打在键盘上，杯子里还剩半杯微温的咖啡，屏幕角落停着没关的待办清单。','电梯门刚合上，玻璃里映出松开的领口和一小截工牌，走廊尽头的灯还亮着。'],
+    study: ['翻开的笔记本上压着几页做满标记的讲义，窗边的阳光斜斜落在荧光笔和水杯上。','图书馆靠窗的位置堆着书和耳机，桌面上摊开的纸页被风轻轻掀起一角。'],
+    food: ['热气从瓷碗边沿慢慢冒出来，筷子搭在碗口，旁边的小碟里还剩一点红油和葱花。','透明杯壁上挂着细小水珠，吸管斜斜靠着杯沿，桌面上散着被晚光照亮的倒影。'],
+    city: ['夜色里路灯把潮湿路面照得发亮，店门口的暖光落在外套袖口。','地铁车窗映出模糊的人影和移动的灯带，站台尽头亮着一块冷白色的广告牌。'],
+    nature: ['窗边放着一束微微垂下来的白花，玻璃上留着细小水痕，光线安静地落在花瓣边缘。','树影被风吹得轻轻晃动，天空偏浅，远处云层边缘被日光压出一圈薄亮。'],
+    daily: ['窗边的玻璃映出街景和人影，风把发梢轻轻吹乱。','房间里只开了一盏暖灯，桌角堆着随手放下的小东西，空气安静得刚刚好。']
+  };
+  var pool = visualPools[theme] || visualPools.daily;
+  var picked = pool[Math.floor(Math.random() * pool.length)];
+  if(normalizeHeartText(picked) === normalizeHeartText(safeCaption)){
+    picked = (pool[1] || visualPools.daily[0] || picked);
+  }
+  return truncateMomentText(picked, 48);
 }
 
 function makeNaturalMomentComment(seed, incomingText, replyToName){
@@ -2147,12 +2260,17 @@ function maybeRunAiMomentsFromChat(text, msgType){
   function addPost(){
     var postType = inferPostType();
     var hasImage = postType === 'dynamic';
-    var content = hasImage ? forceVisualMomentLine(seed, aiLine) : makeNaturalMomentPost(seed, aiLine);
+    var snapshot = buildMomentContextSnapshot(seed, aiLine);
+    var caption = makeNaturalMomentPost(seed, aiLine, snapshot);
+    var imageText = hasImage ? forceVisualMomentLine(seed, aiLine, caption, snapshot) : '';
+    if(hasImage && normalizeHeartText(caption) === normalizeHeartText(imageText)){
+      imageText = forceVisualMomentLine('', '', caption, snapshot);
+    }
     posts.push({
       id: 'post_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       type: postType,
-      text: content,
-      imageText: hasImage ? forceVisualMomentLine(content, aiLine) : '',
+      text: caption,
+      imageText: imageText,
       createdAt: Date.now(),
       comments: [],
       likes: [],
