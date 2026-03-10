@@ -4144,7 +4144,7 @@ function addMessage(role, content, doScroll, msgType, msgId) {
     });
   } else if (viewRole === 'user') {
     av.textContent = '+';
-    loadStoredAsset(userKey('user_avatar')).then(function(uav){
+    resolveChatUserAvatarAsync(character && character.id).then(function(uav){
       if (uav && uav.startsWith('data:')) av.innerHTML = '<img src="' + uav + '">';
     });
   }
@@ -4387,8 +4387,11 @@ function familyCardAvatarHtml(src, fallback, extraClass){
 
 function currentUserAvatarForFamily(charId){
   var keys = [];
+  if(!isDefaultAccountContext()) keys.push(accountScopedKey('qq_profile_avatar_asset'));
   if(charId) keys.push(userKey('user_avatar'));
+  if(charId) keys.push(accountScopedKey('user_avatar_' + charId));
   keys.push(accountScopedKey('user_avatar'));
+  if(charId) keys.push('user_avatar_' + charId);
   keys.push('user_avatar');
   for(var i=0;i<keys.length;i++){
     var src = String(localStorage.getItem(keys[i]) || '').trim();
@@ -4401,6 +4404,22 @@ function currentUserAvatarForFamily(charId){
     }
   }catch(e){}
   return '';
+}
+function resolveChatUserAvatarAsync(charId){
+  var keys = [];
+  if(!isDefaultAccountContext()) keys.push(accountScopedKey('qq_profile_avatar_asset'));
+  if(charId) keys.push(userKey('user_avatar'));
+  if(charId) keys.push(accountScopedKey('user_avatar_' + charId));
+  keys.push(accountScopedKey('user_avatar'));
+  if(charId) keys.push('user_avatar_' + charId);
+  keys.push('user_avatar');
+  return loadFirstAvatarAsset(keys).then(function(src){
+    src = String(src || '').trim();
+    if(isRenderableAvatarSrc(src)) return src;
+    return currentUserAvatarForFamily(charId) || getActiveAccountProfileAvatar();
+  }).catch(function(){
+    return currentUserAvatarForFamily(charId) || getActiveAccountProfileAvatar();
+  });
 }
 
 function currentCharAvatarForFamily(charId){
@@ -5061,7 +5080,7 @@ function hideTyping() {
 }
 
 function refreshUserAvatars(){
-  loadStoredAsset(userKey('user_avatar')).then(function(uav){
+  resolveChatUserAvatarAsync(character && character.id).then(function(uav){
     var html = (uav && uav.startsWith('data:')) ? '<img src="' + uav + '">' : '+';
     document.querySelectorAll('.msg.user .msg-avatar').forEach(function(el){
       el.innerHTML = html;
