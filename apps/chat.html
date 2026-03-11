@@ -168,7 +168,9 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .money-packet.transfer{width:min(212px,58vw);border-color:#111;background:linear-gradient(180deg,#fafafa 0%,#efefef 100%);color:#111}
 .money-packet-cover{height:92px;position:relative;background:linear-gradient(180deg,#f6d7d7 0%,#d65256 62%,#b7181f 100%)}
 .money-packet-cover.has-image{background-size:cover;background-position:center}
-.money-packet-cover::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:64px;background:linear-gradient(180deg,rgba(183,24,31,0) 0%,rgba(183,24,31,.14) 42%,rgba(183,24,31,.62) 76%,rgba(183,24,31,1) 100%)}
+.money-packet-cover::after{content:'';position:absolute;left:-8%;right:-8%;bottom:-1px;height:68px;background:
+radial-gradient(140% 86% at 50% -14%, rgba(255,255,255,.22) 0%, rgba(255,255,255,.06) 28%, rgba(255,255,255,0) 54%),
+linear-gradient(180deg, rgba(183,24,31,0) 0%, rgba(183,24,31,.08) 38%, rgba(183,24,31,.34) 64%, rgba(183,24,31,.82) 88%, rgba(183,24,31,1) 100%)}
 .money-packet.transfer .money-packet-cover{height:0;background:none}
 .money-packet.transfer .money-packet-cover::after{display:none}
 .money-packet-body{position:relative;padding:50px 14px 16px;display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:-24px}
@@ -1163,6 +1165,8 @@ var selectedMoneyCoverId = '';
 var pendingMoneyCoverName = '';
 var pendingDeleteMoneyCoverId = '';
 var moneyCoverLongPressTimer = null;
+var pendingMoneyAutoReplyTimer = 0;
+var pendingMoneyAutoReplyMessageId = '';
 var pendingIncomingMoneyDecisionId = '';
 
 function contextWindowKey(){
@@ -4218,6 +4222,7 @@ function sendOnly() {
   var input = document.getElementById('msg-input');
   var text = input.value.trim();
   if (!text || isTyping) return;
+  clearPendingMoneyAutoReply();
   input.value = ''; input.style.height = 'auto';
   var entry = makeChatEntry('user', text, 'text');
   entry.replyToId = replyTargetId;
@@ -4234,6 +4239,7 @@ function sendOnly() {
 async function triggerReply() {
   if(!canSendNow()) return;
   if (isTyping) return;
+  clearPendingMoneyAutoReply();
   syncChatLogFromStorageForCurrentCharacter();
 
   var input = document.getElementById('msg-input');
@@ -5675,7 +5681,7 @@ function submitMoneyComposer(){
   addMessage('user', entry.content, true, 'money_packet', entry.id);
   saveChat();
   clearReplyTarget();
-  triggerReply();
+  schedulePendingMoneyAutoReply(entry.id);
 }
 
 function parseMoneyReplyBundle(raw){
@@ -5761,6 +5767,40 @@ function appendMoneyFollowupsDirectly(items){
     ids.push(entry.id);
   }
   return ids;
+}
+
+function clearPendingMoneyAutoReply(){
+  if(pendingMoneyAutoReplyTimer){
+    clearTimeout(pendingMoneyAutoReplyTimer);
+    pendingMoneyAutoReplyTimer = 0;
+  }
+  pendingMoneyAutoReplyMessageId = '';
+}
+
+function schedulePendingMoneyAutoReply(messageId){
+  clearPendingMoneyAutoReply();
+  pendingMoneyAutoReplyMessageId = String(messageId || '').trim();
+  if(!pendingMoneyAutoReplyMessageId) return;
+  pendingMoneyAutoReplyTimer = setTimeout(function(){
+    var targetId = pendingMoneyAutoReplyMessageId;
+    pendingMoneyAutoReplyTimer = 0;
+    pendingMoneyAutoReplyMessageId = '';
+    if(!targetId || isTyping || !character || !canSendNow()) return;
+    syncChatLogFromStorageForCurrentCharacter();
+    var pendingEntry = getPendingMoneyPacketEntry();
+    if(!pendingEntry || String(pendingEntry.id || '') !== targetId) return;
+    var input = document.getElementById('msg-input');
+    if(input && String(input.value || '').trim()) return;
+    var lastUser = null;
+    for(var i = chatLog.length - 1; i >= 0; i--){
+      if(chatLog[i] && chatLog[i].role === 'user'){
+        lastUser = chatLog[i];
+        break;
+      }
+    }
+    if(!lastUser || String(lastUser.id || '') !== targetId) return;
+    triggerReply();
+  }, 720);
 }
 
 function getPendingMoneyPacketEntry(){
@@ -5946,6 +5986,7 @@ function sendVoiceInput(){
   if(!inp) return;
   var text=inp.value.trim();
   if(!text){ toast('请输入语音内容'); return; }
+  clearPendingMoneyAutoReply();
   closeVoiceInput();
   var entry = makeChatEntry('user', text, 'voice');
   entry.replyToId = replyTargetId;
@@ -5962,6 +6003,7 @@ function sendImageCardInput(){
   if(!inp) return;
   var text=inp.value.trim();
   if(!text){ toast('请输入图片文字'); return; }
+  clearPendingMoneyAutoReply();
   closeImageCardInput();
   var entry = makeChatEntry('user', text, 'image');
   entry.replyToId = replyTargetId;
