@@ -1656,6 +1656,12 @@ function openApp(id) {
 }
 
 function closeApp() {
+  try{
+    const f = document.getElementById('app-iframe');
+    if(f && f.contentWindow){
+      f.contentWindow.postMessage({ type:'APP_CLOSING' }, '*');
+    }
+  }catch(e){}
   appStack.length = 0;
   currentApp = null;
   const outer = document.querySelector('.phone-outer');

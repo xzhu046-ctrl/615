@@ -6642,49 +6642,9 @@ function confirmClearChatAll(){
   toast('已清空聊天和全部记忆');
 }
 
-function mergeChatHistoryForSave(current, stored){
-  var next = Array.isArray(current) ? current.slice() : [];
-  var prev = Array.isArray(stored) ? stored.slice() : [];
-  if(!prev.length) return next;
-  var byId = new Map();
-  next.forEach(function(item){
-    if(item && item.id) byId.set(String(item.id), item);
-  });
-  var merged = [];
-  prev.forEach(function(item){
-    if(!item || !item.id) return;
-    var key = String(item.id);
-    if(byId.has(key)){
-      merged.push(byId.get(key));
-      byId.delete(key);
-    }else{
-      merged.push(item);
-    }
-  });
-  next.forEach(function(item){
-    if(!item || !item.id) return;
-    var key = String(item.id);
-    if(byId.has(key)){
-      merged.push(item);
-      byId.delete(key);
-    }
-  });
-  return merged;
-}
-
 function saveChat(forceReplace) {
   if (!character) return;
   var nextLog = Array.isArray(chatLog) ? chatLog.slice() : [];
-  if(!forceReplace){
-    try{
-      var existing = JSON.parse(localStorage.getItem(chatStorageKey(character.id)) || 'null');
-      var stored = (existing && (existing.history || existing.messages)) || [];
-      if(Array.isArray(stored) && stored.length){
-        nextLog = mergeChatHistoryForSave(nextLog, stored);
-      }
-    }catch(e){}
-  }
-  chatLog = nextLog;
   var payload = JSON.stringify({ history: nextLog, messages: nextLog });
   localStorage.setItem(chatStorageKey(character.id), payload);
   try{ localStorage.setItem('chat_' + character.id, payload); }catch(e){}
@@ -6711,6 +6671,10 @@ function saveChat(forceReplace) {
   } catch(e){}
   maybeCreateMemorySummaries();
   refreshMemoryUi();
+}
+
+function persistChatBeforeLeave(){
+  try{ saveChat(true); }catch(e){}
 }
 
 function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -7667,6 +7631,10 @@ window.addEventListener('message', function(e) {
     saveChat();
     return;
   }
+  if (d.type === 'APP_CLOSING') {
+    persistChatBeforeLeave();
+    return;
+  }
   if (d.type === 'SET_ACTIVE_CHARACTER' || d.type === 'OPEN_CHAT_WITH') {
     var incoming = d.payload || {};
     var sameChar = character && incoming.id && incoming.id === character.id;
@@ -7699,6 +7667,11 @@ window.addEventListener('message', function(e) {
   }
   if (d.type === 'WORLDBOOK_UPDATED') { loadWorldBook(); updateBlockedUi(); }
   if (d.type === 'SETTINGS_SAVED') { updateModelLabel(); }
+});
+
+window.addEventListener('pagehide', persistChatBeforeLeave);
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden') persistChatBeforeLeave();
 });
 
 function normalizeHeartText(value){
