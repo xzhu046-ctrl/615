@@ -5860,52 +5860,46 @@ async function composePendingMoneyPacketFollowups(payload, accept){
     '现在你已经决定要' + (accept ? '收下' : '退还') + '这笔红包或转账。',
     '你必须紧接着这个决定，发送自然的正文回复。',
     '如果用户在红包前后说了别的话，你必须先接住那些话，不能假装没看见。',
-    '用户最新消息对你是重要信号，但不是死命令。你可以顺着用户说，也可以反着来；如果反着来，replies 里必须自然解释原因。',
-    '只返回 JSON，不要解释，不要 markdown。',
-    '格式：{"replies":[{"type":"text","content":"..."}]}',
-    'replies 里不要复述系统字段，不要输出金额结构，不要再输出 money_packet JSON。',
-    'replies 至少 1 条，最多 ' + maxFollowups + ' 条。',
-    'replies 不能为空。',
+    '用户最新消息对你是重要信号，但不是死命令。你可以顺着用户说，也可以反着来；如果反着来，正文里必须自然解释原因。',
+    '只返回正文，不要解释规则，不要 markdown，不要 JSON。',
+    '如果要分成多个气泡，用 <msg>第一句</msg><msg>第二句</msg> 这种格式。',
+    '正文至少 1 句，最多 ' + maxFollowups + ' 句。',
+    '不要输出任何 money_packet 字段、金额结构、领取提示、方括号状态行。',
     '不要只说“收下了/退回了”，要接着当前关系和上下文自然说话。'
   ].join('\n');
   var user = [
     buildMoneyPromptContext(payload),
     '你的决定：' + (accept ? '收下' : '退还'),
-    '本次 replies 至少 1 条，最多允许 ' + maxFollowups + ' 条。'
+    '本次正文至少 1 句，最多允许 ' + maxFollowups + ' 句。'
   ].join('\n\n');
   try{
     var raw = await Promise.race([
       callAIWithCustomPrompts(sys, user),
       new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
     ]);
-    return parseMoneyReplyBundle(raw);
+    return raw;
   }catch(e){
-    return { replies: [] };
+    return '';
   }
 }
 
-function extractMoneyFollowupsFromBundle(bundle, accept, pending){
-  var followups = sanitizeMoneyFollowups(bundle && bundle.replies, accept, pending);
-  if(!followups.length && bundle && Array.isArray(bundle.replies) && bundle.replies.length){
-    followups = bundle.replies.map(function(item){
-      var content = sanitizeAssistantTextForChat(String((item && (item.content || item.reply_content || item.description || item.text)) || '').trim());
-      content = String(content || '').split(/\n+/).map(function(line){
-        return String(line || '').trim();
-      }).filter(function(line){
-        if(!line) return false;
-        if(/^\[(您已领取|你已领取|已领取|你向.+转账|向.+转账|收到转账|收到红包|红包已退回|转账已退回|已收下转账|已收下红包|已拒绝转账|已拒绝红包)[^\]]*\]$/i.test(line)) return false;
-        if(/^\[(红包|转账)[^\]]*￥\s*\d/i.test(line)) return false;
-        return true;
-      }).join('\n').trim();
-      return {
-        type: normalizeMessageType((item && item.type) || 'text'),
-        content: content,
-        reply_to: item && (item.reply_to || item.replyTo || ''),
-        reply_role: item && (item.reply_role || item.replyRole || '')
-      };
-    }).filter(function(item){ return item.content; });
-  }
-  return followups;
+function extractMoneyFollowupsFromRaw(raw, accept, pending){
+  var parsed = parseMoneyReplyBundle(raw);
+  var followups = sanitizeMoneyFollowups(parsed && parsed.replies, accept, pending);
+  if(followups.length) return followups;
+  var text = sanitizeAssistantTextForChat(String(raw || '').trim());
+  var lines = String(text || '').split(/\n+/).map(function(line){
+    return String(line || '').trim();
+  }).filter(function(line){
+    if(!line) return false;
+    if(/^\[(您已领取|你已领取|已领取|你向.+转账|向.+转账|收到转账|收到红包|红包已退回|转账已退回|已收下转账|已收下红包|已拒绝转账|已拒绝红包)[^\]]*\]$/i.test(line)) return false;
+    if(/^\[(红包|转账)[^\]]*￥\s*\d/i.test(line)) return false;
+    return true;
+  });
+  if(!lines.length && text) lines = [text];
+  return lines.map(function(line){
+    return { type: 'text', content: line };
+  });
 }
 
 async function handlePendingMoneyPacketReply(showLoading){
@@ -5933,8 +5927,8 @@ async function handlePendingMoneyPacketReply(showLoading){
       return '';
     }
     for(var followAttempt = 0; followAttempt < 3; followAttempt++){
-      var followBundle = await composePendingMoneyPacketFollowups(pending, accept);
-      followups = extractMoneyFollowupsFromBundle(followBundle, accept, pending);
+      var followRaw = await composePendingMoneyPacketFollowups(pending, accept);
+      followups = extractMoneyFollowupsFromRaw(followRaw, accept, pending);
       if(followups.length) break;
     }
     if(!followups.length){
