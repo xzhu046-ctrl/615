@@ -5863,6 +5863,10 @@ async function handlePendingMoneyPacketReply(showLoading){
   try{
     var bundle = await composePendingMoneyPacketReply(pending);
     var accept = !!bundle.accept;
+    var followups = sanitizeMoneyFollowups(bundle.replies, accept, pending);
+    if(!followups.length){
+      followups = sanitizeMoneyFollowups(await composeMoneyFollowupOnly(pending, accept), accept, pending);
+    }
     pending.status = accept ? 'accepted' : 'refunded';
     pending.summary = moneyPacketDecisionText(pending, accept);
     updateMoneyPacketStatus(pendingEntry.id, pending.status);
@@ -5886,15 +5890,8 @@ async function handlePendingMoneyPacketReply(showLoading){
         relatedId: pendingEntry.id
       });
     }
-    var followups = sanitizeMoneyFollowups(bundle.replies, accept, pending);
-    if(!followups.length){
-      followups = sanitizeMoneyFollowups(await composeMoneyFollowupOnly(pending, accept), accept, pending);
-    }
     if(followups.length){
-      var followupIds = await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
-      if(!followupIds || !followupIds.length){
-        followupIds = appendMoneyFollowupsDirectly(followups);
-      }
+      appendMoneyFollowupsDirectly(followups);
     }else{
       refreshInnerVoiceFromAi(decisionPayload.summary);
     }
