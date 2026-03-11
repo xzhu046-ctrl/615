@@ -5858,6 +5858,21 @@ async function handlePendingMoneyPacketReply(showLoading){
   var pending = parseMoneyPacketPayload(pendingEntry.content) || {};
   try{
     var accept = !!(await decidePendingMoneyPacketOutcome(pending));
+    var provider = localStorage.getItem('provider') || 'openai';
+    var key = localStorage.getItem('key_' + provider);
+    var prevCue = pendingModelUserCue;
+    var rawFollowup = '';
+    try{
+      pendingModelUserCue = '你刚刚已经对红包/转账作出决定。现在请紧接着上一条决定卡之后，继续发送自然的正文消息。必须先接住用户这个行为，不要重复收下/退回结论，不要输出 JSON。';
+      if(key || provider === 'custom'){
+        rawFollowup = await Promise.race([
+          callAI(provider, key),
+          new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 9000); })
+        ]);
+      }
+    } finally {
+      pendingModelUserCue = prevCue;
+    }
     pending.status = accept ? 'accepted' : 'refunded';
     pending.summary = moneyPacketDecisionText(pending, accept);
     updateMoneyPacketStatus(pendingEntry.id, pending.status);
@@ -5881,23 +5896,16 @@ async function handlePendingMoneyPacketReply(showLoading){
         relatedId: pendingEntry.id
       });
     }
-    var provider = localStorage.getItem('provider') || 'openai';
-    var key = localStorage.getItem('key_' + provider);
-    var prevCue = pendingModelUserCue;
-    var mainChatFollowup = '';
-    try{
-      pendingModelUserCue = '你刚刚已经对红包/转账作出决定。现在请紧接着上一条决定卡之后，继续发送自然的正文消息。必须先接住用户这个行为，不要重复收下/退回结论，不要输出 JSON。';
-      if(key || provider === 'custom'){
-        mainChatFollowup = await Promise.race([
-          callAI(provider, key),
-          new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 9000); })
-        ]);
+    if(rawFollowup){
+      var followupIds = await deliverAiReply(rawFollowup, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
+      if(!followupIds || !followupIds.length){
+        var cleaned = sanitizeAssistantTextForChat(String(rawFollowup || '').trim());
+        if(cleaned){
+          var fallbackEntry = makeChatEntry('assistant', cleaned, 'text');
+          chatLog.push(fallbackEntry);
+          addMessage('ai', fallbackEntry.content, true, 'text', fallbackEntry.id);
+        }
       }
-    } finally {
-      pendingModelUserCue = prevCue;
-    }
-    if(mainChatFollowup){
-      await deliverAiReply(mainChatFollowup, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
     } else {
       refreshInnerVoiceFromAi(decisionPayload.summary);
     }
