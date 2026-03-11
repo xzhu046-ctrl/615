@@ -5848,6 +5848,45 @@ async function composeMoneyFollowupOnly(payload, accept){
   }
 }
 
+async function composeMoneyFollowupViaMainChat(payload, accept){
+  var sys = [
+    '你是聊天中的角色本人。',
+    '你刚刚已经对红包或转账作出决定，现在只继续发送决定后的正文回复。',
+    '这次不要返回 JSON，只返回你会真正发给用户的聊天内容。',
+    '必须先接住用户刚才发钱这个动作，再自然顺着关系和上下文说话。',
+    '不要重复决定卡里已经表达过的结论，不要输出字段名、状态字样或 money_packet 文本。'
+  ].join('\n');
+  var recent = getVisibleChatForModel().slice(-10).map(function(m){
+    return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
+  }).join('\n');
+  var wbText = getStrictPromptWorldbookEntries().map(function(entry){
+    return String((entry && entry.content) || '').trim();
+  }).filter(Boolean).slice(0, 8).join('\n\n');
+  var user = [
+    '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
+    '角色人设：' + String((character && (character.personality || character.description)) || ''),
+    wbText ? ('世界书：\n' + wbText) : '世界书：无',
+    recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    '你刚刚的决定：' + moneyPacketDecisionText(payload, accept),
+    '金钱事件：\n' + JSON.stringify(payload || {}, null, 2)
+  ].join('\n\n');
+  try{
+    var raw = await Promise.race([
+      callAIWithCustomPrompts(sys, user),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 10000); })
+    ]);
+    raw = sanitizeAssistantTextForChat(String(raw || '').trim());
+    if(!raw) return [];
+    return String(raw).split(/<\/?msg>|\n+/i).map(function(part){
+      return String(part || '').trim();
+    }).filter(Boolean).map(function(part){
+      return { type:'text', content: part };
+    });
+  }catch(e){
+    return [];
+  }
+}
+
 async function handlePendingMoneyPacketReply(showLoading){
   if(!character) return false;
   var pendingEntry = getPendingMoneyPacketEntry();
@@ -5886,6 +5925,9 @@ async function handlePendingMoneyPacketReply(showLoading){
           };
         }).filter(function(item){ return item.content; });
       }
+    }
+    if(!followups.length){
+      followups = await composeMoneyFollowupViaMainChat(pending, accept);
     }
     pending.status = accept ? 'accepted' : 'refunded';
     pending.summary = moneyPacketDecisionText(pending, accept);
