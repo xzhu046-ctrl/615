@@ -5962,47 +5962,6 @@ async function composePendingMoneyPacketFollowups(payload, accept){
   }
 }
 
-async function composeMoneyDecisionTaggedFollowup(payload){
-  var maxTotal = character && character.msgMax ? character.msgMax : 3;
-  var maxFollowups = Math.max(1, maxTotal - 1);
-  var sys = [
-    '你是聊天中的角色本人。',
-    '现在用户给你发来了红包或转账。你必须先判断收下还是退还，再立刻接着说自然正文。',
-    '这是用户发给你的钱，不是你发给用户的钱。不要反过来给用户发红包或转账。',
-    '只返回纯文本，不要 JSON，不要解释规则。',
-    '第一段开头必须严格写 [yes] 或 [no]。',
-    '[yes] 代表你收下，[no] 代表你退还。',
-    '后面紧接着正文；如果要分多气泡，用 <msg>...</msg>。最多 ' + maxFollowups + ' 句。',
-    '不要输出任何 money_packet 字段、金额结构、领取提示、方括号状态行。'
-  ].join('\n');
-  var user = [
-    buildMoneyPromptContext(payload),
-    '只允许开头标签是 [yes] 或 [no]，然后继续正文。'
-  ].join('\n\n');
-  try{
-    return await Promise.race([
-      callAIWithCustomPrompts(sys, user),
-      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
-    ]);
-  }catch(e){
-    return '';
-  }
-}
-
-function parseTaggedMoneyDecisionFollowup(raw, pending){
-  var text = String(raw || '').trim();
-  if(!text) return { accept: null, followups: [] };
-  var accept = null;
-  if(/^\s*\[yes\]/i.test(text)) accept = true;
-  else if(/^\s*\[no\]/i.test(text)) accept = false;
-  if(typeof accept !== 'boolean') accept = parseMoneyDecisionResult(text);
-  text = text.replace(/^\s*\[(yes|no)\]\s*/i, '').trim();
-  return {
-    accept: accept,
-    followups: extractMoneyFollowupsFromRaw(text, typeof accept === 'boolean' ? accept : true, pending)
-  };
-}
-
 function extractMoneyFollowupsFromRaw(raw, accept, pending){
   var rawText = String(raw || '').trim();
   if(/"type"\s*:\s*"money_packet"/i.test(rawText) || /"money_packet"\s*:/i.test(rawText) || /\[money_packet/i.test(rawText)){
@@ -6048,23 +6007,14 @@ async function handlePendingMoneyPacketReply(showLoading){
       if(typeof accept === 'boolean') break;
     }
     if(typeof accept !== 'boolean'){
-      var taggedFallback = parseTaggedMoneyDecisionFollowup(await composeMoneyDecisionTaggedFollowup(pending), pending);
-      if(typeof taggedFallback.accept === 'boolean'){
-        accept = taggedFallback.accept;
-        followups = taggedFallback.followups || [];
-      }
-    }
-    if(typeof accept !== 'boolean'){
       if(showLoading) hideTyping();
       toast('这次没生成到有效决定，再点一次');
       return '';
     }
-    if(!followups.length){
-      for(var followAttempt = 0; followAttempt < 3; followAttempt++){
-        var followRaw = await composePendingMoneyPacketFollowups(pending, accept);
-        followups = extractMoneyFollowupsFromRaw(followRaw, accept, pending);
-        if(followups.length) break;
-      }
+    for(var followAttempt = 0; followAttempt < 3; followAttempt++){
+      var followRaw = await composePendingMoneyPacketFollowups(pending, accept);
+      followups = extractMoneyFollowupsFromRaw(followRaw, accept, pending);
+      if(followups.length) break;
     }
     if(!followups.length){
       if(showLoading) hideTyping();
