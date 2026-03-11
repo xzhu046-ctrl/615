@@ -5881,23 +5881,13 @@ async function handlePendingMoneyPacketReply(showLoading){
         relatedId: pendingEntry.id
       });
     }
-    var provider = localStorage.getItem('provider') || 'openai';
-    var key = localStorage.getItem('key_' + provider);
-    var prevCue = pendingModelUserCue;
-    var mainChatFollowup = '';
-    try{
-      pendingModelUserCue = '你刚刚已经对红包/转账作出决定。现在请紧接着上一条决定卡之后，继续发送自然的正文消息。必须先接住用户这个行为，不要重复收下/退回结论，不要输出 JSON。';
-      if(key || provider === 'custom'){
-        mainChatFollowup = await Promise.race([
-          callAI(provider, key),
-          new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 9000); })
-        ]);
-      }
-    } finally {
-      pendingModelUserCue = prevCue;
+    var followups = sanitizeFamilyFollowups(await composeMoneyFollowupOnly(pending, accept), accept, pending);
+    if(!followups.length){
+      var mainChatFollowup = await composeMoneyFollowupViaMainChat();
+      if(mainChatFollowup) followups = [{ type:'text', content: String(mainChatFollowup || '') }];
     }
-    if(mainChatFollowup){
-      await deliverAiReply(mainChatFollowup, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
+    if(followups.length){
+      await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
     } else {
       refreshInnerVoiceFromAi(decisionPayload.summary);
     }
