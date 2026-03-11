@@ -4780,6 +4780,14 @@ function moneyPacketDecisionText(payload, accepted){
   return charName + (mode === 'transfer' ? '把转账退回来了' : '把红包退回来了');
 }
 
+function userMoneyDecisionText(payload, accepted){
+  var data = parseMoneyPacketPayload(payload) || {};
+  var userName = String(data.userName || userDisplayNameForFamily() || '你').trim() || '你';
+  var mode = String(data.mode || 'red_packet');
+  if(accepted) return userName + (mode === 'transfer' ? '收下了这笔转账' : '收下了这个红包');
+  return userName + (mode === 'transfer' ? '把转账退回去了' : '把红包退回去了');
+}
+
 function updateMoneyPacketStatus(messageId, nextStatus){
   var changed = false;
   chatLog = chatLog.map(function(entry){
@@ -5568,6 +5576,15 @@ function confirmIncomingMoneyDecision(){
   var accept = true;
   data.status = accept ? 'accepted' : 'refunded';
   updateMoneyPacketStatus(entry.id, data.status);
+  var decisionPayload = Object.assign({}, data, {
+    kind: 'decision',
+    status: data.status,
+    summary: userMoneyDecisionText(data, true),
+    relatedId: entry.id
+  });
+  var decisionEntry = makeChatEntry('user', JSON.stringify(decisionPayload), 'money_packet');
+  chatLog.push(decisionEntry);
+  addMessage('user', decisionEntry.content, true, 'money_packet', decisionEntry.id);
   if(String(data.source || '') === 'family_card'){
     if(!accept){
       applyWalletDelta(Number(data.amount || 0), 'in', {
@@ -5595,6 +5612,15 @@ function rejectIncomingMoneyDecision(){
   var data = parseMoneyPacketPayload(entry.content) || {};
   data.status = 'refunded';
   updateMoneyPacketStatus(entry.id, data.status);
+  var decisionPayload = Object.assign({}, data, {
+    kind: 'decision',
+    status: data.status,
+    summary: userMoneyDecisionText(data, false),
+    relatedId: entry.id
+  });
+  var decisionEntry = makeChatEntry('user', JSON.stringify(decisionPayload), 'money_packet');
+  chatLog.push(decisionEntry);
+  addMessage('user', decisionEntry.content, true, 'money_packet', decisionEntry.id);
   if(String(data.source || '') === 'family_card'){
     applyWalletDelta(Number(data.amount || 0), 'in', {
       title: data.mode === 'transfer' ? '亲属卡转账已退回' : '亲属卡红包已退回',
