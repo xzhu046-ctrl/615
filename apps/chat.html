@@ -5800,12 +5800,24 @@ function getPendingMoneyPacketEntry(){
   return null;
 }
 
+function getLatestUserTurnForMoney(){
+  var visible = getVisibleChatForModel();
+  for(var i = visible.length - 1; i >= 0; i--){
+    var item = visible[i];
+    if(!item || item.role !== 'user') continue;
+    var text = String(formatMessageForModel(item) || '').trim();
+    if(text) return text;
+  }
+  return '';
+}
+
 async function composePendingMoneyPacketReply(payload){
   var maxTotal = character && character.msgMax ? character.msgMax : 3;
   var maxFollowups = Math.max(1, maxTotal - 1);
   var sys = [
     '你是聊天中的角色本人。',
-    '现在用户给你发来了红包或转账。你必须先认真阅读最近聊天、角色人设、世界书，再像真人一样决定收下还是退还，然后紧接着发送正文回复。',
+    '现在用户给你发来了红包或转账。你必须先认真阅读最近聊天、用户最新消息、角色人设、世界书，再像真人一样决定收下还是退还，然后紧接着发送正文回复。',
+    '如果用户在红包前后说了别的话，你必须先接住那些话，不能假装没看见。',
     '只返回 JSON，不要解释，不要 markdown。',
     '格式：{"accept":true|false,"replies":[{"type":"text","content":"..."}]}',
     '如果 accept=false，代表你把钱退回去了。',
@@ -5820,11 +5832,13 @@ async function composePendingMoneyPacketReply(payload){
   var wbText = getStrictPromptWorldbookEntries().map(function(entry){
     return String((entry && entry.content) || '').trim();
   }).filter(Boolean).slice(0, 8).join('\n\n');
+  var latestUser = getLatestUserTurnForMoney();
   var user = [
     '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
     '角色人设：' + String((character && (character.personality || character.description)) || ''),
     wbText ? ('世界书：\n' + wbText) : '世界书：无',
     recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    latestUser ? ('用户最新消息：' + latestUser) : '用户最新消息：无',
     '金钱事件：\n' + JSON.stringify(payload || {}, null, 2),
     '本次 replies 至少 1 条，最多允许 ' + maxFollowups + ' 条。'
   ].join('\n\n');
@@ -5846,7 +5860,7 @@ async function composePendingMoneyPacketReply(payload){
 async function decidePendingMoneyPacketOutcome(payload){
   var sys = [
     '你是聊天中的角色本人。',
-    '现在用户给你发来了红包或转账。你只需要按最近聊天、角色人设、世界书，决定收下还是退回。',
+    '现在用户给你发来了红包或转账。你只需要按最近聊天、用户最新消息、角色人设、世界书，决定收下还是退回。',
     '只返回 JSON，不要解释，不要 markdown。',
     '格式：{"accept":true|false}'
   ].join('\n');
@@ -5856,11 +5870,13 @@ async function decidePendingMoneyPacketOutcome(payload){
   var wbText = getStrictPromptWorldbookEntries().map(function(entry){
     return String((entry && entry.content) || '').trim();
   }).filter(Boolean).slice(0, 8).join('\n\n');
+  var latestUser = getLatestUserTurnForMoney();
   var user = [
     '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
     '角色人设：' + String((character && (character.personality || character.description)) || ''),
     wbText ? ('世界书：\n' + wbText) : '世界书：无',
     recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    latestUser ? ('用户最新消息：' + latestUser) : '用户最新消息：无',
     '金钱事件：\n' + JSON.stringify(payload || {}, null, 2)
   ].join('\n\n');
   try{
@@ -5882,7 +5898,7 @@ async function composeMoneyFollowupOnly(payload, accept){
   var sys = [
     '你是聊天中的角色本人。',
     '你刚刚已经对红包或转账作出决定，现在只继续发送决定后的正文回复。',
-    '必须先接住用户刚才发钱这个动作，再自然顺着关系和上下文说话。',
+    '必须先接住用户刚才发钱这个动作，以及红包前后用户说过的话，再自然顺着关系和上下文说话。',
     '只返回 JSON，不要解释，不要 markdown。',
     '格式：{"replies":[{"type":"text","content":"..."}]}',
     'replies 至少 1 条，最多 ' + maxFollowups + ' 条，不能为空。',
@@ -5894,11 +5910,13 @@ async function composeMoneyFollowupOnly(payload, accept){
   var wbText = getStrictPromptWorldbookEntries().map(function(entry){
     return String((entry && entry.content) || '').trim();
   }).filter(Boolean).slice(0, 8).join('\n\n');
+  var latestUser = getLatestUserTurnForMoney();
   var user = [
     '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
     '角色人设：' + String((character && (character.personality || character.description)) || ''),
     wbText ? ('世界书：\n' + wbText) : '世界书：无',
     recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    latestUser ? ('用户最新消息：' + latestUser) : '用户最新消息：无',
     '你刚刚的决定：' + moneyPacketDecisionText(payload, accept),
     '金钱事件：\n' + JSON.stringify(payload || {}, null, 2)
   ].join('\n\n');
