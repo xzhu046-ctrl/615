@@ -5222,6 +5222,15 @@ function fallbackFamilyFollowupText(accept, payload){
   return '这个我不能答应，但我还是想好好和你说。';
 }
 
+function fallbackMoneyFollowupText(accept, payload){
+  var mode = String((payload && payload.mode) || 'red_packet');
+  var charName = String((payload && payload.charName) || (character && (character.nickname || character.name)) || '我').trim() || '我';
+  if(accept){
+    return mode === 'transfer' ? (charName + '先收下了。') : (charName + '把这个红包收好了。');
+  }
+  return mode === 'transfer' ? '这笔钱我不能收，但我还是想和你好好说。' : '这个红包我不能收，但我还是想和你好好说。';
+}
+
 function sanitizeFamilyFollowups(items, accept, payload){
   var list = Array.isArray(items) ? items : [];
   var summary = familyResponseText(payload, accept).replace(/\s+/g, '');
@@ -5829,21 +5838,6 @@ async function composePendingMoneyPacketReply(payload){
   }
 }
 
-function extractMoneyFollowupsFromBundle(bundle, accept, pending){
-  var followups = sanitizeMoneyFollowups(bundle && bundle.replies, accept, pending);
-  if(!followups.length && bundle && Array.isArray(bundle.replies) && bundle.replies.length){
-    followups = bundle.replies.map(function(item){
-      return {
-        type: normalizeMessageType((item && item.type) || 'text'),
-        content: sanitizeAssistantTextForChat(String((item && (item.content || item.reply_content || item.description || item.text)) || '').trim()),
-        reply_to: item && (item.reply_to || item.replyTo || ''),
-        reply_role: item && (item.reply_role || item.replyRole || '')
-      };
-    }).filter(function(item){ return item.content; });
-  }
-  return followups;
-}
-
 async function handlePendingMoneyPacketReply(showLoading){
   if(!character) return '';
   var pendingEntry = getPendingMoneyPacketEntry();
@@ -5857,19 +5851,18 @@ async function handlePendingMoneyPacketReply(showLoading){
   var pending = parseMoneyPacketPayload(pendingEntry.content) || {};
   try{
     var previousStatus = String(pending.status || 'pending');
-    var bundle = null;
-    var accept = true;
-    var followups = [];
-    for(var attempt = 0; attempt < 3; attempt++){
-      bundle = await composePendingMoneyPacketReply(pending);
-      accept = typeof bundle.accept === 'boolean' ? bundle.accept : true;
-      followups = extractMoneyFollowupsFromBundle(bundle, accept, pending);
-      if(followups.length) break;
-    }
-    if(!followups.length){
-      if(showLoading) hideTyping();
-      toast('这次没生成到有效回复，再点一次');
-      return '';
+    var bundle = await composePendingMoneyPacketReply(pending);
+    var accept = typeof bundle.accept === 'boolean' ? bundle.accept : true;
+    var followups = sanitizeMoneyFollowups(bundle.replies, accept, pending);
+    if(!followups.length && Array.isArray(bundle.replies) && bundle.replies.length){
+      followups = bundle.replies.map(function(item){
+        return {
+          type: normalizeMessageType((item && item.type) || 'text'),
+          content: sanitizeAssistantTextForChat(String((item && (item.content || item.reply_content || item.description || item.text)) || '').trim()),
+          reply_to: item && (item.reply_to || item.replyTo || ''),
+          reply_role: item && (item.reply_role || item.replyRole || '')
+        };
+      }).filter(function(item){ return item.content; });
     }
     pending.status = accept ? 'accepted' : 'refunded';
     pending.summary = moneyPacketDecisionText(pending, accept);
@@ -5893,6 +5886,9 @@ async function handlePendingMoneyPacketReply(showLoading){
         note: (character ? (character.nickname || character.name || '对方') : '对方') + '退还了这笔钱',
         relatedId: pendingEntry.id
       });
+    }
+    if(!followups.length){
+      followups = [{ type:'text', content:fallbackMoneyFollowupText(accept, pending) }];
     }
     var followupIds = await deliverAiReply(followups, Math.max(0, (character && character.msgMax ? character.msgMax : 3) - 1));
     lastMoneyReplyRound = {
