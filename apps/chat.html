@@ -5795,6 +5795,25 @@ async function composeMoneyFollowupOnly(payload, accept){
   }
 }
 
+async function composeMoneyFollowupViaMainChat(){
+  var provider = localStorage.getItem('provider') || 'openai';
+  var key = localStorage.getItem('key_' + provider);
+  if (!key && provider !== 'custom') return [];
+  var prevCue = pendingModelUserCue;
+  try{
+    pendingModelUserCue = '你刚刚已经对红包/转账作出决定。现在请紧接着上一条决定卡之后，继续发送自然的正文消息。不要重复收下/退回结论，不要输出 JSON。';
+    var raw = await Promise.race([
+      callAI(provider, key),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 9000); })
+    ]);
+    return raw;
+  }catch(e){
+    return '';
+  } finally {
+    pendingModelUserCue = prevCue;
+  }
+}
+
 async function handlePendingMoneyPacketReply(showLoading){
   if(!character) return false;
   var pendingEntry = getPendingMoneyPacketEntry();
@@ -5836,9 +5855,13 @@ async function handlePendingMoneyPacketReply(showLoading){
     if(!followups.length){
       followups = sanitizeFamilyFollowups(await composeMoneyFollowupOnly(pending, accept), accept, pending);
     }
+    if(!followups.length){
+      var mainChatFollowup = await composeMoneyFollowupViaMainChat();
+      if(mainChatFollowup) followups = [{ type:'text', content: String(mainChatFollowup || '') }];
+    }
     if(followups.length){
       await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
-    }else{
+    } else {
       refreshInnerVoiceFromAi(decisionPayload.summary);
     }
     saveChat();
