@@ -4775,6 +4775,15 @@ function moneyPacketDecisionText(payload, accepted){
   return charName + (mode === 'transfer' ? '把转账退回来了' : '把红包退回来了');
 }
 
+function fallbackMoneyFollowupText(accept, payload){
+  var data = payload || {};
+  var mode = String(data.mode || 'red_packet');
+  if(accept){
+    return mode === 'transfer' ? '我收到了。' : '这个我收下了。';
+  }
+  return mode === 'transfer' ? '这笔钱我先退给你。' : '这个红包我先退回去。';
+}
+
 function updateMoneyPacketStatus(messageId, nextStatus){
   var changed = false;
   chatLog = chatLog.map(function(entry){
@@ -5681,12 +5690,12 @@ async function composePendingMoneyPacketReply(payload){
     '如果 accept=false，代表你把钱退回去了。',
     'replies 里不要复述系统字段，不要输出金额结构，不要再输出 money_packet JSON。'
   ].join('\n');
-  var recent = getVisibleChatForModel().slice(-10).map(function(m){
+  var recent = getVisibleChatForModel().slice(-6).map(function(m){
     return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
   }).join('\n');
   var wbText = getStrictPromptWorldbookEntries().map(function(entry){
     return String((entry && entry.content) || '').trim();
-  }).filter(Boolean).slice(0, 8).join('\n\n');
+  }).filter(Boolean).slice(0, 4).join('\n\n');
   var user = [
     '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
     '角色人设：' + String((character && (character.personality || character.description)) || ''),
@@ -5696,7 +5705,10 @@ async function composePendingMoneyPacketReply(payload){
     '本次 replies 最多允许 ' + maxFollowups + ' 条。'
   ].join('\n\n');
   try{
-    var raw = await callAIWithCustomPrompts(sys, user);
+    var raw = await Promise.race([
+      callAIWithCustomPrompts(sys, user),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
+    ]);
     return parseMoneyReplyBundle(raw);
   }catch(e){
     return { accept: true, replies: [] };
@@ -5741,6 +5753,9 @@ async function handlePendingMoneyPacketReply(showLoading){
       });
     }
     var followups = sanitizeFamilyFollowups(decision.replies || [], accept, pending);
+    if(!followups.length){
+      followups = [{ type:'text', content:fallbackMoneyFollowupText(accept, pending) }];
+    }
     for(var i = 0; i < followups.length; i++){
       var item = followups[i];
       var entry = makeChatEntry('assistant', item.content, item.type || 'text');
