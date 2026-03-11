@@ -1156,8 +1156,10 @@ var innerVoiceHistoryMode = false;
 var innerVoiceEditingId = '';
 var innerVoicePendingDeleteId = '';
 var lastFamilyReplyRound = null;
+var lastMoneyReplyRound = null;
 var lastFamilyHandledAt = 0;
 var familyReplyBusy = false;
+var moneyReplyBusy = false;
 var moneyComposerMode = 'red_packet';
 var selectedMoneyCoverId = '';
 var pendingMoneyCoverName = '';
@@ -4595,6 +4597,7 @@ function rerollLast(){
   }
   if(!removed){ toast('还没有 AI 回复可重生成'); return; }
   rollbackFamilyReplyRoundOnReroll(removedIds);
+  rollbackMoneyReplyRoundOnReroll(removedIds);
   rollbackInnerVoiceOnReroll();
   saveChat();
   renderChatLog(false);
@@ -5271,6 +5274,43 @@ function rollbackFamilyReplyRoundOnReroll(removedIds){
   lastFamilyReplyRound = null;
 }
 
+function updateWalletRecordForMoneyStatus(requestId, nextStatus){
+  var key = accountScopedKey('qq_wallet_state');
+  try{
+    var raw = JSON.parse(localStorage.getItem(key) || 'null');
+    if(!raw || !Array.isArray(raw.records)) return;
+    raw.records = raw.records.map(function(item){
+      if(String((item && item.relatedId) || '') !== String(requestId || '')) return item;
+      var next = Object.assign({}, item);
+      next.status = nextStatus || '';
+      if(next.status === 'accepted') next.note = '红包/转账已收下';
+      else if(next.status === 'refunded' || next.status === 'rejected') next.note = '红包/转账已退回';
+      else next.note = next.direction === 'out' ? '红包/转账待处理' : next.note;
+      return next;
+    });
+    localStorage.setItem(key, JSON.stringify(raw));
+  }catch(e){}
+}
+
+function rollbackMoneyReplyRoundOnReroll(removedIds){
+  if(!lastMoneyReplyRound || !Array.isArray(lastMoneyReplyRound.assistantIds) || !lastMoneyReplyRound.assistantIds.length) return;
+  var removedSet = new Set((removedIds || []).map(function(id){ return String(id || ''); }).filter(Boolean));
+  var touched = lastMoneyReplyRound.assistantIds.some(function(id){ return removedSet.has(String(id || '')); });
+  if(!touched) return;
+  if(lastMoneyReplyRound.requestId){
+    updateMoneyPacketStatus(lastMoneyReplyRound.requestId, lastMoneyReplyRound.previousStatus || 'pending');
+    updateWalletRecordForMoneyStatus(lastMoneyReplyRound.requestId, lastMoneyReplyRound.previousStatus || 'pending');
+  }
+  if(lastMoneyReplyRound.refundApplied){
+    applyWalletDelta(Number(lastMoneyReplyRound.amount || 0), 'out', {
+      title: lastMoneyReplyRound.mode === 'transfer' ? '撤销转账退回' : '撤销红包退回',
+      note: '重生成后撤销上一轮退回结果',
+      relatedId: lastMoneyReplyRound.requestId
+    });
+  }
+  lastMoneyReplyRound = null;
+}
+
 async function composePendingFamilyCardReply(payload){
   var fallbackAccept = (payload && payload.mode === 'gift');
   var maxTotal = character && character.msgMax ? character.msgMax : 3;
@@ -5646,19 +5686,20 @@ function submitMoneyComposer(){
     toast('先选一个红包封面');
     return;
   }
+  var payload = buildMoneyPacketPayload(moneyComposerMode, amount, note, cover);
+  payload.id = 'money_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
   var walletTitle = moneyComposerMode === 'transfer'
     ? ('转账给' + (character ? (character.nickname || character.name || '对方') : '对方'))
     : ('给' + (character ? (character.nickname || character.name || '对方') : '对方') + '发红包');
   if(!applyWalletDelta(amount, 'out', {
     title: walletTitle,
     note: note || (moneyComposerMode === 'transfer' ? '聊天转账' : '聊天红包'),
-    relatedId: character && character.id ? String(character.id) : ''
+    relatedId: payload.id,
+    status: 'pending'
   })){
     toast('余额不足');
     return;
   }
-  var payload = buildMoneyPacketPayload(moneyComposerMode, amount, note, cover);
-  payload.id = 'money_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
   payload.status = 'pending';
   payload.kind = 'request';
   payload.userName = userDisplayNameForFamily();
@@ -5724,30 +5765,28 @@ async function composePendingMoneyPacketReply(payload){
     '格式：{"accept":true|false,"replies":[{"type":"text","content":"..."}]}',
     '如果 accept=false，代表你把钱退回去了。',
     'replies 里不要复述系统字段，不要输出金额结构，不要再输出 money_packet JSON。',
-    'replies 至少 1 条，最多 ' + maxFollowups + ' 条。',
-    '不要把 accept/退回/收下 的结论再机械复述一遍，要接着当前关系和上下文自然说话。'
+    'replies 是决定红包或转账之后紧接着会发送的正文消息列表。',
+    '不要把红包/转账决定写进 replies，不要重复“收下/退回红包或转账”这种结论。',
+    '不要输出任何 money_packet 字段、状态字样或 JSON 结构。',
+    'replies 数量不能超过 ' + maxFollowups + '。'
   ].join('\n');
-  var recent = getVisibleChatForModel().slice(-6).map(function(m){
+  var recent = getVisibleChatForModel().slice(-10).map(function(m){
     return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
   }).join('\n');
   var wbText = getStrictPromptWorldbookEntries().map(function(entry){
     return String((entry && entry.content) || '').trim();
-  }).filter(Boolean).slice(0, 4).join('\n\n');
+  }).filter(Boolean).slice(0, 8).join('\n\n');
   var user = [
     '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
     '角色人设：' + String((character && (character.personality || character.description)) || ''),
     wbText ? ('世界书：\n' + wbText) : '世界书：无',
     recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
     '金钱事件：\n' + JSON.stringify(payload || {}, null, 2),
-    '本次 replies 至少 1 条，最多允许 ' + maxFollowups + ' 条。'
+    '本次 replies 最多允许 ' + maxFollowups + ' 条。'
   ].join('\n\n');
   try{
-    var raw = await Promise.race([
-      callAIWithCustomPrompts(sys, user),
-      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
-    ]);
-    var bundle = parseMoneyReplyBundle(raw, fallbackAccept);
-    return bundle;
+    var raw = await callAIWithCustomPrompts(sys, user);
+    return parseMoneyReplyBundle(raw, fallbackAccept);
   }catch(e){
     return { accept: fallbackAccept, replies: [], acceptProvided: false };
   }
@@ -5799,9 +5838,13 @@ async function ensureMoneyFollowups(payload, accept, initialReplies){
 }
 
 async function handlePendingMoneyPacketReply(showLoading){
-  if(!character) return false;
+  if(!character || moneyReplyBusy) return false;
+  moneyReplyBusy = true;
   var pendingEntry = getPendingMoneyPacketEntry();
-  if(!pendingEntry) return false;
+  if(!pendingEntry){
+    moneyReplyBusy = false;
+    return false;
+  }
   if(showLoading){
     isTyping = true;
     document.getElementById('genBtn').disabled = true;
@@ -5810,11 +5853,13 @@ async function handlePendingMoneyPacketReply(showLoading){
   }
   var pending = parseMoneyPacketPayload(pendingEntry.content) || {};
   try{
+    var previousStatus = (parseMoneyPacketPayload((getMessageById(pendingEntry.id) || {}).content) || {}).status || 'pending';
     var decision = await composePendingMoneyPacketReply(pending);
     var accept = !!decision.accept;
     pending.status = accept ? 'accepted' : 'refunded';
     pending.summary = moneyPacketDecisionText(pending, accept);
     updateMoneyPacketStatus(pendingEntry.id, pending.status);
+    updateWalletRecordForMoneyStatus(pendingEntry.id, pending.status);
     var decisionPayload = Object.assign({}, pending, {
       kind: 'decision',
       status: pending.status,
@@ -5836,11 +5881,21 @@ async function handlePendingMoneyPacketReply(showLoading){
       });
     }
     var followups = await ensureMoneyFollowups(pending, accept, decision.replies || []);
+    var followupIds = [];
     if(followups.length){
-      await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
+      followupIds = await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
     }else{
       refreshInnerVoiceFromAi(decisionPayload.summary);
     }
+    lastMoneyReplyRound = {
+      requestId: pendingEntry.id,
+      previousStatus: previousStatus,
+      accepted: accept,
+      amount: Number(pending.amount || 0) || 0,
+      mode: String(pending.mode || 'red_packet'),
+      refundApplied: !accept,
+      assistantIds: [decisionEntry.id].concat(followupIds || [])
+    };
     saveChat();
     return decisionEntry.id;
   } finally {
@@ -5850,6 +5905,7 @@ async function handlePendingMoneyPacketReply(showLoading){
       document.getElementById('genBtn').disabled = false;
       document.getElementById('sendBtn').disabled = false;
     }
+    moneyReplyBusy = false;
   }
 }
 
