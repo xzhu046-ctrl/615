@@ -2938,7 +2938,7 @@ function removeMessagesByIds(ids){
   if(replyTargetId && set.has(replyTargetId)){
     replyTargetId = null;
   }
-  saveChat();
+  saveChat(true);
   renderChatLog(false);
   return before - chatLog.length;
 }
@@ -3018,7 +3018,7 @@ function confirmEditMessage(){
   msg.content = next;
   editingMessageId = null;
   editingDraft = '';
-  saveChat();
+  saveChat(true);
   renderChatLog(true);
   toast('已编辑');
 }
@@ -3237,7 +3237,7 @@ function confirmFriendRequestFlow(){
       var introEntry = makeChatEntry('user', intro, 'text');
       chatLog.push(introEntry);
       addMessage('user', introEntry.content, true, 'text', introEntry.id);
-      saveChat();
+      saveChat(true);
     }else{
       restoreOrStartChat();
     }
@@ -4226,7 +4226,7 @@ function sendOnly() {
   consumeFirstUserTurn(character && character.id);
   chatLog.push(entry);
   addMessage('user', text, true, 'text', entry.id);
-  saveChat();
+  saveChat(true);
   clearReplyTarget();
   hideError();
   captureUserMomentIntent(text, 'text');
@@ -4599,7 +4599,7 @@ function rerollLast(){
   rollbackFamilyReplyRoundOnReroll(removedIds);
   rollbackMoneyReplyRoundOnReroll(removedIds);
   rollbackInnerVoiceOnReroll();
-  saveChat();
+  saveChat(true);
   renderChatLog(false);
   triggerReply();
 }
@@ -5384,7 +5384,7 @@ async function handlePendingFamilyCardReply(){
     assistantIds: [replyEntry.id].concat(followupIds || [])
   };
   lastFamilyHandledAt = Date.now();
-  saveChat();
+  saveChat(true);
   return replyEntry.id;
   } finally {
     familyReplyBusy = false;
@@ -5641,7 +5641,7 @@ function confirmIncomingMoneyDecision(){
     });
   }
   closeIncomingMoneyDecision();
-  saveChat();
+  saveChat(true);
   toast(data.mode === 'transfer' ? '已收下转账' : '已收下红包');
 }
 
@@ -5669,7 +5669,7 @@ function rejectIncomingMoneyDecision(){
     });
   }
   closeIncomingMoneyDecision();
-  saveChat();
+  saveChat(true);
   toast(data.mode === 'transfer' ? '已拒绝转账' : '已拒绝红包');
 }
 
@@ -5714,7 +5714,7 @@ function submitMoneyComposer(){
   consumeFirstUserTurn(character && character.id);
   chatLog.push(entry);
   addMessage('user', entry.content, true, 'money_packet', entry.id);
-  saveChat();
+  saveChat(true);
   clearReplyTarget();
 }
 
@@ -6630,7 +6630,7 @@ function clearChatData(opts){
   }else{
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">🗑</div><div class="welcome-title">已清空聊天与记忆</div></div>';
   }
-  saveChat();
+  saveChat(true);
   renderReplyPreview();
   updateFloatingUi();
   refreshMemoryUi();
@@ -6642,20 +6642,61 @@ function confirmClearChatAll(){
   toast('已清空聊天和全部记忆');
 }
 
-function saveChat() {
+function mergeChatHistoryForSave(current, stored){
+  var next = Array.isArray(current) ? current.slice() : [];
+  var prev = Array.isArray(stored) ? stored.slice() : [];
+  if(!prev.length) return next;
+  var byId = new Map();
+  next.forEach(function(item){
+    if(item && item.id) byId.set(String(item.id), item);
+  });
+  var merged = [];
+  prev.forEach(function(item){
+    if(!item || !item.id) return;
+    var key = String(item.id);
+    if(byId.has(key)){
+      merged.push(byId.get(key));
+      byId.delete(key);
+    }else{
+      merged.push(item);
+    }
+  });
+  next.forEach(function(item){
+    if(!item || !item.id) return;
+    var key = String(item.id);
+    if(byId.has(key)){
+      merged.push(item);
+      byId.delete(key);
+    }
+  });
+  return merged;
+}
+
+function saveChat(forceReplace) {
   if (!character) return;
-  var payload = JSON.stringify({ history: chatLog, messages: chatLog });
+  var nextLog = Array.isArray(chatLog) ? chatLog.slice() : [];
+  if(!forceReplace){
+    try{
+      var existing = JSON.parse(localStorage.getItem(chatStorageKey(character.id)) || 'null');
+      var stored = (existing && (existing.history || existing.messages)) || [];
+      if(Array.isArray(stored) && stored.length){
+        nextLog = mergeChatHistoryForSave(nextLog, stored);
+      }
+    }catch(e){}
+  }
+  chatLog = nextLog;
+  var payload = JSON.stringify({ history: nextLog, messages: nextLog });
   localStorage.setItem(chatStorageKey(character.id), payload);
   try{ localStorage.setItem('chat_' + character.id, payload); }catch(e){}
   var lastEntry = null;
-  for(var i = chatLog.length - 1; i >= 0; i--){
-    var it = chatLog[i] || {};
+  for(var i = nextLog.length - 1; i >= 0; i--){
+    var it = nextLog[i] || {};
     if(String(it.role || '').toLowerCase() === 'assistant'){
       lastEntry = it;
       break;
     }
   }
-  if(!lastEntry && chatLog.length) lastEntry = chatLog[chatLog.length - 1];
+  if(!lastEntry && nextLog.length) lastEntry = nextLog[nextLog.length - 1];
   var lastMsg = lastEntry ? (lastEntry.content || '') : '';
   var lastType = lastEntry ? (lastEntry.type || 'text') : 'text';
   if(normalizeMessageType(lastType) === 'familycard'){
@@ -7097,7 +7138,7 @@ function confirmGreetingChange(){
     chatLog = [first];
     addMessage('ai', g, false, 'text', first.id);
   }
-  saveChat();
+  saveChat(true);
   refreshMemoryUi();
   if(document.getElementById('innerVoiceOverlay')?.classList.contains('open')){
     renderInnerVoiceOverlay();
