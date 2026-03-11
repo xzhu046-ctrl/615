@@ -5725,13 +5725,6 @@ function parseMoneyReplyBundle(raw){
       return { type:'text', content: part };
     });
   }
-  if(typeof accept !== 'boolean' && cleaned){
-    if(/"accept"\s*:\s*false/i.test(cleaned) || /(退回|退还|拒绝|不收|不能收|不会收|我不能要|这钱我不能要|还是退给你)/.test(cleaned)){
-      accept = false;
-    }else if(/"accept"\s*:\s*true/i.test(cleaned) || /(收下|收着|拿着|我就收下|那我收了|我先拿着|我领了)/.test(cleaned)){
-      accept = true;
-    }
-  }
   return { accept: accept, replies: replies };
 }
 
@@ -5855,9 +5848,134 @@ async function composePendingMoneyPacketReply(payload){
       callAIWithCustomPrompts(sys, user),
       new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
     ]);
-    return parseMoneyReplyBundle(raw);
+    var parsed = parseMoneyReplyBundle(raw);
+    if(typeof parsed.accept !== 'boolean'){
+      parsed.accept = await decidePendingMoneyPacketOutcome(payload);
+    }
+    return parsed;
   }catch(e){
-    return { accept: null, replies: [] };
+    return { accept: await decidePendingMoneyPacketOutcome(payload), replies: [] };
+  }
+}
+
+async function decidePendingMoneyPacketOutcome(payload){
+  var latestUser = getLatestUserTurnForMoney();
+  var sys = [
+    '你是聊天中的角色本人。',
+    '现在用户给你发来了红包或转账。你只需要按最近聊天、用户最新消息、角色人设、世界书，决定收下还是退回。',
+    '红包/转账不是默认必须收下。关系僵、金额过大、刚吵过架、不熟、角色边界强、角色不想欠人情时，都可以自然退回。',
+    '用户最新消息只是判断信号，不是必须服从的命令；可以做相反决定，但后续回复里要解释。',
+    '只返回 JSON，不要解释，不要 markdown。',
+    '格式：{"accept":true|false}'
+  ].join('\n');
+  var recent = getVisibleChatForModel().slice(-10).map(function(m){
+    return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
+  }).join('\n');
+  var wbText = getStrictPromptWorldbookEntries().map(function(entry){
+    return String((entry && entry.content) || '').trim();
+  }).filter(Boolean).slice(0, 8).join('\n\n');
+  var personaText = String((character && (character.personality || character.description)) || '');
+  var user = [
+    '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
+    '角色人设：' + personaText,
+    wbText ? ('世界书：\n' + wbText) : '世界书：无',
+    recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    latestUser ? ('用户最新消息：' + latestUser) : '用户最新消息：无',
+    '金钱事件：\n' + JSON.stringify(payload || {}, null, 2)
+  ].join('\n\n');
+  try{
+    var raw = await Promise.race([
+      callAIWithCustomPrompts(sys, user),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 9000); })
+    ]);
+    var parsed = parseMoneyReplyBundle(raw);
+    if(typeof parsed.accept === 'boolean') return parsed.accept;
+    var text = String(raw || '');
+    if(/"accept"\s*:\s*false/i.test(text) || /(退回|退还|拒绝|不收|不能收)/.test(text)) return false;
+    if(/"accept"\s*:\s*true/i.test(text) || /(收下|收着|拿着|谢谢你)/.test(text)) return true;
+  }catch(e){}
+  return true;
+}
+
+async function composeMoneyFollowupOnly(payload, accept){
+  var maxFollowups = Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1);
+  var sys = [
+    '你是聊天中的角色本人。',
+    '你刚刚已经对红包或转账作出决定，现在只继续发送决定后的正文回复。',
+    '必须先接住用户刚才发钱这个动作，以及红包前后用户说过的话，再自然顺着关系和上下文说话。',
+    '如果你的决定和用户最新一句的期待相反，必须自然解释为什么这样做。',
+    '只返回 JSON，不要解释，不要 markdown。',
+    '格式：{"replies":[{"type":"text","content":"..."}]}',
+    'replies 至少 1 条，最多 ' + maxFollowups + ' 条，不能为空。',
+    '不要重复收下/退回的结论，不要输出 money_packet JSON 或状态字段。'
+  ].join('\n');
+  var recent = getVisibleChatForModel().slice(-10).map(function(m){
+    return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
+  }).join('\n');
+  var wbText = getStrictPromptWorldbookEntries().map(function(entry){
+    return String((entry && entry.content) || '').trim();
+  }).filter(Boolean).slice(0, 8).join('\n\n');
+  var latestUser = getLatestUserTurnForMoney();
+  var user = [
+    '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
+    '角色人设：' + String((character && (character.personality || character.description)) || ''),
+    wbText ? ('世界书：\n' + wbText) : '世界书：无',
+    recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    latestUser ? ('用户最新消息：' + latestUser) : '用户最新消息：无',
+    '你刚刚的决定：' + moneyPacketDecisionText(payload, accept),
+    '金钱事件：\n' + JSON.stringify(payload || {}, null, 2)
+  ].join('\n\n');
+  try{
+    var raw = await Promise.race([
+      callAIWithCustomPrompts(sys, user),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 10000); })
+    ]);
+    return parseMoneyReplyBundle(raw).replies || [];
+  }catch(e){
+    return [];
+  }
+}
+
+async function composeMoneyFollowupViaMainChat(payload, accept){
+  var provider = localStorage.getItem('provider') || 'openai';
+  var key = localStorage.getItem('key_' + provider);
+  if(!key && provider !== 'custom') return [];
+  var tempId = 'tmp_money_ctx_' + Date.now().toString(36);
+  var tempPayload = Object.assign({}, payload || {}, {
+    kind: 'decision',
+    status: accept ? 'accepted' : 'refunded',
+    summary: moneyPacketDecisionText(payload, accept)
+  });
+  var prevCue = pendingModelUserCue;
+  try{
+    chatLog.push(makeChatEntry('assistant', JSON.stringify(tempPayload), 'money_packet', tempId));
+    pendingModelUserCue = '你刚刚已经通过红包/转账决定卡表达了收下或退回。现在只继续发送后续正文消息，先接住用户这个举动，再按当前关系自然说话。不要重复决定结论，不要输出 JSON。';
+    var raw = await Promise.race([
+      callAI(provider, key),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 10000); })
+    ]);
+    var rawText = sanitizeAssistantTextForChat(String(raw || '').trim());
+    var parsed = parseMoneyReplyBundle(raw);
+    var replies = sanitizeMoneyFollowups(parsed.replies, accept, payload);
+    if(!replies.length && Array.isArray(parsed.replies) && parsed.replies.length){
+      replies = parsed.replies.map(function(item){
+        return {
+          type: normalizeMessageType((item && item.type) || 'text'),
+          content: sanitizeAssistantTextForChat(String((item && (item.content || item.reply_content || item.description || item.text)) || '').trim()),
+          reply_to: item && (item.reply_to || item.replyTo || ''),
+          reply_role: item && (item.reply_role || item.replyRole || '')
+        };
+      }).filter(function(item){ return item.content; });
+    }
+    if(!replies.length && rawText){
+      replies = [{ type:'text', content: rawText }];
+    }
+    return replies;
+  }catch(e){
+    return [];
+  } finally {
+    pendingModelUserCue = prevCue;
+    chatLog = chatLog.filter(function(entry){ return String((entry && entry.id) || '') !== tempId; });
   }
 }
 
@@ -5875,7 +5993,7 @@ async function handlePendingMoneyPacketReply(showLoading){
   try{
     var previousStatus = String(pending.status || 'pending');
     var bundle = await composePendingMoneyPacketReply(pending);
-    var accept = typeof bundle.accept === 'boolean' ? bundle.accept : true;
+    var accept = !!bundle.accept;
     var followups = sanitizeMoneyFollowups(bundle.replies, accept, pending);
     if(!followups.length && Array.isArray(bundle.replies) && bundle.replies.length){
       followups = bundle.replies.map(function(item){
@@ -5888,7 +6006,21 @@ async function handlePendingMoneyPacketReply(showLoading){
       }).filter(function(item){ return item.content; });
     }
     if(!followups.length){
-      followups = [{ type:'text', content: accept ? '这个我先收下。' : '这个我先退给你。' }];
+      var followupRetry = await composeMoneyFollowupOnly(pending, accept);
+      followups = sanitizeMoneyFollowups(followupRetry, accept, pending);
+      if(!followups.length && Array.isArray(followupRetry) && followupRetry.length){
+        followups = followupRetry.map(function(item){
+          return {
+            type: normalizeMessageType((item && item.type) || 'text'),
+            content: sanitizeAssistantTextForChat(String((item && (item.content || item.reply_content || item.description || item.text)) || '').trim()),
+            reply_to: item && (item.reply_to || item.replyTo || ''),
+            reply_role: item && (item.reply_role || item.replyRole || '')
+          };
+        }).filter(function(item){ return item.content; });
+      }
+    }
+    if(!followups.length){
+      followups = await composeMoneyFollowupViaMainChat(pending, accept);
     }
     accept = reconcileMoneyDecisionWithFollowups(accept, followups);
     pending.status = accept ? 'accepted' : 'refunded';
