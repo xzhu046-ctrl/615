@@ -318,7 +318,21 @@ function normalizeChatPreviewType(type){
   if(type === 'voice_message' || type === 'voice') return 'voice';
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
   if(type === 'family_card' || type === 'familycard') return 'familycard';
+  if(type === 'money_packet' || type === 'moneypacket' || type === 'transfer') return 'moneypacket';
   return 'text';
+}
+
+function moneyPreviewText(raw){
+  try{
+    var parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    var mode = String((parsed && parsed.mode) || 'red_packet');
+    var amount = Number((parsed && parsed.amount) || 0);
+    var label = mode === 'transfer' ? '【转账】' : '【红包】';
+    if(amount > 0) label += amount.toFixed(2) + '元';
+    return label;
+  }catch(e){
+    return '【红包】';
+  }
 }
 
 function normalizePreviewMessage(msg){
@@ -326,6 +340,9 @@ function normalizePreviewMessage(msg){
   var kind = normalizeChatPreviewType(next.type || 'text');
   if(kind === 'familycard'){
     return { content: '【亲属卡】', type: 'text' };
+  }
+  if(kind === 'moneypacket'){
+    return { content: moneyPreviewText(next.content), type: 'text' };
   }
   if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
     try{
