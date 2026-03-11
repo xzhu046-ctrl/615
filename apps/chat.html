@@ -4784,37 +4784,6 @@ function moneyPacketDecisionText(payload, accepted){
   return charName + (mode === 'transfer' ? '把转账退回来了' : '把红包退回来了');
 }
 
-function isMoneyDecisionLikeText(text, accept, payload){
-  var content = String(text || '').replace(/\s+/g, '');
-  if(!content) return false;
-  var data = parseMoneyPacketPayload(payload) || {};
-  var mode = String(data.mode || 'red_packet');
-  var charName = String(data.charName || (character && (character.nickname || character.name)) || '对方').trim() || '对方';
-  var userName = String(data.userName || userDisplayNameForFamily() || '你').trim() || '你';
-  var exacts = accept
-    ? [
-        moneyPacketDecisionText(payload, true),
-        charName + (mode === 'transfer' ? '收下了这笔转账' : '收下了这个红包'),
-        userName + (mode === 'transfer' ? '给你的转账已被收下' : '给你的红包已被收下'),
-        mode === 'transfer' ? '你收下了' + charName + '的转账' : '你领取了' + charName + '的红包'
-      ]
-    : [
-        moneyPacketDecisionText(payload, false),
-        charName + (mode === 'transfer' ? '把转账退回来了' : '把红包退回来了'),
-        userName + (mode === 'transfer' ? '给你的转账已被退回' : '给你的红包已被退回'),
-        mode === 'transfer' ? '你退回了' + charName + '的转账' : '你退回了' + charName + '的红包'
-      ];
-  if(exacts.some(function(item){ return content === String(item || '').replace(/\s+/g, ''); })) return true;
-  if(accept){
-    return mode === 'transfer'
-      ? /(收下(了)?这笔转账|已收下转账|领取了.+转账)/.test(content)
-      : /(收下(了)?这个红包|已领取红包|领取了.+红包)/.test(content);
-  }
-  return mode === 'transfer'
-    ? /(退回(了|来)?这笔转账|已退还转账|退回了.+转账)/.test(content)
-    : /(退回(了|来)?这个红包|已退回红包|退回了.+红包)/.test(content);
-}
-
 function userMoneyDecisionText(payload, accepted){
   var data = parseMoneyPacketPayload(payload) || {};
   var userName = String(data.userName || userDisplayNameForFamily() || '你').trim() || '你';
@@ -4857,7 +4826,6 @@ function renderMoneyPacketBubble(bubble, raw){
     var decisionStatus = status === 'accepted'
       ? (isTransfer ? '已收下' : '已领取')
       : (isTransfer ? '已退还' : '已退回');
-    var decisionText = title || moneyPacketDecisionText(data, status === 'accepted');
     var metaParts = [];
     if(amount > 0) metaParts.push('<span class="family-card-amount">¥' + esc(amount.toFixed(2)) + '</span>');
     metaParts.push('<span class="family-card-status">' + esc(decisionStatus) + '</span>');
@@ -4865,7 +4833,7 @@ function renderMoneyPacketBubble(bubble, raw){
       + '<div class="family-card-avatar primary money">' + esc(isTransfer ? '收' : '开') + '</div>'
       + '<div class="family-card-panel">'
       + '<div class="family-card-kicker">' + esc(decisionKicker) + '</div>'
-      + '<div class="family-card-text">' + esc(decisionText) + '</div>'
+      + '<div class="family-card-text">' + esc(title || moneyPacketDecisionText(data, status === 'accepted')) + '</div>'
       + '<div class="family-card-meta">' + metaParts.join('') + '</div>'
       + (note ? ('<div class="family-card-kicker">' + esc(note) + '</div>') : '')
       + '</div></div>';
@@ -5813,7 +5781,6 @@ function sanitizeMoneyFollowups(items, accept, payload){
       if(!content) continue;
       var normalized = content.replace(/\s+/g, '');
       if(summary && normalized === summary) continue;
-      if(isMoneyDecisionLikeText(content, accept, payload)) continue;
       if(/\[family_card|\[money_packet|owner=|spender=|status=|mode=|amount=|relatedId=|coverId=/i.test(content)) continue;
     }
     var dedupeKey = type + '::' + content.replace(/\s+/g, ' ');
@@ -5946,7 +5913,6 @@ function extractMoneyFollowupsFromRaw(raw, accept, pending){
     if(!line) return false;
     if(/^\[(您已领取|你已领取|已领取|你向.+转账|向.+转账|收到转账|收到红包|红包已退回|转账已退回|已收下转账|已收下红包|已拒绝转账|已拒绝红包)[^\]]*\]$/i.test(line)) return false;
     if(/^\[(红包|转账)[^\]]*￥\s*\d/i.test(line)) return false;
-    if(isMoneyDecisionLikeText(line, accept, pending)) return false;
     return true;
   });
   if(!lines.length && text) lines = [text];
