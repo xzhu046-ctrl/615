@@ -5730,6 +5730,7 @@ function sanitizeMoneyFollowups(items, accept, payload){
       if(!content) continue;
       var normalized = content.replace(/\s+/g, '');
       if(summary && normalized === summary) continue;
+      if(/红包|转账/.test(content) && /(收下|退回|拒绝|接受|已收|已退)/.test(content)) continue;
       if(/\[family_card|\[money_packet|owner=|spender=|status=|mode=|amount=|relatedId=|coverId=/i.test(content)) continue;
     }
     var dedupeKey = type + '::' + content.replace(/\s+/g, ' ');
@@ -5863,29 +5864,8 @@ async function handlePendingMoneyPacketReply(showLoading){
     var bundle = await composePendingMoneyPacketReply(pending);
     var accept = !!bundle.accept;
     var followups = sanitizeMoneyFollowups(bundle.replies, accept, pending);
-    if(!followups.length && Array.isArray(bundle.replies) && bundle.replies.length){
-      followups = bundle.replies.map(function(item){
-        return {
-          type: normalizeMessageType((item && item.type) || 'text'),
-          content: sanitizeAssistantTextForChat(String((item && (item.content || item.reply_content || item.description || item.text)) || '').trim()),
-          reply_to: item && (item.reply_to || item.replyTo || ''),
-          reply_role: item && (item.reply_role || item.replyRole || '')
-        };
-      }).filter(function(item){ return item.content; });
-    }
     if(!followups.length){
-      var followupRetry = await composeMoneyFollowupOnly(pending, accept);
-      followups = sanitizeMoneyFollowups(followupRetry, accept, pending);
-      if(!followups.length && Array.isArray(followupRetry) && followupRetry.length){
-        followups = followupRetry.map(function(item){
-          return {
-            type: normalizeMessageType((item && item.type) || 'text'),
-            content: sanitizeAssistantTextForChat(String((item && (item.content || item.reply_content || item.description || item.text)) || '').trim()),
-            reply_to: item && (item.reply_to || item.replyTo || ''),
-            reply_role: item && (item.reply_role || item.replyRole || '')
-          };
-        }).filter(function(item){ return item.content; });
-      }
+      followups = sanitizeMoneyFollowups(await composeMoneyFollowupOnly(pending, accept), accept, pending);
     }
     pending.status = accept ? 'accepted' : 'refunded';
     pending.summary = moneyPacketDecisionText(pending, accept);
