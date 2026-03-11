@@ -5738,6 +5738,17 @@ function sanitizeMoneyFollowups(items, accept, payload){
   var summary = moneyPacketDecisionText(payload, accept).replace(/\s+/g, '');
   var out = [];
   var seen = new Set();
+  var stripMoneyMetaLines = function(text){
+    var lines = String(text || '').split(/\n+/).map(function(line){
+      return String(line || '').trim();
+    }).filter(Boolean);
+    lines = lines.filter(function(line){
+      if(/^\[(您已领取|你已领取|已领取|你向.+转账|向.+转账|收到转账|收到红包|红包已退回|转账已退回|已收下转账|已收下红包|已拒绝转账|已拒绝红包)[^\]]*\]$/i.test(line)) return false;
+      if(/^\[(红包|转账)[^\]]*￥\s*\d/i.test(line)) return false;
+      return true;
+    });
+    return lines.join('\n').trim();
+  };
   for(var i = 0; i < list.length; i++){
     var item = list[i];
     if(!item || typeof item !== 'object') continue;
@@ -5747,6 +5758,7 @@ function sanitizeMoneyFollowups(items, accept, payload){
     if(!content) continue;
     if(type === 'text'){
       content = sanitizeAssistantTextForChat(content);
+      content = stripMoneyMetaLines(content);
       if(!content) continue;
       var normalized = content.replace(/\s+/g, '');
       if(summary && normalized === summary) continue;
@@ -5876,9 +5888,18 @@ function extractMoneyFollowupsFromBundle(bundle, accept, pending){
   var followups = sanitizeMoneyFollowups(bundle && bundle.replies, accept, pending);
   if(!followups.length && bundle && Array.isArray(bundle.replies) && bundle.replies.length){
     followups = bundle.replies.map(function(item){
+      var content = sanitizeAssistantTextForChat(String((item && (item.content || item.reply_content || item.description || item.text)) || '').trim());
+      content = String(content || '').split(/\n+/).map(function(line){
+        return String(line || '').trim();
+      }).filter(function(line){
+        if(!line) return false;
+        if(/^\[(您已领取|你已领取|已领取|你向.+转账|向.+转账|收到转账|收到红包|红包已退回|转账已退回|已收下转账|已收下红包|已拒绝转账|已拒绝红包)[^\]]*\]$/i.test(line)) return false;
+        if(/^\[(红包|转账)[^\]]*￥\s*\d/i.test(line)) return false;
+        return true;
+      }).join('\n').trim();
       return {
         type: normalizeMessageType((item && item.type) || 'text'),
-        content: sanitizeAssistantTextForChat(String((item && (item.content || item.reply_content || item.description || item.text)) || '').trim()),
+        content: content,
         reply_to: item && (item.reply_to || item.replyTo || ''),
         reply_role: item && (item.reply_role || item.replyRole || '')
       };
