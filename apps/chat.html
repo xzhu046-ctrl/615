@@ -1125,7 +1125,7 @@ var selectedMessageIds = [];
 var editingMessageId = null;
 var editingDraft = '';
 var longPressTimer = null;
-var LONG_PRESS_MS = 320;
+var LONG_PRESS_MS = 420;
 var replyTargetId = null;
 var pendingFamilyFollowupCue = '';
 var pendingModelUserCue = '';
@@ -3050,34 +3050,27 @@ function bindMessageLongPress(el, msgId){
   var startX = 0;
   var startY = 0;
   var dragging = false;
-  var longPressed = false;
   var swipeDir = el.classList.contains('user') ? -1 : 1;
   var swipeThreshold = 52;
   var swipeMax = 72;
-  var clear = function(resetLongPressed){
+  var clear = function(){
     if(longPressTimer){
       clearTimeout(longPressTimer);
       longPressTimer = null;
     }
-    if(resetLongPressed !== false) longPressed = false;
-  };
-  var armLongPress = function(clientX, clientY){
-    startX = clientX || 0;
-    startY = clientY || 0;
-    dragging = false;
-    longPressed = false;
-    if(bubble) bubble.style.transform = '';
-    clear(false);
-    longPressTimer = setTimeout(function(){
-      longPressed = true;
-      openMessageActions(msgId);
-    }, LONG_PRESS_MS);
   };
   el.addEventListener('pointerdown', function(evt){
     if(evt.pointerType === 'mouse' && evt.button !== 0) return;
     if(multiSelectMode || editingMessageId) return;
     if(evt.target.closest('.msg-edit-wrap')) return;
-    armLongPress(evt.clientX, evt.clientY);
+    startX = evt.clientX;
+    startY = evt.clientY;
+    dragging = false;
+    if(bubble) bubble.style.transform = '';
+    clear();
+    longPressTimer = setTimeout(function(){
+      openMessageActions(msgId);
+    }, LONG_PRESS_MS);
   });
   el.addEventListener('pointermove', function(evt){
     if(multiSelectMode || editingMessageId) return;
@@ -3113,36 +3106,7 @@ function bindMessageLongPress(el, msgId){
       dragging = false;
     });
   });
-  el.addEventListener('touchstart', function(evt){
-    if(multiSelectMode || editingMessageId) return;
-    if(evt.target.closest('.msg-edit-wrap')) return;
-    var touch = evt.touches && evt.touches[0];
-    if(!touch) return;
-    armLongPress(touch.clientX, touch.clientY);
-  }, { passive: true });
-  el.addEventListener('touchmove', function(evt){
-    if(!startX) return;
-    var touch = evt.touches && evt.touches[0];
-    if(!touch) return;
-    var dx = touch.clientX - startX;
-    var dy = touch.clientY - startY;
-    if(Math.abs(dx) > 8 || Math.abs(dy) > 8) clear();
-  }, { passive: true });
-  ['touchend','touchcancel'].forEach(function(name){
-    el.addEventListener(name, function(){
-      clear();
-      startX = 0;
-      startY = 0;
-      dragging = false;
-    }, { passive: true });
-  });
   el.addEventListener('click', function(evt){
-    if(longPressed){
-      evt.preventDefault();
-      evt.stopPropagation();
-      longPressed = false;
-      return;
-    }
     if(!multiSelectMode) return;
     if(evt.target.closest('.msg-edit-wrap')) return;
     toggleMessageSelection(msgId);
@@ -6168,7 +6132,7 @@ async function handlePendingMoneyPacketReply(showLoading){
       relatedId: pendingEntry.id
     });
     if(showLoading){
-      await sleep(90 + Math.floor(Math.random() * 90));
+      await sleep(220 + Math.floor(Math.random() * 180));
       hideTyping();
     }
     var decisionEntry = makeChatEntry('assistant', JSON.stringify(decisionPayload), 'money_packet');
@@ -7864,9 +7828,9 @@ async function deliverAiReply(text, limitOverride){
     maybeRunAiMomentsFromChat(p.text, t).catch(function(err){
       console.error('moments side effect failed', err);
     });
-    await sleep(100 + Math.floor(Math.random()*90));
+    await sleep(220 + Math.floor(Math.random()*170));
     if(i < parts.length - 1){
-      await sleep(160 + Math.floor(Math.random()*160));
+      await sleep(320 + Math.floor(Math.random()*320));
     }
   }
   if(sentCount === 0){
