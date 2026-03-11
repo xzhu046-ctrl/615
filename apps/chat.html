@@ -2805,7 +2805,10 @@ function isGenericAssistantLine(aiText){
 
 function inferReplyTargetForPart(aiText, usedSet){
   if(isGenericAssistantLine(aiText)) return null;
-  var recentUsers = chatLog.slice().reverse().filter(function(m){ return m.role === 'user'; }).slice(0, 8);
+  var recentUsers = chatLog.slice().reverse().filter(function(m){
+    if(!m || m.role !== 'user') return false;
+    return normalizeMessageType(m.type || 'text') !== 'moneypacket';
+  }).slice(0, 8);
   if(recentUsers.length < 2) return null;
   var best = null;
   var second = null;
@@ -4809,12 +4812,12 @@ function isMoneyDecisionLikeText(text, accept, payload){
   if(exacts.some(function(item){ return content === String(item || '').replace(/\s+/g, ''); })) return true;
   if(accept){
     return mode === 'transfer'
-      ? /(收下(了)?这笔转账|已收下转账|领取了.+转账)/.test(content)
-      : /(收下(了)?这个红包|已领取红包|领取了.+红包)/.test(content);
+      ? /(收下(了)?这笔转账|已收下转账|领取了.+转账|你收下了.+转账|你的转账已被收下)/.test(content)
+      : /(收下(了)?这个红包|已领取红包|领取了.+红包|你领取了.+红包|你的红包已被领取)/.test(content);
   }
   return mode === 'transfer'
-    ? /(退回(了|来)?这笔转账|已退还转账|退回了.+转账)/.test(content)
-    : /(退回(了|来)?这个红包|已退回红包|退回了.+红包)/.test(content);
+    ? /(退回(了|来)?这笔转账|已退还转账|退回了.+转账|你退回了.+转账|你的转账已被退回)/.test(content)
+    : /(退回(了|来)?这个红包|已退回红包|退回了.+红包|你退回了.+红包|你的红包已被退回)/.test(content);
 }
 
 function userMoneyDecisionText(payload, accepted){
@@ -5302,8 +5305,8 @@ function sanitizeFamilyFollowups(items, accept, payload){
     out.push({
       type: type,
       content: content,
-      reply_to: item.reply_to || item.replyTo || '',
-      reply_role: item.reply_role || item.replyRole || ''
+      reply_to: '',
+      reply_role: ''
     });
   }
   return out;
@@ -5980,7 +5983,7 @@ function extractMoneyFollowupsFromRaw(raw, accept, pending){
   });
   if(!lines.length && text) lines = [text];
   return lines.map(function(line){
-    return { type: 'text', content: line };
+    return { type: 'text', content: line, reply_to: '', reply_role: '' };
   });
 }
 
