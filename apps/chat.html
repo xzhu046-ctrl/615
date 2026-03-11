@@ -5712,6 +5712,39 @@ function parseMoneyReplyBundle(raw){
   return { accept: accept, replies: replies };
 }
 
+function sanitizeMoneyFollowups(items, accept, payload){
+  var list = Array.isArray(items) ? items : [];
+  var summary = moneyPacketDecisionText(payload, accept).replace(/\s+/g, '');
+  var out = [];
+  var seen = new Set();
+  for(var i = 0; i < list.length; i++){
+    var item = list[i];
+    if(!item || typeof item !== 'object') continue;
+    var type = normalizeMessageType(item.type || 'text');
+    if(type === 'moneypacket') continue;
+    var content = String(item.content || item.reply_content || item.description || item.text || '').trim();
+    if(!content) continue;
+    if(type === 'text'){
+      content = sanitizeAssistantTextForChat(content);
+      if(!content) continue;
+      var normalized = content.replace(/\s+/g, '');
+      if(summary && normalized === summary) continue;
+      if(/红包|转账/.test(content) && /(收下|退回|拒绝|接受|已收|已退)/.test(content)) continue;
+      if(/\[family_card|\[money_packet|owner=|spender=|status=|mode=|amount=|relatedId=|coverId=/i.test(content)) continue;
+    }
+    var dedupeKey = type + '::' + content.replace(/\s+/g, ' ');
+    if(seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    out.push({
+      type: type,
+      content: content,
+      reply_to: item.reply_to || item.replyTo || '',
+      reply_role: item.reply_role || item.replyRole || ''
+    });
+  }
+  return out;
+}
+
 function getPendingMoneyPacketEntry(){
   for(var i = chatLog.length - 1; i >= 0; i--){
     var entry = chatLog[i];
@@ -5727,7 +5760,7 @@ async function composePendingMoneyPacketReply(payload){
   var maxFollowups = Math.max(1, maxTotal - 1);
   var sys = [
     '你是聊天中的角色本人。',
-    '现在用户给你发来了红包或转账。你要像真人一样先决定收下还是退还，再紧接着发送正文回复。',
+    '现在用户给你发来了红包或转账。你必须先认真阅读最近聊天、角色人设、世界书，再像真人一样决定收下还是退还，然后紧接着发送正文回复。',
     '只返回 JSON，不要解释，不要 markdown。',
     '格式：{"accept":true|false,"replies":[{"type":"text","content":"..."}]}',
     '如果 accept=false，代表你把钱退回去了。',
@@ -5735,12 +5768,12 @@ async function composePendingMoneyPacketReply(payload){
     'replies 至少 1 条，最多 ' + maxFollowups + ' 条。',
     '不要把 accept/退回/收下 的结论再机械复述一遍，要接着当前关系和上下文自然说话。'
   ].join('\n');
-  var recent = getVisibleChatForModel().slice(-6).map(function(m){
+  var recent = getVisibleChatForModel().slice(-10).map(function(m){
     return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
   }).join('\n');
   var wbText = getStrictPromptWorldbookEntries().map(function(entry){
     return String((entry && entry.content) || '').trim();
-  }).filter(Boolean).slice(0, 4).join('\n\n');
+  }).filter(Boolean).slice(0, 8).join('\n\n');
   var user = [
     '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
     '角色人设：' + String((character && (character.personality || character.description)) || ''),
@@ -5767,12 +5800,12 @@ async function decidePendingMoneyPacketOutcome(payload){
     '只返回 JSON，不要解释，不要 markdown。',
     '格式：{"accept":true|false}'
   ].join('\n');
-  var recent = getVisibleChatForModel().slice(-6).map(function(m){
+  var recent = getVisibleChatForModel().slice(-10).map(function(m){
     return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
   }).join('\n');
   var wbText = getStrictPromptWorldbookEntries().map(function(entry){
     return String((entry && entry.content) || '').trim();
-  }).filter(Boolean).slice(0, 4).join('\n\n');
+  }).filter(Boolean).slice(0, 8).join('\n\n');
   var user = [
     '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
     '角色人设：' + String((character && (character.personality || character.description)) || ''),
@@ -5857,22 +5890,8 @@ async function handlePendingMoneyPacketReply(showLoading){
   }
   var pending = parseMoneyPacketPayload(pendingEntry.content) || {};
   try{
-    var accept = !!(await decidePendingMoneyPacketOutcome(pending));
-    var provider = localStorage.getItem('provider') || 'openai';
-    var key = localStorage.getItem('key_' + provider);
-    var prevCue = pendingModelUserCue;
-    var rawFollowup = '';
-    try{
-      pendingModelUserCue = '你刚刚已经对红包/转账作出决定。现在请紧接着上一条决定卡之后，继续发送自然的正文消息。必须先接住用户这个行为，不要重复收下/退回结论，不要输出 JSON。';
-      if(key || provider === 'custom'){
-        rawFollowup = await Promise.race([
-          callAI(provider, key),
-          new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 9000); })
-        ]);
-      }
-    } finally {
-      pendingModelUserCue = prevCue;
-    }
+    var bundle = await composePendingMoneyPacketReply(pending);
+    var accept = !!bundle.accept;
     pending.status = accept ? 'accepted' : 'refunded';
     pending.summary = moneyPacketDecisionText(pending, accept);
     updateMoneyPacketStatus(pendingEntry.id, pending.status);
@@ -5896,17 +5915,10 @@ async function handlePendingMoneyPacketReply(showLoading){
         relatedId: pendingEntry.id
       });
     }
-    if(rawFollowup){
-      var followupIds = await deliverAiReply(rawFollowup, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
-      if(!followupIds || !followupIds.length){
-        var cleaned = sanitizeAssistantTextForChat(String(rawFollowup || '').trim());
-        if(cleaned){
-          var fallbackEntry = makeChatEntry('assistant', cleaned, 'text');
-          chatLog.push(fallbackEntry);
-          addMessage('ai', fallbackEntry.content, true, 'text', fallbackEntry.id);
-        }
-      }
-    } else {
+    var followups = sanitizeMoneyFollowups(bundle.replies, accept, pending);
+    if(followups.length){
+      await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
+    }else{
       refreshInnerVoiceFromAi(decisionPayload.summary);
     }
     saveChat();
