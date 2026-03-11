@@ -4264,8 +4264,8 @@ async function triggerReply() {
     pendingModelUserCue = '';
     return;
   }
-  var moneyReplyId = await handlePendingMoneyPacketReply(true);
-  if(moneyReplyId){
+  var moneyReply = await handlePendingMoneyPacketReply(true);
+  if(moneyReply && moneyReply.hasFollowups){
     pendingMomentsChatCue = '';
     pendingFamilyFollowupCue = '';
     pendingModelUserCue = '';
@@ -4283,7 +4283,9 @@ async function triggerReply() {
   pendingMomentsChatCue = processMomentsInteractionsOnTrigger();
   pendingModelUserCue = familyReplyId
     ? '你刚刚已经对亲属卡作出决定。现在请紧接着上一条亲属卡回复之后，继续发送一条自然的正文消息。不要重复卡片结论，不要输出 JSON。'
-    : '';
+    : ((moneyReply && moneyReply.decisionId)
+      ? '你刚刚已经通过红包/转账决定卡表达了收下或退回。现在请紧接着上一条决定卡继续发送自然的正文消息，先接住用户这个举动，再按当前关系说话。不要重复决定结论，不要输出 JSON。'
+      : '');
   transientHiddenModelMsgIds = [];
 
   isTyping = true;
@@ -5905,9 +5907,9 @@ async function composeMoneyFollowupViaMainChat(payload, accept){
 }
 
 async function handlePendingMoneyPacketReply(showLoading){
-  if(!character) return false;
+  if(!character) return null;
   var pendingEntry = getPendingMoneyPacketEntry();
-  if(!pendingEntry) return false;
+  if(!pendingEntry) return null;
   if(showLoading){
     isTyping = true;
     document.getElementById('genBtn').disabled = true;
@@ -5986,7 +5988,10 @@ async function handlePendingMoneyPacketReply(showLoading){
       refreshInnerVoiceFromAi(decisionPayload.summary);
     }
     saveChat();
-    return decisionEntry.id;
+    return {
+      decisionId: decisionEntry.id,
+      hasFollowups: !!followups.length
+    };
   } finally {
     if(showLoading){
       hideTyping();
