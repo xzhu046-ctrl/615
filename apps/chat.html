@@ -5996,6 +5996,32 @@ async function composeMoneyDecisionTaggedFollowup(payload){
   }
 }
 
+async function composeMoneyDecisionNaturalReply(payload){
+  var maxTotal = character && character.msgMax ? character.msgMax : 3;
+  var maxFollowups = Math.max(1, maxTotal - 1);
+  var sys = [
+    '你是聊天中的角色本人。',
+    '现在用户给你发来了红包或转账。你要先用一句自然口语明确表达“收下”或“退还”，然后立刻继续正文。',
+    '这是用户发给你的钱，不是你发给用户的钱。不要反过来给用户发红包或转账。',
+    '第一句必须让人类一眼看出你是收下还是退还，例如“这个我收下了”或“这笔钱我不能收，我退回去”。',
+    '只返回正文，不要 JSON，不要解释规则。',
+    '如果要分多个气泡，用 <msg>...</msg>。最多 ' + maxFollowups + ' 句。',
+    '不要输出任何 money_packet 字段、方括号控制串、金额结构。'
+  ].join('\n');
+  var user = [
+    buildMoneyPromptContext(payload),
+    '先用自然口语明确表达收下或退还，再继续说话。'
+  ].join('\n\n');
+  try{
+    return await Promise.race([
+      callAIWithCustomPrompts(sys, user),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
+    ]);
+  }catch(e){
+    return '';
+  }
+}
+
 function parseTaggedMoneyDecisionFollowup(raw, pending){
   var text = String(raw || '').trim();
   if(!text) return { accept: null, followups: [] };
@@ -6059,6 +6085,15 @@ async function handlePendingMoneyPacketReply(showLoading){
       if(typeof taggedFallback.accept === 'boolean'){
         accept = taggedFallback.accept;
         followups = taggedFallback.followups || [];
+      }
+    }
+    if(typeof accept !== 'boolean'){
+      var naturalFallbackRaw = await composeMoneyDecisionNaturalReply(pending);
+      var naturalAccept = parseMoneyDecisionResult(naturalFallbackRaw);
+      var naturalFollowups = extractMoneyFollowupsFromRaw(naturalFallbackRaw, typeof naturalAccept === 'boolean' ? naturalAccept : true, pending);
+      if(typeof naturalAccept === 'boolean'){
+        accept = naturalAccept;
+        followups = naturalFollowups || [];
       }
     }
     if(typeof accept !== 'boolean'){
