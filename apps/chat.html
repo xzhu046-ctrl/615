@@ -5811,6 +5811,30 @@ function getLatestUserTurnForMoney(){
   return '';
 }
 
+function inferMoneyOutcomeFromLatestUser(latestUser){
+  var text = String(latestUser || '').trim();
+  if(!text) return null;
+  if(/(别|不要|不许).{0,6}(收|领).{0,6}(红包|转账)?|(红包|转账).{0,6}(别|不要).{0,6}(收|领)|能不能别收|先别收|不要收这个|测试/.test(text)){
+    return false;
+  }
+  if(/(收下|领了|拿着吧|你收着|给你的|就是给你|请收下).{0,8}(红包|转账)?/.test(text)){
+    return true;
+  }
+  return null;
+}
+
+function inferMoneyOutcomeFromContext(payload, recent, persona, worldBook, latestUser){
+  var amount = Number((payload && payload.amount) || 0) || 0;
+  var text = [recent || '', persona || '', worldBook || '', latestUser || ''].join('\n');
+  var negativeCtx = /(烦|滚|闭嘴|别来|别烦|讨厌|恶心|生气|冷战|吵架|陌生人|不熟|别联系|到此为止|边界|克制|自尊|清醒|不要欠|不欠人情|不要人情)/.test(text);
+  var warmCtx = /(喜欢|爱你|宝宝|亲爱的|想你|开心|撒娇|抱抱|哄你|给你的|收下吧|想宠你)/.test(text);
+  if(negativeCtx && !warmCtx) return false;
+  if(amount >= 520 && !warmCtx) return false;
+  if(amount >= 2000) return false;
+  if(/陌生账号|刚通过好友申请|不熟/.test(text) && amount >= 50) return false;
+  return null;
+}
+
 async function composePendingMoneyPacketReply(payload){
   var maxTotal = character && character.msgMax ? character.msgMax : 3;
   var maxFollowups = Math.max(1, maxTotal - 1);
@@ -5858,9 +5882,13 @@ async function composePendingMoneyPacketReply(payload){
 }
 
 async function decidePendingMoneyPacketOutcome(payload){
+  var latestUser = getLatestUserTurnForMoney();
+  var latestUserOverride = inferMoneyOutcomeFromLatestUser(latestUser);
+  if(typeof latestUserOverride === 'boolean') return latestUserOverride;
   var sys = [
     '你是聊天中的角色本人。',
     '现在用户给你发来了红包或转账。你只需要按最近聊天、用户最新消息、角色人设、世界书，决定收下还是退回。',
+    '红包/转账不是默认必须收下。关系僵、金额过大、刚吵过架、不熟、角色边界强、角色不想欠人情时，都可以自然退回。',
     '只返回 JSON，不要解释，不要 markdown。',
     '格式：{"accept":true|false}'
   ].join('\n');
@@ -5870,10 +5898,12 @@ async function decidePendingMoneyPacketOutcome(payload){
   var wbText = getStrictPromptWorldbookEntries().map(function(entry){
     return String((entry && entry.content) || '').trim();
   }).filter(Boolean).slice(0, 8).join('\n\n');
-  var latestUser = getLatestUserTurnForMoney();
+  var personaText = String((character && (character.personality || character.description)) || '');
+  var contextOverride = inferMoneyOutcomeFromContext(payload, recent, personaText, wbText, latestUser);
+  if(typeof contextOverride === 'boolean') return contextOverride;
   var user = [
     '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
-    '角色人设：' + String((character && (character.personality || character.description)) || ''),
+    '角色人设：' + personaText,
     wbText ? ('世界书：\n' + wbText) : '世界书：无',
     recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
     latestUser ? ('用户最新消息：' + latestUser) : '用户最新消息：无',
