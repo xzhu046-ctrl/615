@@ -5858,12 +5858,12 @@ function getLatestUserTurnForMoney(){
 }
 
 function buildMoneyPromptContext(payload){
-  var recent = getVisibleChatForModel().slice(-6).map(function(m){
+  var recent = getVisibleChatForModel().slice(-10).map(function(m){
     return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
   }).join('\n');
   var wbText = getStrictPromptWorldbookEntries().map(function(entry){
     return String((entry && entry.content) || '').trim();
-  }).filter(Boolean).slice(0, 4).join('\n\n');
+  }).filter(Boolean).slice(0, 8).join('\n\n');
   var latestUser = getLatestUserTurnForMoney();
   return [
     '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
@@ -5887,12 +5887,8 @@ function parseMoneyDecisionResult(raw){
     var parsed = JSON.parse(cleaned || '{}');
     if(parsed && typeof parsed.accept === 'boolean') return parsed.accept;
   }catch(e){}
-  if(/^(yes|y)$/i.test(cleaned)) return true;
-  if(/^(no|n)$/i.test(cleaned)) return false;
   if(/^(accept|accepted|true)$/i.test(cleaned)) return true;
   if(/^(reject|rejected|false)$/i.test(cleaned)) return false;
-  if(/(^|[\s"'{:])(yes|y)([\s"'}:,]|$)/i.test(cleaned)) return true;
-  if(/(^|[\s"'{:])(no|n)([\s"'}:,]|$)/i.test(cleaned)) return false;
   if(/(^|[\s"'{:])(accept|accepted|true)([\s"'}:,]|$)/i.test(cleaned)) return true;
   if(/(^|[\s"'{:])(reject|rejected|false)([\s"'}:,]|$)/i.test(cleaned)) return false;
   if(lowered === '收下' || lowered === '收着' || lowered === '接受') return true;
@@ -5909,14 +5905,13 @@ async function decidePendingMoneyPacketAccept(payload){
     '这是用户发给你的钱，不是你发给用户的钱。你只能决定收下或退还，不能反过来再给用户发红包或转账。',
     '用户最新消息是重要信号，但不是死命令。你可以顺着用户说，也可以反着来，决定必须符合关系、性格、世界书和上下文。',
     '只返回一个词，不要解释，不要 markdown，不要 JSON。',
-    '只能返回：yes 或 no',
-    'yes=收下，no=退还'
+    '只能返回：accept 或 reject'
   ].join('\n');
   var user = buildMoneyPromptContext(payload);
   try{
     var raw = await Promise.race([
       callAIWithCustomPrompts(sys, user),
-      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 8000); })
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
     ]);
     return parseMoneyDecisionResult(raw);
   }catch(e){
