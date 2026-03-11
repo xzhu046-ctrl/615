@@ -3922,8 +3922,8 @@ function formatAppealBubbleText(raw){
 async function aiDecideAppeal(promptExtra){
   if(!character) return { appeal:false, text:'' };
   var persona = String(character.personality || character.description || '').slice(0, 1200);
-  var history = chatLog.slice(-6).map(function(m){
-    return (m.role === 'user' ? 'User' : 'Char') + ': ' + String(m.content || '').replace(/\s+/g, ' ').trim();
+  var history = getVisibleChatForModel().slice(-8).map(function(m){
+    return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
   }).join('\n');
   var wbEntries = getStrictPromptWorldbookEntries().map(function(e){
     return String((e && e.content) || '').trim();
@@ -3937,6 +3937,11 @@ async function aiDecideAppeal(promptExtra){
       'text 用自然口语，不要解释规则，不要 markdown。',
       '不要输出额外说明，不要在 text 里夹带“遵循人设/世界书”这类元提示。'
     ].join('\n');
+  sys += '\n' + [
+    'text 必须贴合角色当前对用户的真实态度和关系，不要突然 OOC。',
+    '如果角色本来克制、冷淡、嘴硬、刻薄、警惕，就保持那种口气。',
+    '世界书和最近聊天优先，不要无视它们。'
+  ].join('\n');
   if(promptManager && typeof promptManager.appealPolicy === 'function'){
     sys += '\n\n' + promptManager.appealPolicy({
       originalName: character.name || '角色',
@@ -4105,7 +4110,7 @@ function maybeAutoBlockByChar(aiText){
   var hitUser = /(滚|傻|闭嘴|恶心|烦死|你有病|垃圾|废物|讨厌|蠢|弱智|神经病)/.test(lastUser);
   var hitAi = /(生气|别再|受够|不想理|到此为止|别联系|拉黑)/.test(String(aiText || ''));
   if(directAskBlock){
-    state.abuseCount = Math.max(2, (parseInt(state.abuseCount || '0', 10) || 0));
+    state.abuseCount = (parseInt(state.abuseCount || '0', 10) || 0) + 1;
   }else if(severeHitUser){
     state.abuseCount = (parseInt(state.abuseCount || '0', 10) || 0) + 3;
   }else if(hitUser){
@@ -4113,7 +4118,7 @@ function maybeAutoBlockByChar(aiText){
   }else{
     state.abuseCount = Math.max(0, (parseInt(state.abuseCount || '0', 10) || 0) - 1);
   }
-  var shouldBlock = directAskBlock || severeHitUser || (state.abuseCount >= 2 && (hitUser || hitAi)) || (state.abuseCount >= 3);
+  var shouldBlock = severeHitUser || (state.abuseCount >= 4) || (state.abuseCount >= 3 && hitAi) || (directAskBlock && state.abuseCount >= 3);
   if(!shouldBlock) {
     saveBlockState(state);
     return;
@@ -5708,6 +5713,41 @@ async function composePendingMoneyPacketReply(payload){
   }
 }
 
+async function composeMoneyFollowupOnly(payload, accept){
+  var maxFollowups = Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1);
+  var sys = [
+    '你是聊天中的角色本人。',
+    '你刚刚已经对红包或转账作出决定，现在只继续发决定后的正文回复。',
+    '只返回 JSON，不要解释，不要 markdown。',
+    '格式：{"replies":[{"type":"text","content":"..."}]}',
+    'replies 至少 1 条，最多 ' + maxFollowups + ' 条。',
+    '不要重复“收下/退回”的结论，不要输出 money_packet JSON。'
+  ].join('\n');
+  var recent = getVisibleChatForModel().slice(-8).map(function(m){
+    return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
+  }).join('\n');
+  var wbText = getStrictPromptWorldbookEntries().map(function(entry){
+    return String((entry && entry.content) || '').trim();
+  }).filter(Boolean).slice(0, 4).join('\n\n');
+  var user = [
+    '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
+    '角色人设：' + String((character && (character.personality || character.description)) || ''),
+    wbText ? ('世界书：\n' + wbText) : '世界书：无',
+    recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    '你刚刚的决定：' + moneyPacketDecisionText(payload, accept),
+    '金钱事件：\n' + JSON.stringify(payload || {}, null, 2)
+  ].join('\n\n');
+  try{
+    var raw = await Promise.race([
+      callAIWithCustomPrompts(sys, user),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 9000); })
+    ]);
+    return parseMoneyReplyBundle(raw).replies || [];
+  }catch(e){
+    return [];
+  }
+}
+
 async function handlePendingMoneyPacketReply(showLoading){
   if(!character) return false;
   var pendingEntry = getPendingMoneyPacketEntry();
@@ -5746,14 +5786,12 @@ async function handlePendingMoneyPacketReply(showLoading){
       });
     }
     var followups = sanitizeFamilyFollowups(decision.replies || [], accept, pending);
-    for(var i = 0; i < followups.length; i++){
-      var item = followups[i];
-      var entry = makeChatEntry('assistant', item.content, item.type || 'text');
-      chatLog.push(entry);
-      addMessage('ai', entry.content, true, entry.type, entry.id);
-      await sleep(240 + Math.floor(Math.random() * 180));
-    }
     if(!followups.length){
+      followups = sanitizeFamilyFollowups(await composeMoneyFollowupOnly(pending, accept), accept, pending);
+    }
+    if(followups.length){
+      await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
+    }else{
       refreshInnerVoiceFromAi(decisionPayload.summary);
     }
     saveChat();
@@ -7430,7 +7468,9 @@ async function deliverAiReply(text, limitOverride){
     }
     sentCount++;
     maybeAutoBlockByChar(p.text);
-    await maybeRunAiMomentsFromChat(p.text, t);
+    maybeRunAiMomentsFromChat(p.text, t).catch(function(err){
+      console.error('moments side effect failed', err);
+    });
     await sleep(220 + Math.floor(Math.random()*170));
     if(i < parts.length - 1){
       await sleep(320 + Math.floor(Math.random()*320));
