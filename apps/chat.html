@@ -168,7 +168,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .money-packet.transfer{width:min(212px,58vw);border-color:#111;background:linear-gradient(180deg,#fafafa 0%,#efefef 100%);color:#111}
 .money-packet-cover{height:92px;position:relative;background:linear-gradient(180deg,#f6d7d7 0%,#d65256 62%,#b7181f 100%)}
 .money-packet-cover.has-image{background-size:cover;background-position:center}
-.money-packet-cover::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:76px;background:linear-gradient(180deg,rgba(183,24,31,0) 0%,rgba(183,24,31,.38) 32%,rgba(183,24,31,.86) 68%,rgba(183,24,31,1) 100%)}
+.money-packet-cover::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:64px;background:linear-gradient(180deg,rgba(183,24,31,0) 0%,rgba(183,24,31,.14) 42%,rgba(183,24,31,.62) 76%,rgba(183,24,31,1) 100%)}
 .money-packet.transfer .money-packet-cover{height:0;background:none}
 .money-packet.transfer .money-packet-cover::after{display:none}
 .money-packet-body{position:relative;padding:50px 14px 16px;display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:-24px}
@@ -5745,14 +5745,6 @@ function sanitizeMoneyFollowups(items, accept, payload){
   return out;
 }
 
-function fallbackMoneyFollowupText(accept, payload){
-  var charName = String((payload && payload.charName) || (character && (character.nickname || character.name)) || '我').trim() || '我';
-  if(accept){
-    return charName + '先收下了。';
-  }
-  return '这个我先退回去，但我还是会认真回你。';
-}
-
 function appendMoneyFollowupsDirectly(items){
   var list = Array.isArray(items) ? items : [];
   var ids = [];
@@ -5792,6 +5784,7 @@ async function composePendingMoneyPacketReply(payload){
     '如果 accept=false，代表你把钱退回去了。',
     'replies 里不要复述系统字段，不要输出金额结构，不要再输出 money_packet JSON。',
     'replies 至少 1 条，最多 ' + maxFollowups + ' 条。',
+    'replies 不能为空。',
     '不要把 accept/退回/收下 的结论再机械复述一遍，要接着当前关系和上下文自然说话。'
   ].join('\n');
   var recent = getVisibleChatForModel().slice(-10).map(function(m){
@@ -5816,6 +5809,42 @@ async function composePendingMoneyPacketReply(payload){
     return parseMoneyReplyBundle(raw);
   }catch(e){
     return { accept: true, replies: [] };
+  }
+}
+
+async function composeMoneyFollowupOnly(payload, accept){
+  var maxFollowups = Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1);
+  var sys = [
+    '你是聊天中的角色本人。',
+    '你刚刚已经对红包或转账作出决定，现在只继续发送决定后的正文回复。',
+    '必须先接住用户刚才发钱这个动作，再自然顺着关系和上下文说话。',
+    '只返回 JSON，不要解释，不要 markdown。',
+    '格式：{"replies":[{"type":"text","content":"..."}]}',
+    'replies 至少 1 条，最多 ' + maxFollowups + ' 条，不能为空。',
+    '不要重复收下/退回的结论，不要输出 money_packet JSON 或状态字段。'
+  ].join('\n');
+  var recent = getVisibleChatForModel().slice(-10).map(function(m){
+    return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
+  }).join('\n');
+  var wbText = getStrictPromptWorldbookEntries().map(function(entry){
+    return String((entry && entry.content) || '').trim();
+  }).filter(Boolean).slice(0, 8).join('\n\n');
+  var user = [
+    '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
+    '角色人设：' + String((character && (character.personality || character.description)) || ''),
+    wbText ? ('世界书：\n' + wbText) : '世界书：无',
+    recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    '你刚刚的决定：' + moneyPacketDecisionText(payload, accept),
+    '金钱事件：\n' + JSON.stringify(payload || {}, null, 2)
+  ].join('\n\n');
+  try{
+    var raw = await Promise.race([
+      callAIWithCustomPrompts(sys, user),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 10000); })
+    ]);
+    return parseMoneyReplyBundle(raw).replies || [];
+  }catch(e){
+    return [];
   }
 }
 
@@ -5858,7 +5887,7 @@ async function handlePendingMoneyPacketReply(showLoading){
     }
     var followups = sanitizeMoneyFollowups(bundle.replies, accept, pending);
     if(!followups.length){
-      followups = [{ type:'text', content:fallbackMoneyFollowupText(accept, pending) }];
+      followups = sanitizeMoneyFollowups(await composeMoneyFollowupOnly(pending, accept), accept, pending);
     }
     if(followups.length){
       var followupIds = await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
