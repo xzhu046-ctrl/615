@@ -5969,38 +5969,6 @@ async function composePendingMoneyPacketFollowups(payload, accept){
   }
 }
 
-async function composePendingMoneyPacketReply(payload){
-  var fallbackAccept = true;
-  var maxTotal = character && character.msgMax ? character.msgMax : 3;
-  var maxFollowups = Math.max(0, maxTotal - 1);
-  var sys = [
-    '你是聊天中的角色本人。',
-    '现在用户发来一个红包或转账。你要先按人设、世界书、最近聊天判断收下还是退还，然后紧接着给出你会继续发送的正文回复。',
-    '这是用户发给你的钱，不是你发给用户的钱。你只能收下或退还，不能反过来给用户发红包或转账。',
-    '如果用户在红包前后说了别的话，你必须先接住那些话，不能假装没看见。',
-    '只返回 JSON，不要解释，不要 markdown。',
-    '格式：{"accept":true|false,"replies":[{"type":"text","content":"..."}]}',
-    'replies 是决定卡之后紧接着会发送的正文消息列表。',
-    '不要把收下/退还的结论机械复读进 replies。',
-    '不要输出任何 [money_packet ...]、金额结构、状态字段、控制文本。',
-    'replies 数量不能超过 ' + maxFollowups + '。'
-  ].join('\n');
-  var user = buildMoneyPromptContext(payload) + '\n\n本次 replies 最多允许 ' + maxFollowups + ' 条。';
-  try{
-    var raw = await callAIWithCustomPrompts(sys, user);
-    return parseMoneyReplyBundle(raw);
-  }catch(e){
-    return { accept: fallbackAccept, replies: [] };
-  }
-}
-
-function fallbackMoneyFollowupText(accept, payload){
-  var charName = String((payload && payload.charName) || (character && (character.nickname || character.name)) || '我').trim() || '我';
-  var mode = String((payload && payload.mode) || 'red_packet');
-  if(accept) return charName + (mode === 'transfer' ? '会把这笔钱先收好。' : '会把这个红包好好收着。');
-  return mode === 'transfer' ? '这笔钱我不能收，但我还是想和你好好说。' : '这个红包我不能收，但我还是想和你好好说。';
-}
-
 async function composeMoneyDecisionTaggedFollowup(payload){
   var maxTotal = character && character.msgMax ? character.msgMax : 3;
   var maxFollowups = Math.max(1, maxTotal - 1);
@@ -6106,14 +6074,44 @@ async function handlePendingMoneyPacketReply(showLoading){
   var pending = parseMoneyPacketPayload(pendingEntry.content) || {};
   try{
     var previousStatus = String(pending.status || 'pending');
-    var bundle = await composePendingMoneyPacketReply(pending);
-    var accept = !!bundle.accept;
-    var followups = sanitizeMoneyFollowups(bundle.replies, accept, pending);
-    if(!followups.length){
-      followups = extractMoneyFollowupsFromRaw((bundle && bundle.replies && bundle.replies.length) ? JSON.stringify(bundle.replies) : '', accept, pending);
+    var accept = null;
+    var followups = [];
+    for(var attempt = 0; attempt < 3; attempt++){
+      accept = await decidePendingMoneyPacketAccept(pending);
+      if(typeof accept === 'boolean') break;
+    }
+    if(typeof accept !== 'boolean'){
+      var taggedFallback = parseTaggedMoneyDecisionFollowup(await composeMoneyDecisionTaggedFollowup(pending), pending);
+      if(typeof taggedFallback.accept === 'boolean'){
+        accept = taggedFallback.accept;
+        followups = taggedFallback.followups || [];
+      }
+    }
+    if(typeof accept !== 'boolean'){
+      var naturalFallbackRaw = await composeMoneyDecisionNaturalReply(pending);
+      var naturalAccept = parseMoneyDecisionResult(naturalFallbackRaw);
+      var naturalFollowups = extractMoneyFollowupsFromRaw(naturalFallbackRaw, typeof naturalAccept === 'boolean' ? naturalAccept : true, pending);
+      if(typeof naturalAccept === 'boolean'){
+        accept = naturalAccept;
+        followups = naturalFollowups || [];
+      }
+    }
+    if(typeof accept !== 'boolean'){
+      if(showLoading) hideTyping();
+      toast('这次没生成到有效决定，再点一次');
+      return '';
     }
     if(!followups.length){
-      followups = [{ type:'text', content:fallbackMoneyFollowupText(accept, pending), reply_to:'', reply_role:'' }];
+      for(var followAttempt = 0; followAttempt < 3; followAttempt++){
+        var followRaw = await composePendingMoneyPacketFollowups(pending, accept);
+        followups = extractMoneyFollowupsFromRaw(followRaw, accept, pending);
+        if(followups.length) break;
+      }
+    }
+    if(!followups.length){
+      if(showLoading) hideTyping();
+      toast('这次没生成到有效回复，再点一次');
+      return '';
     }
     pending.status = accept ? 'accepted' : 'refunded';
     pending.summary = moneyPacketDecisionText(pending, accept);
