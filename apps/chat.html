@@ -1158,7 +1158,6 @@ var innerVoiceHistoryMode = false;
 var innerVoiceEditingId = '';
 var innerVoicePendingDeleteId = '';
 var lastFamilyReplyRound = null;
-var lastMoneyReplyRound = null;
 var lastFamilyHandledAt = 0;
 var familyReplyBusy = false;
 var moneyComposerMode = 'red_packet';
@@ -4598,7 +4597,6 @@ function rerollLast(){
   }
   if(!removed){ toast('还没有 AI 回复可重生成'); return; }
   rollbackFamilyReplyRoundOnReroll(removedIds);
-  rollbackMoneyReplyRoundOnReroll(removedIds);
   rollbackInnerVoiceOnReroll();
   saveChat();
   renderChatLog(false);
@@ -5275,17 +5273,6 @@ function rollbackFamilyReplyRoundOnReroll(removedIds){
   lastFamilyReplyRound = null;
 }
 
-function rollbackMoneyReplyRoundOnReroll(removedIds){
-  if(!lastMoneyReplyRound || !Array.isArray(lastMoneyReplyRound.assistantIds) || !lastMoneyReplyRound.assistantIds.length) return;
-  var removedSet = new Set((removedIds || []).map(function(id){ return String(id || ''); }).filter(Boolean));
-  var touched = lastMoneyReplyRound.assistantIds.some(function(id){ return removedSet.has(String(id || '')); });
-  if(!touched) return;
-  if(lastMoneyReplyRound.requestId){
-    updateMoneyPacketStatus(lastMoneyReplyRound.requestId, lastMoneyReplyRound.previousStatus || 'pending');
-  }
-  lastMoneyReplyRound = null;
-}
-
 async function composePendingFamilyCardReply(payload){
   var fallbackAccept = (payload && payload.mode === 'gift');
   var maxTotal = character && character.msgMax ? character.msgMax : 3;
@@ -5879,7 +5866,6 @@ async function composeMoneyFollowupViaMainChat(payload, accept){
       callAI(provider, key),
       new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 10000); })
     ]);
-    var rawText = sanitizeAssistantTextForChat(String(raw || '').trim());
     var parsed = parseMoneyReplyBundle(raw);
     var replies = sanitizeMoneyFollowups(parsed.replies, accept, payload);
     if(!replies.length && Array.isArray(parsed.replies) && parsed.replies.length){
@@ -5891,9 +5877,6 @@ async function composeMoneyFollowupViaMainChat(payload, accept){
           reply_role: item && (item.reply_role || item.replyRole || '')
         };
       }).filter(function(item){ return item.content; });
-    }
-    if(!replies.length && rawText){
-      replies = [{ type:'text', content: rawText }];
     }
     return replies;
   }catch(e){
@@ -5916,7 +5899,6 @@ async function handlePendingMoneyPacketReply(showLoading){
   }
   var pending = parseMoneyPacketPayload(pendingEntry.content) || {};
   try{
-    var previousStatus = String(pending.status || 'pending');
     var bundle = await composePendingMoneyPacketReply(pending);
     var accept = !!bundle.accept;
     var followups = sanitizeMoneyFollowups(bundle.replies, accept, pending);
@@ -5971,18 +5953,8 @@ async function handlePendingMoneyPacketReply(showLoading){
       });
     }
     if(followups.length){
-      var followupIds = appendMoneyFollowupsDirectly(followups);
-      lastMoneyReplyRound = {
-        requestId: pendingEntry.id,
-        previousStatus: previousStatus,
-        assistantIds: [decisionEntry.id].concat(followupIds || [])
-      };
+      appendMoneyFollowupsDirectly(followups);
     }else{
-      lastMoneyReplyRound = {
-        requestId: pendingEntry.id,
-        previousStatus: previousStatus,
-        assistantIds: [decisionEntry.id]
-      };
       refreshInnerVoiceFromAi(decisionPayload.summary);
     }
     saveChat();
