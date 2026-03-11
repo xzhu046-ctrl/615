@@ -5745,6 +5745,24 @@ function sanitizeMoneyFollowups(items, accept, payload){
   return out;
 }
 
+function appendMoneyFollowupsDirectly(items){
+  var list = Array.isArray(items) ? items : [];
+  var ids = [];
+  for(var i = 0; i < list.length; i++){
+    var item = list[i];
+    if(!item || typeof item !== 'object') continue;
+    var type = normalizeMessageType(item.type || 'text');
+    var content = String(item.content || '').trim();
+    if(!content) continue;
+    var entry = makeChatEntry('assistant', content, type);
+    entry.replyToId = resolveReplyTargetId(item.reply_to || item.replyTo || '', item.reply_role || item.replyRole || '');
+    chatLog.push(entry);
+    addMessage('ai', entry.content, true, type, entry.id);
+    ids.push(entry.id);
+  }
+  return ids;
+}
+
 function getPendingMoneyPacketEntry(){
   for(var i = chatLog.length - 1; i >= 0; i--){
     var entry = chatLog[i];
@@ -5930,7 +5948,10 @@ async function handlePendingMoneyPacketReply(showLoading){
       }
     }
     if(followups.length){
-      await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
+      var followupIds = await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
+      if(!followupIds || !followupIds.length){
+        followupIds = appendMoneyFollowupsDirectly(followups);
+      }
     }else{
       refreshInnerVoiceFromAi(decisionPayload.summary);
     }
