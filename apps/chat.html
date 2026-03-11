@@ -4264,8 +4264,8 @@ async function triggerReply() {
     pendingModelUserCue = '';
     return;
   }
-  var moneyReply = await handlePendingMoneyPacketReply(true);
-  if(moneyReply && moneyReply.hasFollowups){
+  var moneyReplyId = await handlePendingMoneyPacketReply(true);
+  if(moneyReplyId){
     pendingMomentsChatCue = '';
     pendingFamilyFollowupCue = '';
     pendingModelUserCue = '';
@@ -4283,9 +4283,7 @@ async function triggerReply() {
   pendingMomentsChatCue = processMomentsInteractionsOnTrigger();
   pendingModelUserCue = familyReplyId
     ? '你刚刚已经对亲属卡作出决定。现在请紧接着上一条亲属卡回复之后，继续发送一条自然的正文消息。不要重复卡片结论，不要输出 JSON。'
-    : ((moneyReply && moneyReply.decisionId)
-      ? '你刚刚已经通过红包/转账决定卡表达了收下或退回。现在请紧接着上一条决定卡继续发送自然的正文消息，先接住用户这个举动，再按当前关系说话。不要重复决定结论，不要输出 JSON。'
-      : '');
+    : '';
   transientHiddenModelMsgIds = [];
 
   isTyping = true;
@@ -5224,6 +5222,15 @@ function fallbackFamilyFollowupText(accept, payload){
   return '这个我不能答应，但我还是想好好和你说。';
 }
 
+function fallbackMoneyFollowupText(accept, payload){
+  var mode = String((payload && payload.mode) || 'red_packet');
+  var charName = String((payload && payload.charName) || (character && (character.nickname || character.name)) || '我').trim() || '我';
+  if(accept){
+    return mode === 'transfer' ? (charName + '先收下了。') : (charName + '把这个红包收好了。');
+  }
+  return mode === 'transfer' ? '这笔钱我不能收，但我还是想和你好好说。' : '这个红包我不能收，但我还是想和你好好说。';
+}
+
 function sanitizeFamilyFollowups(items, accept, payload){
   var list = Array.isArray(items) ? items : [];
   var summary = familyResponseText(payload, accept).replace(/\s+/g, '');
@@ -5767,36 +5774,6 @@ function sanitizeMoneyFollowups(items, accept, payload){
   return out;
 }
 
-function appendMoneyFollowupsDirectly(items){
-  var list = Array.isArray(items) ? items : [];
-  var ids = [];
-  for(var i = 0; i < list.length; i++){
-    var item = list[i];
-    if(!item || typeof item !== 'object') continue;
-    var type = normalizeMessageType(item.type || 'text');
-    var content = String(item.content || '').trim();
-    if(!content) continue;
-    var entry = makeChatEntry('assistant', content, type);
-    entry.replyToId = resolveReplyTargetId(item.reply_to || item.replyTo || '', item.reply_role || item.replyRole || '');
-    chatLog.push(entry);
-    addMessage('ai', entry.content, true, type, entry.id);
-    ids.push(entry.id);
-  }
-  return ids;
-}
-
-function reconcileMoneyDecisionWithFollowups(accept, followups){
-  var text = (Array.isArray(followups) ? followups : []).map(function(item){
-    return String((item && item.content) || '').trim();
-  }).join('\n');
-  if(!text) return !!accept;
-  var rejectHit = /(不收|不能收|不会收|不该收|不方便收|没法收|别给我|退回|退还|还给你|你拿回去|这个我不要|这钱我不能要|我不能要|我不要收|我先退回|还是退给你)/.test(text);
-  var acceptHit = /(收下|收着|拿着|那我收了|我就收下|我先拿着|我领了|那我拿着)/.test(text);
-  if(rejectHit) return false;
-  if(acceptHit) return true;
-  return !!accept;
-}
-
 function getPendingMoneyPacketEntry(){
   for(var i = chatLog.length - 1; i >= 0; i--){
     var entry = chatLog[i];
@@ -5862,9 +5839,9 @@ async function composePendingMoneyPacketReply(payload){
 }
 
 async function handlePendingMoneyPacketReply(showLoading){
-  if(!character) return null;
+  if(!character) return '';
   var pendingEntry = getPendingMoneyPacketEntry();
-  if(!pendingEntry) return null;
+  if(!pendingEntry) return '';
   if(showLoading){
     isTyping = true;
     document.getElementById('genBtn').disabled = true;
@@ -5887,7 +5864,6 @@ async function handlePendingMoneyPacketReply(showLoading){
         };
       }).filter(function(item){ return item.content; });
     }
-    accept = reconcileMoneyDecisionWithFollowups(accept, followups);
     pending.status = accept ? 'accepted' : 'refunded';
     pending.summary = moneyPacketDecisionText(pending, accept);
     updateMoneyPacketStatus(pendingEntry.id, pending.status);
@@ -5911,26 +5887,17 @@ async function handlePendingMoneyPacketReply(showLoading){
         relatedId: pendingEntry.id
       });
     }
-    if(followups.length){
-      var followupIds = appendMoneyFollowupsDirectly(followups);
-      lastMoneyReplyRound = {
-        requestId: pendingEntry.id,
-        previousStatus: previousStatus,
-        assistantIds: [decisionEntry.id].concat(followupIds || [])
-      };
-    }else{
-      lastMoneyReplyRound = {
-        requestId: pendingEntry.id,
-        previousStatus: previousStatus,
-        assistantIds: [decisionEntry.id]
-      };
-      refreshInnerVoiceFromAi(decisionPayload.summary);
+    if(!followups.length){
+      followups = [{ type:'text', content:fallbackMoneyFollowupText(accept, pending) }];
     }
-    saveChat();
-    return {
-      decisionId: decisionEntry.id,
-      hasFollowups: !!followups.length
+    var followupIds = await deliverAiReply(followups, Math.max(0, (character && character.msgMax ? character.msgMax : 3) - 1));
+    lastMoneyReplyRound = {
+      requestId: pendingEntry.id,
+      previousStatus: previousStatus,
+      assistantIds: [decisionEntry.id].concat(followupIds || [])
     };
+    saveChat();
+    return decisionEntry.id;
   } finally {
     if(showLoading){
       hideTyping();
