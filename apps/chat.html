@@ -4816,10 +4816,29 @@ function renderMoneyPacketBubble(bubble, raw){
   var data = parseMoneyPacketPayload(raw) || {};
   var mode = String(data.mode || 'red_packet');
   var isTransfer = mode === 'transfer';
+  var kind = String(data.kind || 'request');
   var status = String(data.status || 'pending');
   var amount = Number(data.amount || 0);
   var note = String(data.note || '').trim();
   var title = String(data.summary || '').trim();
+  if(kind === 'decision'){
+    var decisionKicker = isTransfer ? '转账回复' : '红包回复';
+    var decisionStatus = status === 'accepted'
+      ? (isTransfer ? '已收下' : '已领取')
+      : (isTransfer ? '已退还' : '已退回');
+    var metaParts = [];
+    if(amount > 0) metaParts.push('<span class="family-card-amount">¥' + esc(amount.toFixed(2)) + '</span>');
+    metaParts.push('<span class="family-card-status">' + esc(decisionStatus) + '</span>');
+    bubble.innerHTML = '<div class="family-card-bubble">'
+      + '<div class="family-card-avatar primary money">' + esc(isTransfer ? '收' : '开') + '</div>'
+      + '<div class="family-card-panel">'
+      + '<div class="family-card-kicker">' + esc(decisionKicker) + '</div>'
+      + '<div class="family-card-text">' + esc(title || moneyPacketDecisionText(data, status === 'accepted')) + '</div>'
+      + '<div class="family-card-meta">' + metaParts.join('') + '</div>'
+      + (note ? ('<div class="family-card-kicker">' + esc(note) + '</div>') : '')
+      + '</div></div>';
+    return;
+  }
   var kicker = isTransfer ? '转账待领取' : '红包待领取';
   if(status === 'accepted') kicker = isTransfer ? '转账已收下' : '红包已收下';
   else if(status === 'refunded' || status === 'rejected') kicker = isTransfer ? '转账已退还' : '红包已退还';
