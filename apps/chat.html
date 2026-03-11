@@ -5677,18 +5677,30 @@ function submitMoneyComposer(){
   clearReplyTarget();
 }
 
-function parseMoneyReplyBundle(raw){
-  var accept = true;
+function parseMoneyReplyBundle(raw, fallbackAccept){
+  var accept = typeof fallbackAccept === 'boolean' ? fallbackAccept : true;
   var replies = [];
+  var acceptProvided = false;
+  var cleaned = String(raw || '').trim();
+  if(cleaned.startsWith('```')){
+    cleaned = cleaned.replace(/^```[a-zA-Z]*\s*/,'');
+    if(cleaned.endsWith('```')) cleaned = cleaned.slice(0, -3);
+    cleaned = cleaned.trim();
+  }
   try{
-    var parsed = JSON.parse(String(raw || '{}'));
+    var parsed = JSON.parse(cleaned || '{}');
     if(parsed && typeof parsed === 'object'){
-      if(typeof parsed.accept === 'boolean') accept = parsed.accept;
+      if(typeof parsed.accept === 'boolean'){
+        accept = parsed.accept;
+        acceptProvided = true;
+      }
       if(Array.isArray(parsed.replies)) replies = parsed.replies.slice();
       else if(Array.isArray(parsed.messages)) replies = parsed.messages.slice();
+      else if(parsed.reply && typeof parsed.reply === 'string') replies = [{ type:'text', content: parsed.reply }];
+      else if(parsed.content && typeof parsed.content === 'string') replies = [{ type:'text', content: parsed.content }];
     }
   }catch(e){}
-  return { accept: accept, replies: replies };
+  return { accept: accept, replies: replies, acceptProvided: acceptProvided };
 }
 
 function getPendingMoneyPacketEntry(){
@@ -5701,9 +5713,42 @@ function getPendingMoneyPacketEntry(){
   return null;
 }
 
+async function decideMoneyPacketOutcome(payload){
+  var fallbackAccept = true;
+  var sys = [
+    '你是聊天中的角色本人。',
+    '现在用户给你发来了红包或转账，你要像真人一样判断自己会收下还是退回。',
+    '只返回 JSON，不要解释，不要 markdown。',
+    '格式：{"accept":true|false}'
+  ].join('\n');
+  var recent = getVisibleChatForModel().slice(-10).map(function(m){
+    return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
+  }).join('\n');
+  var wbText = getStrictPromptWorldbookEntries().map(function(entry){
+    return String((entry && entry.content) || '').trim();
+  }).filter(Boolean).slice(0, 6).join('\n\n');
+  var user = [
+    '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
+    '角色人设：' + String((character && (character.personality || character.description)) || ''),
+    wbText ? ('世界书：\n' + wbText) : '世界书：无',
+    recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    '金钱事件：\n' + JSON.stringify(payload || {}, null, 2)
+  ].join('\n\n');
+  try{
+    var raw = await Promise.race([
+      callAIWithCustomPrompts(sys, user),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 9000); })
+    ]);
+    var parsed = JSON.parse(String(raw || '{}').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim() || '{}');
+    if(parsed && typeof parsed.accept === 'boolean') return parsed.accept;
+  }catch(e){}
+  return fallbackAccept;
+}
+
 async function composePendingMoneyPacketReply(payload){
   var maxTotal = character && character.msgMax ? character.msgMax : 3;
   var maxFollowups = Math.max(1, maxTotal - 1);
+  var fallbackAccept = await decideMoneyPacketOutcome(payload);
   var sys = [
     '你是聊天中的角色本人。',
     '现在用户给你发来了红包或转账。你要像真人一样先决定收下还是退还，再紧接着发送正文回复。',
@@ -5733,10 +5778,21 @@ async function composePendingMoneyPacketReply(payload){
       callAIWithCustomPrompts(sys, user),
       new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
     ]);
-    return parseMoneyReplyBundle(raw);
+    var bundle = parseMoneyReplyBundle(raw, fallbackAccept);
+    if(!bundle.acceptProvided) bundle.accept = fallbackAccept;
+    return bundle;
   }catch(e){
-    return { accept: true, replies: [] };
+    return { accept: fallbackAccept, replies: [], acceptProvided: false };
   }
+}
+
+function fallbackMoneyFollowupText(accept, payload){
+  var data = parseMoneyPacketPayload(payload) || {};
+  var isTransfer = String(data.mode || 'red_packet') === 'transfer';
+  if(accept){
+    return isTransfer ? '这笔我先收下了，后面我会记着。' : '红包我收到了，我会认真收着。';
+  }
+  return isTransfer ? '这笔转账我先退给你，我们照常说话。' : '这个红包我先退回去，但我还是在。';
 }
 
 async function composeMoneyFollowupOnly(payload, accept){
@@ -5768,7 +5824,7 @@ async function composeMoneyFollowupOnly(payload, accept){
       callAIWithCustomPrompts(sys, user),
       new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 9000); })
     ]);
-    return parseMoneyReplyBundle(raw).replies || [];
+    return parseMoneyReplyBundle(raw, accept).replies || [];
   }catch(e){
     return [];
   }
@@ -5818,7 +5874,7 @@ async function handlePendingMoneyPacketReply(showLoading){
     if(followups.length){
       await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
     }else{
-      refreshInnerVoiceFromAi(decisionPayload.summary);
+      await deliverAiReply([{ type:'text', content:fallbackMoneyFollowupText(accept, pending) }], 1);
     }
     saveChat();
     return decisionEntry.id;
