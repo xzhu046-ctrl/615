@@ -5882,10 +5882,17 @@ function parseMoneyDecisionResult(raw){
     if(cleaned.endsWith('```')) cleaned = cleaned.slice(0,-3);
     cleaned = cleaned.trim();
   }
+  var lowered = cleaned.toLowerCase();
   try{
     var parsed = JSON.parse(cleaned || '{}');
     if(parsed && typeof parsed.accept === 'boolean') return parsed.accept;
   }catch(e){}
+  if(/^(accept|accepted|true)$/i.test(cleaned)) return true;
+  if(/^(reject|rejected|false)$/i.test(cleaned)) return false;
+  if(/(^|[\s"'{:])(accept|accepted|true)([\s"'}:,]|$)/i.test(cleaned)) return true;
+  if(/(^|[\s"'{:])(reject|rejected|false)([\s"'}:,]|$)/i.test(cleaned)) return false;
+  if(lowered === '收下' || lowered === '收着' || lowered === '接受') return true;
+  if(lowered === '退回' || lowered === '退还' || lowered === '拒绝') return false;
   if(/"accept"\s*:\s*false/i.test(cleaned) || /(退回|退还|拒绝|不收|不能收|不会收|我不能要|这钱我不能要|还是退给你)/.test(cleaned)) return false;
   if(/"accept"\s*:\s*true/i.test(cleaned) || /(收下|收着|拿着|我就收下|那我收了|我先拿着|我领了)/.test(cleaned)) return true;
   return null;
@@ -5897,8 +5904,8 @@ async function decidePendingMoneyPacketAccept(payload){
     '现在用户给你发来了红包或转账。你必须认真阅读最近聊天、用户最新消息、角色人设、世界书，再判断你会收下还是退还。',
     '这是用户发给你的钱，不是你发给用户的钱。你只能决定收下或退还，不能反过来再给用户发红包或转账。',
     '用户最新消息是重要信号，但不是死命令。你可以顺着用户说，也可以反着来，决定必须符合关系、性格、世界书和上下文。',
-    '只返回 JSON，不要解释，不要 markdown。',
-    '格式：{"accept":true} 或 {"accept":false}'
+    '只返回一个词，不要解释，不要 markdown，不要 JSON。',
+    '只能返回：accept 或 reject'
   ].join('\n');
   var user = buildMoneyPromptContext(payload);
   try{
