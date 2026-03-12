@@ -1331,15 +1331,20 @@ function getVisibleAppFrame(){
 function deliverChatSelection(slim){
   var payload = slim || null;
   if(!payload || !payload.id) return;
-  var send = function(){
-    var frame = getChatTransportFrame();
+  pendingChatSelection = payload;
+  var sendToFrame = function(frame){
     if(frame && frame.contentWindow){
       try{ frame.contentWindow.postMessage({ type:'SET_ACTIVE_CHARACTER', payload: payload }, '*'); }catch(e){}
       try{ frame.contentWindow.postMessage({ type:'OPEN_CHAT_WITH', payload: payload }, '*'); }catch(e){}
     }
   };
+  var send = function(){
+    sendToFrame(document.getElementById('chat-iframe'));
+    sendToFrame(document.getElementById('app-iframe'));
+  };
   send();
   setTimeout(send, 80);
+  setTimeout(send, 220);
 }
 
 function syncAppFrameVisibility(activeId){
@@ -1956,6 +1961,7 @@ function optimizeImageDataUrl(dataUrl, opts){
 // Maintain a simple app navigation stack so Back can return to the previous app
 const appStack=[];
 let currentApp=null;
+let pendingChatSelection=null;
 
 function renderApp(id){
   const a=APP_MAP[id]; if(!a) return;
@@ -1992,6 +1998,9 @@ function renderApp(id){
   }
   document.getElementById('app-container').classList.add('open');
   document.getElementById('home-screen').classList.add('hidden');
+  if(id === 'chat' && pendingChatSelection){
+    setTimeout(function(){ deliverChatSelection(pendingChatSelection); }, 40);
+  }
 }
 
 function openApp(id) {
@@ -2048,7 +2057,9 @@ function closeApp() {
     }
     if(c){
       setWidgetCharacter(c);
-      refreshHomeChatSummary(c.id, c.description || '').catch(function(){});
+      if(!(livePreview && livePreview.id === c.id)){
+        refreshHomeChatSummary(c.id, c.description || '').catch(function(){});
+      }
     }
     renderBondWidget(c);
   }catch(e){
