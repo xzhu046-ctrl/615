@@ -1365,24 +1365,49 @@ function homeChatPreviewKey(charId){
   return scopedKeyForAccount(HOME_CHAT_PREVIEW_PREFIX + charId, getActiveAccountId());
 }
 
-function loadStoredHomeChatPreview(charId){
+function isBogusHomePreview(preview, fallbackText){
+  var content = String(preview && preview.content || '').trim();
+  var fallback = String(fallbackText || '').trim();
+  if(!content) return true;
+  if(content === fallback && fallback) return true;
+  if(content.indexOf('<info>') === 0) return true;
+  if(/char_name:|background_story:|NSFW_information:/i.test(content)) return true;
+  return false;
+}
+
+function removeStoredHomeChatPreview(charId){
+  if(!charId) return;
+  try{ localStorage.removeItem(homeChatPreviewKey(charId)); }catch(e){}
+  try{ localStorage.removeItem(HOME_CHAT_PREVIEW_PREFIX + charId); }catch(e){}
+}
+
+function loadStoredHomeChatPreview(charId, fallbackText){
   if(!charId) return null;
   try{
     var raw = localStorage.getItem(homeChatPreviewKey(charId)) || localStorage.getItem(HOME_CHAT_PREVIEW_PREFIX + charId) || '';
     if(!raw) return null;
     var parsed = JSON.parse(raw);
     if(!parsed || typeof parsed !== 'object') return null;
-    return {
+    var preview = {
       content: String(parsed.content || ''),
       type: normalizeChatPreviewType(parsed.type || 'text')
     };
+    if(isBogusHomePreview(preview, fallbackText)){
+      removeStoredHomeChatPreview(charId);
+      return null;
+    }
+    return preview;
   }catch(e){
     return null;
   }
 }
 
-function persistHomeChatPreview(charId, preview){
+function persistHomeChatPreview(charId, preview, fallbackText){
   if(!charId || !preview || typeof preview !== 'object') return;
+  if(isBogusHomePreview(preview, fallbackText)){
+    removeStoredHomeChatPreview(charId);
+    return;
+  }
   var payload = JSON.stringify({
     content: String(preview.content || ''),
     type: normalizeChatPreviewType(preview.type || 'text')
@@ -1403,10 +1428,15 @@ function readLegacyChatMessages(charId){
   return getStoredChatMessages(charId);
 }
 
-function buildChatPreviewFromMessages(messages, fallbackText){
-  var picked = pickAssistantFirstPreview(messages);
-  if(picked && picked.content) return picked;
-  return { content: fallbackText || '', type: 'text' };
+function extractAssistantPreviewFromMessages(messages){
+  var list = Array.isArray(messages) ? messages : [];
+  for(var i=list.length - 1; i>=0; i--){
+    if(isAssistantPreviewMessage(list[i])){
+      var picked = normalizePreviewMessage(list[i]);
+      if(picked && picked.content) return picked;
+    }
+  }
+  return null;
 }
 
 function formatWidgetPreview(preview, fallbackText){
@@ -1435,14 +1465,19 @@ async function refreshHomeChatSummary(charId, fallbackText){
     try{
       var saved = await window.PhoneStorage.get('chats', mainScopedKey('chat_' + charId));
       var msgs = saved && Array.isArray(saved.history) ? saved.history : [];
-      preview = buildChatPreviewFromMessages(msgs, fallbackText);
+      preview = extractAssistantPreviewFromMessages(msgs);
     }catch(e){}
   }
   if(!preview){
-    preview = buildChatPreviewFromMessages(readLegacyChatMessages(charId), fallbackText);
+    preview = extractAssistantPreviewFromMessages(readLegacyChatMessages(charId));
   }
-  homeChatSummaryCache[charId] = preview;
-  persistHomeChatPreview(charId, preview);
+  if(preview){
+    homeChatSummaryCache[charId] = preview;
+    persistHomeChatPreview(charId, preview, fallbackText);
+  }else{
+    delete homeChatSummaryCache[charId];
+    removeStoredHomeChatPreview(charId);
+  }
   var active = getActiveCharacterData();
   if(active && active.id === charId){
     setWidgetSubtext(preview, fallbackText);
@@ -2142,7 +2177,7 @@ function formatCharSub(text){
 function setWidgetCharacter(c){
   const displayName = c?.nickname || c?.name || '';
   document.getElementById('wgt-name').textContent = displayName;
-  var cachedPreview = c && c.id ? (homeChatSummaryCache[c.id] || c.lastPreview || loadStoredHomeChatPreview(c.id)) : null;
+  var cachedPreview = c && c.id ? (homeChatSummaryCache[c.id] || (isBogusHomePreview(c.lastPreview, c.description || '') ? null : c.lastPreview) || loadStoredHomeChatPreview(c.id, c.description || '')) : null;
   if(c && c.id && cachedPreview) homeChatSummaryCache[c.id] = cachedPreview;
   setWidgetSubtext(cachedPreview, c?.description || '');
   const avEl = document.getElementById('wgt-avatar');
