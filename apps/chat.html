@@ -3099,8 +3099,18 @@ function markUserMessagesReadByChar(){
 function getMessageById(msgId){
   return chatLog.find(function(m){ return m.id === msgId; }) || null;
 }
-function getReplyLabel(role){
-  return (role === 'user') ? '用户' : '角色';
+function getReplyLabel(source){
+  var role = '';
+  if(source && typeof source === 'object'){
+    role = String(source.role || source.sender || source.from || '');
+  }else{
+    role = String(source || '');
+  }
+  role = role.toLowerCase();
+  if(role === 'user'){
+    return getChatUserName(character && character.id);
+  }
+  return String((character && (character.nickname || character.name)) || '角色');
 }
 function getReplySnippetText(msg){
   if(!msg) return '原消息已删除';
@@ -3148,7 +3158,7 @@ function formatMessageForModel(msg){
   }
   if(msg.replyToId){
     var target = getMessageById(msg.replyToId);
-    var targetRole = getReplyLabel(target ? target.role : 'assistant');
+    var targetRole = getReplyLabel(target || 'assistant');
     var targetText = getReplySnippetText(target);
     var prefix = '【这条消息是在回复上一条' + targetRole + '消息】\n被回复内容：' + targetText + '\n请优先针对这条被回复内容来理解和作答。\n\n';
     content = prefix + content;
@@ -3272,7 +3282,7 @@ function renderReplyPreview(){
     input.placeholder = '输入消息...';
     return;
   }
-  roleEl.textContent = getReplyLabel(target.role);
+  roleEl.textContent = getReplyLabel(target);
   bodyEl.textContent = getReplySnippetText(target);
   host.classList.add('show');
   input.placeholder = '回复消息...';
@@ -4965,7 +4975,7 @@ function addMessage(role, content, doScroll, msgType, msgId) {
     var replyTarget = getMessageById(entry.replyToId);
     var replyBox = document.createElement('div');
     replyBox.className = 'reply-snippet';
-    replyBox.innerHTML = '<div class="reply-snippet-role">' + esc(getReplyLabel(replyTarget ? replyTarget.role : 'assistant')) + '</div><div class="reply-snippet-text">' + esc(getReplySnippetText(replyTarget)) + '</div>';
+    replyBox.innerHTML = '<div class="reply-snippet-role">' + esc(getReplyLabel(replyTarget || 'assistant')) + '</div><div class="reply-snippet-text">' + esc(getReplySnippetText(replyTarget)) + '</div>';
     bubble.insertBefore(replyBox, bubble.firstChild);
   }
 
