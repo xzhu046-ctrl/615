@@ -25,6 +25,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 let persistentStorageRequestStarted = false;
+var widgetPreviewCache = {};
 
 function loadLargeState(id){
   if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
@@ -1948,6 +1949,13 @@ window.addEventListener('message',(e)=>{
   if(type==='CHAT_UPDATED'){
     // Always sync to the latest chatted character/widget state.
     delete qqUnreadCountCache[getActiveAccountId()];
+    if(payload && payload.id){
+      widgetPreviewCache[payload.id] = {
+        content: String(payload.last || ''),
+        type: normalizeChatPreviewType(payload.lastType || 'text'),
+        at: Date.now()
+      };
+    }
     var nextChar = payload && payload.data ? payload.data : null;
     if(nextChar && nextChar.id){
       if(isDefaultAccountActive()){
@@ -2098,7 +2106,18 @@ function setWidgetCharacter(c){
   function applyWidgetSub(messages){
     var lastLine = '';
     try{
-      if(Array.isArray(messages) && messages.length){
+      var eventPreview = c && c.id ? widgetPreviewCache[c.id] : null;
+      if(eventPreview && eventPreview.content){
+        var eventType = normalizeChatPreviewType(eventPreview.type || 'text');
+        if(eventType === 'voice'){
+          var eventDuration = Math.max(1, Math.min(60, Math.ceil((eventPreview.content || '').length / 6)));
+          lastLine = '语音消息 ' + eventDuration + "''";
+        }else if(eventType === 'image'){
+          lastLine = '【图片】';
+        }else{
+          lastLine = eventPreview.content || '';
+        }
+      }else if(Array.isArray(messages) && messages.length){
         var lastMsg = pickLatestPreview(messages);
         var lastType = lastMsg.type;
         if(lastType === 'voice'){

@@ -110,6 +110,7 @@ var avatarAssetCache = {};
 var MOMENTS_POSTS_KEY = 'qq_moments_posts';
 var MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 var chatSummaryCache = {};
+var livePreviewCache = {};
 var momentsPostsCache = [];
 
 function accountScopedKey(base){
@@ -171,6 +172,9 @@ async function refreshChatCaches(){
           if(m && m.role === 'assistant' && !m.readAt) unread++;
         });
         next[c.id] = { last:last, unread: unread };
+        if(livePreviewCache[c.id]){
+          next[c.id].last = livePreviewCache[c.id];
+        }
       }catch(e){}
     }));
   }
@@ -257,6 +261,7 @@ function unpinChat(id){
   setPinnedChatIds(ids);
 }
 function lastMsgOf(c){
+  if(c && c.id && livePreviewCache[c.id]) return livePreviewCache[c.id];
   if(c && c.id && chatSummaryCache[c.id] && chatSummaryCache[c.id].last) return chatSummaryCache[c.id].last;
   try{
     var keys = [accountScopedKey('chat_'+c.id), 'chat_' + c.id];
@@ -639,9 +644,10 @@ window.addEventListener('message', async function(e){
   if(d.type==='CHAT_UPDATED'){
     var payload = d.payload || {};
     if(payload.id){
+      livePreviewCache[payload.id] = normalizePreviewMessage({ content: payload.last || '', type: payload.lastType || 'text' });
       var current = chatSummaryCache[payload.id] || { last:{ content:'', type:'text' }, unread:0 };
       chatSummaryCache[payload.id] = {
-        last: normalizePreviewMessage({ content: payload.last || '', type: payload.lastType || 'text' }),
+        last: livePreviewCache[payload.id],
         unread: Number(current.unread || 0) || 0
       };
       renderList();
