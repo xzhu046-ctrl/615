@@ -1510,17 +1510,8 @@ async function hydrateCharacterStorageState(){
 
   var chatHistory = Array.isArray(chatRec && chatRec.history) ? chatRec.history.map(normalizeChatEntry) : [];
   if(!chatHistory.length){
-    chatHistory = parseStoredChatHistory(localStorage.getItem(chatId));
-    if(chatHistory.length){
-      persistRecordToIndexedDb('chats', {
-        id: chatId,
-        charId: charId,
-        updatedAt: Date.now(),
-        history: chatHistory.map(compactChatEntryForStorage)
-      }).then(function(){
-        try{ localStorage.removeItem(chatId); }catch(e){}
-      });
-    }
+    var bestChatRecord = await loadBestChatHistoryRecord(charId);
+    chatHistory = Array.isArray(bestChatRecord && bestChatRecord.history) ? bestChatRecord.history.slice() : [];
   }
 
   var nextMemoryStore = normalizeMemorySummaryStore(memoryRec && memoryRec.data ? memoryRec.data : parseLegacyMemorySummaryStore(localStorage.getItem(memorySummaryKey())));
@@ -1984,6 +1975,59 @@ function getSharedCharacterId(){
 }
 function chatStorageKey(charId){
   return accountScopedKey('chat_' + charId);
+}
+function getAccountIdCandidates(){
+  var ids = [''];
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      var active = window.AccountManager.getActive();
+      var defaultId = window.AccountManager.getDefaultId ? window.AccountManager.getDefaultId() : '';
+      if(active && active.id) ids.push(String(active.id));
+      if(defaultId) ids.push(String(defaultId));
+      var accounts = window.AccountManager.loadAccounts ? window.AccountManager.loadAccounts() : [];
+      if(Array.isArray(accounts)){
+        accounts.forEach(function(account){
+          if(account && account.id) ids.push(String(account.id));
+        });
+      }
+    }
+  }catch(e){}
+  return Array.from(new Set(ids.filter(Boolean).concat([''])));
+}
+function getChatCharacterIdCandidates(charId){
+  var ids = [String(charId || '').trim()];
+  try{
+    var sharedId = getSharedCharacterId();
+    if(sharedId) ids.push(String(sharedId));
+  }catch(e){}
+  try{
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    var nameA = normalizeNameLite(character && (character.nickname || character.name || ''));
+    var nameB = normalizeNameLite(character && (character.name || ''));
+    if(Array.isArray(list) && (nameA || nameB)){
+      list.forEach(function(item){
+        if(!item || !item.id) return;
+        var itemName = normalizeNameLite(item.nickname || item.name || '');
+        if(itemName && (itemName === nameA || itemName === nameB)){
+          ids.push(String(item.id));
+        }
+      });
+    }
+  }catch(e){}
+  return Array.from(new Set(ids.filter(Boolean)));
+}
+function getChatStorageKeyCandidates(charId){
+  var keys = [];
+  var charIds = getChatCharacterIdCandidates(charId);
+  var accountIds = getAccountIdCandidates();
+  charIds.forEach(function(id){
+    keys.push('chat_' + id);
+    accountIds.forEach(function(accountId){
+      if(accountId) keys.push('chat_' + id + '__acct_' + accountId);
+    });
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
 }
 function memorySummaryStorageId(charId){
   return accountScopedKey('memory_summaries_' + String(charId || ''));
@@ -7303,16 +7347,83 @@ function historySortStamp(list){
   return { lastTs: lastTs, count: entries.length };
 }
 
+function chooseBetterChatHistory(best, next){
+  if(!next || !Array.isArray(next.history) || !next.history.length) return best;
+  if(!best || !Array.isArray(best.history) || !best.history.length) return next;
+  var bestStamp = historySortStamp(best.history);
+  var nextStamp = historySortStamp(next.history);
+  var bestUpdatedAt = Number(best.updatedAt || 0) || 0;
+  var nextUpdatedAt = Number(next.updatedAt || 0) || 0;
+  if(nextUpdatedAt > bestUpdatedAt) return next;
+  if(nextUpdatedAt === bestUpdatedAt && nextStamp.lastTs > bestStamp.lastTs) return next;
+  if(nextUpdatedAt === bestUpdatedAt && nextStamp.lastTs === bestStamp.lastTs && nextStamp.count > bestStamp.count) return next;
+  return best;
+}
+
+async function loadBestChatHistoryRecord(charId){
+  var candidates = getChatStorageKeyCandidates(charId);
+  var best = null;
+  for(var i = 0; i < candidates.length; i += 1){
+    var key = candidates[i];
+    try{
+      if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+        var stored = await window.PhoneStorage.get('chats', key);
+        var idbHistory = Array.isArray(stored && stored.history) ? stored.history.map(normalizeChatEntry) : [];
+        if(idbHistory.length){
+          best = chooseBetterChatHistory(best, {
+            key: key,
+            updatedAt: Number(stored && stored.updatedAt) || 0,
+            history: idbHistory
+          });
+        }
+      }
+    }catch(e){}
+    var localHistory = parseStoredChatHistory(localStorage.getItem(key));
+    if(localHistory.length){
+      best = chooseBetterChatHistory(best, {
+        key: key,
+        updatedAt: 0,
+        history: localHistory
+      });
+    }
+  }
+  if((!best || !best.history.length) && window.PhoneStorage && typeof window.PhoneStorage.list === 'function'){
+    try{
+      var allRecords = await window.PhoneStorage.list('chats');
+      var charIds = getChatCharacterIdCandidates(charId);
+      if(Array.isArray(allRecords)){
+        allRecords.forEach(function(record){
+          var recordKey = String((record && record.id) || '');
+          var recordCharId = String((record && record.charId) || '').trim();
+          var history = Array.isArray(record && record.history) ? record.history.map(normalizeChatEntry) : [];
+          if(!history.length) return;
+          if(candidates.indexOf(recordKey) === -1 && charIds.indexOf(recordCharId) === -1) return;
+          best = chooseBetterChatHistory(best, {
+            key: recordKey,
+            updatedAt: Number(record && record.updatedAt) || 0,
+            history: history
+          });
+        });
+      }
+    }catch(e){}
+  }
+  if(best && best.history && best.key && best.key !== chatStorageKey(charId)){
+    persistRecordToIndexedDb('chats', {
+      id: chatStorageKey(charId),
+      charId: String(charId || ''),
+      updatedAt: Date.now(),
+      history: best.history.map(compactChatEntryForStorage)
+    }).then(function(){
+      try{ localStorage.removeItem(chatStorageKey(charId)); }catch(e){}
+    }).catch(function(){});
+  }
+  return best;
+}
+
 async function loadPreferredStoredChatForCurrentCharacter(){
   if(!character || !character.id) return [];
-  var primary = [];
-  try{
-    if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
-      var stored = await window.PhoneStorage.get('chats', chatStorageKey(character.id));
-      primary = Array.isArray(stored && stored.history) ? stored.history.map(normalizeChatEntry) : [];
-    }
-  }catch(e){}
-  if(!primary.length) primary = parseStoredChatHistory(localStorage.getItem(chatStorageKey(character.id)));
+  var bestRecord = await loadBestChatHistoryRecord(character.id);
+  var primary = Array.isArray(bestRecord && bestRecord.history) ? bestRecord.history.slice() : [];
   var backup = [];
   try{
     var moneyState = moneyStateCache;

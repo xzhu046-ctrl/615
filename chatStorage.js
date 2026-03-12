@@ -107,6 +107,41 @@
     });
   }
 
+  function list(storeName){
+    if(!supportsIndexedDb()) return Promise.resolve([]);
+    return withStore(storeName, 'readonly', function(store){
+      return new Promise(function(resolve, reject){
+        var req = typeof store.getAll === 'function' ? store.getAll() : store.openCursor();
+        if(req && typeof req.onsuccess === 'undefined'){
+          resolve([]);
+          return;
+        }
+        if(typeof store.getAll === 'function'){
+          req.onsuccess = function(){ resolve(Array.isArray(req.result) ? req.result : []); };
+          req.onerror = function(event){
+            reject((event.target && event.target.error) || new Error('IndexedDB list failed'));
+          };
+          return;
+        }
+        var results = [];
+        req.onsuccess = function(event){
+          var cursor = event.target.result;
+          if(!cursor){
+            resolve(results);
+            return;
+          }
+          results.push(cursor.value);
+          cursor.continue();
+        };
+        req.onerror = function(event){
+          reject((event.target && event.target.error) || new Error('IndexedDB cursor failed'));
+        };
+      });
+    }).then(function(result){
+      return result && typeof result.then === 'function' ? result : result;
+    });
+  }
+
   function requestPersistentStorage(){
     if(!(global.navigator && global.navigator.storage && typeof global.navigator.storage.persist === 'function')){
       return Promise.resolve(false);
@@ -154,6 +189,7 @@
     get: get,
     put: put,
     remove: remove,
+    list: list,
     getJson: getJson,
     putJson: putJson,
     removeJson: removeJson,
