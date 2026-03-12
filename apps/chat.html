@@ -1964,7 +1964,7 @@ function getSharedCharacterId(){
   try{
     var did = window.AccountManager.getDefaultId() || '';
     if(!did) return currentId;
-    var list = getStoredCharactersSnapshot();
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
     if(!Array.isArray(list)) return currentId;
     var currentName = normalizeNameLite(character.nickname || character.name || '');
     var match = list.find(function(item){
@@ -2060,33 +2060,6 @@ function requestPersistentChatStorage(){
     return window.PhoneStorage.requestPersistentStorage();
   }
   return Promise.resolve(false);
-}
-
-function getStoredCharactersSnapshot(){
-  if(window.PhoneStorage && typeof window.PhoneStorage.peekCharacters === 'function'){
-    var cached = window.PhoneStorage.peekCharacters();
-    if(Array.isArray(cached)) return cached;
-  }
-  try{ return JSON.parse(localStorage.getItem('characters') || '[]'); }catch(e){ return []; }
-}
-
-function getStoredWorldbooksSnapshot(){
-  if(window.PhoneStorage && typeof window.PhoneStorage.peekWorldbooks === 'function'){
-    var cached = window.PhoneStorage.peekWorldbooks();
-    if(cached && typeof cached === 'object') return cached;
-  }
-  try{ return JSON.parse(localStorage.getItem('worldbooks') || '{}'); }catch(e){ return {}; }
-}
-
-function persistStoredCharacters(list){
-  if(window.PhoneStorage && typeof window.PhoneStorage.saveCharacters === 'function'){
-    return window.PhoneStorage.saveCharacters(Array.isArray(list) ? list : []).catch(function(err){
-      console.warn('save characters failed', err);
-      return Array.isArray(list) ? list : [];
-    });
-  }
-  try{ localStorage.setItem('characters', JSON.stringify(Array.isArray(list) ? list : [])); }catch(e){}
-  return Promise.resolve(Array.isArray(list) ? list : []);
 }
 
 function loadJsonFromLargeStore(id){
@@ -3567,7 +3540,7 @@ function userKey(base){
 function ensureMsgRange(){
   if(!character) return;
   try{
-    var list = getStoredCharactersSnapshot();
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
     var rec = list.find(function(c){ return c.id === character.id; });
     var src = rec || character;
     character.msgMin = Number(src.msgMin) || 1;
@@ -3703,10 +3676,6 @@ function confirmFriendRequestFlow(){
 // ════════════════════════════════════════════
 async function init() {
   tightenParentTopbarForChat();
-  try{
-    if(window.PhoneStorage && typeof window.PhoneStorage.getCharacters === 'function') await window.PhoneStorage.getCharacters();
-    if(window.PhoneStorage && typeof window.PhoneStorage.getWorldbooks === 'function') await window.PhoneStorage.getWorldbooks();
-  }catch(err){}
   // 1. Try pendingChatChar (set when user clicks "Chat" in characters app)
   var pending = localStorage.getItem('pendingChatChar');
   if (pending) {
@@ -3923,7 +3892,8 @@ function isWbEntryEnabled(entry){
 
 function getApplicableWorldBooks() {
   if (!character) return [];
-  var allWbs = getStoredWorldbooksSnapshot();
+  var allWbs = {};
+  try { allWbs = JSON.parse(localStorage.getItem('worldbooks') || '{}'); } catch(e) { allWbs = {}; }
   var savedStates = getSavedWbBookStates();
   var sharedCharId = getSharedCharacterId();
   var books = [];
@@ -7938,7 +7908,7 @@ function saveChatSettings() {
 function persistCharacter(){
   if(!character) return;
   try{
-    var list = getStoredCharactersSnapshot();
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
     var activeAcctId = '';
     try{ if(window.AccountManager) activeAcctId = (window.AccountManager.getActive()||{}).id || ''; }catch(err){}
     var idx = list.findIndex(function(c){
@@ -7946,7 +7916,7 @@ function persistCharacter(){
       if(!activeAcctId) return true;
       return c.ownerAccountId === activeAcctId;
     });
-    if(idx >= 0){ list[idx] = character; persistStoredCharacters(list); }
+    if(idx >= 0){ list[idx] = character; localStorage.setItem('characters', JSON.stringify(list)); }
     var slim = compactChar(character);
     if(slim && isDefaultAccountContext()) localStorage.setItem('activeCharacter', JSON.stringify(slim));
     if(slim) localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim));

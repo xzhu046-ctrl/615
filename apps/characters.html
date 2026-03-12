@@ -102,7 +102,6 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
 </style>
 <script src="../assetStore.js"></script>
 <script src="../accountManager.js"></script>
-<script src="../chatStorage.js"></script>
 </head>
 <body>
 
@@ -393,55 +392,9 @@ function slimChar(c){
   };
 }
 
-function getStoredCharactersSnapshot(){
-  if(window.PhoneStorage && typeof window.PhoneStorage.peekCharacters === 'function'){
-    var cached = window.PhoneStorage.peekCharacters();
-    if(Array.isArray(cached)) return cached;
-  }
-  try { return JSON.parse(localStorage.getItem('characters') || '[]'); } catch(e){ return []; }
-}
-
-function getStoredWorldbooksSnapshot(){
-  if(window.PhoneStorage && typeof window.PhoneStorage.peekWorldbooks === 'function'){
-    var cached = window.PhoneStorage.peekWorldbooks();
-    if(cached && typeof cached === 'object') return cached;
-  }
-  try { return JSON.parse(localStorage.getItem('worldbooks') || '{}'); } catch(e){ return {}; }
-}
-
-function persistCharacters(list){
-  chars = Array.isArray(list) ? list : [];
-  if(window.PhoneStorage && typeof window.PhoneStorage.saveCharacters === 'function'){
-    return window.PhoneStorage.saveCharacters(chars).catch(function(err){
-      console.warn('save characters failed', err);
-      return chars;
-    });
-  }
-  try{ localStorage.setItem('characters', JSON.stringify(chars)); }catch(e){}
-  return Promise.resolve(chars);
-}
-
-function persistWorldbooks(map){
-  if(window.PhoneStorage && typeof window.PhoneStorage.saveWorldbooks === 'function'){
-    return window.PhoneStorage.saveWorldbooks(map || {}).catch(function(err){
-      console.warn('save worldbooks failed', err);
-      return map || {};
-    });
-  }
-  try{ localStorage.setItem('worldbooks', JSON.stringify(map || {})); }catch(e){}
-  return Promise.resolve(map || {});
-}
-
 // ── Storage ──
-async function load() {
-  if(window.PhoneStorage && typeof window.PhoneStorage.getCharacters === 'function'){
-    try { chars = await window.PhoneStorage.getCharacters(); } catch(e){ chars=[]; }
-  }else{
-    try { chars = JSON.parse(localStorage.getItem('characters') || '[]'); } catch(e){ chars=[]; }
-  }
-  try{
-    if(window.PhoneStorage && typeof window.PhoneStorage.getWorldbooks === 'function') await window.PhoneStorage.getWorldbooks();
-  }catch(e){}
+function load() {
+  try { chars = JSON.parse(localStorage.getItem('characters') || '[]'); } catch(e){ chars=[]; }
   if(window.AccountManager){
     var active = window.AccountManager.getActive();
     var defaultId = window.AccountManager.getDefaultId();
@@ -455,7 +408,7 @@ async function load() {
       return c;
     });
     if(changed){
-      await persistCharacters(chars);
+      try{ localStorage.setItem('characters', JSON.stringify(chars)); }catch(err){}
     }
   }
   try { var a = JSON.parse(localStorage.getItem('activeCharacter')||'null'); if(a) activeCharId=a.id||''; } catch(e){}
@@ -466,10 +419,6 @@ function safeSet(key, val) {
   catch(e) { console.warn('localStorage set failed for', key, e); return false; }
 }
 function saveCharsWithFallback(lastCard) {
-  if (window.PhoneStorage && typeof window.PhoneStorage.saveCharacters === 'function') {
-    window.PhoneStorage.saveCharacters(chars).catch(function(err){ console.warn('save characters failed', err); });
-    return true;
-  }
   if (safeSet('characters', JSON.stringify(chars))) return true;
   // Fallback 1: drop large fields on the newest card then retry
   var changed = false;
@@ -593,7 +542,7 @@ function openDetail(c) {
   // World book info
   var wbHtml = '暂无世界书数据';
   try {
-    var wbs = getStoredWorldbooksSnapshot();
+    var wbs = JSON.parse(localStorage.getItem('worldbooks')||'{}');
     var cWbs = wbs[c.id]||[];
     var globalTotal = Object.keys(wbs || {}).reduce(function(n, key) {
       return n + (wbs[key] || []).reduce(function(sum, wb) {
@@ -1166,7 +1115,8 @@ function parseCard(jsonStr, imageData, filename) {
 // ── Auto-import world book from card ──
 function autoImportWorldBook(card, charBook) {
   try {
-    var allWbs = getStoredWorldbooksSnapshot();
+    var allWbs = {};
+    try { allWbs = JSON.parse(localStorage.getItem('worldbooks')||'{}'); } catch(e){}
     if (!allWbs[card.id]) allWbs[card.id] = [];
 
     // Don't re-import if already exists
@@ -1206,10 +1156,9 @@ function autoImportWorldBook(card, charBook) {
         global: false,
         entries: trimmed
       });
-      persistWorldbooks(allWbs).catch(function(err){
-        console.warn('save worldbooks failed', err);
-        log('世界书导入失败：保存异常');
-      });
+      if (!safeSet('worldbooks', JSON.stringify(allWbs))) {
+        log('世界书太大，未全部导入（存储超限）');
+      }
     }
   } catch(e) {
     console.warn('autoImportWorldBook error', e);
@@ -1274,14 +1223,7 @@ document.addEventListener('input', function(e){
   try{ target.setSelectionRange(start, end); }catch(err){}
 }, true);
 
-load().then(function(){
-  hydrateAvatarAssets();
-  renderList();
-}).catch(function(err){
-  console.error('load characters failed', err);
-  hydrateAvatarAssets();
-  renderList();
-});
+load(); hydrateAvatarAssets(); renderList();
 </script>
 </body>
 </html>

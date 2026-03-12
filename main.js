@@ -40,26 +40,6 @@ function saveLargeState(id, data){
   return Promise.resolve(data || null);
 }
 
-function getStoredCharactersSnapshot(){
-  if(window.PhoneStorage && typeof window.PhoneStorage.peekCharacters === 'function'){
-    var cached = window.PhoneStorage.peekCharacters();
-    if(Array.isArray(cached)) return cached;
-  }
-  try{
-    var parsed = JSON.parse(localStorage.getItem('characters') || '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  }catch(e){
-    return [];
-  }
-}
-
-async function getStoredCharacters(){
-  if(window.PhoneStorage && typeof window.PhoneStorage.getCharacters === 'function'){
-    try{ return await window.PhoneStorage.getCharacters(); }catch(e){}
-  }
-  return getStoredCharactersSnapshot();
-}
-
 function requestPersistentStorageIfPossible(){
   if(persistentStorageRequestStarted) return;
   persistentStorageRequestStarted = true;
@@ -331,10 +311,14 @@ function getActiveAccountId(){
   return getDefaultAccountId();
 }
 
-async function getBackgroundCharacter(){
+function getBackgroundCharacter(){
   var defaultId = getDefaultAccountId();
   if(!defaultId) return null;
-  var chars = await getStoredCharacters();
+  var chars = [];
+  try{
+    chars = JSON.parse(localStorage.getItem('characters') || '[]');
+    if(!Array.isArray(chars)) chars = [];
+  }catch(e){ chars = []; }
   chars.forEach(function(c){
     if(c && !c.ownerAccountId) c.ownerAccountId = defaultId;
   });
@@ -732,7 +716,7 @@ async function runAiBackgroundActivity(){
   if(!enabled) return false;
   var defaultId = getDefaultAccountId();
   if(!defaultId) return false;
-  var character = await getBackgroundCharacter();
+  var character = getBackgroundCharacter();
   if(!character || !character.id) return false;
   var cfg = getBackgroundProviderConfig();
   if(!cfg) return false;
@@ -2057,7 +2041,11 @@ function getQqUnreadCountForActive(){
       activeId = (active && active.id) || '';
     }
   }catch(e){}
-  var chars = getStoredCharactersSnapshot();
+  var chars = [];
+  try{
+    chars = JSON.parse(localStorage.getItem('characters') || '[]');
+    if(!Array.isArray(chars)) chars = [];
+  }catch(e){ chars = []; }
   var defaultId = '';
   try{ defaultId = window.AccountManager ? (window.AccountManager.getDefaultId() || '') : ''; }catch(e){ defaultId = ''; }
   chars = chars.map(function(c){

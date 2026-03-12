@@ -6,12 +6,6 @@
   var STORE_NAMES = ['chats', 'moneyStates', 'memorySummaries', 'innerVoices', 'callRecords', 'kv'];
   var dbPromise = null;
   var writeQueue = Promise.resolve();
-  var cache = {
-    characters: null,
-    worldbooks: null
-  };
-  var CHARACTERS_KEY = 'characters_v1';
-  var WORLDBOOKS_KEY = 'worldbooks_v1';
 
   function supportsIndexedDb(){
     return !!(global && global.indexedDB);
@@ -135,14 +129,6 @@
       });
   }
 
-  function cloneData(value, fallback){
-    try{
-      return JSON.parse(JSON.stringify(value));
-    }catch(e){
-      return fallback;
-    }
-  }
-
   function getJson(id){
     return get('kv', id).then(function(record){
       return record && Object.prototype.hasOwnProperty.call(record, 'data') ? record.data : null;
@@ -163,88 +149,6 @@
     return remove('kv', id);
   }
 
-  function loadCharactersFromLegacy(){
-    try{
-      var parsed = JSON.parse(global.localStorage.getItem('characters') || '[]');
-      return Array.isArray(parsed) ? parsed : [];
-    }catch(e){
-      return [];
-    }
-  }
-
-  function loadWorldbooksFromLegacy(){
-    try{
-      var parsed = JSON.parse(global.localStorage.getItem('worldbooks') || '{}');
-      return parsed && typeof parsed === 'object' ? parsed : {};
-    }catch(e){
-      return {};
-    }
-  }
-
-  function getCharacters(){
-    if(Array.isArray(cache.characters)) return Promise.resolve(cloneData(cache.characters, []));
-    return getJson(CHARACTERS_KEY).then(function(data){
-      if(Array.isArray(data)){
-        cache.characters = cloneData(data, []);
-        try{ global.localStorage.removeItem('characters'); }catch(e){}
-        return cloneData(cache.characters, []);
-      }
-      var legacy = loadCharactersFromLegacy();
-      cache.characters = cloneData(legacy, []);
-      if(legacy.length){
-        putJson(CHARACTERS_KEY, legacy).then(function(){
-          try{ global.localStorage.removeItem('characters'); }catch(e){}
-        }).catch(function(){});
-      }
-      return cloneData(cache.characters, []);
-    });
-  }
-
-  function saveCharacters(list){
-    var next = Array.isArray(list) ? list : [];
-    cache.characters = cloneData(next, []);
-    return putJson(CHARACTERS_KEY, next).then(function(){
-      try{ global.localStorage.removeItem('characters'); }catch(e){}
-      return cloneData(cache.characters, []);
-    });
-  }
-
-  function peekCharacters(){
-    return Array.isArray(cache.characters) ? cloneData(cache.characters, []) : null;
-  }
-
-  function getWorldbooks(){
-    if(cache.worldbooks && typeof cache.worldbooks === 'object') return Promise.resolve(cloneData(cache.worldbooks, {}));
-    return getJson(WORLDBOOKS_KEY).then(function(data){
-      if(data && typeof data === 'object' && !Array.isArray(data)){
-        cache.worldbooks = cloneData(data, {});
-        try{ global.localStorage.removeItem('worldbooks'); }catch(e){}
-        return cloneData(cache.worldbooks, {});
-      }
-      var legacy = loadWorldbooksFromLegacy();
-      cache.worldbooks = cloneData(legacy, {});
-      if(Object.keys(legacy).length){
-        putJson(WORLDBOOKS_KEY, legacy).then(function(){
-          try{ global.localStorage.removeItem('worldbooks'); }catch(e){}
-        }).catch(function(){});
-      }
-      return cloneData(cache.worldbooks, {});
-    });
-  }
-
-  function saveWorldbooks(map){
-    var next = map && typeof map === 'object' ? map : {};
-    cache.worldbooks = cloneData(next, {});
-    return putJson(WORLDBOOKS_KEY, next).then(function(){
-      try{ global.localStorage.removeItem('worldbooks'); }catch(e){}
-      return cloneData(cache.worldbooks, {});
-    });
-  }
-
-  function peekWorldbooks(){
-    return cache.worldbooks && typeof cache.worldbooks === 'object' ? cloneData(cache.worldbooks, {}) : null;
-  }
-
   global.PhoneStorage = {
     supportsIndexedDb: supportsIndexedDb,
     get: get,
@@ -253,12 +157,6 @@
     getJson: getJson,
     putJson: putJson,
     removeJson: removeJson,
-    getCharacters: getCharacters,
-    saveCharacters: saveCharacters,
-    peekCharacters: peekCharacters,
-    getWorldbooks: getWorldbooks,
-    saveWorldbooks: saveWorldbooks,
-    peekWorldbooks: peekWorldbooks,
     requestPersistentStorage: requestPersistentStorage
   };
 })(window);
