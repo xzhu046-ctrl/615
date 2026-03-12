@@ -1127,6 +1127,7 @@ var LONG_PRESS_MS = 420;
 var replyTargetId = null;
 var pendingFamilyFollowupCue = '';
 var pendingModelUserCue = '';
+var pendingMoneyDecisionReplyId = '';
 var IMAGE_SNIPPET = '【图片】';
 var IMAGE_BUBBLE_URL = 'https://files.catbox.moe/6ruu03.jpeg';
 var MOMENTS_POSTS_KEY = 'qq_moments_posts';
@@ -4259,13 +4260,8 @@ async function triggerReply() {
     pendingModelUserCue = '';
     return;
   }
-  var moneyReplyId = await handlePendingMoneyPacketReply(true);
-  if(moneyReplyId){
-    pendingMomentsChatCue = '';
-    pendingFamilyFollowupCue = '';
-    pendingModelUserCue = '';
-    return;
-  }
+  var moneyReplyResult = await handlePendingMoneyPacketReply(true);
+  var moneyReplyId = moneyReplyResult && moneyReplyResult.replyId ? moneyReplyResult.replyId : '';
 
   // Now get AI reply
   var provider = localStorage.getItem('provider') || 'openai';
@@ -4278,8 +4274,10 @@ async function triggerReply() {
   pendingMomentsChatCue = processMomentsInteractionsOnTrigger();
   pendingModelUserCue = familyReplyId
     ? '你刚刚已经对亲属卡作出决定。现在请紧接着上一条亲属卡回复之后，继续发送一条自然的正文消息。不要重复卡片结论，不要输出 JSON。'
-    : '';
-  transientHiddenModelMsgIds = [];
+    : (moneyReplyId
+      ? '你刚刚已经对红包或转账作出决定。现在请紧接着上一条决定卡之后，继续发送一条自然的正文消息。不要重复卡片结论，不要输出 JSON，不要再做一次收钱决定。'
+      : '');
+  transientHiddenModelMsgIds = moneyReplyId ? [String(moneyReplyId)] : [];
 
   isTyping = true;
   document.getElementById('genBtn').disabled = true;
@@ -4288,9 +4286,16 @@ async function triggerReply() {
 
   try {
     var reply = await callAI(provider, key);
+    if(moneyReplyId){
+      appendMoneyDebugLog('main_ai_after_money', {
+        moneyReplyId: moneyReplyId,
+        raw: String(reply || '').slice(0, 220)
+      });
+    }
     hideTyping();
     await deliverAiReply(reply);
     saveChat();
+    if(moneyReplyId) saveMoneyReplySnapshot('post_main_ai');
     pendingMomentsChatCue = '';
   } catch(err) {
     hideTyping();
@@ -4301,6 +4306,7 @@ async function triggerReply() {
     transientHiddenModelMsgIds = [];
     pendingFamilyFollowupCue = '';
     pendingModelUserCue = '';
+    pendingMoneyDecisionReplyId = '';
   }
 
   isTyping = false;
@@ -4674,6 +4680,7 @@ async function processPendingFamilyAutoReply(){
     transientHiddenModelMsgIds = [];
     pendingFamilyFollowupCue = '';
     pendingModelUserCue = '';
+    pendingMoneyDecisionReplyId = '';
     isTyping = false;
     document.getElementById('genBtn').disabled = false;
     document.getElementById('sendBtn').disabled = false;
@@ -5883,46 +5890,6 @@ async function generateMoneyFollowupFallback(payload, accept){
   }
 }
 
-async function generateMoneyFollowupViaMainChat(payload, accept, hiddenCueId, hiddenDecisionId){
-  var provider = localStorage.getItem('provider') || 'openai';
-  var key = localStorage.getItem('key_' + provider);
-  if(!key) return [];
-  pendingModelUserCue = '你刚刚已经对红包或转账作出决定。现在请紧接着上一条决定卡之后，继续发送一条自然的正文消息。不要重复卡片结论，不要输出 JSON，不要再做一次收钱决定。';
-  transientHiddenModelMsgIds = [String(hiddenDecisionId || '')].filter(Boolean);
-  try{
-    var raw = await Promise.race([
-      callAI(provider, key),
-      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
-    ]);
-    appendMoneyDebugLog('main_followup_raw', {
-      raw: String(raw || '').slice(0, 220),
-      hiddenCueId: hiddenCueId || '',
-      hiddenDecisionId: hiddenDecisionId || ''
-    });
-    return parseMoneyFollowupReplies(raw, accept);
-  }catch(e){
-    appendMoneyDebugLog('main_followup_error', { message: e && e.message ? e.message : String(e || '') });
-    return [];
-  }finally{
-    transientHiddenModelMsgIds = [];
-    pendingModelUserCue = '';
-  }
-}
-
-async function ensureMoneyFollowups(payload, accept, initialReplies, hiddenCueId, hiddenDecisionId){
-  var followups = sanitizeFamilyFollowups(initialReplies || [], accept, payload);
-  if(followups.length) return followups;
-  for(var i = 0; i < 3; i++){
-    followups = sanitizeFamilyFollowups(await composeMoneyFollowupOnly(payload, accept), accept, payload);
-    if(followups.length) return followups;
-  }
-  followups = sanitizeFamilyFollowups(await generateMoneyFollowupViaMainChat(payload, accept, hiddenCueId, hiddenDecisionId), accept, payload);
-  if(followups.length) return followups;
-  followups = sanitizeFamilyFollowups(await generateMoneyFollowupFallback(payload, accept), accept, payload);
-  if(followups.length) return followups;
-  return [{ type:'text', content: finalMoneyFollowupText(payload, accept) }];
-}
-
 async function handlePendingMoneyPacketReply(showLoading){
   if(!character || moneyReplyBusy) return false;
   moneyReplyBusy = true;
@@ -5974,18 +5941,7 @@ async function handlePendingMoneyPacketReply(showLoading){
         relatedId: pendingEntry.id
       });
     }
-    var followups = await ensureMoneyFollowups(pending, accept, [], hiddenSystemCue.id, decisionEntry.id);
-    appendMoneyDebugLog('followups_ready', {
-      count: followups.length,
-      preview: followups.map(function(item){ return String((item && item.content) || '').slice(0, 80); })
-    });
-    var followupIds = [];
-    if(followups.length){
-      followupIds = await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
-      saveMoneyReplySnapshot('followups_delivered');
-    }else{
-      refreshInnerVoiceFromAi(decisionPayload.summary);
-    }
+    pendingMoneyDecisionReplyId = decisionEntry.id;
     lastMoneyReplyRound = {
       requestId: pendingEntry.id,
       previousStatus: previousStatus,
@@ -5993,7 +5949,8 @@ async function handlePendingMoneyPacketReply(showLoading){
       amount: Number(pending.amount || 0) || 0,
       mode: String(pending.mode || 'red_packet'),
       refundApplied: !accept,
-      assistantIds: [decisionEntry.id].concat(followupIds || [])
+      assistantIds: [decisionEntry.id],
+      hiddenCueId: hiddenSystemCue.id
     };
     appendMoneyDebugLog('money_reply_done', {
       count: chatLog.length,
@@ -6002,7 +5959,11 @@ async function handlePendingMoneyPacketReply(showLoading){
     });
     saveChat(true);
     saveMoneyReplySnapshot('money_reply_done');
-    return decisionEntry.id;
+    return {
+      replyId: decisionEntry.id,
+      hiddenCueId: hiddenSystemCue.id,
+      accept: accept
+    };
   } finally {
     if(showLoading){
       hideTyping();
@@ -6716,6 +6677,7 @@ function clearChatData(opts){
   editingDraft = '';
   replyTargetId = null;
   pendingFamilyFollowupCue = '';
+  pendingMoneyDecisionReplyId = '';
   chatLog = [];
   if (character) localStorage.removeItem(chatStorageKey(character.id));
   if (character && character.id) removeFamilyBindingsForChar(character.id);
