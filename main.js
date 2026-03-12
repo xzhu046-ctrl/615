@@ -1310,6 +1310,36 @@ function getChatUserAvatar(charId){
 function getStoredChatMessages(charId){
   if(!charId) return [];
   try{
+    function normalizeStoredMessage(entry){
+      if(Array.isArray(entry)){
+        return {
+          id: String(entry[0] || ''),
+          role: String(entry[1] || 'assistant'),
+          type: normalizeChatPreviewType(entry[2] || 'text'),
+          content: typeof entry[3] === 'string' ? entry[3] : String(entry[3] || ''),
+          sentAt: Number(entry[4] || 0) || 0,
+          readAt: Number(entry[5] || 0) || 0,
+          replyToId: entry[6] ? String(entry[6]) : null,
+          hidden: !!entry[7]
+        };
+      }
+      if(entry && typeof entry === 'object'){
+        return {
+          id: String(entry.id || ''),
+          role: String(entry.role || 'assistant'),
+          type: normalizeChatPreviewType(entry.type || 'text'),
+          content: typeof entry.content === 'string' ? entry.content : String(entry.content || ''),
+          sentAt: Number(entry.sentAt || 0) || 0,
+          readAt: Number(entry.readAt || 0) || 0,
+          replyToId: entry.replyToId ? String(entry.replyToId) : null,
+          hidden: !!entry.hidden
+        };
+      }
+      return null;
+    }
+    function normalizeStoredHistory(list){
+      return (Array.isArray(list) ? list : []).map(normalizeStoredMessage).filter(Boolean);
+    }
     var scoped = scopedKeyForAccount('chat_' + charId, getActiveAccountId());
     var candidates = [
       localStorage.getItem(scoped) || '',
@@ -1347,7 +1377,7 @@ function getStoredChatMessages(charId){
       if(!raw) return;
       try{
         var parsed = JSON.parse(raw);
-        var list = (parsed && (parsed.history || parsed.messages)) || [];
+        var list = normalizeStoredHistory((parsed && (parsed.history || parsed.messages)) || []);
         if(Array.isArray(list) && list.length){
           best = chooseBetter(best, {
             history: list,
@@ -1368,7 +1398,21 @@ async function getStoredChatMessagesAsync(charId){
     try{
       var scoped = scopedKeyForAccount('chat_' + charId, getActiveAccountId());
       var record = await window.PhoneStorage.get('chats', scoped);
-      var history = Array.isArray(record && record.history) ? record.history : [];
+      var history = Array.isArray(record && record.history) ? record.history.map(function(entry){
+        if(Array.isArray(entry)){
+          return {
+            id: String(entry[0] || ''),
+            role: String(entry[1] || 'assistant'),
+            type: normalizeChatPreviewType(entry[2] || 'text'),
+            content: typeof entry[3] === 'string' ? entry[3] : String(entry[3] || ''),
+            sentAt: Number(entry[4] || 0) || 0,
+            readAt: Number(entry[5] || 0) || 0,
+            replyToId: entry[6] ? String(entry[6]) : null,
+            hidden: !!entry[7]
+          };
+        }
+        return entry && typeof entry === 'object' ? entry : null;
+      }).filter(Boolean) : [];
       if(history.length){
         var localLastTs = 0;
         localList.forEach(function(entry){

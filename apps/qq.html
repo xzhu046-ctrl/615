@@ -121,6 +121,38 @@ function accountScopedKey(base){
   return base;
 }
 
+function normalizeStoredChatMessage(entry){
+  if(Array.isArray(entry)){
+    return {
+      id: String(entry[0] || ''),
+      role: String(entry[1] || 'assistant'),
+      type: normalizeChatPreviewType(entry[2] || 'text'),
+      content: typeof entry[3] === 'string' ? entry[3] : String(entry[3] || ''),
+      sentAt: Number(entry[4] || 0) || 0,
+      readAt: Number(entry[5] || 0) || 0,
+      replyToId: entry[6] ? String(entry[6]) : null,
+      hidden: !!entry[7]
+    };
+  }
+  if(entry && typeof entry === 'object'){
+    return {
+      id: String(entry.id || ''),
+      role: String(entry.role || 'assistant'),
+      type: normalizeChatPreviewType(entry.type || 'text'),
+      content: typeof entry.content === 'string' ? entry.content : String(entry.content || ''),
+      sentAt: Number(entry.sentAt || 0) || 0,
+      readAt: Number(entry.readAt || 0) || 0,
+      replyToId: entry.replyToId ? String(entry.replyToId) : null,
+      hidden: !!entry.hidden
+    };
+  }
+  return null;
+}
+
+function normalizeStoredChatHistory(list){
+  return (Array.isArray(list) ? list : []).map(normalizeStoredChatMessage).filter(Boolean);
+}
+
 function loadStoredAsset(key){
   if(window.assetStore) return window.assetStore.load(key);
   try{ return Promise.resolve(localStorage.getItem(key) || ''); }catch(e){ return Promise.resolve(''); }
@@ -161,7 +193,7 @@ async function refreshChatCaches(){
       if(!c || !c.id) return;
       try{
         var saved = await window.PhoneStorage.get('chats', accountScopedKey('chat_' + c.id));
-        var msgs = saved && Array.isArray(saved.history) ? saved.history : [];
+        var msgs = normalizeStoredChatHistory(saved && Array.isArray(saved.history) ? saved.history : []);
         var last = {content:c.description||'', type:'text'};
         var previewSource = getLastVisiblePreviewMessage(msgs);
         if(previewSource){
@@ -273,7 +305,7 @@ function lastMsgOf(c){
     keys.forEach(function(k){
       try{
         var saved = JSON.parse(localStorage.getItem(k) || 'null');
-        var msgs = (saved && (saved.messages || saved.history)) || [];
+        var msgs = normalizeStoredChatHistory((saved && (saved.messages || saved.history)) || []);
         best = chooseBetterHistoryList(best, msgs);
       }catch(err){}
     });
@@ -287,7 +319,7 @@ function unreadCountOf(c){
   if(c && c.id && chatSummaryCache[c.id]) return Number(chatSummaryCache[c.id].unread || 0) || 0;
   try{
     var saved = JSON.parse(localStorage.getItem(accountScopedKey('chat_' + c.id)) || 'null');
-    var msgs = (saved && (saved.messages || saved.history)) || [];
+    var msgs = normalizeStoredChatHistory((saved && (saved.messages || saved.history)) || []);
     if(!Array.isArray(msgs)) return 0;
     var count = 0;
     msgs.forEach(function(m){
