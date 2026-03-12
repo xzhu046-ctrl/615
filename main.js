@@ -1659,6 +1659,13 @@ function closeApp() {
   try{
     const f = document.getElementById('app-iframe');
     if(f && f.contentWindow){
+      try{
+        if(typeof f.contentWindow.persistChatBeforeLeave === 'function'){
+          f.contentWindow.persistChatBeforeLeave();
+        }else if(typeof f.contentWindow.saveChat === 'function'){
+          f.contentWindow.saveChat(true);
+        }
+      }catch(err){}
       f.contentWindow.postMessage({ type:'APP_CLOSING' }, '*');
     }
   }catch(e){}
