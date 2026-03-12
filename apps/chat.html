@@ -4285,17 +4285,20 @@ async function triggerReply() {
   showTyping();
 
   try {
+    var preMainAiCount = chatLog.length;
     var reply = await callAI(provider, key);
     if(moneyReplyId){
       appendMoneyDebugLog('main_ai_after_money', {
         moneyReplyId: moneyReplyId,
-        raw: String(reply || '').slice(0, 220)
+        raw: String(reply || '').slice(0, 220),
+        preMainAiCount: preMainAiCount
       });
     }
     hideTyping();
     await deliverAiReply(reply);
     saveChat();
     if(moneyReplyId) saveMoneyReplySnapshot('post_main_ai');
+    if(moneyReplyId) await ensureMoneyFollowupDeliveredAfterMainAi(moneyReplyId);
     pendingMomentsChatCue = '';
   } catch(err) {
     hideTyping();
@@ -5895,6 +5898,34 @@ async function generateMoneyFollowupFallback(payload, accept){
   }catch(e){
     return [];
   }
+}
+
+async function ensureMoneyFollowupDeliveredAfterMainAi(decisionReplyId){
+  if(!decisionReplyId || !lastMoneyReplyRound || !lastMoneyReplyRound.requestId) return false;
+  var idx = chatLog.findIndex(function(item){ return item && String(item.id || '') === String(decisionReplyId); });
+  if(idx < 0) return false;
+  var hasVisibleAssistantAfterDecision = chatLog.slice(idx + 1).some(function(item){
+    return item && !item.hidden && item.role === 'assistant' && normalizeMessageType(item.type || 'text') !== 'moneypacket';
+  });
+  if(hasVisibleAssistantAfterDecision) return false;
+  var requestEntry = getMessageById(lastMoneyReplyRound.requestId);
+  var payload = parseMoneyPacketPayload(requestEntry ? requestEntry.content : null) || {};
+  var accept = !!lastMoneyReplyRound.accepted;
+  var followups = sanitizeFamilyFollowups(await generateMoneyFollowupFallback(payload, accept), accept, payload);
+  if(!followups.length){
+    followups = [{ type:'text', content: finalMoneyFollowupText(payload, accept) }];
+  }
+  appendMoneyDebugLog('main_ai_missing_followup', {
+    decisionReplyId: String(decisionReplyId || ''),
+    generated: followups.map(function(item){ return String((item && item.content) || '').slice(0, 80); })
+  });
+  var extraIds = await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
+  if(Array.isArray(lastMoneyReplyRound.assistantIds)){
+    lastMoneyReplyRound.assistantIds = lastMoneyReplyRound.assistantIds.concat(extraIds || []);
+  }
+  saveChat(true);
+  saveMoneyReplySnapshot('post_money_followup_fallback');
+  return true;
 }
 
 async function handlePendingMoneyPacketReply(showLoading){
