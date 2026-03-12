@@ -1246,16 +1246,18 @@ function openPlaceholderMiniApp(idx){
 
 function getActiveCharacterData(){
   try{
-    var globalActive = JSON.parse(localStorage.getItem('activeCharacter') || 'null');
-    if(globalActive && globalActive.id) return globalActive;
+    var scoped = scopedKeyForAccount('activeCharacter', getActiveAccountId());
+    var scopedActive = JSON.parse(localStorage.getItem(scoped) || 'null');
+    if(scopedActive && scopedActive.id) return scopedActive;
   }catch(e){
   }
   try{
-    var scoped = scopedKeyForAccount('activeCharacter', getActiveAccountId());
-    return JSON.parse(localStorage.getItem(scoped) || 'null');
+    var globalActive = JSON.parse(localStorage.getItem('activeCharacter') || 'null');
+    if(globalActive && globalActive.id) return globalActive;
   }catch(e){
     return null;
   }
+  return null;
 }
 
 function getChatUserName(charId){
@@ -1320,6 +1322,19 @@ function getStoredChatMessages(charId){
   }catch(e){
     return [];
   }
+}
+
+async function getStoredChatMessagesAsync(charId){
+  var localList = getStoredChatMessages(charId);
+  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function' && charId){
+    try{
+      var scoped = scopedKeyForAccount('chat_' + charId, getActiveAccountId());
+      var record = await window.PhoneStorage.get('chats', scoped);
+      var history = Array.isArray(record && record.history) ? record.history : [];
+      if(history.length >= localList.length) return history;
+    }catch(e){}
+  }
+  return localList;
 }
 
 function renderBondWidget(character){
@@ -1744,7 +1759,7 @@ function closeApp() {
   document.getElementById('app-container').classList.remove('open');
   document.getElementById('home-screen').classList.remove('hidden');
   try{
-    const c = JSON.parse(localStorage.getItem('activeCharacter') || 'null');
+    const c = getActiveCharacterData();
     if(c) setWidgetCharacter(c);
     renderBondWidget(c);
   }catch(e){
@@ -1764,9 +1779,25 @@ function handleBack(){
 
 function goHome(){ closeApp(); }
 
-function formatEphone(){
-  try{ localStorage.clear(); sessionStorage.clear(); }catch(e){}
-  try{ if(window.assetStore && typeof window.assetStore.clearAll === 'function') window.assetStore.clearAll(); }catch(e){}
+async function clearPersistedPhoneData(){
+  try{ localStorage.clear(); }catch(e){}
+  try{ sessionStorage.clear(); }catch(e){}
+  try{
+    if(window.PhoneStorage && typeof window.PhoneStorage.deleteDatabase === 'function'){
+      await window.PhoneStorage.deleteDatabase();
+    }else if(window.PhoneStorage && typeof window.PhoneStorage.clearAll === 'function'){
+      await window.PhoneStorage.clearAll();
+    }
+  }catch(e){}
+  try{
+    if(window.assetStore && typeof window.assetStore.clearAll === 'function'){
+      await window.assetStore.clearAll();
+    }
+  }catch(e){}
+}
+
+async function formatEphone(){
+  await clearPersistedPhoneData();
   // Reset UI
   closeApp();
   applyPhoneFrameVisibility(getDefaultPhoneFrameVisibility(), false);
@@ -1860,6 +1891,7 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='CHAT_UPDATED'){
     // Always sync to the latest chatted character/widget state.
+    delete qqUnreadCountCache[getActiveAccountId()];
     var nextChar = payload && payload.data ? payload.data : null;
     if(nextChar && nextChar.id){
       try{ localStorage.setItem('activeCharacter', JSON.stringify(nextChar)); }catch(e){}
@@ -1870,9 +1902,11 @@ window.addEventListener('message',(e)=>{
       var ac = getActiveCharacterData();
       if(ac) renderBondWidget(ac);
     }
-    var picked = payload && payload.id
-      ? pickAssistantFirstPreview(getStoredChatMessages(payload.id))
-      : { content: (payload.last || ''), type: normalizeChatPreviewType(payload.lastType || 'text') };
+    var picked = payload && Object.prototype.hasOwnProperty.call(payload, 'last')
+      ? { content: (payload.last || ''), type: normalizeChatPreviewType(payload.lastType || 'text') }
+      : payload && payload.id
+        ? pickLatestPreview(getStoredChatMessages(payload.id))
+        : { content: '', type: 'text' };
     var subText = picked.content || payload.last || '';
     var lastType = normalizeChatPreviewType(picked.type || payload.lastType || 'text');
     if(lastType === 'voice'){
@@ -1944,6 +1978,7 @@ function normalizeChatPreviewType(type){
   if(type === 'voice_message' || type === 'voice') return 'voice';
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
   if(type === 'family_card' || type === 'familycard') return 'familycard';
+  if(type === 'money_packet' || type === 'moneypacket' || type === 'transfer') return 'moneypacket';
   return 'text';
 }
 
@@ -1952,6 +1987,18 @@ function normalizePreviewMessage(msg){
   var kind = normalizeChatPreviewType(next.type || 'text');
   if(kind === 'familycard'){
     return { content: '【亲属卡】', type: 'text' };
+  }
+  if(kind === 'moneypacket'){
+    try{
+      var parsed = typeof next.content === 'string' ? JSON.parse(next.content) : next.content;
+      var mode = String((parsed && parsed.mode) || 'red_packet');
+      var amount = Number((parsed && parsed.amount) || 0);
+      var label = mode === 'transfer' ? '【转账】' : '【红包】';
+      if(amount > 0) label += amount.toFixed(2) + '元';
+      return { content: label, type: 'text' };
+    }catch(e){
+      return { content: '【红包】', type: 'text' };
+    }
   }
   if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
     try{
@@ -1969,11 +2016,8 @@ function isAssistantPreviewMessage(msg){
   return role === 'assistant' || role === 'ai' || role === 'character' || role === 'bot';
 }
 
-function pickAssistantFirstPreview(messages){
+function pickLatestPreview(messages){
   var list = Array.isArray(messages) ? messages : [];
-  for(var i=list.length - 1; i>=0; i--){
-    if(isAssistantPreviewMessage(list[i])) return normalizePreviewMessage(list[i]);
-  }
   if(!list.length) return { content:'', type:'text' };
   return normalizePreviewMessage(list[list.length - 1]);
 }
@@ -1988,27 +2032,33 @@ function formatCharSub(text){
 function setWidgetCharacter(c){
   const displayName = c?.nickname || c?.name || '';
   document.getElementById('wgt-name').textContent = displayName;
-  // Prefer last chat line; fall back to description
-  var lastLine = '';
-  try {
-    if (c?.id) {
-      var msgs = getStoredChatMessages(c.id);
-      if (msgs.length) {
-        var lastMsg = pickAssistantFirstPreview(msgs);
+  function applyWidgetSub(messages){
+    var lastLine = '';
+    try{
+      if(Array.isArray(messages) && messages.length){
+        var lastMsg = pickLatestPreview(messages);
         var lastType = lastMsg.type;
-        if (lastType === 'voice') {
-          var duration = Math.max(1, Math.min(60, Math.ceil((lastMsg.content || '').length/6)));
+        if(lastType === 'voice'){
+          var duration = Math.max(1, Math.min(60, Math.ceil((lastMsg.content || '').length / 6)));
           lastLine = '语音消息 ' + duration + "''";
-        } else if (lastType === 'image') {
+        }else if(lastType === 'image'){
           lastLine = '【图片】';
-        } else {
+        }else{
           lastLine = lastMsg.content || '';
         }
       }
-    }
-  } catch(e){}
-  var sub = lastLine || c?.description || '';
-  document.getElementById('wgt-sub').textContent = formatCharSub(sub);
+    }catch(e){}
+    var sub = lastLine || c?.description || '';
+    document.getElementById('wgt-sub').textContent = formatCharSub(sub);
+  }
+  applyWidgetSub(c?.id ? getStoredChatMessages(c.id) : []);
+  if(c?.id){
+    getStoredChatMessagesAsync(c.id).then(function(msgs){
+      var active = getActiveCharacterData();
+      if(!active || active.id !== c.id) return;
+      applyWidgetSub(msgs);
+    });
+  }
   const avEl = document.getElementById('wgt-avatar');
   if (c?.imageData) {
     avEl.innerHTML = '<img src="'+c.imageData+'" style="width:100%;height:100%;object-fit:cover">';
@@ -2028,6 +2078,9 @@ function normalizeUnreadBadgeCount(n){
   if(!n || n < 1) return '';
   return n > 9 ? '9+' : String(n);
 }
+
+var qqUnreadCountCache = {};
+var qqUnreadRefreshToken = 0;
 
 function getQqUnreadCountForActive(){
   var activeId = '';
@@ -2053,6 +2106,9 @@ function getQqUnreadCountForActive(){
   if(activeId){
     chars = chars.filter(function(c){ return c && c.ownerAccountId === activeId; });
   }
+  if(activeId && Object.prototype.hasOwnProperty.call(qqUnreadCountCache, activeId)){
+    return Number(qqUnreadCountCache[activeId] || 0) || 0;
+  }
   var total = 0;
   chars.forEach(function(c){
     if(!c || !c.id) return;
@@ -2066,6 +2122,36 @@ function getQqUnreadCountForActive(){
     }catch(e){}
   });
   return total;
+}
+
+async function refreshQqUnreadCountCache(){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.list === 'function')) return;
+  var activeId = '';
+  try{
+    if(window.AccountManager){
+      var active = window.AccountManager.getActive();
+      activeId = (active && active.id) || '';
+    }
+  }catch(e){}
+  if(!activeId) return;
+  var token = ++qqUnreadRefreshToken;
+  try{
+    var records = await window.PhoneStorage.list('chats');
+    if(token !== qqUnreadRefreshToken) return;
+    var suffix = '__acct_' + activeId;
+    var total = 0;
+    (Array.isArray(records) ? records : []).forEach(function(record){
+      if(!record || typeof record !== 'object') return;
+      var recordId = String(record.id || '');
+      if(recordId.indexOf('chat_') !== 0 || recordId.indexOf(suffix) === -1) return;
+      var list = Array.isArray(record.history) ? record.history : [];
+      list.forEach(function(m){
+        if(m && m.role === 'assistant' && !m.readAt) total++;
+      });
+    });
+    qqUnreadCountCache[activeId] = total;
+    renderHomeDockBadges();
+  }catch(e){}
 }
 
 function renderHomeDockBadges(){
@@ -2160,11 +2246,12 @@ function restoreState(){
       if(c) setWallpaper(c); else setWallpaper('default');
     });
   } else if(wp) setWallpaper(wp);
-  try{ const c=JSON.parse(localStorage.getItem('activeCharacter')||'null');
+  try{ const c = getActiveCharacterData();
     if(c){ setWidgetCharacter(c); }
     renderBondWidget(c);
   }catch(e){}
   renderHomeDockBadges();
+  refreshQqUnreadCountCache();
   try{
     homePageIndex = Math.max(0, Math.min(1, Number(localStorage.getItem('home_page_index') || '0') || 0));
   }catch(e){
@@ -2195,8 +2282,12 @@ document.addEventListener('visibilitychange', ()=>{
   if(!document.hidden){
     renderBondWidget();
     renderHomeDockBadges();
+    refreshQqUnreadCountCache();
     maybeRunAiBgTick(false);
   }
 });
 window.addEventListener('resize', ()=>renderHomePages(true));
-setInterval(renderHomeDockBadges, 2500);
+setInterval(()=>{
+  renderHomeDockBadges();
+  refreshQqUnreadCountCache();
+}, 2500);

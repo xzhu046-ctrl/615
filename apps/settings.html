@@ -548,7 +548,7 @@ function getMoneyDebugRecords() {
 }
 
 function getPreferredMoneyDebugCharId(records) {
-  var activeRaw = localStorage.getItem('activeCharacter');
+  var activeRaw = localStorage.getItem(settingsScopedKey('activeCharacter')) || localStorage.getItem('activeCharacter');
   var active = safeJsonParse(activeRaw || 'null');
   var activeId = active && active.id ? String(active.id) : '';
   if(activeId && records.some(function(item){ return item.charId === activeId; })) return activeId;
@@ -675,8 +675,15 @@ function clearMoneyDebugPanel() {
   refreshMoneyDebugPanel();
 }
 
-function confirmFormat() {
+async function confirmFormat() {
   if (!confirm('将清空所有数据并重启小手机，确认继续？')) return;
+  try {
+    if(window.PhoneStorage && typeof window.PhoneStorage.deleteDatabase === 'function'){
+      await window.PhoneStorage.deleteDatabase();
+    }else if(window.PhoneStorage && typeof window.PhoneStorage.clearAll === 'function'){
+      await window.PhoneStorage.clearAll();
+    }
+  } catch(e) {}
   try { localStorage.clear(); sessionStorage.clear(); } catch(e) {}
   try { window.parent.postMessage({type:'FORMAT_EPHONE'}, '*'); } catch(e){}
   showToast('已格式化，正在重启…');

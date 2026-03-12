@@ -162,13 +162,8 @@ async function refreshChatCaches(){
         var saved = await window.PhoneStorage.get('chats', accountScopedKey('chat_' + c.id));
         var msgs = saved && Array.isArray(saved.history) ? saved.history : [];
         var last = {content:c.description||'', type:'text'};
-        for(var j=msgs.length - 1; j>=0; j--){
-          var m = msgs[j] || {};
-          if(String(m.role || '').toLowerCase() === 'assistant'){
-            last = normalizePreviewMessage(m);
-            break;
-          }
-          if(j === 0) last = normalizePreviewMessage(m);
+        if(msgs.length){
+          last = normalizePreviewMessage(msgs[msgs.length - 1]);
         }
         var unread = 0;
         msgs.forEach(function(m){
@@ -232,16 +227,19 @@ async function loadChars(){
   renderList();
   renderMomentsBadge();
 }
+function pinnedChatIdsKey(){
+  return accountScopedKey('qq_pinned_chat_ids');
+}
 function getPinnedChatIds(){
   try{
-    var ids = JSON.parse(localStorage.getItem('qq_pinned_chat_ids') || '[]');
+    var ids = JSON.parse(localStorage.getItem(pinnedChatIdsKey()) || '[]');
     return Array.isArray(ids) ? ids.filter(Boolean) : [];
   }catch(e){
     return [];
   }
 }
 function setPinnedChatIds(ids){
-  localStorage.setItem('qq_pinned_chat_ids', JSON.stringify(ids));
+  localStorage.setItem(pinnedChatIdsKey(), JSON.stringify(ids));
 }
 function isChatPinned(id){
   return getPinnedChatIds().indexOf(id) !== -1;
@@ -273,10 +271,6 @@ function lastMsgOf(c){
         if(Array.isArray(msgs) && msgs.length > best.length) best = msgs;
       }catch(err){}
     });
-    for(var j=best.length - 1; j>=0; j--){
-      var m = best[j] || {};
-      if(String(m.role || '').toLowerCase() === 'assistant') return normalizePreviewMessage(m);
-    }
     if(best.length) return normalizePreviewMessage(best[best.length-1]);
   }catch(e){}
   return {content:c.description||'', type:'text'};

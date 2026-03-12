@@ -107,6 +107,23 @@
     });
   }
 
+  function clearStore(storeName){
+    if(!supportsIndexedDb()) return Promise.resolve();
+    return enqueueWrite(function(){
+      return withStore(storeName, 'readwrite', function(store){
+        return new Promise(function(resolve, reject){
+          var req = store.clear();
+          req.onsuccess = function(){ resolve(); };
+          req.onerror = function(event){
+            reject((event.target && event.target.error) || new Error('IndexedDB clear failed'));
+          };
+        });
+      }).then(function(result){
+        return result && typeof result.then === 'function' ? result : undefined;
+      });
+    });
+  }
+
   function list(storeName){
     if(!supportsIndexedDb()) return Promise.resolve([]);
     return withStore(storeName, 'readonly', function(store){
@@ -140,6 +157,35 @@
     }).then(function(result){
       return result && typeof result.then === 'function' ? result : result;
     });
+  }
+
+  function clearAll(){
+    if(!supportsIndexedDb()) return Promise.resolve();
+    return STORE_NAMES.reduce(function(chain, name){
+      return chain.then(function(){ return clearStore(name); });
+    }, Promise.resolve());
+  }
+
+  function deleteDatabase(){
+    if(!supportsIndexedDb()) return Promise.resolve(false);
+    return Promise.resolve()
+      .then(function(){
+        if(dbPromise){
+          return dbPromise.catch(function(){ return null; }).then(function(db){
+            if(db && typeof db.close === 'function') db.close();
+          });
+        }
+      })
+      .catch(function(){ return null; })
+      .then(function(){
+        dbPromise = null;
+        return new Promise(function(resolve){
+          var request = global.indexedDB.deleteDatabase(DB_NAME);
+          request.onsuccess = function(){ resolve(true); };
+          request.onerror = function(){ resolve(false); };
+          request.onblocked = function(){ resolve(false); };
+        });
+      });
   }
 
   function requestPersistentStorage(){
@@ -189,6 +235,9 @@
     get: get,
     put: put,
     remove: remove,
+    clearStore: clearStore,
+    clearAll: clearAll,
+    deleteDatabase: deleteDatabase,
     list: list,
     getJson: getJson,
     putJson: putJson,
