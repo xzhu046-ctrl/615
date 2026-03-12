@@ -275,6 +275,10 @@ function slimChar(c){
   return {
     id:c.id, name:c.name, nickname:c.nickname, description:c.description, avatar:c.avatar,
     imageData:c.imageData,
+    lastPreview: c.lastPreview ? {
+      content: String(c.lastPreview.content || ''),
+      type: normalizeChatPreviewType(c.lastPreview.type || 'text')
+    } : null,
     personality:c.personality, scenario:c.scenario, system_prompt:c.system_prompt,
     first_mes:c.first_mes, alternate_greetings:c.alternate_greetings,
     tags:c.tags, character_version:c.character_version, spec:c.spec, creator:c.creator,
@@ -1834,7 +1838,10 @@ function renderApp(id){
   document.documentElement.classList.add('app-open-mode');
   document.body.classList.add('app-open-mode');
   document.getElementById('app-title-label').textContent=a.title;
-  document.getElementById('app-iframe').src=a.src;
+  const frame = document.getElementById('app-iframe');
+  if(frame && frame.getAttribute('src') !== a.src){
+    frame.src = a.src;
+  }
   document.getElementById('app-container').classList.add('open');
   document.getElementById('home-screen').classList.add('hidden');
 }
@@ -1868,13 +1875,12 @@ function closeApp() {
   document.getElementById('app-container').classList.remove('open');
   document.getElementById('home-screen').classList.remove('hidden');
   try{
-    const c = JSON.parse(localStorage.getItem('activeCharacter') || 'null');
+    const c = getActiveCharacterData();
     if(c) setWidgetCharacter(c);
     renderBondWidget(c);
   }catch(e){
     renderBondWidget(null);
   }
-  setTimeout(()=>{ document.getElementById('app-iframe').src=''; },400);
 }
 
 function handleBack(){
