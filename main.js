@@ -25,6 +25,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 let persistentStorageRequestStarted = false;
+var preloadedAppReady = { chat: false };
 
 function loadLargeState(id){
   if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
@@ -558,7 +559,7 @@ async function appendBackgroundAiMessage(character, accountId, content){
   history.push(entry);
   await writeBackgroundChatHistory(character.id, accountId, history);
   try{
-    var f = getFrameForApp('chat');
+    var f = getChatTransportFrame();
     if(f && f.contentWindow){
       f.contentWindow.postMessage({ type:'BACKGROUND_AI_MESSAGE', payload:{ charId: character.id, entry: entry } }, '*');
     }
@@ -1309,7 +1310,21 @@ function getFrameForApp(id){
   return document.getElementById('app-iframe');
 }
 
+function getChatTransportFrame(){
+  var chatFrame = document.getElementById('chat-iframe');
+  if(chatFrame && preloadedAppReady.chat) return chatFrame;
+  var appFrame = document.getElementById('app-iframe');
+  if(appFrame && /apps\/chat\.html(?:$|\?)/.test(String(appFrame.getAttribute('src') || ''))) return appFrame;
+  return chatFrame || appFrame;
+}
+
 function getVisibleAppFrame(){
+  if(currentApp === 'chat'){
+    var chatFrame = document.getElementById('chat-iframe');
+    if(chatFrame && chatFrame.style.display !== 'none') return chatFrame;
+    var appFrame = document.getElementById('app-iframe');
+    if(appFrame && appFrame.style.display !== 'none') return appFrame;
+  }
   return getFrameForApp(currentApp || '');
 }
 
@@ -1318,6 +1333,21 @@ function syncAppFrameVisibility(activeId){
   var chatFrame = document.getElementById('chat-iframe');
   if(appFrame) appFrame.style.display = activeId === 'chat' ? 'none' : '';
   if(chatFrame) chatFrame.style.display = activeId === 'chat' ? '' : 'none';
+}
+
+function primeChatFrame(){
+  var frame = document.getElementById('chat-iframe');
+  if(!frame || frame.getAttribute('src')) return;
+  frame.src = APP_MAP.chat.src;
+}
+
+function bindPreloadedFrames(){
+  var chatFrame = document.getElementById('chat-iframe');
+  if(chatFrame){
+    chatFrame.addEventListener('load', function(){
+      preloadedAppReady.chat = true;
+    });
+  }
 }
 
 function getChatUserName(charId){
@@ -1899,10 +1929,30 @@ function renderApp(id){
   document.documentElement.classList.add('app-open-mode');
   document.body.classList.add('app-open-mode');
   document.getElementById('app-title-label').textContent=a.title;
-  syncAppFrameVisibility(id);
-  const frame = getFrameForApp(id);
-  if(frame && frame.getAttribute('src') !== a.src){
-    frame.src = a.src;
+  if(id === 'chat'){
+    primeChatFrame();
+    if(preloadedAppReady.chat){
+      syncAppFrameVisibility('chat');
+      const chatFrame = document.getElementById('chat-iframe');
+      if(chatFrame && chatFrame.getAttribute('src') !== a.src){
+        chatFrame.src = a.src;
+      }
+    }else{
+      syncAppFrameVisibility('');
+      const fallbackFrame = document.getElementById('app-iframe');
+      if(fallbackFrame && fallbackFrame.getAttribute('src') !== a.src){
+        fallbackFrame.src = a.src;
+      }
+      if(fallbackFrame) fallbackFrame.style.display = '';
+      var preloadedChat = document.getElementById('chat-iframe');
+      if(preloadedChat) preloadedChat.style.display = 'none';
+    }
+  }else{
+    syncAppFrameVisibility(id);
+    const frame = getFrameForApp(id);
+    if(frame && frame.getAttribute('src') !== a.src){
+      frame.src = a.src;
+    }
   }
   document.getElementById('app-container').classList.add('open');
   document.getElementById('home-screen').classList.add('hidden');
@@ -1939,7 +1989,10 @@ function closeApp() {
   document.getElementById('home-screen').classList.remove('hidden');
   try{
     const c = getActiveCharacterData();
-    if(c) setWidgetCharacter(c);
+    if(c){
+      setWidgetCharacter(c);
+      refreshHomeChatSummary(c.id, c.description || '').catch(function(){});
+    }
     renderBondWidget(c);
   }catch(e){
     renderBondWidget(null);
@@ -1983,7 +2036,7 @@ window.addEventListener('message',(e)=>{
   const {type,payload}=e.data||{};
   const postToChat = (msg)=>{
     try {
-      const f = getFrameForApp('chat');
+      const f = getChatTransportFrame();
       if(f && f.contentWindow) f.contentWindow.postMessage(msg,'*');
     } catch(err){}
   };
@@ -2341,6 +2394,7 @@ function restoreState(){
   bindBondAvatarPressBehavior();
   bindTopFrameEditor();
   bindHomeAppPressState();
+  bindPreloadedFrames();
   applyLiveDanmakuVisibility(getLiveDanmakuEnabled());
   restoreHomeSlots();
   restoreHomeAppIcons();
@@ -2361,6 +2415,7 @@ function restoreState(){
     renderBondWidget(c);
   }catch(e){}
   renderHomeDockBadges();
+  setTimeout(primeChatFrame, 250);
   try{
     homePageIndex = Math.max(0, Math.min(1, Number(localStorage.getItem('home_page_index') || '0') || 0));
   }catch(e){
