@@ -6332,7 +6332,7 @@ async function composePendingMoneyPacketReply(payload){
   var maxFollowups = Math.max(1, maxTotal - 1);
   var sys = [
     '你是聊天中的角色本人。',
-    '现在用户给你发来了红包或转账。你要先像真人一样判断自己会收下还是退还，然后紧接着给出你会继续发送的正文回复。',
+    '现在用户发来了一个红包或转账。你要先按人设判断收下还是退回，然后紧接着给出你会继续发送的正文回复。',
     '只返回 JSON，不要解释，不要 markdown。',
     '格式：{"accept":true|false,"replies":[{"type":"text","content":"..."}]}',
     'accept=true 代表你收下了这笔钱；accept=false 代表你把钱退回去了。',
@@ -6428,7 +6428,7 @@ async function composeMoneyFollowupOnly(payload, accept){
   try{
     var raw = await Promise.race([
       callAIWithCustomPrompts(sys, user),
-      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 16000); })
     ]);
     return parseMoneyFollowupReplies(raw, accept);
   }catch(e){
@@ -6484,7 +6484,19 @@ async function handlePendingMoneyPacketReply(showLoading){
     }
     var followups = sanitizeFamilyFollowups(bundle.replies, accept, pending);
     if(!followups.length){
-      followups = [{ type:'text', content: finalMoneyFollowupText(pending, accept) }];
+      appendMoneyDebugLog('followups_retrying', { stage: 'followup_only_1' });
+      followups = await composeMoneyFollowupOnly(pending, accept);
+      followups = sanitizeFamilyFollowups(followups, accept, pending);
+    }
+    if(!followups.length){
+      appendMoneyDebugLog('followups_retrying', { stage: 'followup_only_2' });
+      followups = await composeMoneyFollowupOnly(pending, accept);
+      followups = sanitizeFamilyFollowups(followups, accept, pending);
+    }
+    if(!followups.length){
+      appendMoneyDebugLog('followups_retrying', { stage: 'followup_only_3' });
+      followups = await composeMoneyFollowupOnly(pending, accept);
+      followups = sanitizeFamilyFollowups(followups, accept, pending);
     }
     appendMoneyDebugLog('followups_ready', {
       count: followups.length,
