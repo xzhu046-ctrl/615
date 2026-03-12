@@ -78,11 +78,7 @@ function hasSavedPhoneFramePreference(){
 }
 
 function getDefaultPhoneFrameVisibility(){
-  try{
-    return !window.matchMedia('(max-width: 768px)').matches;
-  }catch(e){
-    return true;
-  }
+  return true;
 }
 
 function getPhoneFrameVisibility(){
