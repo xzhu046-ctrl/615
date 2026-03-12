@@ -3,7 +3,7 @@
 
   var DB_NAME = 'PhoneAppDB';
   var DB_VERSION = 1;
-  var STORE_NAMES = ['chats', 'moneyStates', 'memorySummaries', 'innerVoices', 'callRecords'];
+  var STORE_NAMES = ['chats', 'moneyStates', 'memorySummaries', 'innerVoices', 'callRecords', 'kv'];
   var dbPromise = null;
   var writeQueue = Promise.resolve();
 
@@ -129,11 +129,34 @@
       });
   }
 
+  function getJson(id){
+    return get('kv', id).then(function(record){
+      return record && Object.prototype.hasOwnProperty.call(record, 'data') ? record.data : null;
+    });
+  }
+
+  function putJson(id, data){
+    return put('kv', {
+      id: id,
+      updatedAt: Date.now(),
+      data: data
+    }).then(function(record){
+      return record ? record.data : null;
+    });
+  }
+
+  function removeJson(id){
+    return remove('kv', id);
+  }
+
   global.PhoneStorage = {
     supportsIndexedDb: supportsIndexedDb,
     get: get,
     put: put,
     remove: remove,
+    getJson: getJson,
+    putJson: putJson,
+    removeJson: removeJson,
     requestPersistentStorage: requestPersistentStorage
   };
 })(window);

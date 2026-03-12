@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <script src="../accountManager.js"></script>
 <script src="../assetStore.js"></script>
+<script src="../chatStorage.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--b:#0a0a0a;--w:#fff;--off:#f5f5f5;--g:#666;--bd:2px solid #0a0a0a;--sh:2px 2px 0 #0a0a0a;--font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif;--safe-top:max(env(safe-area-inset-top),0px)}
@@ -202,15 +203,19 @@ function active(){ return window.AccountManager.getActive(); }
 function walletKey(){ return window.AccountManager.scopedKey('qq_wallet_state'); }
 function familyQueueKey(){ return window.AccountManager.scopedKey('qq_family_card_queue'); }
 function familyActiveKey(){ return window.AccountManager.scopedKey('qq_family_card_active'); }
+function moneyStateStorageId(){ return window.AccountManager.scopedKey('chat_money_state'); }
+let profileMoneyStateCache = { walletState:{ balance:0, records:[] }, familyQueue:[], familyActive:[] };
 
 function defaultWalletState(){ return { balance:0, records:[] }; }
-function loadWalletState(){ try{ const raw=JSON.parse(localStorage.getItem(walletKey())||'null'); return raw && typeof raw==='object' ? { balance:Number(raw.balance||0)||0, records:Array.isArray(raw.records)?raw.records:[] } : defaultWalletState(); }catch(e){ return defaultWalletState(); } }
-function saveWalletState(state){ const next=state||defaultWalletState(); next.balance=Number(next.balance||0)||0; next.records=Array.isArray(next.records)?next.records:[]; localStorage.setItem(walletKey(), JSON.stringify(next)); }
-function loadActiveFamilyCards(){ try{ const raw=JSON.parse(localStorage.getItem(familyActiveKey())||'[]'); return Array.isArray(raw)?raw:[]; }catch(e){ return []; } }
-function saveActiveFamilyCards(list){ localStorage.setItem(familyActiveKey(), JSON.stringify(Array.isArray(list)?list:[])); }
+function syncMoneyStateCache(){ if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){ window.PhoneStorage.put('moneyStates', { id:moneyStateStorageId(), updatedAt:Date.now(), data:Object.assign({}, profileMoneyStateCache) }).catch(()=>{}); } try{ localStorage.removeItem(walletKey()); }catch(e){} try{ localStorage.removeItem(familyActiveKey()); }catch(e){} try{ localStorage.removeItem(familyQueueKey()); }catch(e){} }
+async function hydrateMoneyStateCache(){ if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){ try{ const record=await window.PhoneStorage.get('moneyStates', moneyStateStorageId()); if(record && record.data){ profileMoneyStateCache={ walletState:record.data.walletState||defaultWalletState(), familyQueue:Array.isArray(record.data.familyQueue)?record.data.familyQueue:[], familyActive:Array.isArray(record.data.familyActive)?record.data.familyActive:[] }; return; } }catch(e){} } let wallet=defaultWalletState(); let familyActive=[]; let familyQueue=[]; try{ const raw=JSON.parse(localStorage.getItem(walletKey())||'null'); if(raw&&typeof raw==='object') wallet={ balance:Number(raw.balance||0)||0, records:Array.isArray(raw.records)?raw.records:[] }; }catch(e){} try{ const raw=JSON.parse(localStorage.getItem(familyActiveKey())||'[]'); familyActive=Array.isArray(raw)?raw:[]; }catch(e){} try{ const raw=JSON.parse(localStorage.getItem(familyQueueKey())||'[]'); familyQueue=Array.isArray(raw)?raw:[]; }catch(e){} profileMoneyStateCache={ walletState:wallet, familyQueue:familyQueue, familyActive:familyActive }; if(wallet.records.length||wallet.balance||familyActive.length||familyQueue.length) syncMoneyStateCache(); }
+function loadWalletState(){ const raw=profileMoneyStateCache.walletState||defaultWalletState(); return { balance:Number(raw.balance||0)||0, records:Array.isArray(raw.records)?raw.records:[] }; }
+function saveWalletState(state){ const next=state||defaultWalletState(); next.balance=Number(next.balance||0)||0; next.records=Array.isArray(next.records)?next.records:[]; profileMoneyStateCache.walletState=next; syncMoneyStateCache(); }
+function loadActiveFamilyCards(){ return Array.isArray(profileMoneyStateCache.familyActive)?profileMoneyStateCache.familyActive.slice():[]; }
+function saveActiveFamilyCards(list){ profileMoneyStateCache.familyActive=Array.isArray(list)?list.slice():[]; syncMoneyStateCache(); }
 function removeActiveFamilyCard(cardId){ saveActiveFamilyCards(loadActiveFamilyCards().filter((item)=>String((item&&item.id)||'')!==String(cardId||''))); }
-function loadFamilyQueue(){ try{ const raw=JSON.parse(localStorage.getItem(familyQueueKey())||'[]'); return Array.isArray(raw)?raw:[]; }catch(e){ return []; } }
-function saveFamilyQueue(queue){ localStorage.setItem(familyQueueKey(), JSON.stringify(Array.isArray(queue)?queue:[])); }
+function loadFamilyQueue(){ return Array.isArray(profileMoneyStateCache.familyQueue)?profileMoneyStateCache.familyQueue.slice():[]; }
+function saveFamilyQueue(queue){ profileMoneyStateCache.familyQueue=Array.isArray(queue)?queue.slice():[]; syncMoneyStateCache(); }
 function queueFamilyRequest(payload){ const charId=String((payload&&payload.charId)||''); const queue=loadFamilyQueue().filter((item)=>String((item&&item.charId)||'')!==charId); queue.push(payload); saveFamilyQueue(queue); }
 function hasFamilyCardBinding(charId){ const id=String(charId||''); if(!id) return false; return loadActiveFamilyCards().some((item)=>String((item&&item.charId)||'')===id) || loadFamilyQueue().some((item)=>String((item&&item.charId)||'')===id); }
 function removeFamilyBindingsForChar(charId){ const id=String(charId||''); if(!id) return; saveFamilyQueue(loadFamilyQueue().filter((item)=>String((item&&item.charId)||'')!==id)); saveActiveFamilyCards(loadActiveFamilyCards().filter((item)=>String((item&&item.charId)||'')!==id)); }
@@ -237,7 +242,7 @@ function getCharDisplayName(charObj){ return String((charObj && (charObj.nicknam
 function buildFamilyInviteText(userName, charName, mode){ return userName + '邀请' + charName + (mode==='request' ? '来掏钱' : '来花钱'); }
 function pendingFamilyAutoTriggerKey(charId){ return window.AccountManager.scopedKey('pending_family_auto_trigger_' + charId); }
 function createFamilyCardPayload(charObj, mode, amount){ const userName=getChatUserName(charObj&&charObj.id); const charName=getCharDisplayName(charObj); return { id:'family_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7), type:'family_card', kind:'request', status:'pending', mode:mode==='request'?'request':'gift', amount:Number(amount||0)||0, userName:userName, userAvatar:getChatUserAvatar(charObj&&charObj.id), charName:charName, charAvatar:getCharAvatarSnapshot(charObj), charId:String((charObj&&charObj.id)||''), summary:buildFamilyInviteText(userName,charName,mode), createdAt:Date.now() }; }
-function appendFamilyCardToChat(charObj, payload){ if(!charObj||!charObj.id||!payload) return; const scopedKey=accountScopedChatKey(charObj.id); const legacyKey='chat_'+charObj.id; let store=null; try{ store=JSON.parse(localStorage.getItem(scopedKey)||localStorage.getItem(legacyKey)||'null'); }catch(e){ store=null; } let list=store && (store.history||store.messages); if(!Array.isArray(list)) list=[]; list.push({ id:payload.id, role:'user', content:JSON.stringify(payload), type:'family_card', replyToId:null, sentAt:Date.now(), readAt:null }); const next={ history:list, messages:list }; try{ localStorage.setItem(scopedKey, JSON.stringify(next)); }catch(e){} try{ localStorage.setItem(legacyKey, JSON.stringify(next)); }catch(e){} try{ window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id:charObj.id, data:charObj, last:payload.summary, lastType:'text' } }, '*'); }catch(e){} }
+function appendFamilyCardToChat(charObj, payload){ if(!charObj||!charObj.id||!payload) return; const scopedKey=accountScopedChatKey(charObj.id); const pushEntry=(list)=>{ list.push({ id:payload.id, role:'user', content:JSON.stringify(payload), type:'family_card', replyToId:null, sentAt:Date.now(), readAt:null }); return list; }; if(window.PhoneStorage && typeof window.PhoneStorage.get==='function' && typeof window.PhoneStorage.put==='function'){ window.PhoneStorage.get('chats', scopedKey).then((store)=>{ let list=store&&Array.isArray(store.history)?store.history:[]; list=pushEntry(list); return window.PhoneStorage.put('chats',{ id:scopedKey, charId:String(charObj.id||''), updatedAt:Date.now(), history:list }); }).catch(()=>{}); } else { const legacyKey='chat_'+charObj.id; let store=null; try{ store=JSON.parse(localStorage.getItem(scopedKey)||localStorage.getItem(legacyKey)||'null'); }catch(e){ store=null; } let list=store && (store.history||store.messages); if(!Array.isArray(list)) list=[]; list=pushEntry(list); const next={ history:list, messages:list }; try{ localStorage.setItem(scopedKey, JSON.stringify(next)); }catch(e){} try{ localStorage.setItem(legacyKey, JSON.stringify(next)); }catch(e){} } try{ window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id:charObj.id, data:charObj, last:payload.summary, lastType:'text' } }, '*'); }catch(e){} }
 function openChatWithFamilyAutoTrigger(charObj){ if(!charObj||!charObj.id) return; const slim={ id:charObj.id, name:charObj.name, nickname:charObj.nickname, description:charObj.description, avatar:charObj.avatar, imageData:charObj.imageData, personality:charObj.personality, scenario:charObj.scenario, system_prompt:charObj.system_prompt, first_mes:charObj.first_mes, alternate_greetings:charObj.alternate_greetings, tags:charObj.tags, character_version:charObj.character_version, spec:charObj.spec, creator:charObj.creator }; try{ localStorage.setItem(pendingFamilyAutoTriggerKey(charObj.id), '1'); }catch(e){} try{ window.parent.postMessage({ type:'OPEN_CHAT_WITH', payload:slim }, '*'); }catch(e){} }
 function postProfilePreviewUpdate(){ try{ window.parent.postMessage({ type:'BOND_WIDGET_PREVIEW', payload:{ userName:getChatUserName(currentActiveCharId()), userAvatar:getChatUserAvatar(currentActiveCharId()) } }, '*'); }catch(e){} }
 
@@ -321,7 +326,10 @@ bindAvatarInput();
 hideParentTopbar();
 window.addEventListener('beforeunload', restoreParentTopbar);
 window.addEventListener('pagehide', restoreParentTopbar);
-loadStoredAsset(window.AccountManager.scopedKey('qq_profile_avatar_asset')).then((src)=>{ if(src){ window.AccountManager.updateActive((a)=>{ if(!a.avatar) a.avatar=src; }); } renderProfile(); renderWallet(); });
+Promise.all([
+  hydrateMoneyStateCache(),
+  loadStoredAsset(window.AccountManager.scopedKey('qq_profile_avatar_asset'))
+]).then((results)=>{ const src=results[1]; if(src){ window.AccountManager.updateActive((a)=>{ if(!a.avatar) a.avatar=src; }); } renderProfile(); renderWallet(); }).catch(()=>{ renderProfile(); renderWallet(); });
 </script>
 </body>
 </html>

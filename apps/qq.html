@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <script src="../accountManager.js"></script>
 <script src="../assetStore.js"></script>
+<script src="../chatStorage.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--b:#0a0a0a;--w:#fff;--off:#f7f7f7;--g:#888;--p:#eee;--bd:2px solid #0a0a0a;--sh:2px 2px 0 #0a0a0a;--font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif}
@@ -108,6 +109,8 @@ var LONG_PRESS_MS = 420;
 var avatarAssetCache = {};
 var MOMENTS_POSTS_KEY = 'qq_moments_posts';
 var MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
+var chatSummaryCache = {};
+var momentsPostsCache = [];
 
 function accountScopedKey(base){
   if(window.AccountManager){
@@ -150,7 +153,55 @@ function slimChar(c){
     tags:c.tags, character_version:c.character_version, spec:c.spec, creator:c.creator
   };
 }
-function loadChars(){
+async function refreshChatCaches(){
+  var next = {};
+  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+    await Promise.all(chars.map(async function(c){
+      if(!c || !c.id) return;
+      try{
+        var saved = await window.PhoneStorage.get('chats', accountScopedKey('chat_' + c.id));
+        var msgs = saved && Array.isArray(saved.history) ? saved.history : [];
+        var last = {content:c.description||'', type:'text'};
+        for(var j=msgs.length - 1; j>=0; j--){
+          var m = msgs[j] || {};
+          if(String(m.role || '').toLowerCase() === 'assistant'){
+            last = normalizePreviewMessage(m);
+            break;
+          }
+          if(j === 0) last = normalizePreviewMessage(m);
+        }
+        var unread = 0;
+        msgs.forEach(function(m){
+          if(m && m.role === 'assistant' && !m.readAt) unread++;
+        });
+        next[c.id] = { last:last, unread: unread };
+      }catch(e){}
+    }));
+  }
+  chatSummaryCache = next;
+}
+
+async function refreshMomentsCache(){
+  var key = accountScopedKey(MOMENTS_POSTS_KEY);
+  if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
+    try{
+      var stored = await window.PhoneStorage.getJson(key);
+      if(Array.isArray(stored)){
+        momentsPostsCache = stored;
+        try{ localStorage.removeItem(key); }catch(ignoreErr){}
+        return;
+      }
+    }catch(e){}
+  }
+  try{
+    var parsed = JSON.parse(localStorage.getItem(key) || '[]');
+    momentsPostsCache = Array.isArray(parsed) ? parsed : [];
+  }catch(e){
+    momentsPostsCache = [];
+  }
+}
+
+async function loadChars(){
   try{ chars=JSON.parse(localStorage.getItem('characters')||'[]'); }catch(e){ chars=[]; }
   if(window.AccountManager){
     window.AccountManager.ensure();
@@ -176,6 +227,8 @@ function loadChars(){
       chars = chars.filter(function(c){ return friendSet.has(c.id); });
     }
   }
+  await refreshChatCaches();
+  await refreshMomentsCache();
   renderList();
   renderMomentsBadge();
 }
@@ -205,6 +258,7 @@ function unpinChat(id){
   setPinnedChatIds(ids);
 }
 function lastMsgOf(c){
+  if(c && c.id && chatSummaryCache[c.id] && chatSummaryCache[c.id].last) return chatSummaryCache[c.id].last;
   try{
     var keys = [accountScopedKey('chat_'+c.id), 'chat_' + c.id];
     for(var i=0;i<localStorage.length;i++){
@@ -229,6 +283,7 @@ function lastMsgOf(c){
 }
 
 function unreadCountOf(c){
+  if(c && c.id && chatSummaryCache[c.id]) return Number(chatSummaryCache[c.id].unread || 0) || 0;
   try{
     var saved = JSON.parse(localStorage.getItem(accountScopedKey('chat_' + c.id)) || 'null');
     var msgs = (saved && (saved.messages || saved.history)) || [];
@@ -248,9 +303,39 @@ function formatBadgeCount(n){
   return n > 9 ? '9+' : String(n);
 }
 
-function markChatAsRead(charId){
+async function markChatAsRead(charId){
   if(!charId) return;
   var key = accountScopedKey('chat_' + charId);
+  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function' && typeof window.PhoneStorage.put === 'function'){
+    try{
+      var savedIdb = await window.PhoneStorage.get('chats', key);
+      var listIdb = savedIdb && Array.isArray(savedIdb.history) ? savedIdb.history : [];
+      if(Array.isArray(listIdb) && listIdb.length){
+        var nowIdb = Date.now();
+        var changedIdb = false;
+        listIdb = listIdb.map(function(m){
+          if(m && m.role === 'assistant' && !m.readAt){
+            changedIdb = true;
+            var next = Array.isArray(m) ? m.slice() : Object.assign({}, m);
+            if(Array.isArray(next)) next[5] = nowIdb;
+            else next.readAt = nowIdb;
+            return next;
+          }
+          return m;
+        });
+        if(changedIdb){
+          await window.PhoneStorage.put('chats', {
+            id: key,
+            charId: String(charId || ''),
+            updatedAt: Date.now(),
+            history: listIdb
+          });
+          if(chatSummaryCache[charId]) chatSummaryCache[charId].unread = 0;
+          return;
+        }
+      }
+    }catch(e){}
+  }
   try{
     var saved = JSON.parse(localStorage.getItem(key) || 'null');
     if(!saved) return;
@@ -278,11 +363,7 @@ function getMomentsUnreadCount(){
   var seenAt = 0;
   try{ seenAt = parseInt(localStorage.getItem(seenKey) || '0', 10); }catch(e){ seenAt = 0; }
   if(Number.isNaN(seenAt)) seenAt = 0;
-  var posts = [];
-  try{
-    posts = JSON.parse(localStorage.getItem(key) || '[]');
-    if(!Array.isArray(posts)) posts = [];
-  }catch(e){ posts = []; }
+  var posts = Array.isArray(momentsPostsCache) ? momentsPostsCache : [];
   var myName = '';
   try{
     if(window.AccountManager){
@@ -392,7 +473,7 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function openChat(id){
   var c = chars.find(function(x){return x.id===id;});
   if(!c) return;
-  markChatAsRead(id);
+  markChatAsRead(id).catch(function(){});
   var slim = slimChar(c);
   var isDefault = true;
   try{
@@ -526,18 +607,18 @@ function openPlaceholderFeature(name){
 function openProfileCenter(){
   window.location.href = 'qq_profile.html';
 }
-window.addEventListener('message', function(e){
+window.addEventListener('message', async function(e){
   var d=e.data||{};
-  if(d.type==='CHARACTER_IMPORTED'){ loadChars(); renderMomentsBadge(); forward(d); }
-  if(d.type==='CHAT_UPDATED'){ loadChars(); renderMomentsBadge(); forward(d); }
+  if(d.type==='CHARACTER_IMPORTED'){ await loadChars(); renderMomentsBadge(); forward(d); }
+  if(d.type==='CHAT_UPDATED'){ await loadChars(); renderMomentsBadge(); forward(d); }
   if(d.type==='SET_ACTIVE_CHARACTER' || d.type==='OPEN_CHAT_WITH' || d.type==='OPEN_APP_WITH'){ forward(d); }
 });
 function forward(msg){
   try{ if(window.top && window.top!==window) window.top.postMessage(msg,'*'); }catch(e){}
 }
-loadChars();
+loadChars().catch(function(err){ console.error('qq load chars failed', err); });
 hydrateAvatarAssets();
-setInterval(function(){ loadChars(); renderMomentsBadge(); }, 3000);
+setInterval(function(){ loadChars().catch(function(){}); renderMomentsBadge(); }, 3000);
 ensureParentTopbarVisible();
 window.addEventListener('pageshow', ensureParentTopbarVisible);
 </script>

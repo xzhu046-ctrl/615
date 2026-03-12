@@ -1173,6 +1173,9 @@ var moneyStateCache = null;
 var callRecordStoreCache = { items: [] };
 var storageHydrationPromise = Promise.resolve();
 var storagePersistRequested = false;
+var momentsPostsCache = [];
+var momentsSocialStateCacheMap = {};
+var blockStateCacheMap = {};
 
 function contextWindowKey(){
   return character && character.id ? accountScopedKey('ctx_window_' + character.id) : '';
@@ -1573,6 +1576,61 @@ async function hydrateCharacterStorageState(){
   return chatHistory;
 }
 
+async function hydrateChatLargeStates(){
+  var scopedMomentsKey = momentStorageKey(MOMENTS_POSTS_KEY);
+  var storedMoments = await loadJsonFromLargeStore(momentsPostsStorageId());
+  if(Array.isArray(storedMoments)){
+    momentsPostsCache = storedMoments;
+    try{ localStorage.removeItem(scopedMomentsKey); }catch(e){}
+  }else{
+    try{
+      var legacyMoments = JSON.parse(localStorage.getItem(scopedMomentsKey) || '[]');
+      momentsPostsCache = Array.isArray(legacyMoments) ? legacyMoments : [];
+      if(momentsPostsCache.length){
+        saveJsonToLargeStore(momentsPostsStorageId(), momentsPostsCache).then(function(){
+          try{ localStorage.removeItem(scopedMomentsKey); }catch(ignoreErr){}
+        });
+      }
+    }catch(e){
+      momentsPostsCache = [];
+    }
+  }
+  if(character && character.id){
+    var blockKey = blockStateStorageId(character.id);
+    var socialKey = momentsSocialStorageId(character.id);
+    var storedBlock = await loadJsonFromLargeStore(blockKey);
+    if(storedBlock && typeof storedBlock === 'object'){
+      blockStateCacheMap[character.id] = storedBlock;
+      try{ localStorage.removeItem(blockStateKey(character.id)); }catch(e){}
+    }else{
+      try{
+        var legacyBlock = JSON.parse(localStorage.getItem(blockStateKey(character.id)) || 'null');
+        if(legacyBlock && typeof legacyBlock === 'object'){
+          blockStateCacheMap[character.id] = legacyBlock;
+          saveJsonToLargeStore(blockKey, legacyBlock).then(function(){
+            try{ localStorage.removeItem(blockStateKey(character.id)); }catch(ignoreErr2){}
+          });
+        }
+      }catch(e){}
+    }
+    var storedSocial = await loadJsonFromLargeStore(socialKey);
+    if(storedSocial && typeof storedSocial === 'object'){
+      momentsSocialStateCacheMap[character.id] = storedSocial;
+      try{ localStorage.removeItem(momentsSocialStateKey()); }catch(e){}
+    }else{
+      try{
+        var legacySocial = JSON.parse(localStorage.getItem(momentsSocialStateKey()) || '{}');
+        if(legacySocial && typeof legacySocial === 'object' && (Array.isArray(legacySocial.commentIds) || Array.isArray(legacySocial.likeKeys))){
+          momentsSocialStateCacheMap[character.id] = legacySocial;
+          saveJsonToLargeStore(socialKey, legacySocial).then(function(){
+            try{ localStorage.removeItem(momentsSocialStateKey()); }catch(ignoreErr3){}
+          });
+        }
+      }catch(e){}
+    }
+  }
+}
+
 function loadMemorySummaryStore(){
   if(!character) return defaultMemorySummaryStore();
   return cloneJsonSafe(normalizeMemorySummaryStore(memorySummaryStoreCache), defaultMemorySummaryStore());
@@ -1939,6 +1997,15 @@ function moneyStateStorageId(){
 function callRecordStorageId(charId){
   return accountScopedKey('call_records_' + String(charId || ''));
 }
+function momentsPostsStorageId(){
+  return accountScopedKey('moments_posts');
+}
+function momentsSocialStorageId(charId){
+  return accountScopedKey('moments_social_state_' + String(charId || ''));
+}
+function blockStateStorageId(charId){
+  return accountScopedKey('chat_block_state_' + String(charId || ''));
+}
 function greetingStorageKey(charId){
   var sharedId = String(charId || '').trim();
   if(character && sharedId === String(character.id || '')) sharedId = getSharedCharacterId();
@@ -1993,6 +2060,28 @@ function requestPersistentChatStorage(){
     return window.PhoneStorage.requestPersistentStorage();
   }
   return Promise.resolve(false);
+}
+
+function loadJsonFromLargeStore(id){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function')) return Promise.resolve(null);
+  return window.PhoneStorage.getJson(id).catch(function(){
+    return null;
+  });
+}
+
+function saveJsonToLargeStore(id, data){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function')) return Promise.resolve(data || null);
+  return window.PhoneStorage.putJson(id, data).catch(function(err){
+    console.error('save large state failed:', id, err);
+    return null;
+  });
+}
+
+function removeJsonFromLargeStore(id){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.removeJson === 'function')) return Promise.resolve();
+  return window.PhoneStorage.removeJson(id).catch(function(err){
+    console.error('remove large state failed:', id, err);
+  });
 }
 
 function normalizeMomentsFreq(value){
@@ -2129,26 +2218,26 @@ function blockStateKey(charId){
 
 function loadBlockState(){
   if(!character || !character.id) return { userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0, charBlockedAt:0, lastUserReAddAt:0 };
-  try{
-    var raw = JSON.parse(localStorage.getItem(blockStateKey(character.id)) || 'null');
-    if(raw && typeof raw === 'object'){
-      return {
-        userBlocked: !!raw.userBlocked,
-        charBlocked: !!raw.charBlocked,
-        appealCount: parseInt(raw.appealCount || '0', 10) || 0,
-        abuseCount: parseInt(raw.abuseCount || '0', 10) || 0,
-        charBlockedAt: parseInt(raw.charBlockedAt || '0', 10) || 0,
-        lastUserReAddAt: parseInt(raw.lastUserReAddAt || '0', 10) || 0
-      };
-    }
-  }catch(e){}
-  return { userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0, charBlockedAt:0, lastUserReAddAt:0 };
+  var raw = blockStateCacheMap[character.id] || null;
+  if(!(raw && typeof raw === 'object')){
+    return { userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0, charBlockedAt:0, lastUserReAddAt:0 };
+  }
+  return {
+    userBlocked: !!raw.userBlocked,
+    charBlocked: !!raw.charBlocked,
+    appealCount: parseInt(raw.appealCount || '0', 10) || 0,
+    abuseCount: parseInt(raw.abuseCount || '0', 10) || 0,
+    charBlockedAt: parseInt(raw.charBlockedAt || '0', 10) || 0,
+    lastUserReAddAt: parseInt(raw.lastUserReAddAt || '0', 10) || 0
+  };
 }
 
 function saveBlockState(state){
   if(!character || !character.id) return;
   var next = Object.assign({ userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0, charBlockedAt:0, lastUserReAddAt:0 }, state || {});
-  try{ localStorage.setItem(blockStateKey(character.id), JSON.stringify(next)); }catch(e){}
+  blockStateCacheMap[character.id] = next;
+  saveJsonToLargeStore(blockStateStorageId(character.id), next);
+  try{ localStorage.removeItem(blockStateKey(character.id)); }catch(e){}
 }
 
 function updateBlockedUi(){
@@ -2283,16 +2372,13 @@ function looksLikeVisualDescription(text){
 }
 
 function readMomentsPosts(){
-  try{
-    var parsed = JSON.parse(localStorage.getItem(momentStorageKey(MOMENTS_POSTS_KEY)) || '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  }catch(e){
-    return [];
-  }
+  return Array.isArray(momentsPostsCache) ? momentsPostsCache.slice() : [];
 }
 
 function writeMomentsPosts(posts){
-  localStorage.setItem(momentStorageKey(MOMENTS_POSTS_KEY), JSON.stringify(Array.isArray(posts) ? posts : []));
+  momentsPostsCache = Array.isArray(posts) ? posts.slice() : [];
+  saveJsonToLargeStore(momentsPostsStorageId(), momentsPostsCache);
+  try{ localStorage.removeItem(momentStorageKey(MOMENTS_POSTS_KEY)); }catch(e){}
 }
 
 function momentsSocialStateKey(){
@@ -2301,14 +2387,10 @@ function momentsSocialStateKey(){
 
 function loadMomentsSocialState(){
   if(!character || !character.id) return { commentIds: [], likeKeys: [] };
-  try{
-    var raw = JSON.parse(localStorage.getItem(momentsSocialStateKey()) || '{}');
-    var commentIds = Array.isArray(raw.commentIds) ? raw.commentIds.map(String) : [];
-    var likeKeys = Array.isArray(raw.likeKeys) ? raw.likeKeys.map(String) : [];
-    return { commentIds: commentIds.slice(-300), likeKeys: likeKeys.slice(-300) };
-  }catch(e){
-    return { commentIds: [], likeKeys: [] };
-  }
+  var raw = momentsSocialStateCacheMap[character.id] || {};
+  var commentIds = Array.isArray(raw.commentIds) ? raw.commentIds.map(String) : [];
+  var likeKeys = Array.isArray(raw.likeKeys) ? raw.likeKeys.map(String) : [];
+  return { commentIds: commentIds.slice(-300), likeKeys: likeKeys.slice(-300) };
 }
 
 function saveMomentsSocialState(state){
@@ -2316,7 +2398,9 @@ function saveMomentsSocialState(state){
   var next = state || { commentIds: [], likeKeys: [] };
   next.commentIds = Array.isArray(next.commentIds) ? next.commentIds.slice(-300) : [];
   next.likeKeys = Array.isArray(next.likeKeys) ? next.likeKeys.slice(-300) : [];
-  try{ localStorage.setItem(momentsSocialStateKey(), JSON.stringify(next)); }catch(e){}
+  momentsSocialStateCacheMap[character.id] = next;
+  saveJsonToLargeStore(momentsSocialStorageId(character.id), next);
+  try{ localStorage.removeItem(momentsSocialStateKey()); }catch(e){}
 }
 
 function getMomentsFreqProfile(){
@@ -3623,6 +3707,7 @@ async function init() {
       return;
     }
     loadWorldBook();
+    await hydrateChatLargeStates();
     await restoreOrStartChat();
     updateBlockedUi();
     refreshMemoryUi();
@@ -8195,6 +8280,7 @@ window.addEventListener('message', async function(e) {
     updateHeader();
     updateModelLabel();
     loadWorldBook();
+    await hydrateChatLargeStates();
     updateBlockedUi();
     refreshMemoryUi();
     if (!sameChar) {

@@ -26,6 +26,20 @@ const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 let persistentStorageRequestStarted = false;
 
+function loadLargeState(id){
+  if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
+    return window.PhoneStorage.getJson(id).catch(function(){ return null; });
+  }
+  return Promise.resolve(null);
+}
+
+function saveLargeState(id, data){
+  if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
+    return window.PhoneStorage.putJson(id, data).catch(function(){ return null; });
+  }
+  return Promise.resolve(data || null);
+}
+
 function requestPersistentStorageIfPossible(){
   if(persistentStorageRequestStarted) return;
   persistentStorageRequestStarted = true;
@@ -319,29 +333,51 @@ function getBackgroundCharacter(){
   return enabledOwned[0] || null;
 }
 
-function readBackgroundChatHistory(charId, accountId){
+async function readBackgroundChatHistory(charId, accountId){
   var scoped = scopedKeyForAccount('chat_' + charId, accountId);
+  try{
+    if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+      var record = await window.PhoneStorage.get('chats', scoped);
+      var list = record && Array.isArray(record.history) ? record.history : [];
+      if(Array.isArray(list) && list.length) return list;
+    }
+  }catch(e){}
   var raw = '';
-  try{ raw = localStorage.getItem(scoped) || localStorage.getItem('chat_' + charId) || ''; }catch(e){}
+  try{ raw = localStorage.getItem(scoped) || localStorage.getItem('chat_' + charId) || ''; }catch(e2){}
   if(!raw) return [];
   try{
     var parsed = JSON.parse(raw);
-    var list = (parsed && (parsed.history || parsed.messages)) || [];
-    return Array.isArray(list) ? list : [];
-  }catch(e){
+    var fallbackList = (parsed && (parsed.history || parsed.messages)) || [];
+    return Array.isArray(fallbackList) ? fallbackList : [];
+  }catch(e3){
     return [];
   }
 }
 
-function writeBackgroundChatHistory(charId, accountId, messages){
-  var payload = JSON.stringify({ history: messages, messages: messages });
+async function writeBackgroundChatHistory(charId, accountId, messages){
   var scoped = scopedKeyForAccount('chat_' + charId, accountId);
-  try{ localStorage.setItem(scoped, payload); }catch(e){}
-  try{ localStorage.setItem('chat_' + charId, payload); }catch(e){}
+  if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+    try{
+      await window.PhoneStorage.put('chats', {
+        id: scoped,
+        charId: String(charId || ''),
+        updatedAt: Date.now(),
+        history: Array.isArray(messages) ? messages : []
+      });
+      try{ localStorage.removeItem(scoped); }catch(ignoreErr){}
+      try{ localStorage.removeItem('chat_' + charId); }catch(ignoreErr2){}
+      return;
+    }catch(e){}
+  }
+  var payload = JSON.stringify({ history: messages, messages: messages });
+  try{ localStorage.setItem(scoped, payload); }catch(e2){}
+  try{ localStorage.setItem('chat_' + charId, payload); }catch(e3){}
 }
 
-function readBackgroundMoments(accountId){
+async function readBackgroundMoments(accountId){
   var key = scopedKeyForAccount(MOMENTS_POSTS_KEY, accountId);
+  var stored = await loadLargeState(key);
+  if(Array.isArray(stored)) return stored;
   try{
     var parsed = JSON.parse(localStorage.getItem(key) || '[]');
     return Array.isArray(parsed) ? parsed : [];
@@ -350,13 +386,29 @@ function readBackgroundMoments(accountId){
   }
 }
 
-function writeBackgroundMoments(accountId, posts){
+async function writeBackgroundMoments(accountId, posts){
   var key = scopedKeyForAccount(MOMENTS_POSTS_KEY, accountId);
+  if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
+    await saveLargeState(key, Array.isArray(posts) ? posts : []);
+    try{ localStorage.removeItem(key); }catch(ignoreErr){}
+    return;
+  }
   try{ localStorage.setItem(key, JSON.stringify(Array.isArray(posts) ? posts : [])); }catch(e){}
 }
 
-function readBackgroundBlockState(charId, accountId){
+async function readBackgroundBlockState(charId, accountId){
   var key = scopedKeyForAccount('chat_block_state_' + charId, accountId);
+  var stored = await loadLargeState(key);
+  if(stored && typeof stored === 'object'){
+    return {
+      userBlocked: !!stored.userBlocked,
+      charBlocked: !!stored.charBlocked,
+      appealCount: parseInt(stored.appealCount || '0', 10) || 0,
+      abuseCount: parseInt(stored.abuseCount || '0', 10) || 0,
+      charBlockedAt: parseInt(stored.charBlockedAt || '0', 10) || 0,
+      lastUserReAddAt: parseInt(stored.lastUserReAddAt || '0', 10) || 0
+    };
+  }
   var raw = null;
   try{
     raw = JSON.parse(localStorage.getItem(key) || localStorage.getItem('chat_block_state_' + charId) || 'null');
@@ -374,11 +426,17 @@ function readBackgroundBlockState(charId, accountId){
   };
 }
 
-function writeBackgroundBlockState(charId, accountId, state){
+async function writeBackgroundBlockState(charId, accountId, state){
   var key = scopedKeyForAccount('chat_block_state_' + charId, accountId);
   var next = Object.assign({ userBlocked:false, charBlocked:false, appealCount:0, abuseCount:0, charBlockedAt:0, lastUserReAddAt:0 }, state || {});
+  if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
+    await saveLargeState(key, next);
+    try{ localStorage.removeItem(key); }catch(ignoreErr){}
+    try{ localStorage.removeItem('chat_block_state_' + charId); }catch(ignoreErr2){}
+    return;
+  }
   try{ localStorage.setItem(key, JSON.stringify(next)); }catch(e){}
-  try{ localStorage.setItem('chat_block_state_' + charId, JSON.stringify(next)); }catch(e){}
+  try{ localStorage.setItem('chat_block_state_' + charId, JSON.stringify(next)); }catch(e2){}
 }
 
 function getBackgroundProviderConfig(){
@@ -465,8 +523,8 @@ function getCharacterAvatarForBg(character){
   return '';
 }
 
-function appendBackgroundAiMessage(character, accountId, content){
-  var history = readBackgroundChatHistory(character.id, accountId);
+async function appendBackgroundAiMessage(character, accountId, content){
+  var history = await readBackgroundChatHistory(character.id, accountId);
   var now = Date.now();
   var entry = {
     id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
@@ -478,7 +536,7 @@ function appendBackgroundAiMessage(character, accountId, content){
     readAt: null
   };
   history.push(entry);
-  writeBackgroundChatHistory(character.id, accountId, history);
+  await writeBackgroundChatHistory(character.id, accountId, history);
   try{
     var f = document.getElementById('app-iframe');
     if(f && f.contentWindow){
@@ -487,8 +545,8 @@ function appendBackgroundAiMessage(character, accountId, content){
   }catch(e){}
 }
 
-function appendBackgroundMoment(character, accountId, action, content, imageText){
-  var posts = readBackgroundMoments(accountId);
+async function appendBackgroundMoment(character, accountId, action, content, imageText){
+  var posts = await readBackgroundMoments(accountId);
   var now = Date.now();
   var text = String(content || '').trim() || '想把这一刻记下来。';
   var aiName = String(character.nickname || character.name || 'AI');
@@ -504,7 +562,7 @@ function appendBackgroundMoment(character, accountId, action, content, imageText
     authorName: aiName,
     authorAvatar: aiAvatar
   });
-  writeBackgroundMoments(accountId, posts);
+  await writeBackgroundMoments(accountId, posts);
 }
 
 async function callAiForBackground(cfg, sysPrompt, userPrompt){
@@ -620,7 +678,7 @@ function parseBgUnblockDecision(raw){
 }
 
 async function maybeUnblockFromBackground(cfg, character, accountId, history, shortHistory){
-  var state = readBackgroundBlockState(character.id, accountId);
+  var state = await readBackgroundBlockState(character.id, accountId);
   if(!state.charBlocked) return false;
   var now = Date.now();
   var idleAnchor = Math.max(state.lastUserReAddAt || 0, state.charBlockedAt || 0);
@@ -648,8 +706,8 @@ async function maybeUnblockFromBackground(cfg, character, accountId, history, sh
   state.appealCount = 0;
   state.charBlockedAt = 0;
   state.lastUserReAddAt = 0;
-  writeBackgroundBlockState(character.id, accountId, state);
-  appendBackgroundAiMessage(character, accountId, decision.text || '我把你从黑名单里放出来了。');
+  await writeBackgroundBlockState(character.id, accountId, state);
+  await appendBackgroundAiMessage(character, accountId, decision.text || '我把你从黑名单里放出来了。');
   return true;
 }
 
@@ -663,18 +721,18 @@ async function runAiBackgroundActivity(){
   var cfg = getBackgroundProviderConfig();
   if(!cfg) return false;
 
-  var history = readBackgroundChatHistory(character.id, defaultId).slice(-8);
+  var history = (await readBackgroundChatHistory(character.id, defaultId)).slice(-8);
   var shortHistory = history.map(function(m){
     var role = m && m.role === 'user' ? 'User' : 'Char';
     var content = String((m && m.content) || '').replace(/\s+/g, ' ').trim();
     return role + ': ' + content;
   }).join('\n');
-  var posts = readBackgroundMoments(defaultId).slice(-3).map(function(p){
+  var posts = (await readBackgroundMoments(defaultId)).slice(-3).map(function(p){
     var kind = p && p.type === 'dynamic' ? '动态' : '说说';
     return kind + '：' + String((p && (p.text || p.imageText)) || '').replace(/\s+/g, ' ').trim();
   }).join('\n');
 
-  var state = readBackgroundBlockState(character.id, defaultId);
+  var state = await readBackgroundBlockState(character.id, defaultId);
   if(state.charBlocked){
     return await maybeUnblockFromBackground(cfg, character, defaultId, history, shortHistory);
   }
@@ -701,9 +759,9 @@ async function runAiBackgroundActivity(){
   var parsed = parseBgAction(rawReply);
   if(!parsed) return false;
   if(parsed.action === 'message'){
-    appendBackgroundAiMessage(character, defaultId, parsed.content);
+    await appendBackgroundAiMessage(character, defaultId, parsed.content);
   }else{
-    appendBackgroundMoment(character, defaultId, parsed.action, parsed.content, parsed.imageText);
+    await appendBackgroundMoment(character, defaultId, parsed.action, parsed.content, parsed.imageText);
   }
   return true;
 }
