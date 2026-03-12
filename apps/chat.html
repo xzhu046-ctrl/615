@@ -6687,11 +6687,42 @@ function confirmClearChatAll(){
 function saveChat(forceReplace) {
   if (!character) return;
   var nextLog = Array.isArray(chatLog) ? chatLog.slice() : [];
-  var payload = JSON.stringify({ history: nextLog, messages: nextLog });
-  localStorage.setItem(chatStorageKey(character.id), payload);
-  try{ localStorage.setItem('chat_' + character.id, payload); }catch(e){}
+  var payload = JSON.stringify({ history: nextLog });
+  var storedOk = false;
+  try{
+    localStorage.setItem(chatStorageKey(character.id), payload);
+    try{ localStorage.setItem('chat_' + character.id, payload); }catch(e){}
+    storedOk = true;
+  }catch(err){
+    appendMoneyDebugLog('save_chat_error', {
+      forceReplace: !!forceReplace,
+      name: err && err.name ? err.name : '',
+      message: err && err.message ? err.message : String(err || ''),
+      count: nextLog.length
+    });
+    try{
+      localStorage.removeItem(moneyDebugKey());
+      localStorage.removeItem(moneyReplySnapshotKey(character.id));
+      localStorage.setItem(chatStorageKey(character.id), payload);
+      try{ localStorage.setItem('chat_' + character.id, payload); }catch(e){}
+      storedOk = true;
+      appendMoneyDebugLog('save_chat_retry_ok', {
+        forceReplace: !!forceReplace,
+        count: nextLog.length
+      });
+    }catch(retryErr){
+      appendMoneyDebugLog('save_chat_retry_error', {
+        forceReplace: !!forceReplace,
+        name: retryErr && retryErr.name ? retryErr.name : '',
+        message: retryErr && retryErr.message ? retryErr.message : String(retryErr || ''),
+        count: nextLog.length
+      });
+      throw retryErr;
+    }
+  }
   appendMoneyDebugLog('save_chat', {
     forceReplace: !!forceReplace,
+    storedOk: storedOk,
     count: nextLog.length,
     tail: summarizeChatTail(nextLog)
   });
