@@ -4703,33 +4703,37 @@ async function triggerReply() {
   pendingModelUserCue = familyReplyId
     ? '你刚刚已经对亲属卡作出决定。现在请紧接着上一条亲属卡回复之后，继续发送一条自然的正文消息。不要重复卡片结论，不要输出 JSON。'
     : '';
-  transientHiddenModelMsgIds = [];
+  await requestAndDeliverAiReply(provider, key);
+}
 
+async function requestAndDeliverAiReply(provider, key){
+  transientHiddenModelMsgIds = [];
   isTyping = true;
   document.getElementById('genBtn').disabled = true;
   document.getElementById('sendBtn').disabled = true;
   showTyping();
-
   try {
     var reply = await callAI(provider, key);
     hideTyping();
     await deliverAiReply(reply);
     saveChat();
     pendingMomentsChatCue = '';
+    hideError();
+    return true;
   } catch(err) {
     hideTyping();
-    var errMsg = err.message || String(err);
+    var errMsg = err && (err.message || String(err)) || '未知错误';
     showError('AI 回复失败: ' + errMsg);
     console.error('callAI error:', err);
+    return false;
   } finally {
     transientHiddenModelMsgIds = [];
     pendingFamilyFollowupCue = '';
     pendingModelUserCue = '';
+    isTyping = false;
+    document.getElementById('genBtn').disabled = false;
+    document.getElementById('sendBtn').disabled = false;
   }
-
-  isTyping = false;
-  document.getElementById('genBtn').disabled = false;
-  document.getElementById('sendBtn').disabled = false;
 }
 
 // ════════════════════════════════════════════
@@ -5028,7 +5032,17 @@ async function rerollLast(){
   rollbackInnerVoiceOnReroll();
   await saveChat(true);
   renderChatLog(false);
-  await triggerReply();
+  var provider = localStorage.getItem('provider') || 'openai';
+  var key = localStorage.getItem('key_' + provider);
+  if (!key) {
+    showError('未找到 ' + provider + ' 的 API key，请先去设置');
+    return;
+  }
+  hideError();
+  pendingMomentsChatCue = '';
+  pendingFamilyFollowupCue = '';
+  pendingModelUserCue = '';
+  await requestAndDeliverAiReply(provider, key);
 }
 
 function familyQueueKey(){
