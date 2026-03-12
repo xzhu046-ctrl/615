@@ -1650,10 +1650,11 @@ function saveMemorySummaryStore(store){
   persistMemorySummaryStore();
 }
 function clearMemorySummaries(){
-  if(!character) return;
+  if(!character) return Promise.resolve();
   memorySummaryStoreCache = defaultMemorySummaryStore();
-  removeRecordFromIndexedDb('memorySummaries', memorySummaryStorageId(character.id));
+  var task = removeRecordFromIndexedDb('memorySummaries', memorySummaryStorageId(character.id));
   try{ localStorage.removeItem(memorySummaryKey()); }catch(e){}
+  return task;
 }
 function buildMemorySummaryPromptLines(slice){
   return slice.map(function(m, idx){
@@ -1822,10 +1823,11 @@ function saveInnerVoiceStore(store){
   persistInnerVoiceStore();
 }
 function clearInnerVoiceStore(){
-  if(!character) return;
+  if(!character) return Promise.resolve();
   innerVoiceStoreCache = defaultInnerVoiceStore();
-  removeRecordFromIndexedDb('innerVoices', innerVoiceStorageId(character.id));
+  var task = removeRecordFromIndexedDb('innerVoices', innerVoiceStorageId(character.id));
   try{ localStorage.removeItem(innerVoiceKey()); }catch(e){}
+  return task;
 }
 
 function normalizeNameLite(v){
@@ -7181,7 +7183,7 @@ function openClearChatConfirm(){
 function closeClearChatConfirm(){
   document.getElementById('clearChatConfirmOverlay')?.classList.remove('open');
 }
-function clearChatData(opts){
+async function clearChatData(opts){
   var options = opts || {};
   closeMessageActions();
   multiSelectMode = false;
@@ -7193,11 +7195,11 @@ function clearChatData(opts){
   chatLog = [];
   if (character){
     try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(e){}
-    removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
+    await removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
   }
   if (character && character.id) removeFamilyBindingsForChar(character.id);
-  if(options.clearMemory) clearMemorySummaries();
-  if(options.clearMemory) clearInnerVoiceStore();
+  if(options.clearMemory) await clearMemorySummaries();
+  if(options.clearMemory) await clearInnerVoiceStore();
   var msgs = document.getElementById('messages');
   msgs.innerHTML = '';
   if(options.keepGreeting){
@@ -7212,15 +7214,15 @@ function clearChatData(opts){
   }else{
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">🗑</div><div class="welcome-title">已清空聊天与记忆</div></div>';
   }
-  saveChat(true);
+  await saveChat(true);
   renderReplyPreview();
   updateFloatingUi();
   refreshMemoryUi();
 }
 
-function confirmClearChatAll(){
+async function confirmClearChatAll(){
   closeClearChatConfirm();
-  clearChatData({ keepGreeting: false, clearMemory: true });
+  await clearChatData({ keepGreeting: false, clearMemory: true });
   toast('已清空聊天和全部记忆');
 }
 
@@ -7900,7 +7902,7 @@ function cancelGreetingChange(){
   if(cg) cg.classList.remove('open');
 }
 
-function confirmGreetingChange(){
+async function confirmGreetingChange(){
   if(pendingGreetingIdx === null || !character) { cancelGreetingChange(); return; }
   curGreetingIdx = pendingGreetingIdx;
   localStorage.setItem(greetingStorageKey(character.id), curGreetingIdx);
@@ -7913,13 +7915,13 @@ function confirmGreetingChange(){
   selectedMessageIds = [];
   editingMessageId = null;
   editingDraft = '';
-  clearMemorySummaries();
-  clearInnerVoiceStore();
+  await clearMemorySummaries();
+  await clearInnerVoiceStore();
   innerVoiceEditingId = '';
   innerVoicePendingDeleteId = '';
   chatLog = [];
   try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(e){}
-  removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
+  await removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
   var msgs = document.getElementById('messages');
   msgs.innerHTML = '';
   var g = getGreeting();
@@ -7928,7 +7930,7 @@ function confirmGreetingChange(){
     chatLog = [first];
     addMessage('ai', g, false, 'text', first.id);
   }
-  saveChat(true);
+  await saveChat(true);
   refreshMemoryUi();
   if(document.getElementById('innerVoiceOverlay')?.classList.contains('open')){
     renderInnerVoiceOverlay();
