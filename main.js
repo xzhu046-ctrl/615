@@ -1328,6 +1328,20 @@ function getVisibleAppFrame(){
   return getFrameForApp(currentApp || '');
 }
 
+function deliverChatSelection(slim){
+  var payload = slim || null;
+  if(!payload || !payload.id) return;
+  var send = function(){
+    var frame = getChatTransportFrame();
+    if(frame && frame.contentWindow){
+      try{ frame.contentWindow.postMessage({ type:'SET_ACTIVE_CHARACTER', payload: payload }, '*'); }catch(e){}
+      try{ frame.contentWindow.postMessage({ type:'OPEN_CHAT_WITH', payload: payload }, '*'); }catch(e){}
+    }
+  };
+  send();
+  setTimeout(send, 80);
+}
+
 function syncAppFrameVisibility(activeId){
   var appFrame = document.getElementById('app-iframe');
   var chatFrame = document.getElementById('chat-iframe');
@@ -1987,12 +2001,13 @@ function openApp(id) {
 }
 
 function closeApp() {
+  var livePreview = null;
   try{
     const f = getVisibleAppFrame();
     if(f && f.contentWindow){
       try{
         if(typeof f.contentWindow.getLatestPreviewForHome === 'function'){
-          var livePreview = f.contentWindow.getLatestPreviewForHome();
+          livePreview = f.contentWindow.getLatestPreviewForHome();
           if(livePreview && livePreview.id){
             homeChatSummaryCache[livePreview.id] = {
               content: String(livePreview.content || ''),
@@ -2022,7 +2037,15 @@ function closeApp() {
   document.getElementById('app-container').classList.remove('open');
   document.getElementById('home-screen').classList.remove('hidden');
   try{
-    const c = getActiveCharacterData();
+    var c = getActiveCharacterData();
+    if(c && livePreview && livePreview.id === c.id){
+      c = attachPreviewToCharacter(c, {
+        content: String(livePreview.content || ''),
+        type: normalizeChatPreviewType(livePreview.type || 'text')
+      });
+      try{ localStorage.setItem('activeCharacter', JSON.stringify(c)); }catch(storeErr){}
+      try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(c)); }catch(storeErr2){}
+    }
     if(c){
       setWidgetCharacter(c);
       refreshHomeChatSummary(c.id, c.description || '').catch(function(){});
@@ -2082,7 +2105,7 @@ window.addEventListener('message',(e)=>{
     cacheAvatar(payload);
     renderBondWidget(payload);
     renderHomeDockBadges();
-    postToChat({ type:'SET_ACTIVE_CHARACTER', payload: slim });
+    deliverChatSelection(slim);
   }
   if(type==='BOND_WIDGET_PREVIEW'){
     applyBondWidgetPreview(payload);
@@ -2105,7 +2128,7 @@ window.addEventListener('message',(e)=>{
     setWidgetCharacter(payload);
     renderBondWidget(payload);
     try{ localStorage.setItem('pendingChatChar',JSON.stringify(slim)); }catch(e){}
-    postToChat({ type:'SET_ACTIVE_CHARACTER', payload: slim });
+    deliverChatSelection(slim);
   }
   if(type==='OPEN_APP_WITH'){
     var appId=payload.app;
