@@ -156,7 +156,7 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 </div>
 
 <div class="toast" id="toast"></div>
-<input type="file" id="wbImportInput" accept=".txt,.md,.docx,.png,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png" style="display:none" onchange="onImportFiles(this.files)">
+<input type="file" id="wbImportInput" accept=".txt,.md,.markdown,.doc,.docx,.rtf,.csv,.json,.jsonl,.xml,.html,.htm,text/plain,text/markdown,text/csv,application/json,application/xml,text/xml,text/html,application/rtf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none" onchange="onImportFiles(this.files)">
 <div class="confirm-mask" id="confirmMask" onclick="onConfirmMask(event)">
   <div class="confirm-card">
     <div class="confirm-title" id="confirmTitle">确认操作</div>
@@ -212,6 +212,7 @@ var UNCATEGORIZED_KEY = '__uncategorized__';
 var confirmResolver = null;
 var openCategoryPickerId = null;
 var topCategoryPickerOpen = false;
+var WORLD_BOOK_TEXT_EXTENSIONS = ['.txt','.md','.markdown','.doc','.docx','.rtf','.csv','.json','.jsonl','.xml','.html','.htm'];
 
 function approxTokenCount(text) {
   var src = String(text || '');
@@ -706,21 +707,22 @@ async function onImportFiles(files) {
 
 async function importWorldBookFile(file) {
   var lower = (file.name || '').toLowerCase();
-  if (lower.endsWith('.txt') || lower.endsWith('.md')) {
-    var text = await readFileAsText(file);
-    createWorldBookFromText(file.name, text);
-    return;
-  }
   if (lower.endsWith('.docx')) {
     var docxText = await extractDocxText(await readFileAsArrayBuffer(file));
     createWorldBookFromText(file.name, docxText);
     return;
   }
-  if (lower.endsWith('.png')) {
-    await importWorldBookPng(file);
+  if (isSupportedWorldBookTextFile(file)) {
+    var text = await readFileAsBestEffortText(file);
+    createWorldBookFromText(file.name, text);
     return;
   }
-  throw new Error('暂不支持这种文件类型');
+  throw new Error('暂不支持这种文件类型，请使用 txt / md / docx / doc / rtf / csv / json / xml / html');
+}
+
+function isSupportedWorldBookTextFile(file) {
+  var lower = String((file && file.name) || '').toLowerCase();
+  return WORLD_BOOK_TEXT_EXTENSIONS.some(function(ext) { return lower.endsWith(ext); });
 }
 
 function readFileAsText(file) {
@@ -730,6 +732,50 @@ function readFileAsText(file) {
     r.onerror = function() { reject(new Error('文件读取失败')); };
     r.readAsText(file);
   });
+}
+
+async function readFileAsBestEffortText(file) {
+  var name = String((file && file.name) || '').toLowerCase();
+  var type = String((file && file.type) || '').toLowerCase();
+  if (type.indexOf('text/') === 0 || name.endsWith('.txt') || name.endsWith('.md') || name.endsWith('.markdown') || name.endsWith('.csv') || name.endsWith('.json') || name.endsWith('.jsonl') || name.endsWith('.xml') || name.endsWith('.html') || name.endsWith('.htm')) {
+    return readFileAsText(file);
+  }
+  var buffer = await readFileAsArrayBuffer(file);
+  var decoded = tryDecodeTextBuffer(buffer, ['utf-8', 'gb18030', 'utf-16le', 'utf-16be', 'windows-1252']);
+  var cleaned = cleanupImportedDocumentText(decoded);
+  if (!cleaned) throw new Error('文件里没有可读取的文本内容');
+  return cleaned;
+}
+
+function tryDecodeTextBuffer(buffer, encodings) {
+  var bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer || 0);
+  var best = '';
+  var bestScore = -1;
+  (encodings || []).forEach(function(label) {
+    try{
+      var text = new TextDecoder(label, { fatal: false }).decode(bytes);
+      var cleaned = cleanupImportedDocumentText(text);
+      var score = cleaned ? cleaned.length : 0;
+      if (score > bestScore) {
+        best = cleaned;
+        bestScore = score;
+      }
+    }catch(e){}
+  });
+  return best;
+}
+
+function cleanupImportedDocumentText(text) {
+  return String(text || '')
+    .replace(/\u0000/g, ' ')
+    .replace(/[^\S\r\n]+/g, ' ')
+    .replace(/[\u0001-\u0008\u000B-\u001F\u007F]/g, ' ')
+    .replace(/\{\\[^{}]+\}/g, ' ')
+    .replace(/\\par[d]?/gi, '\n')
+    .replace(/\\'[0-9a-fA-F]{2}/g, ' ')
+    .replace(/\\[a-z]+\d* ?/gi, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function readFileAsArrayBuffer(file) {
