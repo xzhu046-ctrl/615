@@ -2638,7 +2638,28 @@ function makeChatEntry(role, content, type, id){
     readAt: (normRole === 'assistant' ? sentAt : null)
   };
 }
+function compactChatEntryForStorage(entry){
+  var item = entry || {};
+  return [
+    String(item.id || ''),
+    String(item.role || 'assistant'),
+    String(item.type || 'text'),
+    typeof item.content === 'string' ? item.content : String(item.content || ''),
+    Number(item.sentAt || 0) || 0,
+    Number(item.readAt || 0) || 0,
+    item.replyToId ? String(item.replyToId) : '',
+    item.hidden ? 1 : 0
+  ];
+}
 function normalizeChatEntry(m){
+  if(Array.isArray(m)){
+    var compact = makeChatEntry(m[1] || 'assistant', m[3] || '', normalizeMessageType(m[2] || 'text'), m[0] || '');
+    compact.sentAt = Number(m[4] || compact.sentAt || getNowTs()) || getNowTs();
+    compact.readAt = Number(m[5] || 0) || (compact.role === 'assistant' ? compact.sentAt : null);
+    compact.replyToId = m[6] ? String(m[6]) : null;
+    compact.hidden = !!m[7];
+    return compact;
+  }
   if (m && typeof m === 'object') {
     if (!m.type && typeof m.content === 'string') {
       try{
@@ -6697,11 +6718,11 @@ function confirmClearChatAll(){
 function saveChat(forceReplace) {
   if (!character) return;
   var nextLog = Array.isArray(chatLog) ? chatLog.slice() : [];
-  var payload = JSON.stringify({ history: nextLog });
+  var storedHistory = nextLog.map(compactChatEntryForStorage);
+  var payload = JSON.stringify({ history: storedHistory });
   var storedOk = false;
   try{
     localStorage.setItem(chatStorageKey(character.id), payload);
-    try{ localStorage.setItem('chat_' + character.id, payload); }catch(e){}
     storedOk = true;
   }catch(err){
     appendMoneyDebugLog('save_chat_error', {
@@ -6714,7 +6735,6 @@ function saveChat(forceReplace) {
       localStorage.removeItem(moneyDebugKey());
       localStorage.removeItem(moneyReplySnapshotKey(character.id));
       localStorage.setItem(chatStorageKey(character.id), payload);
-      try{ localStorage.setItem('chat_' + character.id, payload); }catch(e){}
       storedOk = true;
       appendMoneyDebugLog('save_chat_retry_ok', {
         forceReplace: !!forceReplace,
@@ -6814,7 +6834,7 @@ function saveMoneyReplySnapshot(reason){
     var payload = {
       reason: String(reason || ''),
       savedAt: Date.now(),
-      history: Array.isArray(chatLog) ? chatLog.slice() : []
+      history: Array.isArray(chatLog) ? chatLog.map(compactChatEntryForStorage) : []
     };
     localStorage.setItem(moneyReplySnapshotKey(character.id), JSON.stringify(payload));
     appendMoneyDebugLog('snapshot_saved', {
