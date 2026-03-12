@@ -267,24 +267,20 @@ textarea{resize:none}
     </div>
   </div>
 
-  <!-- Money Debug -->
+  <!-- App Debug -->
   <div class="card">
     <div class="card-header">
-      <h3>红包 Debug</h3>
-      <button class="btn btn-white btn-sm" type="button" onclick="refreshMoneyDebugPanel()">刷新</button>
+      <h3>App Debug</h3>
+      <button class="btn btn-white btn-sm" type="button" onclick="refreshAppDebugPanel()">刷新</button>
     </div>
     <div class="card-body">
-      <div class="muted-note">这里会显示红包 / 转账回复链路的本地调试日志和最近一次快照。你复现一次后，直接来这里看。</div>
-      <label>角色记录</label>
-      <select id="money-debug-select" onchange="renderMoneyDebugPanel()">
-        <option value="">-- 暂无记录 --</option>
-      </select>
+      <div class="muted-note">这里会显示首页小组件和聊天 app 当前实际读到的状态，方便直接判断是没写进去还是被覆盖了。</div>
       <div class="btn-row">
-        <button class="btn btn-white btn-sm" type="button" onclick="renderMoneyDebugPanel()">查看当前记录</button>
-        <button class="btn btn-white btn-sm" type="button" onclick="clearMoneyDebugPanel()">清空当前记录</button>
+        <button class="btn btn-white btn-sm" type="button" onclick="refreshAppDebugPanel()">刷新当前状态</button>
+        <button class="btn btn-white btn-sm" type="button" onclick="clearAppDebugPreview()">清空预览缓存</button>
       </div>
-      <div class="debug-meta" id="money-debug-meta">还没有可显示的红包调试记录。</div>
-      <div class="debug-box" id="money-debug-output">等待刷新...</div>
+      <div class="debug-meta" id="app-debug-meta">等待读取当前状态。</div>
+      <div class="debug-box" id="app-debug-output">等待刷新...</div>
     </div>
   </div>
 
@@ -313,8 +309,7 @@ var dirty = false;
 var curProvider = localStorage.getItem('provider') || 'openai';
 var AI_BG_ENABLED_KEY = 'ai_bg_activity_enabled';
 var AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
-var MONEY_DEBUG_TOKEN = 'money_packet_debug_';
-var MONEY_SNAPSHOT_TOKEN = 'money_reply_snapshot_';
+var CHAT_PREVIEW_TOKEN = 'chat_preview_';
 var PROVIDER_LABELS = {
   openai: 'OpenAI',
   claude: 'Claude',
@@ -345,7 +340,7 @@ function init() {
   var aiBgEnabled = localStorage.getItem(AI_BG_ENABLED_KEY) === '1';
   document.getElementById('ai-bg-switch').classList.toggle('on', aiBgEnabled);
   document.getElementById('ai-bg-interval').value = localStorage.getItem(AI_BG_INTERVAL_KEY) || '6';
-  refreshMoneyDebugPanel();
+  refreshAppDebugPanel();
   dirty = false;
 }
 
@@ -528,33 +523,6 @@ function safeJsonParse(raw) {
   try { return JSON.parse(raw); } catch(e) { return null; }
 }
 
-function getMoneyDebugRecords() {
-  var records = {};
-  Object.keys(localStorage).forEach(function(key){
-    var debugIdx = key.indexOf(MONEY_DEBUG_TOKEN);
-    var snapIdx = key.indexOf(MONEY_SNAPSHOT_TOKEN);
-    var charId = '';
-    if(debugIdx >= 0){
-      charId = key.slice(debugIdx + MONEY_DEBUG_TOKEN.length);
-      records[charId] = records[charId] || { charId: charId, debugKey: '', snapshotKey: '' };
-      records[charId].debugKey = key;
-    } else if(snapIdx >= 0){
-      charId = key.slice(snapIdx + MONEY_SNAPSHOT_TOKEN.length);
-      records[charId] = records[charId] || { charId: charId, debugKey: '', snapshotKey: '' };
-      records[charId].snapshotKey = key;
-    }
-  });
-  return Object.keys(records).sort().map(function(id){ return records[id]; });
-}
-
-function getPreferredMoneyDebugCharId(records) {
-  var activeRaw = localStorage.getItem('activeCharacter');
-  var active = safeJsonParse(activeRaw || 'null');
-  var activeId = active && active.id ? String(active.id) : '';
-  if(activeId && records.some(function(item){ return item.charId === activeId; })) return activeId;
-  return records.length ? records[0].charId : '';
-}
-
 function settingsScopedKey(base){
   try{
     if(window.AccountManager){
@@ -565,114 +533,80 @@ function settingsScopedKey(base){
   return base;
 }
 
-function moneyStateStorageIdForSettings(){
-  return settingsScopedKey('chat_money_state');
-}
-
-async function loadMoneyDebugSnapshot(charId){
-  var snapshot = null;
-  var snapshotKey = '';
-  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
-    try{
-      var record = await window.PhoneStorage.get('moneyStates', moneyStateStorageIdForSettings());
-      var candidate = record && record.data && record.data.replySnapshot ? record.data.replySnapshot : null;
-      if(candidate && (!charId || !candidate.charId || String(candidate.charId) === String(charId))){
-        snapshot = candidate;
+function getAppDebugSnapshot(){
+  var active = safeJsonParse(localStorage.getItem('activeCharacter') || 'null');
+  var scopedActive = safeJsonParse(localStorage.getItem(settingsScopedKey('activeCharacter')) || 'null');
+  var activeId = '';
+  if(active && active.id) activeId = String(active.id);
+  else if(scopedActive && scopedActive.id) activeId = String(scopedActive.id);
+  var scopedPreviewKey = activeId ? settingsScopedKey(CHAT_PREVIEW_TOKEN + activeId) : '';
+  var globalPreviewKey = activeId ? (CHAT_PREVIEW_TOKEN + activeId) : '';
+  var scopedPreview = scopedPreviewKey ? safeJsonParse(localStorage.getItem(scopedPreviewKey) || 'null') : null;
+  var globalPreview = globalPreviewKey ? safeJsonParse(localStorage.getItem(globalPreviewKey) || 'null') : null;
+  var parentFrame = null;
+  var parentSrc = '';
+  var parentTitle = '';
+  var currentApp = '';
+  try{
+    if(window.parent){
+      currentApp = String(window.parent.currentApp || '');
+      if(window.parent.document){
+        parentFrame = window.parent.document.getElementById('app-iframe');
+        parentSrc = parentFrame ? String(parentFrame.getAttribute('src') || '') : '';
+        var titleEl = window.parent.document.getElementById('app-title-label');
+        parentTitle = titleEl ? String(titleEl.textContent || '') : '';
       }
-    }catch(e){}
-  }
-  if(!snapshot){
-    snapshotKey = settingsScopedKey(MONEY_SNAPSHOT_TOKEN + String(charId || ''));
-    snapshot = safeJsonParse(localStorage.getItem(snapshotKey) || 'null');
-  }
+    }
+  }catch(e){}
   return {
-    snapshot: snapshot,
-    snapshotKey: snapshot ? (snapshotKey || moneyStateStorageIdForSettings()) : null
+    at: Date.now(),
+    activeId: activeId || null,
+    activeCharacter: active || null,
+    scopedActiveCharacter: scopedActive || null,
+    scopedPreviewKey: scopedPreviewKey || null,
+    scopedPreview: scopedPreview || null,
+    globalPreviewKey: globalPreviewKey || null,
+    globalPreview: globalPreview || null,
+    parentCurrentApp: currentApp || null,
+    parentAppTitle: parentTitle || null,
+    parentIframeSrc: parentSrc || null,
+    parentIframeVisible: !!(parentFrame && parentFrame.offsetParent)
   };
 }
 
-async function refreshMoneyDebugPanel() {
-  var select = document.getElementById('money-debug-select');
-  if(!select) return;
-  var prev = select.value;
-  var records = getMoneyDebugRecords();
-  select.innerHTML = '';
-  if(!records.length){
-    var empty = document.createElement('option');
-    empty.value = '';
-    empty.textContent = '-- 暂无记录 --';
-    select.appendChild(empty);
-    renderMoneyDebugPanel();
-    return;
-  }
-  records.forEach(function(item){
-    var opt = document.createElement('option');
-    opt.value = item.charId;
-    opt.textContent = item.charId + (item.debugKey ? ' / 日志' : '') + (item.snapshotKey ? ' / 快照' : '');
-    select.appendChild(opt);
-  });
-  select.value = records.some(function(item){ return item.charId === prev; }) ? prev : getPreferredMoneyDebugCharId(records);
-  await renderMoneyDebugPanel();
-}
-
-async function renderMoneyDebugPanel() {
-  var select = document.getElementById('money-debug-select');
-  var meta = document.getElementById('money-debug-meta');
-  var output = document.getElementById('money-debug-output');
-  if(!select || !meta || !output) return;
-  var charId = select.value;
-  if(!charId){
-    meta.textContent = '还没有可显示的红包调试记录。';
-    output.textContent = '等待刷新...';
-    return;
-  }
-  var records = getMoneyDebugRecords();
-  var current = records.find(function(item){ return item.charId === charId; });
-  if(!current){
-    meta.textContent = '未找到所选角色的记录。';
-    output.textContent = '记录不存在。';
-    return;
-  }
-  var debugRaw = current.debugKey ? localStorage.getItem(current.debugKey) : '';
-  var debugList = safeJsonParse(debugRaw || '[]');
-  var snapshotResult = await loadMoneyDebugSnapshot(charId);
-  var snapshot = snapshotResult.snapshot;
-  var snapshotCount = snapshot && Array.isArray(snapshot.history) ? snapshot.history.length : 0;
+function refreshAppDebugPanel() {
+  var meta = document.getElementById('app-debug-meta');
+  var output = document.getElementById('app-debug-output');
+  if(!meta || !output) return;
+  var snap = getAppDebugSnapshot();
   meta.textContent = [
-    '角色 ID：' + charId,
-    current.debugKey ? ('日志条数：' + (Array.isArray(debugList) ? debugList.length : 0)) : '日志：无',
-    snapshot ? ('快照消息数：' + snapshotCount) : '快照：无'
+    'activeId: ' + (snap.activeId || '无'),
+    'currentApp: ' + (snap.parentCurrentApp || '无'),
+    'widget preview: ' + ((snap.activeCharacter && snap.activeCharacter.lastPreview && snap.activeCharacter.lastPreview.content) || '无')
   ].join('  |  ');
-  output.textContent = JSON.stringify({
-    charId: charId,
-    debugKey: current.debugKey || null,
-    snapshotKey: snapshotResult.snapshotKey || null,
-    debug: Array.isArray(debugList) ? debugList : debugRaw,
-    snapshot: snapshot || ''
-  }, null, 2);
+  output.textContent = JSON.stringify(snap, null, 2);
 }
 
-function clearMoneyDebugPanel() {
-  var select = document.getElementById('money-debug-select');
-  if(!select || !select.value) return;
-  var records = getMoneyDebugRecords();
-  var current = records.find(function(item){ return item.charId === select.value; });
-  if(!current) return;
-  if(current.debugKey) localStorage.removeItem(current.debugKey);
-  if(current.snapshotKey) localStorage.removeItem(current.snapshotKey);
-  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function' && typeof window.PhoneStorage.put === 'function'){
-    window.PhoneStorage.get('moneyStates', moneyStateStorageIdForSettings()).then(function(record){
-      if(!record || !record.data || !record.data.replySnapshot) return null;
-      if(record.data.replySnapshot.charId && String(record.data.replySnapshot.charId) !== String(select.value)) return null;
-      var next = Object.assign({}, record, {
-        data: Object.assign({}, record.data, { replySnapshot: null }),
-        updatedAt: Date.now()
-      });
-      return window.PhoneStorage.put('moneyStates', next);
-    }).catch(function(){});
+function clearAppDebugPreview() {
+  var snap = getAppDebugSnapshot();
+  if(snap.activeId){
+    try{ localStorage.removeItem(settingsScopedKey(CHAT_PREVIEW_TOKEN + snap.activeId)); }catch(e){}
+    try{ localStorage.removeItem(CHAT_PREVIEW_TOKEN + snap.activeId); }catch(e){}
   }
-  showToast('已清空当前红包调试记录');
-  refreshMoneyDebugPanel();
+  try{
+    var active = snap.activeCharacter && typeof snap.activeCharacter === 'object' ? Object.assign({}, snap.activeCharacter) : null;
+    var scoped = snap.scopedActiveCharacter && typeof snap.scopedActiveCharacter === 'object' ? Object.assign({}, snap.scopedActiveCharacter) : null;
+    if(active && active.lastPreview){
+      delete active.lastPreview;
+      localStorage.setItem('activeCharacter', JSON.stringify(active));
+    }
+    if(scoped && scoped.lastPreview){
+      delete scoped.lastPreview;
+      localStorage.setItem(settingsScopedKey('activeCharacter'), JSON.stringify(scoped));
+    }
+  }catch(e){}
+  showToast('已清空当前首页预览缓存');
+  refreshAppDebugPanel();
 }
 
 function confirmFormat() {
