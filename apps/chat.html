@@ -6755,8 +6755,14 @@ function refreshMemoryUi(){
 }
 
 function openMemoryPanel(){
-  refreshMemoryUi();
-  document.getElementById('memoryOverlay')?.classList.add('open');
+  var overlay = document.getElementById('memoryOverlay');
+  if(overlay) overlay.classList.add('open');
+  try{
+    refreshMemoryUi();
+  }catch(err){
+    console.error('openMemoryPanel failed', err);
+    toast('记忆面板加载失败');
+  }
 }
 function closeMemoryPanel(){
   document.getElementById('memoryOverlay')?.classList.remove('open');
@@ -7741,61 +7747,62 @@ function openChatSettings() {
   chatSettingsSavedAtLeastOnce = false;
   pendingCharBgEnabled = null;
   pendingAutoSummaryEnabled = null;
-  var isDefault = isDefaultAccountContext();
-  // Populate char
-  if (character) {
-    var av = document.getElementById('csCharAvatar');
-    if (character.imageData) { av.innerHTML = '<img src="' + character.imageData + '"><div class="avatar-pick-hint">换头像</div>'; }
-    else { av.innerHTML = getAvatarPlaceholderHtml('char', character.avatar || ''); }
-    loadStoredAsset('char_avatar_' + character.id).then(function(ovr){
-      if (ovr && ovr.startsWith('data:')) { av.innerHTML = '<img src="' + ovr + '"><div class="avatar-pick-hint">换头像</div>'; }
-    });
-    document.getElementById('csCharName').value = character.name || '';
-    document.getElementById('csCharNick').value = character.nickname || '';
-    document.getElementById('csCharPersona').value = character.personality || character.description || character.name || '暂无人设';
-    document.getElementById('csMsgMin').value = (character.msgMin || 1);
-    document.getElementById('csMsgMax').value = (character.msgMax || 3);
-  }
-  // Populate user
-  var uav = document.getElementById('csUserAvatar');
-  uav.innerHTML = getAvatarPlaceholderHtml('user', '+');
-  var userAvatarKey = isDefault ? userKey('user_avatar') : accountScopedKey('qq_profile_avatar_asset');
-  loadStoredAsset(userAvatarKey).then(function(savedUav){
-    savedUav = String(savedUav || '').trim() || getActiveAccountProfileAvatar();
-    if (savedUav && savedUav.startsWith('data:')) { uav.innerHTML = '<img src="' + savedUav + '"><div class="avatar-pick-hint">换头像</div>'; }
-  });
-  document.getElementById('csUserName').value = isDefault ? (localStorage.getItem(userKey('user_name')) || '') : getActiveAccountProfileName();
-  document.getElementById('csUserName').disabled = !isDefault;
-  document.getElementById('csUserAvatar').style.pointerEvents = isDefault ? '' : 'none';
-  document.getElementById('csUserPersona').value = isDefault ? (localStorage.getItem(userKey('user_persona')) || '') : '';
-  document.getElementById('csUserPersonaWrap').style.display = isDefault ? '' : 'none';
-  document.getElementById('csSubUserHint').style.display = isDefault ? 'none' : 'block';
-  // WB
-  document.getElementById('wbToggle').classList.toggle('on', wbEnabled);
-  updateWbInfoText();
-  renderWbBookList();
-  document.getElementById('csContextWindow').value = loadContextWindowSize();
-  document.getElementById('csSummaryEvery').value = loadSummaryEverySize();
-  document.getElementById('csManualSummarySize').value = loadManualSummarySize();
-  document.getElementById('csMemoryMergeThreshold').value = loadMemoryMergeThreshold();
-  var freqSel = document.getElementById('csMomentsFreq');
-  if(freqSel) freqSel.value = loadCharMomentsFreq(character && character.id);
-  // Greetings (small account cannot pick opening lines)
-  var greetingsCard = document.getElementById('greetingsCard');
-  var canPickGreeting = true;
-  if(window.AccountManager){
-    var acct = window.AccountManager.getActive();
-    canPickGreeting = !!(acct && acct.isDefault);
-  }
-  if(greetingsCard) greetingsCard.style.display = canPickGreeting ? '' : 'none';
-  if(canPickGreeting) populateGreetings();
-  refreshUserAvatars();
-  renderCharBgToggle();
-  renderAutoSummaryToggle();
-  updateBlockedUi();
-  refreshMemoryUi();
   hideParentTopbarForSettings();
   document.getElementById('chatSettings').classList.add('open');
+  try{
+    var isDefault = isDefaultAccountContext();
+    if (character) {
+      var av = document.getElementById('csCharAvatar');
+      if (character.imageData) { av.innerHTML = '<img src="' + character.imageData + '"><div class="avatar-pick-hint">换头像</div>'; }
+      else { av.innerHTML = getAvatarPlaceholderHtml('char', character.avatar || ''); }
+      loadStoredAsset('char_avatar_' + character.id).then(function(ovr){
+        if (ovr && ovr.startsWith('data:')) { av.innerHTML = '<img src="' + ovr + '"><div class="avatar-pick-hint">换头像</div>'; }
+      });
+      document.getElementById('csCharName').value = character.name || '';
+      document.getElementById('csCharNick').value = character.nickname || '';
+      document.getElementById('csCharPersona').value = character.personality || character.description || character.name || '暂无人设';
+      document.getElementById('csMsgMin').value = (character.msgMin || 1);
+      document.getElementById('csMsgMax').value = (character.msgMax || 3);
+    }
+    var uav = document.getElementById('csUserAvatar');
+    uav.innerHTML = getAvatarPlaceholderHtml('user', '+');
+    var userAvatarKey = isDefault ? userKey('user_avatar') : accountScopedKey('qq_profile_avatar_asset');
+    loadStoredAsset(userAvatarKey).then(function(savedUav){
+      savedUav = String(savedUav || '').trim() || getActiveAccountProfileAvatar();
+      if (savedUav && savedUav.startsWith('data:')) { uav.innerHTML = '<img src="' + savedUav + '"><div class="avatar-pick-hint">换头像</div>'; }
+    });
+    document.getElementById('csUserName').value = isDefault ? (localStorage.getItem(userKey('user_name')) || '') : getActiveAccountProfileName();
+    document.getElementById('csUserName').disabled = !isDefault;
+    document.getElementById('csUserAvatar').style.pointerEvents = isDefault ? '' : 'none';
+    document.getElementById('csUserPersona').value = isDefault ? (localStorage.getItem(userKey('user_persona')) || '') : '';
+    document.getElementById('csUserPersonaWrap').style.display = isDefault ? '' : 'none';
+    document.getElementById('csSubUserHint').style.display = isDefault ? 'none' : 'block';
+    document.getElementById('wbToggle').classList.toggle('on', wbEnabled);
+    updateWbInfoText();
+    renderWbBookList();
+    document.getElementById('csContextWindow').value = loadContextWindowSize();
+    document.getElementById('csSummaryEvery').value = loadSummaryEverySize();
+    document.getElementById('csManualSummarySize').value = loadManualSummarySize();
+    document.getElementById('csMemoryMergeThreshold').value = loadMemoryMergeThreshold();
+    var freqSel = document.getElementById('csMomentsFreq');
+    if(freqSel) freqSel.value = loadCharMomentsFreq(character && character.id);
+    var greetingsCard = document.getElementById('greetingsCard');
+    var canPickGreeting = true;
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      canPickGreeting = !!(acct && acct.isDefault);
+    }
+    if(greetingsCard) greetingsCard.style.display = canPickGreeting ? '' : 'none';
+    if(canPickGreeting) populateGreetings();
+    refreshUserAvatars();
+    renderCharBgToggle();
+    renderAutoSummaryToggle();
+    updateBlockedUi();
+    refreshMemoryUi();
+  }catch(err){
+    console.error('openChatSettings failed', err);
+    toast('聊天设置加载失败');
+  }
 }
 
 function closeChatSettings() {
