@@ -2026,10 +2026,24 @@ function normalizeChatPreviewType(type){
 }
 
 function normalizePreviewMessage(msg){
-  var next = msg && typeof msg === 'object' ? msg : { content:'', type:'text' };
+  var next = Array.isArray(msg)
+    ? { id: msg[0], role: msg[1], type: msg[2], content: msg[3], sentAt: msg[4], readAt: msg[5], replyToId: msg[6], hidden: !!msg[7] }
+    : (msg && typeof msg === 'object' ? msg : { content:'', type:'text' });
   var kind = normalizeChatPreviewType(next.type || 'text');
   if(kind === 'familycard'){
     return { content: '【亲属卡】', type: 'text' };
+  }
+  if(kind === 'moneypacket'){
+    try{
+      var moneyParsed = typeof next.content === 'string' ? JSON.parse(next.content) : next.content;
+      var mode = String((moneyParsed && moneyParsed.mode) || 'red_packet');
+      var amount = Number((moneyParsed && moneyParsed.amount) || 0);
+      var label = mode === 'transfer' ? '【转账】' : '【红包】';
+      if(amount > 0) label += amount.toFixed(2) + '元';
+      return { content: label, type: 'text' };
+    }catch(e){
+      return { content: '【红包】', type: 'text' };
+    }
   }
   if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
     try{
@@ -2043,7 +2057,9 @@ function normalizePreviewMessage(msg){
 }
 
 function isAssistantPreviewMessage(msg){
-  var role = String((msg && (msg.role || msg.sender || msg.from || '')) || '').toLowerCase();
+  var role = Array.isArray(msg)
+    ? String(msg[1] || '').toLowerCase()
+    : String((msg && (msg.role || msg.sender || msg.from || '')) || '').toLowerCase();
   return role === 'assistant' || role === 'ai' || role === 'character' || role === 'bot';
 }
 

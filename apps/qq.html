@@ -164,7 +164,7 @@ async function refreshChatCaches(){
         var last = {content:c.description||'', type:'text'};
         for(var j=msgs.length - 1; j>=0; j--){
           var m = msgs[j] || {};
-          if(String(m.role || '').toLowerCase() === 'assistant'){
+          if(getPreviewRole(m) === 'assistant'){
             last = normalizePreviewMessage(m);
             break;
           }
@@ -172,7 +172,7 @@ async function refreshChatCaches(){
         }
         var unread = 0;
         msgs.forEach(function(m){
-          if(m && m.role === 'assistant' && !m.readAt) unread++;
+          if(getPreviewRole(m) === 'assistant' && !getPreviewReadAt(m)) unread++;
         });
         next[c.id] = { last:last, unread: unread };
       }catch(e){}
@@ -280,7 +280,7 @@ function unreadCountOf(c){
     if(!Array.isArray(msgs)) return 0;
     var count = 0;
     msgs.forEach(function(m){
-      if(m && m.role === 'assistant' && !m.readAt) count++;
+      if(getPreviewRole(m) === 'assistant' && !getPreviewReadAt(m)) count++;
     });
     return count;
   }catch(e){
@@ -304,7 +304,7 @@ async function markChatAsRead(charId){
         var nowIdb = Date.now();
         var changedIdb = false;
         listIdb = listIdb.map(function(m){
-          if(m && m.role === 'assistant' && !m.readAt){
+          if(getPreviewRole(m) === 'assistant' && !getPreviewReadAt(m)){
             changedIdb = true;
             var next = Array.isArray(m) ? m.slice() : Object.assign({}, m);
             if(Array.isArray(next)) next[5] = nowIdb;
@@ -334,10 +334,11 @@ async function markChatAsRead(charId){
     var now = Date.now();
     var changed = false;
     list = list.map(function(m){
-      if(m && m.role === 'assistant' && !m.readAt){
+      if(getPreviewRole(m) === 'assistant' && !getPreviewReadAt(m)){
         changed = true;
-        var next = Object.assign({}, m);
-        next.readAt = now;
+        var next = Array.isArray(m) ? m.slice() : Object.assign({}, m);
+        if(Array.isArray(next)) next[5] = now;
+        else next.readAt = now;
         return next;
       }
       return m;
@@ -407,7 +408,9 @@ function moneyPreviewText(raw){
 }
 
 function normalizePreviewMessage(msg){
-  var next = msg && typeof msg === 'object' ? msg : { content:'', type:'text' };
+  var next = Array.isArray(msg)
+    ? { id: msg[0], role: msg[1], type: msg[2], content: msg[3], sentAt: msg[4], readAt: msg[5], replyToId: msg[6], hidden: !!msg[7] }
+    : (msg && typeof msg === 'object' ? msg : { content:'', type:'text' });
   var kind = normalizeChatPreviewType(next.type || 'text');
   if(kind === 'familycard'){
     return { content: '【亲属卡】', type: 'text' };
@@ -424,6 +427,14 @@ function normalizePreviewMessage(msg){
     }catch(e){}
   }
   return { content: next.content || '', type: kind };
+}
+function getPreviewRole(msg){
+  if(Array.isArray(msg)) return String(msg[1] || '').toLowerCase();
+  return String((msg && msg.role) || '').toLowerCase();
+}
+function getPreviewReadAt(msg){
+  if(Array.isArray(msg)) return Number(msg[5] || 0) || 0;
+  return Number((msg && msg.readAt) || 0) || 0;
 }
 function renderList(){
   var list=document.getElementById('chatList');
