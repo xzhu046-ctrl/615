@@ -27,6 +27,43 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
 
+function widgetPreviewStorageKey(charId){
+  return scopedKeyForAccount('widget_preview_' + String(charId || ''), getActiveAccountId());
+}
+
+function storeWidgetPreview(charId, preview){
+  if(!charId || !preview) return;
+  var record = {
+    content: String(preview.content || ''),
+    type: normalizeChatPreviewType(preview.type || 'text'),
+    at: Number(preview.at || Date.now()) || Date.now()
+  };
+  widgetPreviewCache[charId] = record;
+  try{
+    localStorage.setItem(widgetPreviewStorageKey(charId), JSON.stringify(record));
+  }catch(e){}
+}
+
+function getWidgetPreview(charId){
+  if(!charId) return null;
+  if(widgetPreviewCache[charId]) return widgetPreviewCache[charId];
+  try{
+    var raw = localStorage.getItem(widgetPreviewStorageKey(charId));
+    if(!raw) return null;
+    var parsed = JSON.parse(raw);
+    if(!parsed || typeof parsed !== 'object') return null;
+    var record = {
+      content: String(parsed.content || ''),
+      type: normalizeChatPreviewType(parsed.type || 'text'),
+      at: Number(parsed.at || 0) || 0
+    };
+    widgetPreviewCache[charId] = record;
+    return record;
+  }catch(e){
+    return null;
+  }
+}
+
 function loadLargeState(id){
   if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
     return window.PhoneStorage.getJson(id).catch(function(){ return null; });
@@ -2031,11 +2068,11 @@ window.addEventListener('message',(e)=>{
     // Always sync to the latest chatted character/widget state.
     delete qqUnreadCountCache[getActiveAccountId()];
     if(payload && payload.id){
-      widgetPreviewCache[payload.id] = {
+      storeWidgetPreview(payload.id, {
         content: String(payload.last || ''),
         type: normalizeChatPreviewType(payload.lastType || 'text'),
         at: Date.now()
-      };
+      });
     }
     var nextChar = payload && payload.data ? payload.data : null;
     if(nextChar && nextChar.id){
@@ -2187,7 +2224,7 @@ function setWidgetCharacter(c){
   function applyWidgetSub(messages){
     var lastLine = '';
     try{
-      var eventPreview = c && c.id ? widgetPreviewCache[c.id] : null;
+      var eventPreview = c && c.id ? getWidgetPreview(c.id) : null;
       if(eventPreview && (eventPreview.content || normalizeChatPreviewType(eventPreview.type || 'text') !== 'text')){
         var eventType = normalizeChatPreviewType(eventPreview.type || 'text');
         if(eventType === 'voice'){
