@@ -1342,6 +1342,58 @@ function getStoredChatMessages(charId){
   }
 }
 
+var homeChatSummaryCache = {};
+
+function readLegacyChatMessages(charId){
+  return getStoredChatMessages(charId);
+}
+
+function buildChatPreviewFromMessages(messages, fallbackText){
+  var picked = pickAssistantFirstPreview(messages);
+  if(picked && picked.content) return picked;
+  return { content: fallbackText || '', type: 'text' };
+}
+
+function formatWidgetPreview(preview, fallbackText){
+  var picked = preview && typeof preview === 'object'
+    ? { content: preview.content || '', type: normalizeChatPreviewType(preview.type || 'text') }
+    : { content: '', type: 'text' };
+  var text = picked.content || fallbackText || '';
+  if(picked.type === 'voice'){
+    var duration = Math.max(1, Math.min(60, Math.ceil((picked.content || '').length / 6)));
+    text = '语音消息 ' + duration + "''";
+  }else if(picked.type === 'image'){
+    text = '【图片】';
+  }
+  return formatCharSub(text);
+}
+
+function setWidgetSubtext(preview, fallbackText){
+  var subEl = document.getElementById('wgt-sub');
+  if(subEl) subEl.textContent = formatWidgetPreview(preview, fallbackText);
+}
+
+async function refreshHomeChatSummary(charId, fallbackText){
+  if(!charId) return null;
+  var preview = null;
+  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+    try{
+      var saved = await window.PhoneStorage.get('chats', mainScopedKey('chat_' + charId));
+      var msgs = saved && Array.isArray(saved.history) ? saved.history : [];
+      preview = buildChatPreviewFromMessages(msgs, fallbackText);
+    }catch(e){}
+  }
+  if(!preview){
+    preview = buildChatPreviewFromMessages(readLegacyChatMessages(charId), fallbackText);
+  }
+  homeChatSummaryCache[charId] = preview;
+  var active = getActiveCharacterData();
+  if(active && active.id === charId){
+    setWidgetSubtext(preview, fallbackText);
+  }
+  return preview;
+}
+
 function renderBondWidget(character){
   const c = character || getActiveCharacterData();
   const charName = document.getElementById('bond-char-name');
@@ -1881,6 +1933,12 @@ window.addEventListener('message',(e)=>{
   if(type==='CHAT_UPDATED'){
     // Always sync to the latest chatted character/widget state.
     var nextChar = payload && payload.data ? payload.data : null;
+    if(payload && payload.id){
+      homeChatSummaryCache[payload.id] = {
+        content: payload.last || '',
+        type: normalizeChatPreviewType(payload.lastType || 'text')
+      };
+    }
     if(nextChar && nextChar.id){
       try{ localStorage.setItem('activeCharacter', JSON.stringify(nextChar)); }catch(e){}
       try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(nextChar)); }catch(e){}
@@ -1890,8 +1948,8 @@ window.addEventListener('message',(e)=>{
       var ac = getActiveCharacterData();
       if(ac) renderBondWidget(ac);
     }
-    var picked = payload && payload.id
-      ? pickAssistantFirstPreview(getStoredChatMessages(payload.id))
+    var picked = payload && payload.id && homeChatSummaryCache[payload.id]
+      ? homeChatSummaryCache[payload.id]
       : { content: (payload.last || ''), type: normalizeChatPreviewType(payload.lastType || 'text') };
     var subText = picked.content || payload.last || '';
     var lastType = normalizeChatPreviewType(picked.type || payload.lastType || 'text');
@@ -2008,27 +2066,8 @@ function formatCharSub(text){
 function setWidgetCharacter(c){
   const displayName = c?.nickname || c?.name || '';
   document.getElementById('wgt-name').textContent = displayName;
-  // Prefer last chat line; fall back to description
-  var lastLine = '';
-  try {
-    if (c?.id) {
-      var msgs = getStoredChatMessages(c.id);
-      if (msgs.length) {
-        var lastMsg = pickAssistantFirstPreview(msgs);
-        var lastType = lastMsg.type;
-        if (lastType === 'voice') {
-          var duration = Math.max(1, Math.min(60, Math.ceil((lastMsg.content || '').length/6)));
-          lastLine = '语音消息 ' + duration + "''";
-        } else if (lastType === 'image') {
-          lastLine = '【图片】';
-        } else {
-          lastLine = lastMsg.content || '';
-        }
-      }
-    }
-  } catch(e){}
-  var sub = lastLine || c?.description || '';
-  document.getElementById('wgt-sub').textContent = formatCharSub(sub);
+  var cachedPreview = c && c.id ? homeChatSummaryCache[c.id] : null;
+  setWidgetSubtext(cachedPreview, c?.description || '');
   const avEl = document.getElementById('wgt-avatar');
   if (c?.imageData) {
     avEl.innerHTML = '<img src="'+c.imageData+'" style="width:100%;height:100%;object-fit:cover">';
@@ -2041,6 +2080,7 @@ function setWidgetCharacter(c){
         avEl.innerHTML = '<img src="'+override+'" style="width:100%;height:100%;object-fit:cover">';
       }
     });
+    refreshHomeChatSummary(c.id, c.description || '').catch(function(){});
   }
 }
 

@@ -266,27 +266,9 @@ function unpinChat(id){
   setPinnedChatIds(ids);
 }
 function lastMsgOf(c){
-  if(c && c.id && chatSummaryCache[c.id] && chatSummaryCache[c.id].last) return chatSummaryCache[c.id].last;
-  try{
-    var keys = [accountScopedKey('chat_'+c.id), 'chat_' + c.id];
-    for(var i=0;i<localStorage.length;i++){
-      var k = localStorage.key(i) || '';
-      if(k.indexOf('chat_' + c.id + '__acct_') === 0) keys.push(k);
-    }
-    var best = [];
-    keys.forEach(function(k){
-      try{
-        var saved = JSON.parse(localStorage.getItem(k) || 'null');
-        var msgs = (saved && (saved.messages || saved.history)) || [];
-        if(Array.isArray(msgs) && msgs.length > best.length) best = msgs;
-      }catch(err){}
-    });
-    for(var j=best.length - 1; j>=0; j--){
-      var m = best[j] || {};
-      if(String(m.role || '').toLowerCase() === 'assistant') return normalizePreviewMessage(m);
-    }
-    if(best.length) return normalizePreviewMessage(best[best.length-1]);
-  }catch(e){}
+  if(c && c.id && chatSummaryCache[c.id] && chatSummaryCache[c.id].last){
+    return chatSummaryCache[c.id].last;
+  }
   return {content:c.description||'', type:'text'};
 }
 
@@ -618,7 +600,22 @@ function openProfileCenter(){
 window.addEventListener('message', async function(e){
   var d=e.data||{};
   if(d.type==='CHARACTER_IMPORTED'){ await loadChars(); renderMomentsBadge(); forward(d); }
-  if(d.type==='CHAT_UPDATED'){ await loadChars(); renderMomentsBadge(); forward(d); }
+  if(d.type==='CHAT_UPDATED'){
+    var payload = d.payload || {};
+    if(payload.id){
+      chatSummaryCache[payload.id] = {
+        last: {
+          content: payload.last || '',
+          type: normalizeChatPreviewType(payload.lastType || 'text')
+        },
+        unread: chatSummaryCache[payload.id] ? Number(chatSummaryCache[payload.id].unread || 0) || 0 : 0
+      };
+      renderList();
+    }
+    await loadChars();
+    renderMomentsBadge();
+    forward(d);
+  }
   if(d.type==='SET_ACTIVE_CHARACTER' || d.type==='OPEN_CHAT_WITH' || d.type==='OPEN_APP_WITH'){ forward(d); }
 });
 function forward(msg){
