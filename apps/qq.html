@@ -162,8 +162,9 @@ async function refreshChatCaches(){
         var saved = await window.PhoneStorage.get('chats', accountScopedKey('chat_' + c.id));
         var msgs = saved && Array.isArray(saved.history) ? saved.history : [];
         var last = {content:c.description||'', type:'text'};
-        if(msgs.length){
-          last = normalizePreviewMessage(msgs[msgs.length - 1]);
+        var previewSource = getLastVisiblePreviewMessage(msgs);
+        if(previewSource){
+          last = normalizePreviewMessage(previewSource);
         }
         var unread = 0;
         msgs.forEach(function(m){
@@ -271,7 +272,8 @@ function lastMsgOf(c){
         if(Array.isArray(msgs) && msgs.length > best.length) best = msgs;
       }catch(err){}
     });
-    if(best.length) return normalizePreviewMessage(best[best.length-1]);
+    var previewSource = getLastVisiblePreviewMessage(best);
+    if(previewSource) return normalizePreviewMessage(previewSource);
   }catch(e){}
   return {content:c.description||'', type:'text'};
 }
@@ -428,6 +430,16 @@ function normalizePreviewMessage(msg){
     }catch(e){}
   }
   return { content: next.content || '', type: kind };
+}
+
+function getLastVisiblePreviewMessage(list){
+  var items = Array.isArray(list) ? list : [];
+  for(var i = items.length - 1; i >= 0; i--){
+    var entry = items[i] || {};
+    if(entry.hidden) continue;
+    return entry;
+  }
+  return items.length ? (items[items.length - 1] || null) : null;
 }
 function renderList(){
   var list=document.getElementById('chatList');

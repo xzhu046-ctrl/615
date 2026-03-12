@@ -2038,6 +2038,11 @@ function isAssistantPreviewMessage(msg){
 function pickLatestPreview(messages){
   var list = Array.isArray(messages) ? messages : [];
   if(!list.length) return { content:'', type:'text' };
+  for(var i = list.length - 1; i >= 0; i--){
+    var entry = list[i] || {};
+    if(entry.hidden) continue;
+    return normalizePreviewMessage(entry);
+  }
   return normalizePreviewMessage(list[list.length - 1]);
 }
 
