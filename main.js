@@ -2218,6 +2218,29 @@ function formatCharSub(text){
   return text.length > limit ? '…' + text.slice(-limit) : text;
 }
 
+function getPreviewTextForWidget(preview){
+  var next = preview && typeof preview === 'object' ? preview : { content:'', type:'text' };
+  var kind = normalizeChatPreviewType(next.type || 'text');
+  if(kind === 'voice'){
+    var duration = Math.max(1, Math.min(60, Math.ceil((next.content || '').length / 6)));
+    return '语音消息 ' + duration + "''";
+  }
+  if(kind === 'image'){
+    return '【图片】';
+  }
+  return next.content || '';
+}
+
+function getPreviewStampFromMessages(messages){
+  var list = Array.isArray(messages) ? messages : [];
+  var lastTs = 0;
+  list.forEach(function(entry){
+    var ts = Number((entry && (entry.sentAt || entry.readAt)) || 0) || 0;
+    if(ts > lastTs) lastTs = ts;
+  });
+  return lastTs;
+}
+
 function setWidgetCharacter(c){
   const displayName = c?.nickname || c?.name || '';
   document.getElementById('wgt-name').textContent = displayName;
@@ -2225,26 +2248,18 @@ function setWidgetCharacter(c){
     var lastLine = '';
     try{
       var eventPreview = c && c.id ? getWidgetPreview(c.id) : null;
-      if(eventPreview && (eventPreview.content || normalizeChatPreviewType(eventPreview.type || 'text') !== 'text')){
-        var eventType = normalizeChatPreviewType(eventPreview.type || 'text');
-        if(eventType === 'voice'){
-          var eventDuration = Math.max(1, Math.min(60, Math.ceil((eventPreview.content || '').length / 6)));
-          lastLine = '语音消息 ' + eventDuration + "''";
-        }else if(eventType === 'image'){
-          lastLine = '【图片】';
-        }else{
-          lastLine = eventPreview.content || '';
-        }
+      var latestStamp = getPreviewStampFromMessages(messages);
+      if(eventPreview && eventPreview.at >= latestStamp && (eventPreview.content || normalizeChatPreviewType(eventPreview.type || 'text') !== 'text')){
+        lastLine = getPreviewTextForWidget(eventPreview);
       }else if(Array.isArray(messages) && messages.length){
         var lastMsg = pickLatestPreview(messages);
-        var lastType = lastMsg.type;
-        if(lastType === 'voice'){
-          var duration = Math.max(1, Math.min(60, Math.ceil((lastMsg.content || '').length / 6)));
-          lastLine = '语音消息 ' + duration + "''";
-        }else if(lastType === 'image'){
-          lastLine = '【图片】';
-        }else{
-          lastLine = lastMsg.content || '';
+        lastLine = getPreviewTextForWidget(lastMsg);
+        if(c && c.id && (lastMsg.content || normalizeChatPreviewType(lastMsg.type || 'text') !== 'text')){
+          storeWidgetPreview(c.id, {
+            content: lastMsg.content || '',
+            type: lastMsg.type || 'text',
+            at: latestStamp || Date.now()
+          });
         }
       }
     }catch(e){}
