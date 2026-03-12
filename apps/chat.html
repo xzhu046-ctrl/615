@@ -1457,16 +1457,28 @@ function persistMoneyStateCache(){
     updatedAt: Date.now(),
     data: cloneJsonSafe(normalizeMoneyStateCache(moneyStateCache), defaultMoneyStateCache())
   };
+  try{
+    localStorage.setItem(moneyCoverListKey(), JSON.stringify(record.data.moneyCovers || []));
+  }catch(syncErr){}
+  try{
+    var snapshotCharId = record && record.data && record.data.replySnapshot && record.data.replySnapshot.charId
+      ? String(record.data.replySnapshot.charId)
+      : String((character && character.id) || '');
+    if(snapshotCharId && record.data.replySnapshot){
+      localStorage.setItem(moneyReplySnapshotKey(snapshotCharId), JSON.stringify(record.data.replySnapshot));
+    }else if(snapshotCharId){
+      localStorage.removeItem(moneyReplySnapshotKey(snapshotCharId));
+    }
+  }catch(syncErr2){}
   return persistRecordToIndexedDb('moneyStates', record).then(function(){
     try{ localStorage.removeItem(walletStateKey()); }catch(e){}
     try{ localStorage.removeItem(familyQueueKey()); }catch(e){}
     try{ localStorage.removeItem(familyActiveKey()); }catch(e){}
-    try{ localStorage.removeItem(moneyCoverListKey()); }catch(e){}
     try{
       var snapshotCharId = record && record.data && record.data.replySnapshot && record.data.replySnapshot.charId
         ? String(record.data.replySnapshot.charId)
         : String((character && character.id) || '');
-      if(snapshotCharId) localStorage.removeItem(moneyReplySnapshotKey(snapshotCharId));
+      if(snapshotCharId && !record.data.replySnapshot) localStorage.removeItem(moneyReplySnapshotKey(snapshotCharId));
     }catch(e){}
   });
 }
@@ -3894,7 +3906,7 @@ function saveMoneyCovers(list){
   moneyStateCache = normalizeMoneyStateCache(Object.assign({}, moneyStateCache || defaultMoneyStateCache(), {
     moneyCovers: Array.isArray(list) ? list : []
   }));
-  persistMoneyStateCache();
+  return persistMoneyStateCache();
 }
 
 function parseMoneyPacketPayload(raw){
@@ -6095,11 +6107,12 @@ function handleMoneyCoverUpload(file){
     saveStoredAsset(assetKey, dataUrl).then(function(){
       var covers = loadMoneyCovers();
       covers.unshift({ id: id, name: pendingMoneyCoverName, assetKey: assetKey, createdAt: Date.now() });
-      saveMoneyCovers(covers);
-      pendingMoneyCoverName = '';
-      selectedMoneyCoverId = id;
-      renderMoneyCoverLibrary();
-      updateMoneyCoverButtonLabel();
+      return Promise.resolve(saveMoneyCovers(covers)).then(function(){
+        pendingMoneyCoverName = '';
+        selectedMoneyCoverId = id;
+        renderMoneyCoverLibrary();
+        updateMoneyCoverButtonLabel();
+      });
     });
   };
   reader.readAsDataURL(file);
@@ -6146,14 +6159,14 @@ function closeMoneyCoverDeleteConfirm(){
   document.getElementById('moneyCoverDeleteOverlay')?.classList.remove('open');
 }
 
-function confirmDeleteMoneyCover(){
+async function confirmDeleteMoneyCover(){
   if(!pendingDeleteMoneyCoverId) return closeMoneyCoverDeleteConfirm();
   var removeId = pendingDeleteMoneyCoverId;
   var covers = loadMoneyCovers();
   var target = covers.find(function(item){ return String((item && item.id) || '') === removeId; });
-  saveMoneyCovers(covers.filter(function(item){
+  await Promise.resolve(saveMoneyCovers(covers.filter(function(item){
     return String((item && item.id) || '') !== removeId;
-  }));
+  })));
   if(target && target.assetKey) saveStoredAsset(target.assetKey, '');
   if(String(selectedMoneyCoverId || '') === removeId) selectedMoneyCoverId = '';
   closeMoneyCoverDeleteConfirm();
@@ -6312,7 +6325,10 @@ function parseMoneyReplyBundle(raw, fallbackAccept){
       else if(parsed.reply && typeof parsed.reply === 'string') replies = [{ type:'text', content: parsed.reply }];
       else if(parsed.content && typeof parsed.content === 'string') replies = [{ type:'text', content: parsed.content }];
     }
-  }catch(e){}
+  }catch(e){
+    var plain = sanitizeAssistantTextForChat(cleaned);
+    if(plain) replies = [{ type:'text', content: plain }];
+  }
   return { accept: accept, replies: replies, acceptProvided: acceptProvided };
 }
 
@@ -7225,7 +7241,7 @@ function openClearChatConfirm(){
 function closeClearChatConfirm(){
   document.getElementById('clearChatConfirmOverlay')?.classList.remove('open');
 }
-function clearChatData(opts){
+async function clearChatData(opts){
   var options = opts || {};
   closeMessageActions();
   multiSelectMode = false;
@@ -7237,7 +7253,8 @@ function clearChatData(opts){
   chatLog = [];
   if (character){
     try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(e){}
-    removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
+    await removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
+    await clearMoneyReplySnapshot(character.id);
   }
   if (character && character.id) removeFamilyBindingsForChar(character.id);
   if(options.clearMemory) clearMemorySummaries();
@@ -7256,7 +7273,7 @@ function clearChatData(opts){
   }else{
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">🗑</div><div class="welcome-title">已清空聊天与记忆</div></div>';
   }
-  saveChat(true);
+  await saveChat(true);
   renderReplyPreview();
   updateFloatingUi();
   refreshMemoryUi();
@@ -7264,7 +7281,9 @@ function clearChatData(opts){
 
 function confirmClearChatAll(){
   closeClearChatConfirm();
-  clearChatData({ keepGreeting: false, clearMemory: true });
+  clearChatData({ keepGreeting: false, clearMemory: true }).catch(function(err){
+    console.error('clear chat failed', err);
+  });
   toast('已清空聊天和全部记忆');
 }
 
@@ -7447,6 +7466,16 @@ function saveMoneyReplySnapshot(reason){
       tail: summarizeChatTail(payload.history)
     });
   }catch(e){}
+}
+
+function clearMoneyReplySnapshot(charId){
+  var targetId = String(charId || (character && character.id) || '').trim();
+  if(!targetId) return Promise.resolve();
+  moneyStateCache = normalizeMoneyStateCache(Object.assign({}, moneyStateCache || defaultMoneyStateCache(), {
+    replySnapshot: null
+  }));
+  try{ localStorage.removeItem(moneyReplySnapshotKey(targetId)); }catch(ignoreErr){}
+  return persistMoneyStateCache();
 }
 
 function parseStoredChatHistory(raw){
