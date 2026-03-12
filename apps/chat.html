@@ -1164,6 +1164,7 @@ var moneyReplyBusy = false;
 var moneyComposerMode = 'red_packet';
 var selectedMoneyCoverId = '';
 var pendingChatSavePromise = null;
+var skipNextStorageSync = false;
 var pendingMoneyCoverName = '';
 var pendingDeleteMoneyCoverId = '';
 var moneyCoverLongPressTimer = null;
@@ -3422,6 +3423,7 @@ async function removeMessagesByIds(ids){
   if(replyTargetId && set.has(replyTargetId)){
     replyTargetId = null;
   }
+  markLocalChatDirty();
   await saveChat(true);
   renderChatLog(false);
   return before - chatLog.length;
@@ -4686,6 +4688,10 @@ async function waitForPendingChatSave(){
   }catch(e){}
 }
 
+function markLocalChatDirty(){
+  skipNextStorageSync = true;
+}
+
 function onKey(e) {
   // Enter = sendOnly (no AI trigger), Ctrl+Enter / Cmd+Enter = triggerReply
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
@@ -4708,8 +4714,9 @@ async function sendOnly() {
   consumeFirstUserTurn(character && character.id);
   chatLog.push(entry);
   addMessage('user', text, true, 'text', entry.id);
-  await saveChat(true);
+  markLocalChatDirty();
   clearReplyTarget();
+  await saveChat(true);
   hideError();
   captureUserMomentIntent(text, 'text');
 }
@@ -4719,7 +4726,11 @@ async function triggerReply() {
   if(!canSendNow()) return;
   if (isTyping) return;
   await waitForPendingChatSave();
-  await syncChatLogFromStorageForCurrentCharacter();
+  if(skipNextStorageSync){
+    skipNextStorageSync = false;
+  }else{
+    await syncChatLogFromStorageForCurrentCharacter();
+  }
 
   var input = document.getElementById('msg-input');
   var text = input.value.trim();
@@ -4732,8 +4743,9 @@ async function triggerReply() {
     consumeFirstUserTurn(character && character.id);
     chatLog.push(entry);
     addMessage('user', text, true, 'text', entry.id);
-    await saveChat(true);
+    markLocalChatDirty();
     clearReplyTarget();
+    await saveChat(true);
     captureUserMomentIntent(text, 'text');
   }
   var familyReplyId = await handlePendingFamilyCardReply();
