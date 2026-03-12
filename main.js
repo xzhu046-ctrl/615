@@ -1343,6 +1343,37 @@ function getStoredChatMessages(charId){
 }
 
 var homeChatSummaryCache = {};
+var HOME_CHAT_PREVIEW_PREFIX = 'chat_preview_';
+
+function homeChatPreviewKey(charId){
+  return scopedKeyForAccount(HOME_CHAT_PREVIEW_PREFIX + charId, getActiveAccountId());
+}
+
+function loadStoredHomeChatPreview(charId){
+  if(!charId) return null;
+  try{
+    var raw = localStorage.getItem(homeChatPreviewKey(charId)) || localStorage.getItem(HOME_CHAT_PREVIEW_PREFIX + charId) || '';
+    if(!raw) return null;
+    var parsed = JSON.parse(raw);
+    if(!parsed || typeof parsed !== 'object') return null;
+    return {
+      content: String(parsed.content || ''),
+      type: normalizeChatPreviewType(parsed.type || 'text')
+    };
+  }catch(e){
+    return null;
+  }
+}
+
+function persistHomeChatPreview(charId, preview){
+  if(!charId || !preview || typeof preview !== 'object') return;
+  var payload = JSON.stringify({
+    content: String(preview.content || ''),
+    type: normalizeChatPreviewType(preview.type || 'text')
+  });
+  try{ localStorage.setItem(homeChatPreviewKey(charId), payload); }catch(e){}
+  try{ localStorage.setItem(HOME_CHAT_PREVIEW_PREFIX + charId, payload); }catch(e){}
+}
 
 function readLegacyChatMessages(charId){
   return getStoredChatMessages(charId);
@@ -1387,6 +1418,7 @@ async function refreshHomeChatSummary(charId, fallbackText){
     preview = buildChatPreviewFromMessages(readLegacyChatMessages(charId), fallbackText);
   }
   homeChatSummaryCache[charId] = preview;
+  persistHomeChatPreview(charId, preview);
   var active = getActiveCharacterData();
   if(active && active.id === charId){
     setWidgetSubtext(preview, fallbackText);
@@ -1938,6 +1970,7 @@ window.addEventListener('message',(e)=>{
         content: payload.last || '',
         type: normalizeChatPreviewType(payload.lastType || 'text')
       };
+      persistHomeChatPreview(payload.id, homeChatSummaryCache[payload.id]);
     }
     if(nextChar && nextChar.id){
       try{ localStorage.setItem('activeCharacter', JSON.stringify(nextChar)); }catch(e){}
@@ -2082,7 +2115,8 @@ function formatCharSub(text){
 function setWidgetCharacter(c){
   const displayName = c?.nickname || c?.name || '';
   document.getElementById('wgt-name').textContent = displayName;
-  var cachedPreview = c && c.id ? homeChatSummaryCache[c.id] : null;
+  var cachedPreview = c && c.id ? (homeChatSummaryCache[c.id] || loadStoredHomeChatPreview(c.id)) : null;
+  if(c && c.id && cachedPreview) homeChatSummaryCache[c.id] = cachedPreview;
   setWidgetSubtext(cachedPreview, c?.description || '');
   const avEl = document.getElementById('wgt-avatar');
   if (c?.imageData) {
