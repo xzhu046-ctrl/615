@@ -5799,6 +5799,20 @@ function buildMoneyDecisionSystemCue(payload, accept){
   return '[系统提示：你拒绝并退还了“' + sender + '”发来的红包（金额：' + amountText + '）。]';
 }
 
+function parseMoneyFollowupReplies(raw, accept){
+  var bundle = parseMoneyReplyBundle(raw, accept);
+  var replies = sanitizeFamilyFollowups(bundle.replies || [], accept, {});
+  if(replies.length) return replies;
+  var text = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+  if(!text) return [];
+  try{
+    JSON.parse(text);
+    return [];
+  }catch(e){}
+  text = sanitizeAssistantTextForChat(text);
+  return text ? [{ type:'text', content:text }] : [];
+}
+
 async function composeMoneyFollowupOnly(payload, accept){
   var maxFollowups = Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1);
   var systemCue = buildMoneyDecisionSystemCue(payload, accept);
@@ -5827,9 +5841,38 @@ async function composeMoneyFollowupOnly(payload, accept){
   try{
     var raw = await Promise.race([
       callAIWithCustomPrompts(sys, user),
-      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 9000); })
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
     ]);
-    return parseMoneyReplyBundle(raw, accept).replies || [];
+    return parseMoneyFollowupReplies(raw, accept);
+  }catch(e){
+    return [];
+  }
+}
+
+async function generateMoneyFollowupFallback(payload, accept){
+  var systemCue = buildMoneyDecisionSystemCue(payload, accept);
+  var sys = [
+    '你是聊天中的角色本人。',
+    '现在只写一条决定之后会立刻发出的自然聊天正文。',
+    '不要解释，不要 JSON，不要标题，不要复述系统提示。'
+  ].join('\n');
+  var recent = getVisibleChatForModel().slice(-8).map(function(m){
+    return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
+  }).join('\n');
+  var user = [
+    '角色名：' + (character ? (character.nickname || character.name || '角色') : '角色'),
+    '角色人设：' + String((character && (character.personality || character.description)) || ''),
+    recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
+    '系统事件：' + systemCue
+  ].join('\n\n');
+  try{
+    var raw = await Promise.race([
+      callAIWithCustomPrompts(sys, user),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 10000); })
+    ]);
+    var text = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+    text = sanitizeAssistantTextForChat(text);
+    return text ? [{ type:'text', content:text }] : [];
   }catch(e){
     return [];
   }
@@ -5838,10 +5881,12 @@ async function composeMoneyFollowupOnly(payload, accept){
 async function ensureMoneyFollowups(payload, accept, initialReplies){
   var followups = sanitizeFamilyFollowups(initialReplies || [], accept, payload);
   if(followups.length) return followups;
-  for(var i = 0; i < 2; i++){
+  for(var i = 0; i < 3; i++){
     followups = sanitizeFamilyFollowups(await composeMoneyFollowupOnly(payload, accept), accept, payload);
     if(followups.length) return followups;
   }
+  followups = sanitizeFamilyFollowups(await generateMoneyFollowupFallback(payload, accept), accept, payload);
+  if(followups.length) return followups;
   return [];
 }
 
@@ -5868,6 +5913,7 @@ async function handlePendingMoneyPacketReply(showLoading){
     pending.summary = moneyPacketDecisionText(pending, accept);
     updateMoneyPacketStatus(pendingEntry.id, pending.status);
     updateWalletRecordForMoneyStatus(pendingEntry.id, pending.status);
+    saveChat(true);
     var decisionPayload = Object.assign({}, pending, {
       kind: 'decision',
       status: pending.status,
@@ -5881,6 +5927,7 @@ async function handlePendingMoneyPacketReply(showLoading){
     var decisionEntry = makeChatEntry('assistant', JSON.stringify(decisionPayload), 'money_packet');
     chatLog.push(decisionEntry);
     addMessage('ai', decisionEntry.content, true, 'money_packet', decisionEntry.id);
+    saveChat(true);
     if(!accept){
       applyWalletDelta(Number(pending.amount || 0), 'in', {
         title: pending.mode === 'transfer' ? '转账已退回' : '红包已退回',
@@ -5904,7 +5951,7 @@ async function handlePendingMoneyPacketReply(showLoading){
       refundApplied: !accept,
       assistantIds: [decisionEntry.id].concat(followupIds || [])
     };
-    saveChat();
+    saveChat(true);
     return decisionEntry.id;
   } finally {
     if(showLoading){
