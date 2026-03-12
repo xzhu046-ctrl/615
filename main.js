@@ -1323,6 +1323,13 @@ function getVisibleAppFrame(){
   return getFrameForApp(currentApp || '');
 }
 
+function syncAppChromeMetrics(){
+  var container = document.getElementById('app-container');
+  var topbar = container ? container.querySelector('.app-topbar') : null;
+  if(!container || !topbar) return;
+  container.style.setProperty('--app-topbar-height', (topbar.offsetHeight || 0) + 'px');
+}
+
 function deliverChatSelection(slim){
   var payload = slim || null;
   if(!payload || !payload.id) return;
@@ -1342,20 +1349,15 @@ function deliverChatSelection(slim){
 function syncAppFrameVisibility(activeId){
   var appFrame = document.getElementById('app-iframe');
   var chatFrame = document.getElementById('chat-iframe');
+  syncAppChromeMetrics();
   if(appFrame) appFrame.style.display = activeId === 'chat' ? 'none' : '';
   if(chatFrame){
     if(activeId === 'chat'){
       chatFrame.style.display = '';
-      chatFrame.style.flex = '1 1 auto';
-      chatFrame.style.height = '';
-      chatFrame.style.minHeight = '';
       chatFrame.style.visibility = 'visible';
       chatFrame.style.pointerEvents = 'auto';
     }else{
-      chatFrame.style.display = '';
-      chatFrame.style.flex = '0 0 0';
-      chatFrame.style.height = '0px';
-      chatFrame.style.minHeight = '0px';
+      chatFrame.style.display = 'none';
       chatFrame.style.visibility = 'hidden';
       chatFrame.style.pointerEvents = 'none';
     }
@@ -1958,6 +1960,7 @@ let pendingChatSelection=null;
 function renderApp(id){
   const a=APP_MAP[id]; if(!a) return;
   currentApp=id;
+  syncAppChromeMetrics();
   const outer = document.querySelector('.phone-outer');
   if(outer) outer.classList.add('app-open');
   document.documentElement.classList.add('app-open-mode');
@@ -2476,6 +2479,7 @@ function restoreState(){
 
 window.addEventListener('resize', ()=>{
   syncAppHeight();
+  syncAppChromeMetrics();
   if(!hasSavedPhoneFramePreference()){
     applyPhoneFrameVisibility(getDefaultPhoneFrameVisibility(), false);
   }
@@ -2485,6 +2489,7 @@ if(window.visualViewport){
   window.visualViewport.addEventListener('resize', ()=>{
     if(isStandaloneMode()) return;
     syncAppHeight();
+    syncAppChromeMetrics();
   });
 }
 
