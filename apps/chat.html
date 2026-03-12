@@ -2065,9 +2065,7 @@ function blockStateStorageId(charId){
   return accountScopedKey('chat_block_state_' + String(charId || ''));
 }
 function greetingStorageKey(charId){
-  var sharedId = String(charId || '').trim();
-  if(character && sharedId === String(character.id || '')) sharedId = getSharedCharacterId();
-  return worldbookScopedKey('greeting_idx_' + sharedId);
+  return accountScopedKey('greeting_idx_' + String(charId || '').trim());
 }
 function momentStorageKey(base){
   return accountScopedKey(base);
@@ -4156,14 +4154,6 @@ function getGreeting() {
   if (Array.isArray(character.alternate_greetings)) all = all.concat(character.alternate_greetings);
   if (!all.length) return '';
   var idx = curGreetingIdx;
-  if(!isDefault && window.AccountManager){
-    var did = window.AccountManager.getDefaultId();
-    if(did){
-      var mainIdxRaw = localStorage.getItem('greeting_idx_' + character.id + '__acct_' + did);
-      var mainIdx = parseInt(mainIdxRaw || '0');
-      if(!Number.isNaN(mainIdx)) idx = mainIdx;
-    }
-  }
   return all[Math.min(idx, all.length - 1)] || '';
 }
 
@@ -4174,14 +4164,6 @@ function getPromptGreeting(){
   if (Array.isArray(character.alternate_greetings)) all = all.concat(character.alternate_greetings);
   if (!all.length) return '';
   var idx = curGreetingIdx;
-  if(!isDefaultAccountContext() && window.AccountManager){
-    var did = window.AccountManager.getDefaultId();
-    if(did){
-      var mainIdxRaw = localStorage.getItem('greeting_idx_' + character.id + '__acct_' + did);
-      var mainIdx = parseInt(mainIdxRaw || '0');
-      if(!Number.isNaN(mainIdx)) idx = mainIdx;
-    }
-  }
   return all[Math.min(idx, all.length - 1)] || '';
 }
 
@@ -7288,15 +7270,9 @@ async function saveChat(forceReplace) {
       tail: summarizeChatTail(nextLog)
     });
     var lastEntry = getLastVisibleChatEntry(nextLog);
-    var lastMsg = lastEntry ? (lastEntry.content || '') : '';
-    var lastType = lastEntry ? (lastEntry.type || 'text') : 'text';
-    if(normalizeMessageType(lastType) === 'familycard'){
-      lastMsg = familyCardSummaryText(lastMsg);
-      lastType = 'text';
-    } else if(normalizeMessageType(lastType) === 'moneypacket'){
-      lastMsg = moneyPacketSummaryText(lastMsg);
-      lastType = 'text';
-    }
+    var preview = getChatPreviewPayload(lastEntry);
+    var lastMsg = preview.content || '';
+    var lastType = preview.type || 'text';
     try {
       window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id: character.id, data: character, last: lastMsg, lastType: lastType } }, '*');
     } catch(e){}
@@ -7350,6 +7326,29 @@ function getLastVisibleChatEntry(list){
     return entry;
   }
   return items.length ? (items[items.length - 1] || null) : null;
+}
+
+function getChatPreviewPayload(entry){
+  var item = entry || null;
+  if(!item) return { content:'', type:'text' };
+  var previewType = normalizeMessageType(item.type || 'text');
+  var previewContent = item.content || '';
+  if(previewType === 'familycard'){
+    return { content: familyCardSummaryText(previewContent), type: 'text' };
+  }
+  if(previewType === 'moneypacket'){
+    return { content: moneyPacketSummaryText(previewContent), type: 'text' };
+  }
+  if(previewType === 'text' && typeof previewContent === 'string' && previewContent.trim().startsWith('{')){
+    try{
+      var parsed = JSON.parse(previewContent);
+      if(parsed && typeof parsed === 'object' && parsed.content){
+        previewContent = parsed.content;
+        previewType = normalizeMessageType(parsed.type || 'text');
+      }
+    }catch(e){}
+  }
+  return { content: previewContent, type: previewType };
 }
 
 function appendMoneyDebugLog(eventName, extra){

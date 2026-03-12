@@ -1320,16 +1320,42 @@ function getStoredChatMessages(charId){
         candidates.push(localStorage.getItem(key) || '');
       }
     }
-    var best = [];
+    function historyStamp(list){
+      var entries = Array.isArray(list) ? list : [];
+      var lastTs = 0;
+      entries.forEach(function(entry){
+        var ts = Number((entry && (entry.sentAt || entry.readAt)) || 0) || 0;
+        if(ts > lastTs) lastTs = ts;
+      });
+      return { lastTs:lastTs, count:entries.length };
+    }
+    function chooseBetter(bestRecord, nextRecord){
+      if(!nextRecord || !Array.isArray(nextRecord.history) || !nextRecord.history.length) return bestRecord;
+      if(!bestRecord || !Array.isArray(bestRecord.history) || !bestRecord.history.length) return nextRecord;
+      var bestStamp = historyStamp(bestRecord.history);
+      var nextStamp = historyStamp(nextRecord.history);
+      var bestUpdatedAt = Number(bestRecord.updatedAt || 0) || 0;
+      var nextUpdatedAt = Number(nextRecord.updatedAt || 0) || 0;
+      if(nextUpdatedAt > bestUpdatedAt) return nextRecord;
+      if(nextUpdatedAt === bestUpdatedAt && nextStamp.lastTs > bestStamp.lastTs) return nextRecord;
+      if(nextUpdatedAt === bestUpdatedAt && nextStamp.lastTs === bestStamp.lastTs && nextStamp.count > bestStamp.count) return nextRecord;
+      return bestRecord;
+    }
+    var best = null;
     candidates.forEach(function(raw){
       if(!raw) return;
       try{
         var parsed = JSON.parse(raw);
         var list = (parsed && (parsed.history || parsed.messages)) || [];
-        if(Array.isArray(list) && list.length > best.length) best = list;
+        if(Array.isArray(list) && list.length){
+          best = chooseBetter(best, {
+            history: list,
+            updatedAt: parsed && parsed.updatedAt
+          });
+        }
       }catch(e){}
     });
-    return best;
+    return Array.isArray(best && best.history) ? best.history : [];
   }catch(e){
     return [];
   }
@@ -1342,7 +1368,20 @@ async function getStoredChatMessagesAsync(charId){
       var scoped = scopedKeyForAccount('chat_' + charId, getActiveAccountId());
       var record = await window.PhoneStorage.get('chats', scoped);
       var history = Array.isArray(record && record.history) ? record.history : [];
-      if(history.length >= localList.length) return history;
+      if(history.length){
+        var localLastTs = 0;
+        localList.forEach(function(entry){
+          var ts = Number((entry && (entry.sentAt || entry.readAt)) || 0) || 0;
+          if(ts > localLastTs) localLastTs = ts;
+        });
+        var idbLastTs = 0;
+        history.forEach(function(entry){
+          var ts = Number((entry && (entry.sentAt || entry.readAt)) || 0) || 0;
+          if(ts > idbLastTs) idbLastTs = ts;
+        });
+        if(idbLastTs > localLastTs) return history;
+        if(idbLastTs === localLastTs && history.length >= localList.length) return history;
+      }
     }catch(e){}
   }
   return localList;

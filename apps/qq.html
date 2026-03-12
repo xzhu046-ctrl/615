@@ -269,7 +269,7 @@ function lastMsgOf(c){
       try{
         var saved = JSON.parse(localStorage.getItem(k) || 'null');
         var msgs = (saved && (saved.messages || saved.history)) || [];
-        if(Array.isArray(msgs) && msgs.length > best.length) best = msgs;
+        best = chooseBetterHistoryList(best, msgs);
       }catch(err){}
     });
     var previewSource = getLastVisiblePreviewMessage(best);
@@ -440,6 +440,26 @@ function getLastVisiblePreviewMessage(list){
     return entry;
   }
   return items.length ? (items[items.length - 1] || null) : null;
+}
+
+function historyStamp(list){
+  var entries = Array.isArray(list) ? list : [];
+  var lastTs = 0;
+  entries.forEach(function(entry){
+    var ts = Number((entry && (entry.sentAt || entry.readAt)) || 0) || 0;
+    if(ts > lastTs) lastTs = ts;
+  });
+  return { lastTs:lastTs, count:entries.length };
+}
+
+function chooseBetterHistoryList(best, next){
+  if(!Array.isArray(next) || !next.length) return best;
+  if(!Array.isArray(best) || !best.length) return next;
+  var bestStamp = historyStamp(best);
+  var nextStamp = historyStamp(next);
+  if(nextStamp.lastTs > bestStamp.lastTs) return next;
+  if(nextStamp.lastTs === bestStamp.lastTs && nextStamp.count > bestStamp.count) return next;
+  return best;
 }
 function renderList(){
   var list=document.getElementById('chatList');
@@ -616,7 +636,20 @@ function openProfileCenter(){
 window.addEventListener('message', async function(e){
   var d=e.data||{};
   if(d.type==='CHARACTER_IMPORTED'){ await loadChars(); renderMomentsBadge(); forward(d); }
-  if(d.type==='CHAT_UPDATED'){ await loadChars(); renderMomentsBadge(); forward(d); }
+  if(d.type==='CHAT_UPDATED'){
+    var payload = d.payload || {};
+    if(payload.id){
+      var current = chatSummaryCache[payload.id] || { last:{ content:'', type:'text' }, unread:0 };
+      chatSummaryCache[payload.id] = {
+        last: normalizePreviewMessage({ content: payload.last || '', type: payload.lastType || 'text' }),
+        unread: Number(current.unread || 0) || 0
+      };
+      renderList();
+    }
+    await loadChars();
+    renderMomentsBadge();
+    forward(d);
+  }
   if(d.type==='SET_ACTIVE_CHARACTER' || d.type==='OPEN_CHAT_WITH' || d.type==='OPEN_APP_WITH'){ forward(d); }
 });
 function forward(msg){
