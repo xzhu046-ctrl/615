@@ -2650,6 +2650,7 @@ function normalizeChatEntry(m){
     }
     var normalized = makeChatEntry(m.role || 'assistant', m.content || '', normalizeMessageType(m.type || 'text'), m.id);
     normalized.replyToId = m.replyToId || null;
+    normalized.hidden = !!m.hidden;
     normalized.sentAt = m.sentAt || normalized.sentAt || getNowTs();
     if(m.readAt){
       normalized.readAt = m.readAt;
@@ -2889,6 +2890,7 @@ function renderChatLog(keepScroll){
     return;
   }
   chatLog.forEach(function(m){
+    if(m && m.hidden) return;
     addMessage(m.role, m.content, false, m.type, m.id);
   });
   if(keepScroll){
@@ -3590,15 +3592,12 @@ function getStrictPromptWorldbookEntries(){
 function restoreOrStartChat() {
   var msgs = document.getElementById('messages');
   replyTargetId = null;
-  var saved = localStorage.getItem(chatStorageKey(character.id));
-  if (saved !== null) {
-    try {
-      var obj = JSON.parse(saved);
-      chatLog = obj.history || obj.messages || [];
-      chatLog = chatLog.map(normalizeChatEntry);
-      renderChatLog(false);
-      return;
-    } catch(e) {}
+  var restored = loadPreferredStoredChatForCurrentCharacter();
+  if (restored.length) {
+    chatLog = restored;
+    appendMoneyDebugLog('restore', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
+    renderChatLog(false);
+    return;
   }
   // Fresh start — show greeting
   var greeting = getGreeting();
@@ -3617,16 +3616,13 @@ function restoreOrStartChat() {
 function syncChatLogFromStorageForCurrentCharacter(){
   if(!character || !character.id) return false;
   try{
-    var saved = localStorage.getItem(chatStorageKey(character.id));
-    if(saved === null) return false;
-    var obj = JSON.parse(saved);
-    var next = (obj && (obj.history || obj.messages)) || [];
-    if(!Array.isArray(next)) return false;
-    var normalized = next.map(normalizeChatEntry);
+    var normalized = loadPreferredStoredChatForCurrentCharacter();
+    if(!normalized.length) return false;
     var currentSig = JSON.stringify(chatLog.map(function(item){ return [item.id, item.role, item.type, item.content, item.readAt || 0]; }));
     var nextSig = JSON.stringify(normalized.map(function(item){ return [item.id, item.role, item.type, item.content, item.readAt || 0]; }));
     if(currentSig === nextSig) return false;
     chatLog = normalized;
+    appendMoneyDebugLog('sync_from_storage', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
     renderChatLog(false);
     return true;
   }catch(e){
@@ -5799,6 +5795,15 @@ function buildMoneyDecisionSystemCue(payload, accept){
   return '[系统提示：你拒绝并退还了“' + sender + '”发来的红包（金额：' + amountText + '）。]';
 }
 
+function finalMoneyFollowupText(payload, accept){
+  var data = parseMoneyPacketPayload(payload) || {};
+  var sender = String(data.userName || userDisplayNameForFamily() || '你').trim() || '你';
+  if(String(data.mode || 'red_packet') === 'transfer'){
+    return accept ? ('我先收下了，' + sender + '。') : ('这笔转账我先退回去了，' + sender + '。');
+  }
+  return accept ? ('红包我收到了，' + sender + '。') : ('这个红包我先退回给你，' + sender + '。');
+}
+
 function parseMoneyFollowupReplies(raw, accept){
   var bundle = parseMoneyReplyBundle(raw, accept);
   var replies = sanitizeFamilyFollowups(bundle.replies || [], accept, {});
@@ -5878,16 +5883,44 @@ async function generateMoneyFollowupFallback(payload, accept){
   }
 }
 
-async function ensureMoneyFollowups(payload, accept, initialReplies){
+async function generateMoneyFollowupViaMainChat(payload, accept, hiddenCueId, hiddenDecisionId){
+  var provider = localStorage.getItem('provider') || 'openai';
+  var key = localStorage.getItem('key_' + provider);
+  if(!key) return [];
+  pendingModelUserCue = '你刚刚已经对红包或转账作出决定。现在请紧接着上一条决定卡之后，继续发送一条自然的正文消息。不要重复卡片结论，不要输出 JSON，不要再做一次收钱决定。';
+  transientHiddenModelMsgIds = [String(hiddenDecisionId || '')].filter(Boolean);
+  try{
+    var raw = await Promise.race([
+      callAI(provider, key),
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
+    ]);
+    appendMoneyDebugLog('main_followup_raw', {
+      raw: String(raw || '').slice(0, 220),
+      hiddenCueId: hiddenCueId || '',
+      hiddenDecisionId: hiddenDecisionId || ''
+    });
+    return parseMoneyFollowupReplies(raw, accept);
+  }catch(e){
+    appendMoneyDebugLog('main_followup_error', { message: e && e.message ? e.message : String(e || '') });
+    return [];
+  }finally{
+    transientHiddenModelMsgIds = [];
+    pendingModelUserCue = '';
+  }
+}
+
+async function ensureMoneyFollowups(payload, accept, initialReplies, hiddenCueId, hiddenDecisionId){
   var followups = sanitizeFamilyFollowups(initialReplies || [], accept, payload);
   if(followups.length) return followups;
   for(var i = 0; i < 3; i++){
     followups = sanitizeFamilyFollowups(await composeMoneyFollowupOnly(payload, accept), accept, payload);
     if(followups.length) return followups;
   }
+  followups = sanitizeFamilyFollowups(await generateMoneyFollowupViaMainChat(payload, accept, hiddenCueId, hiddenDecisionId), accept, payload);
+  if(followups.length) return followups;
   followups = sanitizeFamilyFollowups(await generateMoneyFollowupFallback(payload, accept), accept, payload);
   if(followups.length) return followups;
-  return [];
+  return [{ type:'text', content: finalMoneyFollowupText(payload, accept) }];
 }
 
 async function handlePendingMoneyPacketReply(showLoading){
@@ -5928,6 +5961,12 @@ async function handlePendingMoneyPacketReply(showLoading){
     chatLog.push(decisionEntry);
     addMessage('ai', decisionEntry.content, true, 'money_packet', decisionEntry.id);
     saveChat(true);
+    saveMoneyReplySnapshot('decision_card');
+    var hiddenSystemCue = makeChatEntry('system', buildMoneyDecisionSystemCue(pending, accept), 'text');
+    hiddenSystemCue.hidden = true;
+    chatLog.push(hiddenSystemCue);
+    saveChat(true);
+    saveMoneyReplySnapshot('decision_cue');
     if(!accept){
       applyWalletDelta(Number(pending.amount || 0), 'in', {
         title: pending.mode === 'transfer' ? '转账已退回' : '红包已退回',
@@ -5935,10 +5974,15 @@ async function handlePendingMoneyPacketReply(showLoading){
         relatedId: pendingEntry.id
       });
     }
-    var followups = await ensureMoneyFollowups(pending, accept, []);
+    var followups = await ensureMoneyFollowups(pending, accept, [], hiddenSystemCue.id, decisionEntry.id);
+    appendMoneyDebugLog('followups_ready', {
+      count: followups.length,
+      preview: followups.map(function(item){ return String((item && item.content) || '').slice(0, 80); })
+    });
     var followupIds = [];
     if(followups.length){
       followupIds = await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
+      saveMoneyReplySnapshot('followups_delivered');
     }else{
       refreshInnerVoiceFromAi(decisionPayload.summary);
     }
@@ -5951,7 +5995,13 @@ async function handlePendingMoneyPacketReply(showLoading){
       refundApplied: !accept,
       assistantIds: [decisionEntry.id].concat(followupIds || [])
     };
+    appendMoneyDebugLog('money_reply_done', {
+      count: chatLog.length,
+      assistantIds: lastMoneyReplyRound.assistantIds || [],
+      tail: summarizeChatTail(chatLog)
+    });
     saveChat(true);
+    saveMoneyReplySnapshot('money_reply_done');
     return decisionEntry.id;
   } finally {
     if(showLoading){
@@ -6703,6 +6753,11 @@ function saveChat(forceReplace) {
   var payload = JSON.stringify({ history: nextLog, messages: nextLog });
   localStorage.setItem(chatStorageKey(character.id), payload);
   try{ localStorage.setItem('chat_' + character.id, payload); }catch(e){}
+  appendMoneyDebugLog('save_chat', {
+    forceReplace: !!forceReplace,
+    count: nextLog.length,
+    tail: summarizeChatTail(nextLog)
+  });
   var lastEntry = null;
   for(var i = nextLog.length - 1; i >= 0; i--){
     var it = nextLog[i] || {};
@@ -6729,7 +6784,100 @@ function saveChat(forceReplace) {
 }
 
 function persistChatBeforeLeave(){
+  appendMoneyDebugLog('persist_before_leave', {
+    count: Array.isArray(chatLog) ? chatLog.length : 0,
+    tail: summarizeChatTail(chatLog)
+  });
   try{ saveChat(true); }catch(e){}
+  saveMoneyReplySnapshot('before_leave');
+}
+
+function moneyReplySnapshotKey(charId){
+  return accountScopedKey('money_reply_snapshot_' + String(charId || ''));
+}
+
+function moneyDebugKey(){
+  return accountScopedKey('money_packet_debug_' + String((character && character.id) || ''));
+}
+
+function summarizeChatTail(list){
+  return (Array.isArray(list) ? list : []).slice(-4).map(function(item){
+    var entry = item || {};
+    return {
+      id: String(entry.id || ''),
+      role: String(entry.role || ''),
+      type: String(entry.type || ''),
+      hidden: !!entry.hidden,
+      sentAt: Number(entry.sentAt || 0) || 0,
+      content: String(entry.content || '').slice(0, 80)
+    };
+  });
+}
+
+function appendMoneyDebugLog(eventName, extra){
+  if(!character || !character.id) return;
+  try{
+    var key = moneyDebugKey();
+    var list = JSON.parse(localStorage.getItem(key) || '[]');
+    if(!Array.isArray(list)) list = [];
+    list.push({
+      at: Date.now(),
+      event: String(eventName || ''),
+      extra: extra || null
+    });
+    if(list.length > 80) list = list.slice(-80);
+    localStorage.setItem(key, JSON.stringify(list));
+  }catch(e){}
+}
+
+function saveMoneyReplySnapshot(reason){
+  if(!character || !character.id) return;
+  try{
+    var payload = {
+      reason: String(reason || ''),
+      savedAt: Date.now(),
+      history: Array.isArray(chatLog) ? chatLog.slice() : []
+    };
+    localStorage.setItem(moneyReplySnapshotKey(character.id), JSON.stringify(payload));
+    appendMoneyDebugLog('snapshot_saved', {
+      reason: payload.reason,
+      count: payload.history.length,
+      tail: summarizeChatTail(payload.history)
+    });
+  }catch(e){}
+}
+
+function parseStoredChatHistory(raw){
+  try{
+    var obj = JSON.parse(raw || 'null');
+    var next = (obj && (obj.history || obj.messages)) || [];
+    if(!Array.isArray(next)) return [];
+    return next.map(normalizeChatEntry);
+  }catch(e){
+    return [];
+  }
+}
+
+function historySortStamp(list){
+  var entries = Array.isArray(list) ? list : [];
+  var last = entries.length ? entries[entries.length - 1] : null;
+  var lastTs = Number((last && (last.sentAt || last.readAt)) || 0) || 0;
+  return { lastTs: lastTs, count: entries.length };
+}
+
+function loadPreferredStoredChatForCurrentCharacter(){
+  if(!character || !character.id) return [];
+  var primary = parseStoredChatHistory(localStorage.getItem(chatStorageKey(character.id)));
+  var backup = [];
+  try{
+    var snap = JSON.parse(localStorage.getItem(moneyReplySnapshotKey(character.id)) || 'null');
+    backup = Array.isArray(snap && snap.history) ? snap.history.map(normalizeChatEntry) : [];
+  }catch(e){}
+  var primaryStamp = historySortStamp(primary);
+  var backupStamp = historySortStamp(backup);
+  if(backupStamp.lastTs > primaryStamp.lastTs) return backup;
+  if(backupStamp.lastTs === primaryStamp.lastTs && backupStamp.count > primaryStamp.count) return backup;
+  return primary;
 }
 
 function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
