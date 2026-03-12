@@ -1457,28 +1457,16 @@ function persistMoneyStateCache(){
     updatedAt: Date.now(),
     data: cloneJsonSafe(normalizeMoneyStateCache(moneyStateCache), defaultMoneyStateCache())
   };
-  try{
-    localStorage.setItem(moneyCoverListKey(), JSON.stringify(record.data.moneyCovers || []));
-  }catch(syncErr){}
-  try{
-    var snapshotCharId = record && record.data && record.data.replySnapshot && record.data.replySnapshot.charId
-      ? String(record.data.replySnapshot.charId)
-      : String((character && character.id) || '');
-    if(snapshotCharId && record.data.replySnapshot){
-      localStorage.setItem(moneyReplySnapshotKey(snapshotCharId), JSON.stringify(record.data.replySnapshot));
-    }else if(snapshotCharId){
-      localStorage.removeItem(moneyReplySnapshotKey(snapshotCharId));
-    }
-  }catch(syncErr2){}
   return persistRecordToIndexedDb('moneyStates', record).then(function(){
     try{ localStorage.removeItem(walletStateKey()); }catch(e){}
     try{ localStorage.removeItem(familyQueueKey()); }catch(e){}
     try{ localStorage.removeItem(familyActiveKey()); }catch(e){}
+    try{ localStorage.removeItem(moneyCoverListKey()); }catch(e){}
     try{
       var snapshotCharId = record && record.data && record.data.replySnapshot && record.data.replySnapshot.charId
         ? String(record.data.replySnapshot.charId)
         : String((character && character.id) || '');
-      if(snapshotCharId && !record.data.replySnapshot) localStorage.removeItem(moneyReplySnapshotKey(snapshotCharId));
+      if(snapshotCharId) localStorage.removeItem(moneyReplySnapshotKey(snapshotCharId));
     }catch(e){}
   });
 }
@@ -1586,109 +1574,6 @@ async function hydrateCharacterStorageState(){
     persistCallRecordStore();
   }
   return chatHistory;
-}
-
-async function loadChatHistoryForCharacter(){
-  if(!character || !character.id) return [];
-  requestPersistentChatStorage().catch(function(){});
-  var charId = String(character.id || '');
-  var chatId = chatStorageKey(charId);
-  var chatRec = null;
-  try{
-    if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
-      chatRec = await window.PhoneStorage.get('chats', chatId);
-    }
-  }catch(e){}
-  var chatHistory = Array.isArray(chatRec && chatRec.history) ? chatRec.history.map(normalizeChatEntry) : [];
-  if(!chatHistory.length){
-    chatHistory = parseStoredChatHistory(localStorage.getItem(chatId));
-    if(chatHistory.length){
-      persistRecordToIndexedDb('chats', {
-        id: chatId,
-        charId: charId,
-        updatedAt: Date.now(),
-        history: chatHistory.map(compactChatEntryForStorage)
-      }).then(function(){
-        try{ localStorage.removeItem(chatId); }catch(e){}
-      });
-    }
-  }
-  return chatHistory;
-}
-
-async function hydrateCharacterAuxState(){
-  if(!character || !character.id){
-    setCurrentCharacterCaches({});
-    return;
-  }
-  requestPersistentChatStorage().catch(function(){});
-  var charId = String(character.id || '');
-  var memoryId = memorySummaryStorageId(charId);
-  var innerId = innerVoiceStorageId(charId);
-  var moneyId = moneyStateStorageId();
-  var callId = callRecordStorageId(charId);
-  var supportsIdb = !!(window.PhoneStorage && typeof window.PhoneStorage.get === 'function');
-  var results = supportsIdb ? await Promise.all([
-    window.PhoneStorage.get('memorySummaries', memoryId),
-    window.PhoneStorage.get('innerVoices', innerId),
-    window.PhoneStorage.get('moneyStates', moneyId),
-    window.PhoneStorage.get('callRecords', callId)
-  ]) : [null, null, null, null];
-  var memoryRec = results[0];
-  var innerRec = results[1];
-  var moneyRec = results[2];
-  var callRec = results[3];
-
-  var nextMemoryStore = normalizeMemorySummaryStore(memoryRec && memoryRec.data ? memoryRec.data : parseLegacyMemorySummaryStore(localStorage.getItem(memorySummaryKey())));
-  var nextInnerVoiceStore = normalizeInnerVoiceStore(innerRec && innerRec.data ? innerRec.data : parseLegacyInnerVoiceStore(localStorage.getItem(innerVoiceKey())));
-  var nextMoneyState = normalizeMoneyStateCache(moneyRec && moneyRec.data ? moneyRec.data : {
-    walletState: (function(){
-      try{ return JSON.parse(localStorage.getItem(walletStateKey()) || 'null'); }catch(e){ return null; }
-    })(),
-    familyQueue: (function(){
-      try{ return JSON.parse(localStorage.getItem(familyQueueKey()) || '[]'); }catch(e){ return []; }
-    })(),
-    familyActive: (function(){
-      try{ return JSON.parse(localStorage.getItem(familyActiveKey()) || '[]'); }catch(e){ return []; }
-    })(),
-    moneyCovers: (function(){
-      try{ return JSON.parse(localStorage.getItem(moneyCoverListKey()) || '[]'); }catch(e){ return []; }
-    })(),
-    replySnapshot: (function(){
-      try{ return JSON.parse(localStorage.getItem(moneyReplySnapshotKey(charId)) || 'null'); }catch(e){ return null; }
-    })()
-  });
-  var nextCallRecordStore = normalizeCallRecordStore(callRec && callRec.data ? callRec.data : defaultCallRecordStore());
-
-  if(character && String(character.id || '') === charId){
-    setCurrentCharacterCaches({
-      memorySummaryStore: nextMemoryStore,
-      innerVoiceStore: nextInnerVoiceStore,
-      moneyState: nextMoneyState,
-      callRecordStore: nextCallRecordStore
-    });
-  }
-
-  if((!memoryRec || !memoryRec.data) && (nextMemoryStore.items || []).length){
-    persistMemorySummaryStore();
-  }
-  if((!innerRec || !innerRec.data) && ((nextInnerVoiceStore.items || []).length || nextInnerVoiceStore.current)){
-    persistInnerVoiceStore();
-  }
-  if((!moneyRec || !moneyRec.data) && (
-    (nextMoneyState.moneyCovers || []).length ||
-    (nextMoneyState.familyQueue || []).length ||
-    (nextMoneyState.familyActive || []).length ||
-    (nextMoneyState.walletState.records || []).length ||
-    Number((nextMoneyState.walletState && nextMoneyState.walletState.balance) || 0) !== 0
-  )){
-    moneyStateCache = nextMoneyState;
-    persistMoneyStateCache();
-  }
-  if((!callRec || !callRec.data) && (nextCallRecordStore.items || []).length){
-    callRecordStoreCache = nextCallRecordStore;
-    persistCallRecordStore();
-  }
 }
 
 async function hydrateChatLargeStates(){
@@ -2191,15 +2076,6 @@ function getStoredWorldbooksSnapshot(){
     if(cached && typeof cached === 'object') return cached;
   }
   try{ return JSON.parse(localStorage.getItem('worldbooks') || '{}'); }catch(e){ return {}; }
-}
-
-function ensureWorldbooksLoaded(){
-  if(window.PhoneStorage && typeof window.PhoneStorage.getWorldbooks === 'function'){
-    return window.PhoneStorage.getWorldbooks().catch(function(){
-      return getStoredWorldbooksSnapshot();
-    });
-  }
-  return Promise.resolve(getStoredWorldbooksSnapshot());
 }
 
 function persistStoredCharacters(list){
@@ -3828,8 +3704,8 @@ function confirmFriendRequestFlow(){
 async function init() {
   tightenParentTopbarForChat();
   try{
-    if(window.PhoneStorage && typeof window.PhoneStorage.getCharacters === 'function') window.PhoneStorage.getCharacters().catch(function(){});
-    if(window.PhoneStorage && typeof window.PhoneStorage.getWorldbooks === 'function') window.PhoneStorage.getWorldbooks().catch(function(){});
+    if(window.PhoneStorage && typeof window.PhoneStorage.getCharacters === 'function') await window.PhoneStorage.getCharacters();
+    if(window.PhoneStorage && typeof window.PhoneStorage.getWorldbooks === 'function') await window.PhoneStorage.getWorldbooks();
   }catch(err){}
   // 1. Try pendingChatChar (set when user clicks "Chat" in characters app)
   var pending = localStorage.getItem('pendingChatChar');
@@ -3862,19 +3738,11 @@ async function init() {
       return;
     }
     loadWorldBook();
-    await Promise.all([
-      hydrateChatLargeStates(),
-      restoreOrStartChat()
-    ]);
+    await hydrateChatLargeStates();
+    await restoreOrStartChat();
     updateBlockedUi();
     refreshMemoryUi();
-    hydrateCharacterAuxState().then(function(){
-      updateBlockedUi();
-      refreshMemoryUi();
-      maybeAutoTriggerFamilyReply(character.id);
-    }).catch(function(err){
-      console.error('hydrate aux state failed', err);
-    });
+    maybeAutoTriggerFamilyReply(character.id);
   }else{
     updateBlockedUi();
     refreshMemoryUi();
@@ -3906,7 +3774,7 @@ function saveMoneyCovers(list){
   moneyStateCache = normalizeMoneyStateCache(Object.assign({}, moneyStateCache || defaultMoneyStateCache(), {
     moneyCovers: Array.isArray(list) ? list : []
   }));
-  return persistMoneyStateCache();
+  persistMoneyStateCache();
 }
 
 function parseMoneyPacketPayload(raw){
@@ -4132,7 +4000,7 @@ function renderWbBookList() {
 }
 
 function loadWorldBook() {
-  if (!character) return Promise.resolve();
+  if (!character) return;
   try {
     wbBooks = getApplicableWorldBooks();
     wbEntries = [];
@@ -4155,7 +4023,6 @@ function loadWorldBook() {
   updateWbInfoText();
   renderWbBookList();
   renderContextTokenStats();
-  return Promise.resolve();
 }
 
 function getStrictPromptWorldbookEntries(){
@@ -4175,7 +4042,7 @@ function getStrictPromptWorldbookEntries(){
 async function restoreOrStartChat() {
   var msgs = document.getElementById('messages');
   replyTargetId = null;
-  storageHydrationPromise = loadChatHistoryForCharacter();
+  storageHydrationPromise = hydrateCharacterStorageState();
   var restored = await storageHydrationPromise;
   if (!restored.length) restored = await loadPreferredStoredChatForCurrentCharacter();
   if (restored.length) {
@@ -6107,12 +5974,11 @@ function handleMoneyCoverUpload(file){
     saveStoredAsset(assetKey, dataUrl).then(function(){
       var covers = loadMoneyCovers();
       covers.unshift({ id: id, name: pendingMoneyCoverName, assetKey: assetKey, createdAt: Date.now() });
-      return Promise.resolve(saveMoneyCovers(covers)).then(function(){
-        pendingMoneyCoverName = '';
-        selectedMoneyCoverId = id;
-        renderMoneyCoverLibrary();
-        updateMoneyCoverButtonLabel();
-      });
+      saveMoneyCovers(covers);
+      pendingMoneyCoverName = '';
+      selectedMoneyCoverId = id;
+      renderMoneyCoverLibrary();
+      updateMoneyCoverButtonLabel();
     });
   };
   reader.readAsDataURL(file);
@@ -6159,14 +6025,14 @@ function closeMoneyCoverDeleteConfirm(){
   document.getElementById('moneyCoverDeleteOverlay')?.classList.remove('open');
 }
 
-async function confirmDeleteMoneyCover(){
+function confirmDeleteMoneyCover(){
   if(!pendingDeleteMoneyCoverId) return closeMoneyCoverDeleteConfirm();
   var removeId = pendingDeleteMoneyCoverId;
   var covers = loadMoneyCovers();
   var target = covers.find(function(item){ return String((item && item.id) || '') === removeId; });
-  await Promise.resolve(saveMoneyCovers(covers.filter(function(item){
+  saveMoneyCovers(covers.filter(function(item){
     return String((item && item.id) || '') !== removeId;
-  })));
+  }));
   if(target && target.assetKey) saveStoredAsset(target.assetKey, '');
   if(String(selectedMoneyCoverId || '') === removeId) selectedMoneyCoverId = '';
   closeMoneyCoverDeleteConfirm();
@@ -6325,10 +6191,7 @@ function parseMoneyReplyBundle(raw, fallbackAccept){
       else if(parsed.reply && typeof parsed.reply === 'string') replies = [{ type:'text', content: parsed.reply }];
       else if(parsed.content && typeof parsed.content === 'string') replies = [{ type:'text', content: parsed.content }];
     }
-  }catch(e){
-    var plain = sanitizeAssistantTextForChat(cleaned);
-    if(plain) replies = [{ type:'text', content: plain }];
-  }
+  }catch(e){}
   return { accept: accept, replies: replies, acceptProvided: acceptProvided };
 }
 
@@ -6348,7 +6211,7 @@ async function composePendingMoneyPacketReply(payload){
   var maxFollowups = Math.max(1, maxTotal - 1);
   var sys = [
     '你是聊天中的角色本人。',
-    '现在用户发来了一个红包或转账。你要先按人设判断收下还是退回，然后紧接着给出你会继续发送的正文回复。',
+    '现在用户给你发来了红包或转账。你要先像真人一样判断自己会收下还是退还，然后紧接着给出你会继续发送的正文回复。',
     '只返回 JSON，不要解释，不要 markdown。',
     '格式：{"accept":true|false,"replies":[{"type":"text","content":"..."}]}',
     'accept=true 代表你收下了这笔钱；accept=false 代表你把钱退回去了。',
@@ -6444,7 +6307,7 @@ async function composeMoneyFollowupOnly(payload, accept){
   try{
     var raw = await Promise.race([
       callAIWithCustomPrompts(sys, user),
-      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 16000); })
+      new Promise(function(resolve){ setTimeout(function(){ resolve(''); }, 12000); })
     ]);
     return parseMoneyFollowupReplies(raw, accept);
   }catch(e){
@@ -6482,33 +6345,6 @@ async function handlePendingMoneyPacketReply(showLoading){
       summary: moneyPacketDecisionText(pending, accept),
       relatedId: pendingEntry.id
     });
-    if(!accept){
-      applyWalletDelta(Number(pending.amount || 0), 'in', {
-        title: pending.mode === 'transfer' ? '转账已退回' : '红包已退回',
-        note: (character ? (character.nickname || character.name || '对方') : '对方') + '退还了这笔钱',
-        relatedId: pendingEntry.id
-      });
-    }
-    var followups = sanitizeFamilyFollowups(bundle.replies, accept, pending);
-    if(!followups.length){
-      appendMoneyDebugLog('followups_retrying', { stage: 'followup_only_1' });
-      followups = await composeMoneyFollowupOnly(pending, accept);
-      followups = sanitizeFamilyFollowups(followups, accept, pending);
-    }
-    if(!followups.length){
-      appendMoneyDebugLog('followups_retrying', { stage: 'followup_only_2' });
-      followups = await composeMoneyFollowupOnly(pending, accept);
-      followups = sanitizeFamilyFollowups(followups, accept, pending);
-    }
-    if(!followups.length){
-      appendMoneyDebugLog('followups_retrying', { stage: 'followup_only_3' });
-      followups = await composeMoneyFollowupOnly(pending, accept);
-      followups = sanitizeFamilyFollowups(followups, accept, pending);
-    }
-    appendMoneyDebugLog('followups_ready', {
-      count: followups.length,
-      preview: followups.map(function(item){ return String((item && item.content) || '').slice(0, 80); })
-    });
     if(showLoading){
       await sleep(220 + Math.floor(Math.random() * 180));
       hideTyping();
@@ -6518,6 +6354,21 @@ async function handlePendingMoneyPacketReply(showLoading){
     addMessage('ai', decisionEntry.content, true, 'money_packet', decisionEntry.id);
     saveChat(true);
     saveMoneyReplySnapshot('decision_card');
+    if(!accept){
+      applyWalletDelta(Number(pending.amount || 0), 'in', {
+        title: pending.mode === 'transfer' ? '转账已退回' : '红包已退回',
+        note: (character ? (character.nickname || character.name || '对方') : '对方') + '退还了这笔钱',
+        relatedId: pendingEntry.id
+      });
+    }
+    var followups = sanitizeFamilyFollowups(bundle.replies, accept, pending);
+    if(!followups.length){
+      followups = [{ type:'text', content: finalMoneyFollowupText(pending, accept) }];
+    }
+    appendMoneyDebugLog('followups_ready', {
+      count: followups.length,
+      preview: followups.map(function(item){ return String((item && item.content) || '').slice(0, 80); })
+    });
     var followupIds = await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
     saveMoneyReplySnapshot('followups_delivered');
     lastMoneyReplyRound = {
@@ -7241,7 +7092,7 @@ function openClearChatConfirm(){
 function closeClearChatConfirm(){
   document.getElementById('clearChatConfirmOverlay')?.classList.remove('open');
 }
-async function clearChatData(opts){
+function clearChatData(opts){
   var options = opts || {};
   closeMessageActions();
   multiSelectMode = false;
@@ -7253,8 +7104,7 @@ async function clearChatData(opts){
   chatLog = [];
   if (character){
     try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(e){}
-    await removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
-    await clearMoneyReplySnapshot(character.id);
+    removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
   }
   if (character && character.id) removeFamilyBindingsForChar(character.id);
   if(options.clearMemory) clearMemorySummaries();
@@ -7273,7 +7123,7 @@ async function clearChatData(opts){
   }else{
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">🗑</div><div class="welcome-title">已清空聊天与记忆</div></div>';
   }
-  await saveChat(true);
+  saveChat(true);
   renderReplyPreview();
   updateFloatingUi();
   refreshMemoryUi();
@@ -7281,9 +7131,7 @@ async function clearChatData(opts){
 
 function confirmClearChatAll(){
   closeClearChatConfirm();
-  clearChatData({ keepGreeting: false, clearMemory: true }).catch(function(err){
-    console.error('clear chat failed', err);
-  });
+  clearChatData({ keepGreeting: false, clearMemory: true });
   toast('已清空聊天和全部记忆');
 }
 
@@ -7372,33 +7220,6 @@ async function saveChat(forceReplace) {
   refreshMemoryUi();
 }
 
-function getLatestPreviewForHome(){
-  var list = Array.isArray(chatLog) ? chatLog : [];
-  var lastEntry = null;
-  for(var i = list.length - 1; i >= 0; i--){
-    var it = list[i] || {};
-    if(String(it.role || '').toLowerCase() === 'assistant'){
-      lastEntry = it;
-      break;
-    }
-  }
-  if(!lastEntry) return null;
-  var lastMsg = lastEntry ? (lastEntry.content || '') : '';
-  var lastType = lastEntry ? (lastEntry.type || 'text') : 'text';
-  if(normalizeMessageType(lastType) === 'familycard'){
-    lastMsg = familyCardSummaryText(lastMsg);
-    lastType = 'text';
-  } else if(normalizeMessageType(lastType) === 'moneypacket'){
-    lastMsg = moneyPacketSummaryText(lastMsg);
-    lastType = 'text';
-  }
-  return {
-    id: character && character.id ? character.id : '',
-    content: lastMsg,
-    type: lastType
-  };
-}
-
 function persistChatBeforeLeave(){
   appendMoneyDebugLog('persist_before_leave', {
     count: Array.isArray(chatLog) ? chatLog.length : 0,
@@ -7466,16 +7287,6 @@ function saveMoneyReplySnapshot(reason){
       tail: summarizeChatTail(payload.history)
     });
   }catch(e){}
-}
-
-function clearMoneyReplySnapshot(charId){
-  var targetId = String(charId || (character && character.id) || '').trim();
-  if(!targetId) return Promise.resolve();
-  moneyStateCache = normalizeMoneyStateCache(Object.assign({}, moneyStateCache || defaultMoneyStateCache(), {
-    replySnapshot: null
-  }));
-  try{ localStorage.removeItem(moneyReplySnapshotKey(targetId)); }catch(ignoreErr){}
-  return persistMoneyStateCache();
 }
 
 function parseStoredChatHistory(raw){
@@ -7853,17 +7664,9 @@ function openChatSettings() {
   document.getElementById('csUserPersonaWrap').style.display = isDefault ? '' : 'none';
   document.getElementById('csSubUserHint').style.display = isDefault ? 'none' : 'block';
   // WB
-  var wbHost = document.getElementById('wbBookList');
-  if(wbHost) wbHost.innerHTML = '<div class="wb-book-empty">世界书加载中...</div>';
   document.getElementById('wbToggle').classList.toggle('on', wbEnabled);
   updateWbInfoText();
   renderWbBookList();
-  ensureWorldbooksLoaded().then(function(){
-    return loadWorldBook();
-  }).catch(function(err){
-    console.error('load worldbooks for settings failed', err);
-    renderWbBookList();
-  });
   document.getElementById('csContextWindow').value = loadContextWindowSize();
   document.getElementById('csSummaryEvery').value = loadSummaryEverySize();
   document.getElementById('csManualSummarySize').value = loadManualSummarySize();
@@ -8518,24 +8321,12 @@ window.addEventListener('message', async function(e) {
       editingDraft = '';
       await restoreOrStartChat();
       updateFloatingUi();
-      hydrateCharacterAuxState().then(function(){
-        updateBlockedUi();
-        refreshMemoryUi();
-        maybeAutoTriggerFamilyReply(character && character.id);
-      }).catch(function(err){
-        console.error('hydrate aux state failed', err);
-      });
+      maybeAutoTriggerFamilyReply(character && character.id);
       return;
     }
     await syncChatLogFromStorageForCurrentCharacter();
     updateFloatingUi();
-    hydrateCharacterAuxState().then(function(){
-      updateBlockedUi();
-      refreshMemoryUi();
-      maybeAutoTriggerFamilyReply(character && character.id);
-    }).catch(function(err){
-      console.error('hydrate aux state failed', err);
-    });
+    maybeAutoTriggerFamilyReply(character && character.id);
   }
   if (d.type === 'WORLDBOOK_UPDATED') { loadWorldBook(); updateBlockedUi(); }
   if (d.type === 'SETTINGS_SAVED') { updateModelLabel(); }

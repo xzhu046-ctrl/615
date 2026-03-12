@@ -164,7 +164,7 @@ async function refreshChatCaches(){
         var last = {content:c.description||'', type:'text'};
         for(var j=msgs.length - 1; j>=0; j--){
           var m = msgs[j] || {};
-          if(getPreviewRole(m) === 'assistant'){
+          if(String(m.role || '').toLowerCase() === 'assistant'){
             last = normalizePreviewMessage(m);
             break;
           }
@@ -172,7 +172,7 @@ async function refreshChatCaches(){
         }
         var unread = 0;
         msgs.forEach(function(m){
-          if(getPreviewRole(m) === 'assistant' && !getPreviewReadAt(m)) unread++;
+          if(m && m.role === 'assistant' && !m.readAt) unread++;
         });
         next[c.id] = { last:last, unread: unread };
       }catch(e){}
@@ -266,9 +266,27 @@ function unpinChat(id){
   setPinnedChatIds(ids);
 }
 function lastMsgOf(c){
-  if(c && c.id && chatSummaryCache[c.id] && chatSummaryCache[c.id].last){
-    return chatSummaryCache[c.id].last;
-  }
+  if(c && c.id && chatSummaryCache[c.id] && chatSummaryCache[c.id].last) return chatSummaryCache[c.id].last;
+  try{
+    var keys = [accountScopedKey('chat_'+c.id), 'chat_' + c.id];
+    for(var i=0;i<localStorage.length;i++){
+      var k = localStorage.key(i) || '';
+      if(k.indexOf('chat_' + c.id + '__acct_') === 0) keys.push(k);
+    }
+    var best = [];
+    keys.forEach(function(k){
+      try{
+        var saved = JSON.parse(localStorage.getItem(k) || 'null');
+        var msgs = (saved && (saved.messages || saved.history)) || [];
+        if(Array.isArray(msgs) && msgs.length > best.length) best = msgs;
+      }catch(err){}
+    });
+    for(var j=best.length - 1; j>=0; j--){
+      var m = best[j] || {};
+      if(String(m.role || '').toLowerCase() === 'assistant') return normalizePreviewMessage(m);
+    }
+    if(best.length) return normalizePreviewMessage(best[best.length-1]);
+  }catch(e){}
   return {content:c.description||'', type:'text'};
 }
 
@@ -280,7 +298,7 @@ function unreadCountOf(c){
     if(!Array.isArray(msgs)) return 0;
     var count = 0;
     msgs.forEach(function(m){
-      if(getPreviewRole(m) === 'assistant' && !getPreviewReadAt(m)) count++;
+      if(m && m.role === 'assistant' && !m.readAt) count++;
     });
     return count;
   }catch(e){
@@ -304,7 +322,7 @@ async function markChatAsRead(charId){
         var nowIdb = Date.now();
         var changedIdb = false;
         listIdb = listIdb.map(function(m){
-          if(getPreviewRole(m) === 'assistant' && !getPreviewReadAt(m)){
+          if(m && m.role === 'assistant' && !m.readAt){
             changedIdb = true;
             var next = Array.isArray(m) ? m.slice() : Object.assign({}, m);
             if(Array.isArray(next)) next[5] = nowIdb;
@@ -334,11 +352,10 @@ async function markChatAsRead(charId){
     var now = Date.now();
     var changed = false;
     list = list.map(function(m){
-      if(getPreviewRole(m) === 'assistant' && !getPreviewReadAt(m)){
+      if(m && m.role === 'assistant' && !m.readAt){
         changed = true;
-        var next = Array.isArray(m) ? m.slice() : Object.assign({}, m);
-        if(Array.isArray(next)) next[5] = now;
-        else next.readAt = now;
+        var next = Object.assign({}, m);
+        next.readAt = now;
         return next;
       }
       return m;
@@ -408,9 +425,7 @@ function moneyPreviewText(raw){
 }
 
 function normalizePreviewMessage(msg){
-  var next = Array.isArray(msg)
-    ? { id: msg[0], role: msg[1], type: msg[2], content: msg[3], sentAt: msg[4], readAt: msg[5], replyToId: msg[6], hidden: !!msg[7] }
-    : (msg && typeof msg === 'object' ? msg : { content:'', type:'text' });
+  var next = msg && typeof msg === 'object' ? msg : { content:'', type:'text' };
   var kind = normalizeChatPreviewType(next.type || 'text');
   if(kind === 'familycard'){
     return { content: '【亲属卡】', type: 'text' };
@@ -427,14 +442,6 @@ function normalizePreviewMessage(msg){
     }catch(e){}
   }
   return { content: next.content || '', type: kind };
-}
-function getPreviewRole(msg){
-  if(Array.isArray(msg)) return String(msg[1] || '').toLowerCase();
-  return String((msg && msg.role) || '').toLowerCase();
-}
-function getPreviewReadAt(msg){
-  if(Array.isArray(msg)) return Number(msg[5] || 0) || 0;
-  return Number((msg && msg.readAt) || 0) || 0;
 }
 function renderList(){
   var list=document.getElementById('chatList');
@@ -611,22 +618,7 @@ function openProfileCenter(){
 window.addEventListener('message', async function(e){
   var d=e.data||{};
   if(d.type==='CHARACTER_IMPORTED'){ await loadChars(); renderMomentsBadge(); forward(d); }
-  if(d.type==='CHAT_UPDATED'){
-    var payload = d.payload || {};
-    if(payload.id){
-      chatSummaryCache[payload.id] = {
-        last: {
-          content: payload.last || '',
-          type: normalizeChatPreviewType(payload.lastType || 'text')
-        },
-        unread: chatSummaryCache[payload.id] ? Number(chatSummaryCache[payload.id].unread || 0) || 0 : 0
-      };
-      renderList();
-    }
-    await loadChars();
-    renderMomentsBadge();
-    forward(d);
-  }
+  if(d.type==='CHAT_UPDATED'){ await loadChars(); renderMomentsBadge(); forward(d); }
   if(d.type==='SET_ACTIVE_CHARACTER' || d.type==='OPEN_CHAT_WITH' || d.type==='OPEN_APP_WITH'){ forward(d); }
 });
 function forward(msg){
