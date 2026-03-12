@@ -58,6 +58,9 @@ textarea{resize:none}
 .fetch-status.loading{background:#f0f0f0;color:#666;display:block}
 .fetch-status.ok{background:#e8ffe8;color:#1a7a1a;border:1.5px solid #1a7a1a;display:block}
 .fetch-status.err{background:#ffe8e8;color:#aa1a1a;border:1.5px solid #aa1a1a;display:block}
+.debug-box{background:var(--off);border:var(--border);border-radius:14px;padding:12px;min-height:120px;max-height:340px;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.debug-meta{font-size:11px;color:#666;font-weight:700;line-height:1.5}
+.muted-note{font-size:11px;color:#888;line-height:1.5}
 
 .key-row{display:flex;gap:8px;align-items:flex-end}
 .key-row input{flex:1}
@@ -262,6 +265,27 @@ textarea{resize:none}
     </div>
   </div>
 
+  <!-- Money Debug -->
+  <div class="card">
+    <div class="card-header">
+      <h3>红包 Debug</h3>
+      <button class="btn btn-white btn-sm" type="button" onclick="refreshMoneyDebugPanel()">刷新</button>
+    </div>
+    <div class="card-body">
+      <div class="muted-note">这里会显示红包 / 转账回复链路的本地调试日志和最近一次快照。你复现一次后，直接来这里看。</div>
+      <label>角色记录</label>
+      <select id="money-debug-select" onchange="renderMoneyDebugPanel()">
+        <option value="">-- 暂无记录 --</option>
+      </select>
+      <div class="btn-row">
+        <button class="btn btn-white btn-sm" type="button" onclick="renderMoneyDebugPanel()">查看当前记录</button>
+        <button class="btn btn-white btn-sm" type="button" onclick="clearMoneyDebugPanel()">清空当前记录</button>
+      </div>
+      <div class="debug-meta" id="money-debug-meta">还没有可显示的红包调试记录。</div>
+      <div class="debug-box" id="money-debug-output">等待刷新...</div>
+    </div>
+  </div>
+
   <!-- Reset / Format -->
   <div class="card" style="border-color:#c00;box-shadow:2px 2px 0 #c00">
     <div class="card-header" style="border-color:#c00">
@@ -287,6 +311,8 @@ var dirty = false;
 var curProvider = localStorage.getItem('provider') || 'openai';
 var AI_BG_ENABLED_KEY = 'ai_bg_activity_enabled';
 var AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
+var MONEY_DEBUG_TOKEN = 'money_packet_debug_';
+var MONEY_SNAPSHOT_TOKEN = 'money_reply_snapshot_';
 var PROVIDER_LABELS = {
   openai: 'OpenAI',
   claude: 'Claude',
@@ -317,6 +343,7 @@ function init() {
   var aiBgEnabled = localStorage.getItem(AI_BG_ENABLED_KEY) === '1';
   document.getElementById('ai-bg-switch').classList.toggle('on', aiBgEnabled);
   document.getElementById('ai-bg-interval').value = localStorage.getItem(AI_BG_INTERVAL_KEY) || '6';
+  refreshMoneyDebugPanel();
   dirty = false;
 }
 
@@ -493,6 +520,110 @@ function showToast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(function(){ t.classList.remove('show'); }, 2200);
+}
+
+function safeJsonParse(raw) {
+  try { return JSON.parse(raw); } catch(e) { return null; }
+}
+
+function getMoneyDebugRecords() {
+  var records = {};
+  Object.keys(localStorage).forEach(function(key){
+    var debugIdx = key.indexOf(MONEY_DEBUG_TOKEN);
+    var snapIdx = key.indexOf(MONEY_SNAPSHOT_TOKEN);
+    var charId = '';
+    if(debugIdx >= 0){
+      charId = key.slice(debugIdx + MONEY_DEBUG_TOKEN.length);
+      records[charId] = records[charId] || { charId: charId, debugKey: '', snapshotKey: '' };
+      records[charId].debugKey = key;
+    } else if(snapIdx >= 0){
+      charId = key.slice(snapIdx + MONEY_SNAPSHOT_TOKEN.length);
+      records[charId] = records[charId] || { charId: charId, debugKey: '', snapshotKey: '' };
+      records[charId].snapshotKey = key;
+    }
+  });
+  return Object.keys(records).sort().map(function(id){ return records[id]; });
+}
+
+function getPreferredMoneyDebugCharId(records) {
+  var activeRaw = localStorage.getItem('activeCharacter');
+  var active = safeJsonParse(activeRaw || 'null');
+  var activeId = active && active.id ? String(active.id) : '';
+  if(activeId && records.some(function(item){ return item.charId === activeId; })) return activeId;
+  return records.length ? records[0].charId : '';
+}
+
+function refreshMoneyDebugPanel() {
+  var select = document.getElementById('money-debug-select');
+  if(!select) return;
+  var prev = select.value;
+  var records = getMoneyDebugRecords();
+  select.innerHTML = '';
+  if(!records.length){
+    var empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = '-- 暂无记录 --';
+    select.appendChild(empty);
+    renderMoneyDebugPanel();
+    return;
+  }
+  records.forEach(function(item){
+    var opt = document.createElement('option');
+    opt.value = item.charId;
+    opt.textContent = item.charId + (item.debugKey ? ' / 日志' : '') + (item.snapshotKey ? ' / 快照' : '');
+    select.appendChild(opt);
+  });
+  select.value = records.some(function(item){ return item.charId === prev; }) ? prev : getPreferredMoneyDebugCharId(records);
+  renderMoneyDebugPanel();
+}
+
+function renderMoneyDebugPanel() {
+  var select = document.getElementById('money-debug-select');
+  var meta = document.getElementById('money-debug-meta');
+  var output = document.getElementById('money-debug-output');
+  if(!select || !meta || !output) return;
+  var charId = select.value;
+  if(!charId){
+    meta.textContent = '还没有可显示的红包调试记录。';
+    output.textContent = '等待刷新...';
+    return;
+  }
+  var records = getMoneyDebugRecords();
+  var current = records.find(function(item){ return item.charId === charId; });
+  if(!current){
+    meta.textContent = '未找到所选角色的记录。';
+    output.textContent = '记录不存在。';
+    return;
+  }
+  var debugRaw = current.debugKey ? localStorage.getItem(current.debugKey) : '';
+  var snapshotRaw = current.snapshotKey ? localStorage.getItem(current.snapshotKey) : '';
+  var debugList = safeJsonParse(debugRaw || '[]');
+  var snapshot = safeJsonParse(snapshotRaw || 'null');
+  var snapshotCount = snapshot && Array.isArray(snapshot.history) ? snapshot.history.length : 0;
+  meta.textContent = [
+    '角色 ID：' + charId,
+    current.debugKey ? ('日志条数：' + (Array.isArray(debugList) ? debugList.length : 0)) : '日志：无',
+    current.snapshotKey ? ('快照消息数：' + snapshotCount) : '快照：无'
+  ].join('  |  ');
+  output.textContent = JSON.stringify({
+    charId: charId,
+    debugKey: current.debugKey || null,
+    snapshotKey: current.snapshotKey || null,
+    debug: Array.isArray(debugList) ? debugList : debugRaw,
+    snapshot: snapshot || snapshotRaw
+  }, null, 2);
+}
+
+function clearMoneyDebugPanel() {
+  var select = document.getElementById('money-debug-select');
+  if(!select || !select.value) return;
+  var records = getMoneyDebugRecords();
+  var current = records.find(function(item){ return item.charId === select.value; });
+  if(!current) return;
+  if(current.debugKey) localStorage.removeItem(current.debugKey);
+  if(current.snapshotKey) localStorage.removeItem(current.snapshotKey);
+  showToast('已清空当前红包调试记录');
+  refreshMoneyDebugPanel();
 }
 
 function confirmFormat() {
