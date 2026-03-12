@@ -2181,6 +2181,15 @@ function getStoredWorldbooksSnapshot(){
   try{ return JSON.parse(localStorage.getItem('worldbooks') || '{}'); }catch(e){ return {}; }
 }
 
+function ensureWorldbooksLoaded(){
+  if(window.PhoneStorage && typeof window.PhoneStorage.getWorldbooks === 'function'){
+    return window.PhoneStorage.getWorldbooks().catch(function(){
+      return getStoredWorldbooksSnapshot();
+    });
+  }
+  return Promise.resolve(getStoredWorldbooksSnapshot());
+}
+
 function persistStoredCharacters(list){
   if(window.PhoneStorage && typeof window.PhoneStorage.saveCharacters === 'function'){
     return window.PhoneStorage.saveCharacters(Array.isArray(list) ? list : []).catch(function(err){
@@ -4111,7 +4120,7 @@ function renderWbBookList() {
 }
 
 function loadWorldBook() {
-  if (!character) return;
+  if (!character) return Promise.resolve();
   try {
     wbBooks = getApplicableWorldBooks();
     wbEntries = [];
@@ -4134,6 +4143,7 @@ function loadWorldBook() {
   updateWbInfoText();
   renderWbBookList();
   renderContextTokenStats();
+  return Promise.resolve();
 }
 
 function getStrictPromptWorldbookEntries(){
@@ -7802,9 +7812,17 @@ function openChatSettings() {
   document.getElementById('csUserPersonaWrap').style.display = isDefault ? '' : 'none';
   document.getElementById('csSubUserHint').style.display = isDefault ? 'none' : 'block';
   // WB
+  var wbHost = document.getElementById('wbBookList');
+  if(wbHost) wbHost.innerHTML = '<div class="wb-book-empty">世界书加载中...</div>';
   document.getElementById('wbToggle').classList.toggle('on', wbEnabled);
   updateWbInfoText();
   renderWbBookList();
+  ensureWorldbooksLoaded().then(function(){
+    return loadWorldBook();
+  }).catch(function(err){
+    console.error('load worldbooks for settings failed', err);
+    renderWbBookList();
+  });
   document.getElementById('csContextWindow').value = loadContextWindowSize();
   document.getElementById('csSummaryEvery').value = loadSummaryEverySize();
   document.getElementById('csManualSummarySize').value = loadManualSummarySize();
