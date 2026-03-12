@@ -2188,7 +2188,7 @@ function setWidgetCharacter(c){
     var lastLine = '';
     try{
       var eventPreview = c && c.id ? widgetPreviewCache[c.id] : null;
-      if(eventPreview && eventPreview.content){
+      if(eventPreview && (eventPreview.content || normalizeChatPreviewType(eventPreview.type || 'text') !== 'text')){
         var eventType = normalizeChatPreviewType(eventPreview.type || 'text');
         if(eventType === 'voice'){
           var eventDuration = Math.max(1, Math.min(60, Math.ceil((eventPreview.content || '').length / 6)));
