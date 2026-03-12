@@ -5755,20 +5755,14 @@ function getPendingMoneyPacketEntry(){
 }
 
 async function composePendingMoneyPacketReply(payload){
-  var maxTotal = character && character.msgMax ? character.msgMax : 3;
-  var maxFollowups = Math.max(1, maxTotal - 1);
   var fallbackAccept = true;
   var sys = [
     '你是聊天中的角色本人。',
-    '现在用户给你发来了红包或转账。你要像真人一样先决定收下还是退还，再紧接着发送正文回复。',
+    '现在用户给你发来了红包或转账。你要先像真人一样判断自己会收下还是退还。',
     '只返回 JSON，不要解释，不要 markdown。',
-    '格式：{"accept":true|false,"replies":[{"type":"text","content":"..."}]}',
-    '如果 accept=false，代表你把钱退回去了。',
-    'replies 里不要复述系统字段，不要输出金额结构，不要再输出 money_packet JSON。',
-    'replies 是决定红包或转账之后紧接着会发送的正文消息列表。',
-    '不要把红包/转账决定写进 replies，不要重复“收下/退回红包或转账”这种结论。',
-    '不要输出任何 money_packet 字段、状态字样或 JSON 结构。',
-    'replies 数量不能超过 ' + maxFollowups + '。'
+    '格式：{"accept":true|false}',
+    'accept=true 代表你收下了这笔钱；accept=false 代表你把钱退回去了。',
+    '这里只做决定，不要附带正文回复。'
   ].join('\n');
   var recent = getVisibleChatForModel().slice(-10).map(function(m){
     return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
@@ -5781,8 +5775,7 @@ async function composePendingMoneyPacketReply(payload){
     '角色人设：' + String((character && (character.personality || character.description)) || ''),
     wbText ? ('世界书：\n' + wbText) : '世界书：无',
     recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
-    '金钱事件：\n' + JSON.stringify(payload || {}, null, 2),
-    '本次 replies 最多允许 ' + maxFollowups + ' 条。'
+    '金钱事件：\n' + JSON.stringify(payload || {}, null, 2)
   ].join('\n\n');
   try{
     var raw = await callAIWithCustomPrompts(sys, user);
@@ -5792,15 +5785,30 @@ async function composePendingMoneyPacketReply(payload){
   }
 }
 
+function buildMoneyDecisionSystemCue(payload, accept){
+  var data = parseMoneyPacketPayload(payload) || {};
+  var sender = String(data.userName || userDisplayNameForFamily() || '对方').trim() || '对方';
+  var mode = String(data.mode || 'red_packet');
+  var amount = Number(data.amount || 0) || 0;
+  var amountText = amount > 0 ? ('¥' + amount.toFixed(2)) : '一笔钱';
+  if(mode === 'transfer'){
+    if(accept) return '[系统提示：你接受了“' + sender + '”的转账（金额：' + amountText + '）。]';
+    return '[系统提示：你拒绝并退还了“' + sender + '”的转账（金额：' + amountText + '）。]';
+  }
+  if(accept) return '[系统提示：你收下了“' + sender + '”发来的红包（金额：' + amountText + '）。]';
+  return '[系统提示：你拒绝并退还了“' + sender + '”发来的红包（金额：' + amountText + '）。]';
+}
+
 async function composeMoneyFollowupOnly(payload, accept){
   var maxFollowups = Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1);
+  var systemCue = buildMoneyDecisionSystemCue(payload, accept);
   var sys = [
     '你是聊天中的角色本人。',
-    '你刚刚已经对红包或转账作出决定，现在只继续发决定后的正文回复。',
+    '你刚刚已经对红包或转账作出决定，现在根据系统事件继续发送决定后的正文回复。',
     '只返回 JSON，不要解释，不要 markdown。',
     '格式：{"replies":[{"type":"text","content":"..."}]}',
     'replies 至少 1 条，最多 ' + maxFollowups + ' 条。',
-    '不要重复“收下/退回”的结论，不要输出 money_packet JSON。'
+    '不要逐字复述系统提示，不要重复“收下/退回”的结论，不要输出 money_packet JSON。'
   ].join('\n');
   var recent = getVisibleChatForModel().slice(-8).map(function(m){
     return (m.role === 'user' ? 'User' : 'Char') + ': ' + formatMessageForModel(m);
@@ -5813,7 +5821,7 @@ async function composeMoneyFollowupOnly(payload, accept){
     '角色人设：' + String((character && (character.personality || character.description)) || ''),
     wbText ? ('世界书：\n' + wbText) : '世界书：无',
     recent ? ('最近聊天：\n' + recent) : '最近聊天：无',
-    '你刚刚的决定：' + moneyPacketDecisionText(payload, accept),
+    '系统事件：' + systemCue,
     '金钱事件：\n' + JSON.stringify(payload || {}, null, 2)
   ].join('\n\n');
   try{
@@ -5880,7 +5888,7 @@ async function handlePendingMoneyPacketReply(showLoading){
         relatedId: pendingEntry.id
       });
     }
-    var followups = await ensureMoneyFollowups(pending, accept, decision.replies || []);
+    var followups = await ensureMoneyFollowups(pending, accept, []);
     var followupIds = [];
     if(followups.length){
       followupIds = await deliverAiReply(followups, Math.max(1, (character && character.msgMax ? character.msgMax : 3) - 1));
