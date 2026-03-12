@@ -1647,13 +1647,11 @@ function bindTopFrameEditor(){
 function renderHomeSlot(slotId, dataUrl){
   const el = document.querySelector('.slot-picker[data-slot="' + slotId + '"]');
   if(!el) return;
-  var isPhotoSlot = slotId === 'photo1' || slotId === 'photo2';
-  var resolvedUrl = (typeof dataUrl === 'string' && dataUrl) ? dataUrl : (isPhotoSlot ? 'apps/assets/樱花.jpg' : '');
-  if(resolvedUrl){
+  if(dataUrl && dataUrl.startsWith('data:')){
     el.classList.add('has-image');
     if(slotId === 'top'){
       const frameUrl = getActiveTopFrameUrl();
-      const baseHtml = '<span class="slot-base-mask"><img class="slot-base" src="' + resolvedUrl + '" alt=""></span>';
+      const baseHtml = '<span class="slot-base-mask"><img class="slot-base" src="' + dataUrl + '" alt=""></span>';
       if(frameUrl){
         const frameVisual = getTopFrameVisual(frameUrl);
         const frameStyle = '--frame-scale:' + frameVisual.scale + ';--frame-offset-x:' + frameVisual.offsetX + 'px;--frame-offset-y:' + frameVisual.offsetY + 'px;';
@@ -1662,11 +1660,11 @@ function renderHomeSlot(slotId, dataUrl){
         el.innerHTML = baseHtml;
       }
     }else if(slotId === 'musicAlbum'){
-      el.innerHTML = '<img src="' + resolvedUrl + '" alt=""><span class="slot-plus">+</span>';
+      el.innerHTML = '<img src="' + dataUrl + '" alt=""><span class="slot-plus">+</span>';
     }else if(slotId === '1' || slotId === '2' || slotId === '3'){
       const liveTexts = getLiveDanmakuTexts(slotId);
       el.innerHTML =
-        '<img src="' + resolvedUrl + '" alt="">' +
+        '<img src="' + dataUrl + '" alt="">' +
         '<span class="live-overlay live-variant-' + slotId + '">' +
           '<span class="live-danmaku danmaku-a">' + liveTexts[0] + '</span>' +
           '<span class="live-danmaku danmaku-b">' + liveTexts[1] + '</span>' +
@@ -1676,7 +1674,7 @@ function renderHomeSlot(slotId, dataUrl){
           '<span class="live-like like-c">♥</span>' +
         '</span>';
     }else{
-      el.innerHTML = '<img src="' + resolvedUrl + '" alt="">';
+      el.innerHTML = '<img src="' + dataUrl + '" alt="">';
     }
   } else {
     el.classList.remove('has-image');
