@@ -1312,18 +1312,13 @@ function getFrameForApp(id){
 
 function getChatTransportFrame(){
   var chatFrame = document.getElementById('chat-iframe');
-  if(chatFrame && preloadedAppReady.chat) return chatFrame;
-  var appFrame = document.getElementById('app-iframe');
-  if(appFrame && /apps\/chat\.html(?:$|\?)/.test(String(appFrame.getAttribute('src') || ''))) return appFrame;
-  return appFrame || chatFrame;
+  return chatFrame || null;
 }
 
 function getVisibleAppFrame(){
   if(currentApp === 'chat'){
     var chatFrame = document.getElementById('chat-iframe');
-    if(chatFrame && chatFrame.style.display !== 'none') return chatFrame;
-    var appFrame = document.getElementById('app-iframe');
-    if(appFrame && appFrame.style.display !== 'none') return appFrame;
+    if(chatFrame) return chatFrame;
   }
   return getFrameForApp(currentApp || '');
 }
@@ -1332,15 +1327,12 @@ function deliverChatSelection(slim){
   var payload = slim || null;
   if(!payload || !payload.id) return;
   pendingChatSelection = payload;
-  var sendToFrame = function(frame){
+  var send = function(){
+    var frame = document.getElementById('chat-iframe');
     if(frame && frame.contentWindow){
       try{ frame.contentWindow.postMessage({ type:'SET_ACTIVE_CHARACTER', payload: payload }, '*'); }catch(e){}
       try{ frame.contentWindow.postMessage({ type:'OPEN_CHAT_WITH', payload: payload }, '*'); }catch(e){}
     }
-  };
-  var send = function(){
-    sendToFrame(document.getElementById('chat-iframe'));
-    sendToFrame(document.getElementById('app-iframe'));
   };
   send();
   setTimeout(send, 80);
@@ -1973,21 +1965,10 @@ function renderApp(id){
   document.getElementById('app-title-label').textContent=a.title;
   if(id === 'chat'){
     primeChatFrame();
-    if(preloadedAppReady.chat){
-      syncAppFrameVisibility('chat');
-      const chatFrame = document.getElementById('chat-iframe');
-      if(chatFrame && chatFrame.getAttribute('src') !== a.src){
-        chatFrame.src = a.src;
-      }
-    }else{
-      syncAppFrameVisibility('');
-      const fallbackFrame = document.getElementById('app-iframe');
-      if(fallbackFrame && fallbackFrame.getAttribute('src') !== a.src){
-        fallbackFrame.src = a.src;
-      }
-      if(fallbackFrame) fallbackFrame.style.display = '';
-      var preloadedChat = document.getElementById('chat-iframe');
-      if(preloadedChat) preloadedChat.style.display = 'none';
+    syncAppFrameVisibility('chat');
+    const chatFrame = document.getElementById('chat-iframe');
+    if(chatFrame && chatFrame.getAttribute('src') !== a.src){
+      chatFrame.src = a.src;
     }
   }else{
     syncAppFrameVisibility(id);
