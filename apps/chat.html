@@ -1557,7 +1557,8 @@ async function hydrateCharacterStorageState(){
     (nextMoneyState.familyQueue || []).length ||
     (nextMoneyState.familyActive || []).length ||
     (nextMoneyState.walletState.records || []).length ||
-    Number((nextMoneyState.walletState && nextMoneyState.walletState.balance) || 0) !== 0
+    Number((nextMoneyState.walletState && nextMoneyState.walletState.balance) || 0) !== 0 ||
+    !!nextMoneyState.replySnapshot
   )){
     moneyStateCache = nextMoneyState;
     persistMoneyStateCache();
@@ -3019,10 +3020,10 @@ async function maybeRunAiMomentsFromChat(text, msgType){
     }
   }
 
-  function commentLatest(replyMode){
+  async function commentLatest(replyMode){
     var latest = getLatestMoment(posts);
     if(!latest){
-      return addPost();
+      await addPost();
       latest = getLatestMoment(posts);
       if(!latest) return;
     }
@@ -3052,8 +3053,8 @@ async function maybeRunAiMomentsFromChat(text, msgType){
 
   if(forceActions.indexOf('post') !== -1) await addPost();
   if(forceActions.indexOf('like') !== -1) likeLatest();
-  if(forceActions.indexOf('comment') !== -1) commentLatest(false);
-  if(forceActions.indexOf('reply') !== -1) commentLatest(true);
+  if(forceActions.indexOf('comment') !== -1) await commentLatest(false);
+  if(forceActions.indexOf('reply') !== -1) await commentLatest(true);
 
   if(changed){
     momentsLastActionAt = now;
@@ -3110,26 +3111,28 @@ function normalizeChatEntry(m){
     return compact;
   }
   if (m && typeof m === 'object') {
+    var applyLegacyMeta = function(entry){
+      entry.replyToId = m.replyToId || entry.replyToId || null;
+      entry.hidden = !!m.hidden;
+      entry.sentAt = Number(m.sentAt || entry.sentAt || getNowTs()) || getNowTs();
+      if(m.readAt){
+        entry.readAt = m.readAt;
+      }else if(entry.role === 'assistant'){
+        entry.readAt = entry.sentAt;
+      }else{
+        entry.readAt = null;
+      }
+      return entry;
+    };
     if (!m.type && typeof m.content === 'string') {
       try{
         var parsedPayload = JSON.parse(m.content);
         if(parsedPayload && typeof parsedPayload === 'object' && parsedPayload.type && parsedPayload.content){
-          return makeChatEntry(m.role || 'assistant', parsedPayload.content, parsedPayload.type, m.id);
+          return applyLegacyMeta(makeChatEntry(m.role || 'assistant', parsedPayload.content, parsedPayload.type, m.id));
         }
       }catch(e){}
     }
-    var normalized = makeChatEntry(m.role || 'assistant', m.content || '', normalizeMessageType(m.type || 'text'), m.id);
-    normalized.replyToId = m.replyToId || null;
-    normalized.hidden = !!m.hidden;
-    normalized.sentAt = m.sentAt || normalized.sentAt || getNowTs();
-    if(m.readAt){
-      normalized.readAt = m.readAt;
-    }else if(normalized.role === 'assistant'){
-      normalized.readAt = normalized.sentAt;
-    }else{
-      normalized.readAt = null;
-    }
-    return normalized;
+    return applyLegacyMeta(makeChatEntry(m.role || 'assistant', m.content || '', normalizeMessageType(m.type || 'text'), m.id));
   }
   var txt = String(m || '');
   try{
@@ -3227,6 +3230,13 @@ function normalizeReplyHint(hint){
   if(/图片|image/i.test(s) && !/语音|voice/i.test(s)) return IMAGE_SNIPPET;
   return s;
 }
+function shouldHonorReplyHint(replyTo, msgType){
+  var hint = normalizeReplyHint(replyTo);
+  if(!hint) return false;
+  if(hint === IMAGE_SNIPPET) return true;
+  if(normalizeMessageType(msgType || 'text') === 'image') return true;
+  return true;
+}
 function resolveReplyTargetId(replyTo, replyRole){
   var hint = normalizeReplyHint(replyTo);
   if(!hint) return null;
@@ -3315,8 +3325,9 @@ function inferReplyTargetForPart(aiText, usedSet){
   });
   if(!best) return null;
   var margin = best.score - ((second && second.score) || 0);
-  // Context-first: allow auto reply when semantic match is strong and clearly better than alternatives.
-  if(best.score >= 0.24 && margin >= 0.06) return best.id;
+  // Only auto-attach a quote when the semantic target is clearly better than nearby alternatives.
+  if(best.score >= 0.34 && margin >= 0.12) return best.id;
+  if(hasReplyCueInText(aiText) && best.score >= 0.28 && margin >= 0.1) return best.id;
   return null;
 }
 function renderReplyPreview(){
@@ -4097,6 +4108,7 @@ async function restoreOrStartChat() {
     var first = makeChatEntry('assistant', greeting, 'text');
     chatLog = [first];
     addMessage('ai', greeting, false, 'text', first.id);
+    await saveChat(true);
   } else {
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">' + esc(character.name) + '</div><div class="welcome-sub">发送消息开始对话，或按 ✦ 触发回复</div></div>';
   }
@@ -5258,6 +5270,25 @@ function saveWalletStateForChat(state){
   postToShell({ type:'WALLET_UPDATED', payload: next });
 }
 
+function updateWalletRecordStatusForChat(requestId, nextStatus, noteByStatus){
+  var targetId = String(requestId || '');
+  if(!targetId) return false;
+  var state = loadWalletStateForChat();
+  var changed = false;
+  state.records = (Array.isArray(state.records) ? state.records : []).map(function(item){
+    if(String((item && item.relatedId) || '') !== targetId) return item;
+    var next = Object.assign({}, item);
+    next.status = nextStatus || '';
+    if(noteByStatus && Object.prototype.hasOwnProperty.call(noteByStatus, next.status)){
+      next.note = noteByStatus[next.status];
+    }
+    changed = true;
+    return next;
+  });
+  if(changed) saveWalletStateForChat(state);
+  return changed;
+}
+
 function pushWalletRecordForChat(partial){
   var state = loadWalletStateForChat();
   var record = Object.assign({
@@ -5657,21 +5688,11 @@ function updateWalletRecordForFamily(requestId, accept){
 }
 
 function updateWalletRecordForFamilyStatus(requestId, nextStatus){
-  var key = accountScopedKey('qq_wallet_state');
-  try{
-    var raw = JSON.parse(localStorage.getItem(key) || 'null');
-    if(!raw || !Array.isArray(raw.records)) return;
-    raw.records = raw.records.map(function(item){
-      if(String((item && item.relatedId) || '') !== String(requestId || '')) return item;
-      var next = Object.assign({}, item);
-      next.status = nextStatus || 'pending';
-      if(next.status === 'accepted') next.note = '亲属卡已同意';
-      else if(next.status === 'rejected') next.note = '亲属卡已拒绝';
-      else next.note = '亲属卡待处理';
-      return next;
-    });
-    localStorage.setItem(key, JSON.stringify(raw));
-  }catch(e){}
+  updateWalletRecordStatusForChat(requestId, nextStatus || 'pending', {
+    accepted: '亲属卡已同意',
+    rejected: '亲属卡已拒绝',
+    pending: '亲属卡待处理'
+  });
 }
 
 function ensureFamilyRequestInChatLog(payload){
@@ -5797,21 +5818,12 @@ function rollbackFamilyReplyRoundOnReroll(removedIds){
 }
 
 function updateWalletRecordForMoneyStatus(requestId, nextStatus){
-  var key = accountScopedKey('qq_wallet_state');
-  try{
-    var raw = JSON.parse(localStorage.getItem(key) || 'null');
-    if(!raw || !Array.isArray(raw.records)) return;
-    raw.records = raw.records.map(function(item){
-      if(String((item && item.relatedId) || '') !== String(requestId || '')) return item;
-      var next = Object.assign({}, item);
-      next.status = nextStatus || '';
-      if(next.status === 'accepted') next.note = '红包/转账已收下';
-      else if(next.status === 'refunded' || next.status === 'rejected') next.note = '红包/转账已退回';
-      else next.note = next.direction === 'out' ? '红包/转账待处理' : next.note;
-      return next;
-    });
-    localStorage.setItem(key, JSON.stringify(raw));
-  }catch(e){}
+  updateWalletRecordStatusForChat(requestId, nextStatus || '', {
+    accepted: '红包/转账已收下',
+    refunded: '红包/转账已退回',
+    rejected: '红包/转账已退回',
+    pending: '红包/转账待处理'
+  });
 }
 
 function rollbackMoneyReplyRoundOnReroll(removedIds){
@@ -7379,8 +7391,11 @@ function parseStoredChatHistory(raw){
 
 function historySortStamp(list){
   var entries = Array.isArray(list) ? list : [];
-  var last = entries.length ? entries[entries.length - 1] : null;
-  var lastTs = Number((last && (last.sentAt || last.readAt)) || 0) || 0;
+  var lastTs = 0;
+  entries.forEach(function(entry){
+    var ts = Number((entry && (entry.sentAt || entry.readAt)) || 0) || 0;
+    if(ts > lastTs) lastTs = ts;
+  });
   return { lastTs: lastTs, count: entries.length };
 }
 
@@ -8325,8 +8340,6 @@ async function deliverAiReply(text, limitOverride){
   var sentCount = 0;
   var sentTexts = [];
   var sentIds = [];
-  var autoReplyMax = Math.min(1, Math.max(0, Math.floor(parts.length / 3)));
-  var autoReplyCount = 0;
   var usedReplyTargets = new Set();
   var lastSentKey = '';
   for(var i = 0; i < parts.length; i++){
@@ -8343,15 +8356,16 @@ async function deliverAiReply(text, limitOverride){
     var dedupeKey = t + '::' + String(p.text || '').replace(/\s+/g, ' ').trim();
     if(dedupeKey && dedupeKey === lastSentKey) continue;
     var entry = makeChatEntry('assistant', p.text, t);
-    entry.replyToId = resolveReplyTargetId(p.replyTo, p.replyRole);
+    if(shouldHonorReplyHint(p.replyTo, t)){
+      entry.replyToId = resolveReplyTargetId(p.replyTo, p.replyRole);
+    }
     if(entry.replyToId){
       usedReplyTargets.add(entry.replyToId);
-    }else if(autoReplyCount < autoReplyMax && t === 'text' && parts.length >= 4){
-      var autoTarget = inferReplyTargetForPart(p.text, usedReplyTargets);
-      if(autoTarget){
-        entry.replyToId = autoTarget;
-        usedReplyTargets.add(autoTarget);
-        autoReplyCount++;
+    }else if(t === 'text' && parts.length >= 2){
+      var inferredTarget = inferReplyTargetForPart(p.text, usedReplyTargets);
+      if(inferredTarget){
+        entry.replyToId = inferredTarget;
+        usedReplyTargets.add(inferredTarget);
       }
     }
     chatLog.push(entry);
