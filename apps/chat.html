@@ -1576,6 +1576,109 @@ async function hydrateCharacterStorageState(){
   return chatHistory;
 }
 
+async function loadChatHistoryForCharacter(){
+  if(!character || !character.id) return [];
+  requestPersistentChatStorage().catch(function(){});
+  var charId = String(character.id || '');
+  var chatId = chatStorageKey(charId);
+  var chatRec = null;
+  try{
+    if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+      chatRec = await window.PhoneStorage.get('chats', chatId);
+    }
+  }catch(e){}
+  var chatHistory = Array.isArray(chatRec && chatRec.history) ? chatRec.history.map(normalizeChatEntry) : [];
+  if(!chatHistory.length){
+    chatHistory = parseStoredChatHistory(localStorage.getItem(chatId));
+    if(chatHistory.length){
+      persistRecordToIndexedDb('chats', {
+        id: chatId,
+        charId: charId,
+        updatedAt: Date.now(),
+        history: chatHistory.map(compactChatEntryForStorage)
+      }).then(function(){
+        try{ localStorage.removeItem(chatId); }catch(e){}
+      });
+    }
+  }
+  return chatHistory;
+}
+
+async function hydrateCharacterAuxState(){
+  if(!character || !character.id){
+    setCurrentCharacterCaches({});
+    return;
+  }
+  requestPersistentChatStorage().catch(function(){});
+  var charId = String(character.id || '');
+  var memoryId = memorySummaryStorageId(charId);
+  var innerId = innerVoiceStorageId(charId);
+  var moneyId = moneyStateStorageId();
+  var callId = callRecordStorageId(charId);
+  var supportsIdb = !!(window.PhoneStorage && typeof window.PhoneStorage.get === 'function');
+  var results = supportsIdb ? await Promise.all([
+    window.PhoneStorage.get('memorySummaries', memoryId),
+    window.PhoneStorage.get('innerVoices', innerId),
+    window.PhoneStorage.get('moneyStates', moneyId),
+    window.PhoneStorage.get('callRecords', callId)
+  ]) : [null, null, null, null];
+  var memoryRec = results[0];
+  var innerRec = results[1];
+  var moneyRec = results[2];
+  var callRec = results[3];
+
+  var nextMemoryStore = normalizeMemorySummaryStore(memoryRec && memoryRec.data ? memoryRec.data : parseLegacyMemorySummaryStore(localStorage.getItem(memorySummaryKey())));
+  var nextInnerVoiceStore = normalizeInnerVoiceStore(innerRec && innerRec.data ? innerRec.data : parseLegacyInnerVoiceStore(localStorage.getItem(innerVoiceKey())));
+  var nextMoneyState = normalizeMoneyStateCache(moneyRec && moneyRec.data ? moneyRec.data : {
+    walletState: (function(){
+      try{ return JSON.parse(localStorage.getItem(walletStateKey()) || 'null'); }catch(e){ return null; }
+    })(),
+    familyQueue: (function(){
+      try{ return JSON.parse(localStorage.getItem(familyQueueKey()) || '[]'); }catch(e){ return []; }
+    })(),
+    familyActive: (function(){
+      try{ return JSON.parse(localStorage.getItem(familyActiveKey()) || '[]'); }catch(e){ return []; }
+    })(),
+    moneyCovers: (function(){
+      try{ return JSON.parse(localStorage.getItem(moneyCoverListKey()) || '[]'); }catch(e){ return []; }
+    })(),
+    replySnapshot: (function(){
+      try{ return JSON.parse(localStorage.getItem(moneyReplySnapshotKey(charId)) || 'null'); }catch(e){ return null; }
+    })()
+  });
+  var nextCallRecordStore = normalizeCallRecordStore(callRec && callRec.data ? callRec.data : defaultCallRecordStore());
+
+  if(character && String(character.id || '') === charId){
+    setCurrentCharacterCaches({
+      memorySummaryStore: nextMemoryStore,
+      innerVoiceStore: nextInnerVoiceStore,
+      moneyState: nextMoneyState,
+      callRecordStore: nextCallRecordStore
+    });
+  }
+
+  if((!memoryRec || !memoryRec.data) && (nextMemoryStore.items || []).length){
+    persistMemorySummaryStore();
+  }
+  if((!innerRec || !innerRec.data) && ((nextInnerVoiceStore.items || []).length || nextInnerVoiceStore.current)){
+    persistInnerVoiceStore();
+  }
+  if((!moneyRec || !moneyRec.data) && (
+    (nextMoneyState.moneyCovers || []).length ||
+    (nextMoneyState.familyQueue || []).length ||
+    (nextMoneyState.familyActive || []).length ||
+    (nextMoneyState.walletState.records || []).length ||
+    Number((nextMoneyState.walletState && nextMoneyState.walletState.balance) || 0) !== 0
+  )){
+    moneyStateCache = nextMoneyState;
+    persistMoneyStateCache();
+  }
+  if((!callRec || !callRec.data) && (nextCallRecordStore.items || []).length){
+    callRecordStoreCache = nextCallRecordStore;
+    persistCallRecordStore();
+  }
+}
+
 async function hydrateChatLargeStates(){
   var scopedMomentsKey = momentStorageKey(MOMENTS_POSTS_KEY);
   var storedMoments = await loadJsonFromLargeStore(momentsPostsStorageId());
@@ -3744,7 +3847,13 @@ async function init() {
     ]);
     updateBlockedUi();
     refreshMemoryUi();
-    maybeAutoTriggerFamilyReply(character.id);
+    hydrateCharacterAuxState().then(function(){
+      updateBlockedUi();
+      refreshMemoryUi();
+      maybeAutoTriggerFamilyReply(character.id);
+    }).catch(function(err){
+      console.error('hydrate aux state failed', err);
+    });
   }else{
     updateBlockedUi();
     refreshMemoryUi();
@@ -4044,7 +4153,7 @@ function getStrictPromptWorldbookEntries(){
 async function restoreOrStartChat() {
   var msgs = document.getElementById('messages');
   replyTargetId = null;
-  storageHydrationPromise = hydrateCharacterStorageState();
+  storageHydrationPromise = loadChatHistoryForCharacter();
   var restored = await storageHydrationPromise;
   if (!restored.length) restored = await loadPreferredStoredChatForCurrentCharacter();
   if (restored.length) {
@@ -8323,12 +8432,24 @@ window.addEventListener('message', async function(e) {
       editingDraft = '';
       await restoreOrStartChat();
       updateFloatingUi();
-      maybeAutoTriggerFamilyReply(character && character.id);
+      hydrateCharacterAuxState().then(function(){
+        updateBlockedUi();
+        refreshMemoryUi();
+        maybeAutoTriggerFamilyReply(character && character.id);
+      }).catch(function(err){
+        console.error('hydrate aux state failed', err);
+      });
       return;
     }
     await syncChatLogFromStorageForCurrentCharacter();
     updateFloatingUi();
-    maybeAutoTriggerFamilyReply(character && character.id);
+    hydrateCharacterAuxState().then(function(){
+      updateBlockedUi();
+      refreshMemoryUi();
+      maybeAutoTriggerFamilyReply(character && character.id);
+    }).catch(function(err){
+      console.error('hydrate aux state failed', err);
+    });
   }
   if (d.type === 'WORLDBOOK_UPDATED') { loadWorldBook(); updateBlockedUi(); }
   if (d.type === 'SETTINGS_SAVED') { updateModelLabel(); }

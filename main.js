@@ -1278,6 +1278,18 @@ function getActiveCharacterData(){
   }
 }
 
+function attachPreviewToCharacter(char, preview){
+  if(!char || typeof char !== 'object') return char || null;
+  var next = Object.assign({}, char);
+  if(preview && typeof preview === 'object'){
+    next.lastPreview = {
+      content: String(preview.content || ''),
+      type: normalizeChatPreviewType(preview.type || 'text')
+    };
+  }
+  return next;
+}
+
 function getChatUserName(charId){
   if(!charId) return 'USER';
   var activeId = getActiveAccountId();
@@ -1373,6 +1385,14 @@ function persistHomeChatPreview(charId, preview){
   });
   try{ localStorage.setItem(homeChatPreviewKey(charId), payload); }catch(e){}
   try{ localStorage.setItem(HOME_CHAT_PREVIEW_PREFIX + charId, payload); }catch(e){}
+  try{
+    var active = getActiveCharacterData();
+    if(active && active.id === charId){
+      var nextActive = attachPreviewToCharacter(active, preview);
+      localStorage.setItem('activeCharacter', JSON.stringify(nextActive));
+      localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(nextActive));
+    }
+  }catch(e){}
 }
 
 function readLegacyChatMessages(charId){
@@ -1899,7 +1919,7 @@ window.addEventListener('message',(e)=>{
     } catch(err){}
   };
   if(type==='SET_ACTIVE_CHARACTER'){
-    const slim = slimChar(payload);
+    const slim = attachPreviewToCharacter(slimChar(payload), payload && payload.lastPreview);
     setWidgetCharacter(payload);
     try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
     try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
@@ -1913,7 +1933,7 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='CHARACTER_IMPORTED'){
     // When a card is imported, immediately reflect it on the home widget.
-    const slim = slimChar(payload);
+    const slim = attachPreviewToCharacter(slimChar(payload), payload && payload.lastPreview);
     cacheAvatar(payload);
     setWidgetCharacter(payload);
     try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
@@ -1923,7 +1943,7 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='OPEN_CHAT_WITH'){
     openApp('chat');
-    const slim = slimChar(payload);
+    const slim = attachPreviewToCharacter(slimChar(payload), payload && payload.lastPreview);
     try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
     try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
     setWidgetCharacter(payload);
@@ -1973,6 +1993,7 @@ window.addEventListener('message',(e)=>{
       persistHomeChatPreview(payload.id, homeChatSummaryCache[payload.id]);
     }
     if(nextChar && nextChar.id){
+      nextChar = attachPreviewToCharacter(nextChar, homeChatSummaryCache[nextChar.id] || null);
       try{ localStorage.setItem('activeCharacter', JSON.stringify(nextChar)); }catch(e){}
       try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(nextChar)); }catch(e){}
       setWidgetCharacter(nextChar);
@@ -2115,7 +2136,7 @@ function formatCharSub(text){
 function setWidgetCharacter(c){
   const displayName = c?.nickname || c?.name || '';
   document.getElementById('wgt-name').textContent = displayName;
-  var cachedPreview = c && c.id ? (homeChatSummaryCache[c.id] || loadStoredHomeChatPreview(c.id)) : null;
+  var cachedPreview = c && c.id ? (homeChatSummaryCache[c.id] || c.lastPreview || loadStoredHomeChatPreview(c.id)) : null;
   if(c && c.id && cachedPreview) homeChatSummaryCache[c.id] = cachedPreview;
   setWidgetSubtext(cachedPreview, c?.description || '');
   const avEl = document.getElementById('wgt-avatar');
