@@ -544,17 +544,81 @@ function getAppDebugSnapshot(){
   var scopedPreview = scopedPreviewKey ? safeJsonParse(localStorage.getItem(scopedPreviewKey) || 'null') : null;
   var globalPreview = globalPreviewKey ? safeJsonParse(localStorage.getItem(globalPreviewKey) || 'null') : null;
   var parentFrame = null;
+  var parentChatFrame = null;
   var parentSrc = '';
+  var parentChatSrc = '';
   var parentTitle = '';
   var currentApp = '';
+  var viewportInfo = null;
+  var phoneOuterRect = null;
+  var phoneFrameRect = null;
+  var screenRect = null;
+  var rootStyles = null;
   try{
     if(window.parent){
       currentApp = String(window.parent.currentApp || '');
       if(window.parent.document){
         parentFrame = window.parent.document.getElementById('app-iframe');
+        parentChatFrame = window.parent.document.getElementById('chat-iframe');
         parentSrc = parentFrame ? String(parentFrame.getAttribute('src') || '') : '';
+        parentChatSrc = parentChatFrame ? String(parentChatFrame.getAttribute('src') || '') : '';
         var titleEl = window.parent.document.getElementById('app-title-label');
         parentTitle = titleEl ? String(titleEl.textContent || '') : '';
+        var outerEl = window.parent.document.querySelector('.phone-outer');
+        var frameEl = window.parent.document.querySelector('.phone-frame');
+        var screenEl = window.parent.document.getElementById('screen');
+        var rootEl = window.parent.document.documentElement;
+        if(outerEl && outerEl.getBoundingClientRect){
+          var outerRect = outerEl.getBoundingClientRect();
+          phoneOuterRect = {
+            top: outerRect.top,
+            left: outerRect.left,
+            width: outerRect.width,
+            height: outerRect.height
+          };
+        }
+        if(frameEl && frameEl.getBoundingClientRect){
+          var frameRect = frameEl.getBoundingClientRect();
+          phoneFrameRect = {
+            top: frameRect.top,
+            left: frameRect.left,
+            width: frameRect.width,
+            height: frameRect.height
+          };
+        }
+        if(screenEl && screenEl.getBoundingClientRect){
+          var sRect = screenEl.getBoundingClientRect();
+          screenRect = {
+            top: sRect.top,
+            left: sRect.left,
+            width: sRect.width,
+            height: sRect.height
+          };
+        }
+        if(rootEl && window.parent.getComputedStyle){
+          var cs = window.parent.getComputedStyle(rootEl);
+          rootStyles = {
+            appHeight: cs.getPropertyValue('--app-height').trim() || null,
+            frameoffTop: cs.getPropertyValue('--frameoff-top').trim() || null,
+            frameoffScale: cs.getPropertyValue('--frameoff-scale').trim() || null,
+            mobileFrameDrop: cs.getPropertyValue('--mobile-frame-drop').trim() || null,
+            vvTopOffset: cs.getPropertyValue('--vv-top-offset').trim() || null,
+            vvBottomOffset: cs.getPropertyValue('--vv-bottom-offset').trim() || null
+          };
+        }
+      }
+      var vv = window.parent.visualViewport;
+      viewportInfo = {
+        innerWidth: window.parent.innerWidth,
+        innerHeight: window.parent.innerHeight,
+        vvWidth: vv ? vv.width : null,
+        vvHeight: vv ? vv.height : null,
+        vvOffsetTop: vv ? vv.offsetTop : null,
+        vvOffsetLeft: vv ? vv.offsetLeft : null,
+        vvScale: vv ? vv.scale : null
+      };
+      if(window.parent.matchMedia){
+        viewportInfo.pointerCoarse = window.parent.matchMedia('(hover: none) and (pointer: coarse)').matches;
       }
     }
   }catch(e){}
@@ -570,7 +634,14 @@ function getAppDebugSnapshot(){
     parentCurrentApp: currentApp || null,
     parentAppTitle: parentTitle || null,
     parentIframeSrc: parentSrc || null,
-    parentIframeVisible: !!(parentFrame && parentFrame.offsetParent)
+    parentIframeVisible: !!(parentFrame && parentFrame.offsetParent),
+    parentChatIframeSrc: parentChatSrc || null,
+    parentChatIframeVisible: !!(parentChatFrame && parentChatFrame.offsetParent),
+    viewportInfo: viewportInfo,
+    rootStyles: rootStyles,
+    phoneOuterRect: phoneOuterRect,
+    phoneFrameRect: phoneFrameRect,
+    screenRect: screenRect
   };
 }
 
@@ -582,7 +653,8 @@ function refreshAppDebugPanel() {
   meta.textContent = [
     'activeId: ' + (snap.activeId || '无'),
     'currentApp: ' + (snap.parentCurrentApp || '无'),
-    'widget preview: ' + ((snap.activeCharacter && snap.activeCharacter.lastPreview && snap.activeCharacter.lastPreview.content) || '无')
+    'widget preview: ' + ((snap.activeCharacter && snap.activeCharacter.lastPreview && snap.activeCharacter.lastPreview.content) || '无'),
+    'frameTop: ' + ((snap.phoneFrameRect && snap.phoneFrameRect.top) != null ? snap.phoneFrameRect.top : '无')
   ].join('  |  ');
   output.textContent = JSON.stringify(snap, null, 2);
 }
