@@ -1315,7 +1315,7 @@ function getChatTransportFrame(){
   if(chatFrame && preloadedAppReady.chat) return chatFrame;
   var appFrame = document.getElementById('app-iframe');
   if(appFrame && /apps\/chat\.html(?:$|\?)/.test(String(appFrame.getAttribute('src') || ''))) return appFrame;
-  return chatFrame || appFrame;
+  return appFrame || chatFrame;
 }
 
 function getVisibleAppFrame(){
@@ -1332,7 +1332,23 @@ function syncAppFrameVisibility(activeId){
   var appFrame = document.getElementById('app-iframe');
   var chatFrame = document.getElementById('chat-iframe');
   if(appFrame) appFrame.style.display = activeId === 'chat' ? 'none' : '';
-  if(chatFrame) chatFrame.style.display = activeId === 'chat' ? '' : 'none';
+  if(chatFrame){
+    if(activeId === 'chat'){
+      chatFrame.style.display = '';
+      chatFrame.style.flex = '1 1 auto';
+      chatFrame.style.height = '';
+      chatFrame.style.minHeight = '';
+      chatFrame.style.visibility = 'visible';
+      chatFrame.style.pointerEvents = 'auto';
+    }else{
+      chatFrame.style.display = '';
+      chatFrame.style.flex = '0 0 0';
+      chatFrame.style.height = '0px';
+      chatFrame.style.minHeight = '0px';
+      chatFrame.style.visibility = 'hidden';
+      chatFrame.style.pointerEvents = 'none';
+    }
+  }
 }
 
 function primeChatFrame(){
@@ -1347,6 +1363,12 @@ function bindPreloadedFrames(){
     chatFrame.addEventListener('load', function(){
       preloadedAppReady.chat = true;
     });
+    try{
+      var chatDoc = chatFrame.contentDocument;
+      if(chatDoc && chatDoc.readyState === 'complete' && chatFrame.getAttribute('src')){
+        preloadedAppReady.chat = true;
+      }
+    }catch(e){}
   }
 }
 
@@ -1968,6 +1990,18 @@ function closeApp() {
   try{
     const f = getVisibleAppFrame();
     if(f && f.contentWindow){
+      try{
+        if(typeof f.contentWindow.getLatestPreviewForHome === 'function'){
+          var livePreview = f.contentWindow.getLatestPreviewForHome();
+          if(livePreview && livePreview.id){
+            homeChatSummaryCache[livePreview.id] = {
+              content: String(livePreview.content || ''),
+              type: normalizeChatPreviewType(livePreview.type || 'text')
+            };
+            persistHomeChatPreview(livePreview.id, homeChatSummaryCache[livePreview.id], '');
+          }
+        }
+      }catch(previewErr){}
       try{
         if(typeof f.contentWindow.persistChatBeforeLeave === 'function'){
           f.contentWindow.persistChatBeforeLeave();
