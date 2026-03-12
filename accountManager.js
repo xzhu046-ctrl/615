@@ -160,11 +160,44 @@
     ];
     try{
       try{
-        var chars = JSON.parse(localStorage.getItem('characters') || '[]');
+        var chars = [];
+        if(global.PhoneStorage && typeof global.PhoneStorage.peekCharacters === 'function'){
+          chars = global.PhoneStorage.peekCharacters() || [];
+        }else{
+          chars = JSON.parse(localStorage.getItem('characters') || '[]');
+        }
         if(Array.isArray(chars)){
+          var removedIds = chars.filter(function(c){ return c && c.ownerAccountId === id; }).map(function(c){ return String(c.id || ''); });
           var nextChars = chars.filter(function(c){ return !c || c.ownerAccountId !== id; });
           if(nextChars.length !== chars.length){
-            localStorage.setItem('characters', JSON.stringify(nextChars));
+            if(global.PhoneStorage && typeof global.PhoneStorage.saveCharacters === 'function'){
+              global.PhoneStorage.saveCharacters(nextChars).catch(function(){});
+            }else{
+              localStorage.setItem('characters', JSON.stringify(nextChars));
+            }
+          }
+          if(removedIds.length){
+            try{
+              var worldbooks = global.PhoneStorage && typeof global.PhoneStorage.peekWorldbooks === 'function'
+                ? (global.PhoneStorage.peekWorldbooks() || {})
+                : JSON.parse(localStorage.getItem('worldbooks') || '{}');
+              if(worldbooks && typeof worldbooks === 'object'){
+                var changedWb = false;
+                removedIds.forEach(function(charId){
+                  if(Object.prototype.hasOwnProperty.call(worldbooks, charId)){
+                    delete worldbooks[charId];
+                    changedWb = true;
+                  }
+                });
+                if(changedWb){
+                  if(global.PhoneStorage && typeof global.PhoneStorage.saveWorldbooks === 'function'){
+                    global.PhoneStorage.saveWorldbooks(worldbooks).catch(function(){});
+                  }else{
+                    localStorage.setItem('worldbooks', JSON.stringify(worldbooks));
+                  }
+                }
+              }
+            }catch(ignoreErr){}
           }
         }
       }catch(err){}

@@ -228,7 +228,14 @@ function pushWalletRecord(partial){ const state=loadWalletState(); const record=
 
 function accountScopedChatKey(charId){ return window.AccountManager.scopedKey('chat_' + charId); }
 function loadWalletCharacters(){
-  let chars=[]; try{ chars=JSON.parse(localStorage.getItem('characters')||'[]'); }catch(e){ chars=[]; }
+  let chars=[];
+  try{
+    if(window.PhoneStorage && typeof window.PhoneStorage.peekCharacters === 'function'){
+      chars = window.PhoneStorage.peekCharacters() || [];
+    }else{
+      chars = JSON.parse(localStorage.getItem('characters')||'[]');
+    }
+  }catch(e){ chars=[]; }
   const acct=active(); const defaultId=window.AccountManager.getDefaultId();
   chars=(Array.isArray(chars)?chars:[]).map((c)=>{ if(c && !c.ownerAccountId) c.ownerAccountId=defaultId || (acct&&acct.id) || ''; return c; });
   if(acct){ chars=chars.filter((c)=>c && c.ownerAccountId===acct.id); if(!acct.isDefault){ const friendSet=new Set(Array.isArray(acct.friends)?acct.friends:[]); chars=chars.filter((c)=>friendSet.has(c.id)); } }
@@ -328,7 +335,8 @@ window.addEventListener('beforeunload', restoreParentTopbar);
 window.addEventListener('pagehide', restoreParentTopbar);
 Promise.all([
   hydrateMoneyStateCache(),
-  loadStoredAsset(window.AccountManager.scopedKey('qq_profile_avatar_asset'))
+  loadStoredAsset(window.AccountManager.scopedKey('qq_profile_avatar_asset')),
+  (window.PhoneStorage && typeof window.PhoneStorage.getCharacters === 'function') ? window.PhoneStorage.getCharacters().catch(()=>[]) : Promise.resolve([])
 ]).then((results)=>{ const src=results[1]; if(src){ window.AccountManager.updateActive((a)=>{ if(!a.avatar) a.avatar=src; }); } renderProfile(); renderWallet(); }).catch(()=>{ renderProfile(); renderWallet(); });
 </script>
 </body>

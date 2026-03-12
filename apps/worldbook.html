@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>世界书</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<script src="../chatStorage.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:inherit;-webkit-text-fill-color:currentColor}
@@ -258,9 +259,17 @@ function normalizeWorldbooks(raw) {
 }
 
 // ── Persistence ──
-function loadAll() {
-  try { chars = JSON.parse(localStorage.getItem('characters') || '[]'); } catch(e){ chars=[]; }
-  try { wbs = normalizeWorldbooks(JSON.parse(localStorage.getItem('worldbooks') || '{}')); } catch(e){ wbs=normalizeWorldbooks({}); }
+async function loadAll() {
+  if(window.PhoneStorage && typeof window.PhoneStorage.getCharacters === 'function'){
+    try { chars = await window.PhoneStorage.getCharacters(); } catch(e){ chars=[]; }
+  }else{
+    try { chars = JSON.parse(localStorage.getItem('characters') || '[]'); } catch(e){ chars=[]; }
+  }
+  if(window.PhoneStorage && typeof window.PhoneStorage.getWorldbooks === 'function'){
+    try { wbs = normalizeWorldbooks(await window.PhoneStorage.getWorldbooks()); } catch(e){ wbs=normalizeWorldbooks({}); }
+  }else{
+    try { wbs = normalizeWorldbooks(JSON.parse(localStorage.getItem('worldbooks') || '{}')); } catch(e){ wbs=normalizeWorldbooks({}); }
+  }
   // Also load worldbooks embedded in character cards
   chars.forEach(function(c) {
     if (!wbs[c.id]) {
@@ -281,11 +290,15 @@ function loadAll() {
       }
     }
   });
-  saveWbs();
+  await saveWbs();
 }
 
 function saveWbs() {
+  if(window.PhoneStorage && typeof window.PhoneStorage.saveWorldbooks === 'function'){
+    return window.PhoneStorage.saveWorldbooks(wbs);
+  }
   localStorage.setItem('worldbooks', JSON.stringify(wbs));
+  return Promise.resolve(wbs);
 }
 
 // ── Character selector ──
@@ -1162,19 +1175,24 @@ window.addEventListener('message', function(e) {
   var d=e.data||{};
   if(d.type==='INIT_WORLDBOOK') {
     curCharId = d.charId || UNCATEGORIZED_KEY;
-    loadAll();
-    populateCharSelect();
-    onCharChange();
+    loadAll().then(function(){
+      populateCharSelect();
+      onCharChange();
+    }).catch(function(err){
+      console.error('load worldbooks failed', err);
+    });
   }
 });
 
 // Init standalone
-loadAll();
-populateCharSelect();
-// Check if a char was pre-selected via localStorage
-var ac=localStorage.getItem('activeCharacter');
-if(ac){try{var c=JSON.parse(ac);if(c&&c.id){curCharId=c.id;}}catch(e){}}
-onCharChange();
+loadAll().then(function(){
+  populateCharSelect();
+  var ac=localStorage.getItem('activeCharacter');
+  if(ac){try{var c=JSON.parse(ac);if(c&&c.id){curCharId=c.id;}}catch(e){}}
+  onCharChange();
+}).catch(function(err){
+  console.error('worldbook init failed', err);
+});
 </script>
 </body>
 </html>
