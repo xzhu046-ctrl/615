@@ -1767,40 +1767,40 @@ function optimizeImageDataUrl(dataUrl, opts){
 // Maintain a simple app navigation stack so Back can return to the previous app
 const appStack=[];
 let currentApp=null;
+let appTransitionPromise = Promise.resolve();
 
-function renderApp(id){
-  const a=APP_MAP[id]; if(!a) return;
-  currentApp=id;
-  const outer = document.querySelector('.phone-outer');
-  if(outer) outer.classList.add('app-open');
-  document.documentElement.classList.add('app-open-mode');
-  document.body.classList.add('app-open-mode');
-  document.getElementById('app-title-label').textContent=a.title;
-  document.getElementById('app-iframe').src=a.src;
-  document.getElementById('app-container').classList.add('open');
-  document.getElementById('home-screen').classList.add('hidden');
+function runAppTransition(task){
+  appTransitionPromise = appTransitionPromise.then(task).catch(function(err){
+    console.error('app transition failed', err);
+  });
+  return appTransitionPromise;
 }
 
-function openApp(id) {
-  if(!APP_MAP[id]) return;
-  if(appStack[appStack.length-1]!==id) appStack.push(id);
-  renderApp(id);
-}
-
-function closeApp() {
+async function flushCurrentAppState(){
   try{
     const f = document.getElementById('app-iframe');
-    if(f && f.contentWindow){
-      try{
-        if(typeof f.contentWindow.persistChatBeforeLeave === 'function'){
-          f.contentWindow.persistChatBeforeLeave();
-        }else if(typeof f.contentWindow.saveChat === 'function'){
-          f.contentWindow.saveChat(true);
-        }
-      }catch(err){}
+    if(!f || !f.contentWindow) return;
+    try{
+      if(typeof f.contentWindow.waitForPendingChatSave === 'function'){
+        await f.contentWindow.waitForPendingChatSave();
+      }
+    }catch(err){}
+    try{
+      if(typeof f.contentWindow.saveChat === 'function'){
+        await f.contentWindow.saveChat(true);
+      }else if(typeof f.contentWindow.persistChatBeforeLeave === 'function'){
+        var result = f.contentWindow.persistChatBeforeLeave();
+        if(result && typeof result.then === 'function') await result;
+      }
+    }catch(err){}
+    try{
       f.contentWindow.postMessage({ type:'APP_CLOSING' }, '*');
-    }
-  }catch(e){}
+    }catch(err){}
+  }catch(err){}
+}
+
+async function performCloseApp(){
+  await flushCurrentAppState();
   appStack.length = 0;
   currentApp = null;
   const outer = document.querySelector('.phone-outer');
@@ -1819,16 +1819,53 @@ function closeApp() {
   setTimeout(()=>{ document.getElementById('app-iframe').src=''; },400);
 }
 
-function handleBack(){
-  if(appStack.length>1){
-    appStack.pop();
-    renderApp(appStack[appStack.length-1]);
-    return;
-  }
-  closeApp();
+function renderApp(id){
+  const a=APP_MAP[id]; if(!a) return;
+  currentApp=id;
+  const outer = document.querySelector('.phone-outer');
+  if(outer) outer.classList.add('app-open');
+  document.documentElement.classList.add('app-open-mode');
+  document.body.classList.add('app-open-mode');
+  document.getElementById('app-title-label').textContent=a.title;
+  document.getElementById('app-iframe').src=a.src;
+  document.getElementById('app-container').classList.add('open');
+  document.getElementById('home-screen').classList.add('hidden');
 }
 
-function goHome(){ closeApp(); }
+function openApp(id) {
+  if(!APP_MAP[id]) return Promise.resolve();
+  return runAppTransition(async function(){
+    if(currentApp === id){
+      if(appStack[appStack.length-1] !== id) appStack.push(id);
+      return;
+    }
+    if(currentApp){
+      await flushCurrentAppState();
+    }
+    if(appStack[appStack.length-1]!==id) appStack.push(id);
+    renderApp(id);
+  });
+}
+
+function closeApp() {
+  return runAppTransition(async function(){
+    await performCloseApp();
+  });
+}
+
+function handleBack(){
+  return runAppTransition(async function(){
+    if(appStack.length>1){
+      await flushCurrentAppState();
+      appStack.pop();
+      renderApp(appStack[appStack.length-1]);
+      return;
+    }
+    await performCloseApp();
+  });
+}
+
+function goHome(){ return closeApp(); }
 
 async function clearPersistedPhoneData(){
   try{ localStorage.clear(); }catch(e){}
