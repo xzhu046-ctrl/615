@@ -307,6 +307,17 @@ function getActiveAccountId(){
   return getDefaultAccountId();
 }
 
+function isDefaultAccountActive(){
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      var active = window.AccountManager.getActive();
+      return !!(active && active.isDefault);
+    }
+  }catch(e){}
+  return true;
+}
+
 function getBackgroundCharacter(){
   var defaultId = getDefaultAccountId();
   if(!defaultId) return null;
@@ -1828,7 +1839,9 @@ window.addEventListener('message',(e)=>{
   if(type==='SET_ACTIVE_CHARACTER'){
     const slim = slimChar(payload);
     setWidgetCharacter(payload);
-    try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
+    if(isDefaultAccountActive()){
+      try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
+    }
     try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
     cacheAvatar(payload);
     renderBondWidget(payload);
@@ -1843,7 +1856,9 @@ window.addEventListener('message',(e)=>{
     const slim = slimChar(payload);
     cacheAvatar(payload);
     setWidgetCharacter(payload);
-    try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
+    if(isDefaultAccountActive()){
+      try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
+    }
     try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
     renderBondWidget(payload);
     renderHomeDockBadges();
@@ -1851,7 +1866,9 @@ window.addEventListener('message',(e)=>{
   if(type==='OPEN_CHAT_WITH'){
     openApp('chat');
     const slim = slimChar(payload);
-    try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
+    if(isDefaultAccountActive()){
+      try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
+    }
     try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
     setWidgetCharacter(payload);
     renderBondWidget(payload);
@@ -1894,7 +1911,9 @@ window.addEventListener('message',(e)=>{
     delete qqUnreadCountCache[getActiveAccountId()];
     var nextChar = payload && payload.data ? payload.data : null;
     if(nextChar && nextChar.id){
-      try{ localStorage.setItem('activeCharacter', JSON.stringify(nextChar)); }catch(e){}
+      if(isDefaultAccountActive()){
+        try{ localStorage.setItem('activeCharacter', JSON.stringify(nextChar)); }catch(e){}
+      }
       try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(nextChar)); }catch(e){}
       setWidgetCharacter(nextChar);
       renderBondWidget(nextChar);
