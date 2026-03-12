@@ -1163,6 +1163,7 @@ var familyReplyBusy = false;
 var moneyReplyBusy = false;
 var moneyComposerMode = 'red_packet';
 var selectedMoneyCoverId = '';
+var pendingChatSavePromise = null;
 var pendingMoneyCoverName = '';
 var pendingDeleteMoneyCoverId = '';
 var moneyCoverLongPressTimer = null;
@@ -4678,6 +4679,13 @@ function confirmUnblockFromSettings(){
 // ════════════════════════════════════════════
 function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 90) + 'px'; }
 
+async function waitForPendingChatSave(){
+  if(!pendingChatSavePromise) return;
+  try{
+    await pendingChatSavePromise;
+  }catch(e){}
+}
+
 function onKey(e) {
   // Enter = sendOnly (no AI trigger), Ctrl+Enter / Cmd+Enter = triggerReply
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
@@ -4689,7 +4697,7 @@ function onKey(e) {
 }
 
 // Just adds the user's message to the chat — no AI call
-function sendOnly() {
+async function sendOnly() {
   if(!canSendNow()) return;
   var input = document.getElementById('msg-input');
   var text = input.value.trim();
@@ -4700,7 +4708,7 @@ function sendOnly() {
   consumeFirstUserTurn(character && character.id);
   chatLog.push(entry);
   addMessage('user', text, true, 'text', entry.id);
-  saveChat(true);
+  await saveChat(true);
   clearReplyTarget();
   hideError();
   captureUserMomentIntent(text, 'text');
@@ -4710,6 +4718,7 @@ function sendOnly() {
 async function triggerReply() {
   if(!canSendNow()) return;
   if (isTyping) return;
+  await waitForPendingChatSave();
   await syncChatLogFromStorageForCurrentCharacter();
 
   var input = document.getElementById('msg-input');
@@ -4723,6 +4732,7 @@ async function triggerReply() {
     consumeFirstUserTurn(character && character.id);
     chatLog.push(entry);
     addMessage('user', text, true, 'text', entry.id);
+    await saveChat(true);
     clearReplyTarget();
     captureUserMomentIntent(text, 'text');
   }
@@ -7183,32 +7193,11 @@ function confirmClearChatAll(){
 
 async function saveChat(forceReplace) {
   if (!character) return;
-  var nextLog = Array.isArray(chatLog) ? chatLog.slice() : [];
-  var storedHistory = nextLog.map(compactChatEntryForStorage);
-  var storedOk = false;
-  try{
-    if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
-      await window.PhoneStorage.put('chats', {
-        id: chatStorageKey(character.id),
-        charId: String(character.id || ''),
-        updatedAt: Date.now(),
-        history: storedHistory
-      });
-      try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(ignoreErr){}
-    }else{
-      localStorage.setItem(chatStorageKey(character.id), JSON.stringify({ history: storedHistory }));
-    }
-    storedOk = true;
-  }catch(err){
-    appendMoneyDebugLog('save_chat_error', {
-      forceReplace: !!forceReplace,
-      name: err && err.name ? err.name : '',
-      message: err && err.message ? err.message : String(err || ''),
-      count: nextLog.length
-    });
+  var run = (async function(){
+    var nextLog = Array.isArray(chatLog) ? chatLog.slice() : [];
+    var storedHistory = nextLog.map(compactChatEntryForStorage);
+    var storedOk = false;
     try{
-      localStorage.removeItem(moneyDebugKey());
-      localStorage.removeItem(moneyReplySnapshotKey(character.id));
       if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
         await window.PhoneStorage.put('chats', {
           id: chatStorageKey(character.id),
@@ -7216,54 +7205,83 @@ async function saveChat(forceReplace) {
           updatedAt: Date.now(),
           history: storedHistory
         });
-        try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(ignoreErr2){}
+        try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(ignoreErr){}
       }else{
         localStorage.setItem(chatStorageKey(character.id), JSON.stringify({ history: storedHistory }));
       }
       storedOk = true;
-      appendMoneyDebugLog('save_chat_retry_ok', {
+    }catch(err){
+      appendMoneyDebugLog('save_chat_error', {
         forceReplace: !!forceReplace,
+        name: err && err.name ? err.name : '',
+        message: err && err.message ? err.message : String(err || ''),
         count: nextLog.length
       });
-    }catch(retryErr){
-      appendMoneyDebugLog('save_chat_retry_error', {
-        forceReplace: !!forceReplace,
-        name: retryErr && retryErr.name ? retryErr.name : '',
-        message: retryErr && retryErr.message ? retryErr.message : String(retryErr || ''),
-        count: nextLog.length
-      });
-      throw retryErr;
+      try{
+        localStorage.removeItem(moneyDebugKey());
+        localStorage.removeItem(moneyReplySnapshotKey(character.id));
+        if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+          await window.PhoneStorage.put('chats', {
+            id: chatStorageKey(character.id),
+            charId: String(character.id || ''),
+            updatedAt: Date.now(),
+            history: storedHistory
+          });
+          try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(ignoreErr2){}
+        }else{
+          localStorage.setItem(chatStorageKey(character.id), JSON.stringify({ history: storedHistory }));
+        }
+        storedOk = true;
+        appendMoneyDebugLog('save_chat_retry_ok', {
+          forceReplace: !!forceReplace,
+          count: nextLog.length
+        });
+      }catch(retryErr){
+        appendMoneyDebugLog('save_chat_retry_error', {
+          forceReplace: !!forceReplace,
+          name: retryErr && retryErr.name ? retryErr.name : '',
+          message: retryErr && retryErr.message ? retryErr.message : String(retryErr || ''),
+          count: nextLog.length
+        });
+        throw retryErr;
+      }
     }
-  }
-  appendMoneyDebugLog('save_chat', {
-    forceReplace: !!forceReplace,
-    storedOk: storedOk,
-    count: nextLog.length,
-    tail: summarizeChatTail(nextLog)
-  });
-  var lastEntry = null;
-  for(var i = nextLog.length - 1; i >= 0; i--){
-    var it = nextLog[i] || {};
-    if(String(it.role || '').toLowerCase() === 'assistant'){
-      lastEntry = it;
-      break;
+    appendMoneyDebugLog('save_chat', {
+      forceReplace: !!forceReplace,
+      storedOk: storedOk,
+      count: nextLog.length,
+      tail: summarizeChatTail(nextLog)
+    });
+    var lastEntry = null;
+    for(var i = nextLog.length - 1; i >= 0; i--){
+      var it = nextLog[i] || {};
+      if(String(it.role || '').toLowerCase() === 'assistant'){
+        lastEntry = it;
+        break;
+      }
     }
+    if(!lastEntry && nextLog.length) lastEntry = nextLog[nextLog.length - 1];
+    var lastMsg = lastEntry ? (lastEntry.content || '') : '';
+    var lastType = lastEntry ? (lastEntry.type || 'text') : 'text';
+    if(normalizeMessageType(lastType) === 'familycard'){
+      lastMsg = familyCardSummaryText(lastMsg);
+      lastType = 'text';
+    } else if(normalizeMessageType(lastType) === 'moneypacket'){
+      lastMsg = moneyPacketSummaryText(lastMsg);
+      lastType = 'text';
+    }
+    try {
+      window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id: character.id, data: character, last: lastMsg, lastType: lastType } }, '*');
+    } catch(e){}
+    maybeCreateMemorySummaries();
+    refreshMemoryUi();
+  })();
+  pendingChatSavePromise = run;
+  try{
+    await run;
+  }finally{
+    if(pendingChatSavePromise === run) pendingChatSavePromise = null;
   }
-  if(!lastEntry && nextLog.length) lastEntry = nextLog[nextLog.length - 1];
-  var lastMsg = lastEntry ? (lastEntry.content || '') : '';
-  var lastType = lastEntry ? (lastEntry.type || 'text') : 'text';
-  if(normalizeMessageType(lastType) === 'familycard'){
-    lastMsg = familyCardSummaryText(lastMsg);
-    lastType = 'text';
-  } else if(normalizeMessageType(lastType) === 'moneypacket'){
-    lastMsg = moneyPacketSummaryText(lastMsg);
-    lastType = 'text';
-  }
-  try {
-    window.parent.postMessage({ type:'CHAT_UPDATED', payload:{ id: character.id, data: character, last: lastMsg, lastType: lastType } }, '*');
-  } catch(e){}
-  maybeCreateMemorySummaries();
-  refreshMemoryUi();
 }
 
 function persistChatBeforeLeave(){
