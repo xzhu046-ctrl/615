@@ -4303,6 +4303,24 @@ async function triggerReply() {
   } catch(err) {
     hideTyping();
     var errMsg = err.message || String(err);
+    if(moneyReplyId){
+      appendMoneyDebugLog('main_ai_error_after_money', {
+        moneyReplyId: moneyReplyId,
+        error: errMsg
+      });
+      try{
+        await ensureMoneyFollowupDeliveredAfterMainAi(moneyReplyId);
+      }catch(fallbackErr){
+        appendMoneyDebugLog('money_followup_fallback_error', {
+          moneyReplyId: moneyReplyId,
+          error: fallbackErr && fallbackErr.message ? fallbackErr.message : String(fallbackErr || '')
+        });
+      }
+      try{
+        saveChat(true);
+        saveMoneyReplySnapshot('post_main_ai_error');
+      }catch(saveErr){}
+    }
     showError('AI 回复失败: ' + errMsg);
     console.error('callAI error:', err);
   } finally {
