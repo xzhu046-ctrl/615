@@ -8,6 +8,7 @@
 <script src="../promptManager.js"></script>
 <script src="../accountManager.js"></script>
 <script src="../assetStore.js"></script>
+<script src="../chatStorage.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1166,6 +1167,12 @@ var pendingMoneyCoverName = '';
 var pendingDeleteMoneyCoverId = '';
 var moneyCoverLongPressTimer = null;
 var pendingIncomingMoneyDecisionId = '';
+var memorySummaryStoreCache = { covered: 0, progress: 0, items: [] };
+var innerVoiceStoreCache = { current: null, items: [] };
+var moneyStateCache = null;
+var callRecordStoreCache = { items: [] };
+var storageHydrationPromise = Promise.resolve();
+var storagePersistRequested = false;
 
 function contextWindowKey(){
   return character && character.id ? accountScopedKey('ctx_window_' + character.id) : '';
@@ -1272,10 +1279,9 @@ function formatTok(n){
   var val = Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
   return val + ' tok';
 }
-function loadMemorySummaryStore(){
-  if(!character) return { covered: 0, items: [] };
+function parseLegacyMemorySummaryStore(rawText){
   try{
-    var raw = JSON.parse(localStorage.getItem(memorySummaryKey()) || '{}');
+    var raw = JSON.parse(rawText || '{}');
     var items = Array.isArray(raw.items) ? raw.items : [];
     items = items.map(function(it){
       var text = String((it && it.text) || '').trim();
@@ -1296,8 +1302,280 @@ function loadMemorySummaryStore(){
       items: items
     };
   }catch(e){
-    return { covered: 0, items: [] };
+    return defaultMemorySummaryStore();
   }
+}
+
+function normalizeMemorySummaryStore(store){
+  var next = store && typeof store === 'object' ? store : defaultMemorySummaryStore();
+  next.items = Array.isArray(next.items) ? next.items.map(function(it){
+    var text = String((it && it.text) || '').trim();
+    return {
+      id: String((it && it.id) || ('ms_' + Date.now())),
+      from: Number((it && it.from) || 0) || 0,
+      to: Number((it && it.to) || 0) || 0,
+      text: text,
+      tokens: Number((it && it.tokens) || 0) || approxTokenCount(text),
+      createdAt: Number((it && it.createdAt) || Date.now()) || Date.now()
+    };
+  }).filter(function(it){ return !!it.text; }) : [];
+  next.covered = computeMemoryCoveredFromItems(next.items);
+  next.progress = Math.max(next.covered, Number(next.progress || 0) || 0);
+  return next;
+}
+
+function parseLegacyInnerVoiceStore(rawText){
+  try{
+    var raw = JSON.parse(rawText || '{}');
+    var items = Array.isArray(raw.items) ? raw.items : [];
+    items = items.map(function(it){
+      return {
+        id: String((it && it.id) || ''),
+        normal: String((it && it.normal) || '').trim(),
+        desire: String((it && it.desire) || '').trim(),
+        at: Number((it && it.at) || Date.now()) || Date.now()
+      };
+    }).filter(function(it){ return it.normal || it.desire; });
+    var current = raw.current && typeof raw.current === 'object' ? {
+      id: String(raw.current.id || ''),
+      normal: String(raw.current.normal || '').trim(),
+      desire: String(raw.current.desire || '').trim(),
+      at: Number(raw.current.at || Date.now()) || Date.now()
+    } : (items.length ? items[items.length - 1] : null);
+    return { current: current, items: items };
+  }catch(e){
+    return defaultInnerVoiceStore();
+  }
+}
+
+function normalizeInnerVoiceStore(store){
+  var next = store && typeof store === 'object' ? store : defaultInnerVoiceStore();
+  next.items = Array.isArray(next.items) ? next.items.map(function(it){
+    return {
+      id: String((it && it.id) || ''),
+      normal: String((it && it.normal) || '').trim(),
+      desire: String((it && it.desire) || '').trim(),
+      at: Number((it && it.at) || Date.now()) || Date.now()
+    };
+  }).filter(function(it){ return it.normal || it.desire; }) : [];
+  next.current = next.current && typeof next.current === 'object' ? {
+    id: String(next.current.id || ''),
+    normal: String(next.current.normal || '').trim(),
+    desire: String(next.current.desire || '').trim(),
+    at: Number(next.current.at || Date.now()) || Date.now()
+  } : (next.items.length ? next.items[next.items.length - 1] : null);
+  return next;
+}
+
+function normalizeWalletState(raw){
+  var source = raw && typeof raw === 'object' ? raw : {};
+  return {
+    balance: Number(source.balance || 0) || 0,
+    records: Array.isArray(source.records) ? source.records : []
+  };
+}
+
+function normalizeMoneyStateCache(raw){
+  var source = raw && typeof raw === 'object' ? raw : {};
+  return {
+    walletState: normalizeWalletState(source.walletState || source.wallet || source),
+    familyQueue: Array.isArray(source.familyQueue) ? source.familyQueue : [],
+    familyActive: Array.isArray(source.familyActive) ? source.familyActive : [],
+    moneyCovers: Array.isArray(source.moneyCovers) ? source.moneyCovers.filter(function(item){
+      return item && typeof item === 'object' && item.id && item.assetKey;
+    }) : [],
+    replySnapshot: source.replySnapshot && typeof source.replySnapshot === 'object' ? {
+      reason: String(source.replySnapshot.reason || ''),
+      savedAt: Number(source.replySnapshot.savedAt || 0) || 0,
+      history: Array.isArray(source.replySnapshot.history) ? source.replySnapshot.history : []
+    } : null
+  };
+}
+
+function normalizeCallRecordStore(raw){
+  var source = raw && typeof raw === 'object' ? raw : {};
+  return {
+    items: Array.isArray(source.items) ? source.items : []
+  };
+}
+
+function setCurrentCharacterCaches(payload){
+  var source = payload || {};
+  memorySummaryStoreCache = normalizeMemorySummaryStore(source.memorySummaryStore || defaultMemorySummaryStore());
+  innerVoiceStoreCache = normalizeInnerVoiceStore(source.innerVoiceStore || defaultInnerVoiceStore());
+  moneyStateCache = normalizeMoneyStateCache(source.moneyState || defaultMoneyStateCache());
+  callRecordStoreCache = normalizeCallRecordStore(source.callRecordStore || defaultCallRecordStore());
+}
+
+function persistRecordToIndexedDb(storeName, record){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.put === 'function')) return Promise.resolve(record || null);
+  return window.PhoneStorage.put(storeName, record || null).catch(function(err){
+    console.error('persist to indexeddb failed:', storeName, err);
+    return null;
+  });
+}
+
+function removeRecordFromIndexedDb(storeName, id){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.remove === 'function')) return Promise.resolve();
+  return window.PhoneStorage.remove(storeName, id).catch(function(err){
+    console.error('remove from indexeddb failed:', storeName, err);
+  });
+}
+
+function persistMemorySummaryStore(){
+  if(!character || !character.id) return Promise.resolve();
+  var record = {
+    id: memorySummaryStorageId(character.id),
+    charId: String(character.id || ''),
+    updatedAt: Date.now(),
+    data: cloneJsonSafe(normalizeMemorySummaryStore(memorySummaryStoreCache), defaultMemorySummaryStore())
+  };
+  return persistRecordToIndexedDb('memorySummaries', record).then(function(){
+    try{ localStorage.removeItem(memorySummaryKey()); }catch(e){}
+  });
+}
+
+function persistInnerVoiceStore(){
+  if(!character || !character.id) return Promise.resolve();
+  var record = {
+    id: innerVoiceStorageId(character.id),
+    charId: String(character.id || ''),
+    updatedAt: Date.now(),
+    data: cloneJsonSafe(normalizeInnerVoiceStore(innerVoiceStoreCache), defaultInnerVoiceStore())
+  };
+  return persistRecordToIndexedDb('innerVoices', record).then(function(){
+    try{ localStorage.removeItem(innerVoiceKey()); }catch(e){}
+  });
+}
+
+function persistMoneyStateCache(){
+  var record = {
+    id: moneyStateStorageId(),
+    updatedAt: Date.now(),
+    data: cloneJsonSafe(normalizeMoneyStateCache(moneyStateCache), defaultMoneyStateCache())
+  };
+  return persistRecordToIndexedDb('moneyStates', record).then(function(){
+    try{ localStorage.removeItem(walletStateKey()); }catch(e){}
+    try{ localStorage.removeItem(familyQueueKey()); }catch(e){}
+    try{ localStorage.removeItem(familyActiveKey()); }catch(e){}
+    try{ localStorage.removeItem(moneyCoverListKey()); }catch(e){}
+    try{
+      var snapshotCharId = record && record.data && record.data.replySnapshot && record.data.replySnapshot.charId
+        ? String(record.data.replySnapshot.charId)
+        : String((character && character.id) || '');
+      if(snapshotCharId) localStorage.removeItem(moneyReplySnapshotKey(snapshotCharId));
+    }catch(e){}
+  });
+}
+
+function persistCallRecordStore(){
+  if(!character || !character.id) return Promise.resolve();
+  var record = {
+    id: callRecordStorageId(character.id),
+    charId: String(character.id || ''),
+    updatedAt: Date.now(),
+    data: cloneJsonSafe(normalizeCallRecordStore(callRecordStoreCache), defaultCallRecordStore())
+  };
+  return persistRecordToIndexedDb('callRecords', record);
+}
+
+async function hydrateCharacterStorageState(){
+  if(!character || !character.id){
+    setCurrentCharacterCaches({});
+    return [];
+  }
+  requestPersistentChatStorage().catch(function(){});
+  var charId = String(character.id || '');
+  var chatId = chatStorageKey(charId);
+  var memoryId = memorySummaryStorageId(charId);
+  var innerId = innerVoiceStorageId(charId);
+  var moneyId = moneyStateStorageId();
+  var callId = callRecordStorageId(charId);
+  var supportsIdb = !!(window.PhoneStorage && typeof window.PhoneStorage.get === 'function');
+  var results = supportsIdb ? await Promise.all([
+    window.PhoneStorage.get('chats', chatId),
+    window.PhoneStorage.get('memorySummaries', memoryId),
+    window.PhoneStorage.get('innerVoices', innerId),
+    window.PhoneStorage.get('moneyStates', moneyId),
+    window.PhoneStorage.get('callRecords', callId)
+  ]) : [null, null, null, null, null];
+  var chatRec = results[0];
+  var memoryRec = results[1];
+  var innerRec = results[2];
+  var moneyRec = results[3];
+  var callRec = results[4];
+
+  var chatHistory = Array.isArray(chatRec && chatRec.history) ? chatRec.history.map(normalizeChatEntry) : [];
+  if(!chatHistory.length){
+    chatHistory = parseStoredChatHistory(localStorage.getItem(chatId));
+    if(chatHistory.length){
+      persistRecordToIndexedDb('chats', {
+        id: chatId,
+        charId: charId,
+        updatedAt: Date.now(),
+        history: chatHistory.map(compactChatEntryForStorage)
+      }).then(function(){
+        try{ localStorage.removeItem(chatId); }catch(e){}
+      });
+    }
+  }
+
+  var nextMemoryStore = normalizeMemorySummaryStore(memoryRec && memoryRec.data ? memoryRec.data : parseLegacyMemorySummaryStore(localStorage.getItem(memorySummaryKey())));
+  var nextInnerVoiceStore = normalizeInnerVoiceStore(innerRec && innerRec.data ? innerRec.data : parseLegacyInnerVoiceStore(localStorage.getItem(innerVoiceKey())));
+  var nextMoneyState = normalizeMoneyStateCache(moneyRec && moneyRec.data ? moneyRec.data : {
+    walletState: (function(){
+      try{ return JSON.parse(localStorage.getItem(walletStateKey()) || 'null'); }catch(e){ return null; }
+    })(),
+    familyQueue: (function(){
+      try{ return JSON.parse(localStorage.getItem(familyQueueKey()) || '[]'); }catch(e){ return []; }
+    })(),
+    familyActive: (function(){
+      try{ return JSON.parse(localStorage.getItem(familyActiveKey()) || '[]'); }catch(e){ return []; }
+    })(),
+    moneyCovers: (function(){
+      try{ return JSON.parse(localStorage.getItem(moneyCoverListKey()) || '[]'); }catch(e){ return []; }
+    })(),
+    replySnapshot: (function(){
+      try{ return JSON.parse(localStorage.getItem(moneyReplySnapshotKey(charId)) || 'null'); }catch(e){ return null; }
+    })()
+  });
+  var nextCallRecordStore = normalizeCallRecordStore(callRec && callRec.data ? callRec.data : defaultCallRecordStore());
+
+  if(character && String(character.id || '') === charId){
+    setCurrentCharacterCaches({
+      memorySummaryStore: nextMemoryStore,
+      innerVoiceStore: nextInnerVoiceStore,
+      moneyState: nextMoneyState,
+      callRecordStore: nextCallRecordStore
+    });
+  }
+
+  if((!memoryRec || !memoryRec.data) && (nextMemoryStore.items || []).length){
+    persistMemorySummaryStore();
+  }
+  if((!innerRec || !innerRec.data) && ((nextInnerVoiceStore.items || []).length || nextInnerVoiceStore.current)){
+    persistInnerVoiceStore();
+  }
+  if((!moneyRec || !moneyRec.data) && (
+    (nextMoneyState.moneyCovers || []).length ||
+    (nextMoneyState.familyQueue || []).length ||
+    (nextMoneyState.familyActive || []).length ||
+    (nextMoneyState.walletState.records || []).length ||
+    Number((nextMoneyState.walletState && nextMoneyState.walletState.balance) || 0) !== 0
+  )){
+    moneyStateCache = nextMoneyState;
+    persistMoneyStateCache();
+  }
+  if((!callRec || !callRec.data) && (nextCallRecordStore.items || []).length){
+    callRecordStoreCache = nextCallRecordStore;
+    persistCallRecordStore();
+  }
+  return chatHistory;
+}
+
+function loadMemorySummaryStore(){
+  if(!character) return defaultMemorySummaryStore();
+  return cloneJsonSafe(normalizeMemorySummaryStore(memorySummaryStoreCache), defaultMemorySummaryStore());
 }
 function computeMemoryCoveredFromItems(items){
   var list = Array.isArray(items) ? items.slice() : [];
@@ -1316,14 +1594,13 @@ function computeMemoryCoveredFromItems(items){
 }
 function saveMemorySummaryStore(store){
   if(!character) return;
-  var next = store || { covered: 0, items: [] };
-  next.items = Array.isArray(next.items) ? next.items : [];
-  next.covered = computeMemoryCoveredFromItems(next.items);
-  next.progress = Math.max(next.covered, Number(next.progress || 0) || 0);
-  try{ localStorage.setItem(memorySummaryKey(), JSON.stringify(next)); }catch(e){}
+  memorySummaryStoreCache = normalizeMemorySummaryStore(store || defaultMemorySummaryStore());
+  persistMemorySummaryStore();
 }
 function clearMemorySummaries(){
   if(!character) return;
+  memorySummaryStoreCache = defaultMemorySummaryStore();
+  removeRecordFromIndexedDb('memorySummaries', memorySummaryStorageId(character.id));
   try{ localStorage.removeItem(memorySummaryKey()); }catch(e){}
 }
 function buildMemorySummaryPromptLines(slice){
@@ -1484,36 +1761,18 @@ function getVisibleChatForModel(){
   return visible;
 }
 function loadInnerVoiceStore(){
-  if(!character) return { current: null, items: [] };
-  try{
-    var raw = JSON.parse(localStorage.getItem(innerVoiceKey()) || '{}');
-    var items = Array.isArray(raw.items) ? raw.items : [];
-    items = items.map(function(it){
-      return {
-        id: String((it && it.id) || ''),
-        normal: String((it && it.normal) || '').trim(),
-        desire: String((it && it.desire) || '').trim(),
-        at: Number((it && it.at) || Date.now()) || Date.now()
-      };
-    }).filter(function(it){ return it.normal || it.desire; });
-    var current = raw.current && typeof raw.current === 'object' ? {
-      id: String(raw.current.id || ''),
-      normal: String(raw.current.normal || '').trim(),
-      desire: String(raw.current.desire || '').trim(),
-      at: Number(raw.current.at || Date.now()) || Date.now()
-    } : (items.length ? items[items.length - 1] : null);
-    return { current: current, items: items };
-  }catch(e){
-    return { current: null, items: [] };
-  }
+  if(!character) return defaultInnerVoiceStore();
+  return cloneJsonSafe(normalizeInnerVoiceStore(innerVoiceStoreCache), defaultInnerVoiceStore());
 }
 function saveInnerVoiceStore(store){
   if(!character) return;
-  var next = store || { current: null, items: [] };
-  try{ localStorage.setItem(innerVoiceKey(), JSON.stringify(next)); }catch(e){}
+  innerVoiceStoreCache = normalizeInnerVoiceStore(store || defaultInnerVoiceStore());
+  persistInnerVoiceStore();
 }
 function clearInnerVoiceStore(){
   if(!character) return;
+  innerVoiceStoreCache = defaultInnerVoiceStore();
+  removeRecordFromIndexedDb('innerVoices', innerVoiceStorageId(character.id));
   try{ localStorage.removeItem(innerVoiceKey()); }catch(e){}
 }
 
@@ -1668,6 +1927,18 @@ function getSharedCharacterId(){
 function chatStorageKey(charId){
   return accountScopedKey('chat_' + charId);
 }
+function memorySummaryStorageId(charId){
+  return accountScopedKey('memory_summaries_' + String(charId || ''));
+}
+function innerVoiceStorageId(charId){
+  return accountScopedKey('inner_voice_' + String(charId || ''));
+}
+function moneyStateStorageId(){
+  return accountScopedKey('chat_money_state');
+}
+function callRecordStorageId(charId){
+  return accountScopedKey('call_records_' + String(charId || ''));
+}
 function greetingStorageKey(charId){
   var sharedId = String(charId || '').trim();
   if(character && sharedId === String(character.id || '')) sharedId = getSharedCharacterId();
@@ -1683,6 +1954,45 @@ function charBgEnabledKey(charId){
 
 function charMomentsFreqKey(charId){
   return accountScopedKey('char_moments_freq_' + charId);
+}
+
+function cloneJsonSafe(value, fallback){
+  try{
+    return JSON.parse(JSON.stringify(value));
+  }catch(e){
+    return fallback;
+  }
+}
+
+function defaultMemorySummaryStore(){
+  return { covered: 0, progress: 0, items: [] };
+}
+
+function defaultInnerVoiceStore(){
+  return { current: null, items: [] };
+}
+
+function defaultMoneyStateCache(){
+  return {
+    walletState: { balance: 0, records: [] },
+    familyQueue: [],
+    familyActive: [],
+    moneyCovers: [],
+    replySnapshot: null
+  };
+}
+
+function defaultCallRecordStore(){
+  return { items: [] };
+}
+
+function requestPersistentChatStorage(){
+  if(storagePersistRequested) return Promise.resolve(false);
+  storagePersistRequested = true;
+  if(window.PhoneStorage && typeof window.PhoneStorage.requestPersistentStorage === 'function'){
+    return window.PhoneStorage.requestPersistentStorage();
+  }
+  return Promise.resolve(false);
 }
 
 function normalizeMomentsFreq(value){
@@ -3272,7 +3582,7 @@ function confirmFriendRequestFlow(){
       addMessage('user', introEntry.content, true, 'text', introEntry.id);
       saveChat(true);
     }else{
-      restoreOrStartChat();
+      restoreOrStartChat().catch(function(err){ console.error('restore chat failed', err); });
     }
   }, 950);
 }
@@ -3280,7 +3590,7 @@ function confirmFriendRequestFlow(){
 // ════════════════════════════════════════════
 //  Init
 // ════════════════════════════════════════════
-function init() {
+async function init() {
   tightenParentTopbarForChat();
   // 1. Try pendingChatChar (set when user clicks "Chat" in characters app)
   var pending = localStorage.getItem('pendingChatChar');
@@ -3313,7 +3623,7 @@ function init() {
       return;
     }
     loadWorldBook();
-    restoreOrStartChat();
+    await restoreOrStartChat();
     updateBlockedUi();
     refreshMemoryUi();
     maybeAutoTriggerFamilyReply(character.id);
@@ -3340,21 +3650,15 @@ function saveStoredAsset(key, value){
 }
 
 function loadMoneyCovers(){
-  try{
-    var raw = localStorage.getItem(moneyCoverListKey()) || '[]';
-    var list = JSON.parse(raw);
-    return Array.isArray(list) ? list.filter(function(item){
-      return item && typeof item === 'object' && item.id && item.assetKey;
-    }) : [];
-  }catch(e){
-    return [];
-  }
+  var state = normalizeMoneyStateCache(moneyStateCache || defaultMoneyStateCache());
+  return cloneJsonSafe(state.moneyCovers || [], []);
 }
 
 function saveMoneyCovers(list){
-  try{
-    localStorage.setItem(moneyCoverListKey(), JSON.stringify(Array.isArray(list) ? list : []));
-  }catch(e){}
+  moneyStateCache = normalizeMoneyStateCache(Object.assign({}, moneyStateCache || defaultMoneyStateCache(), {
+    moneyCovers: Array.isArray(list) ? list : []
+  }));
+  persistMoneyStateCache();
 }
 
 function parseMoneyPacketPayload(raw){
@@ -3620,10 +3924,12 @@ function getStrictPromptWorldbookEntries(){
   return strictEntries;
 }
 
-function restoreOrStartChat() {
+async function restoreOrStartChat() {
   var msgs = document.getElementById('messages');
   replyTargetId = null;
-  var restored = loadPreferredStoredChatForCurrentCharacter();
+  storageHydrationPromise = hydrateCharacterStorageState();
+  var restored = await storageHydrationPromise;
+  if (!restored.length) restored = await loadPreferredStoredChatForCurrentCharacter();
   if (restored.length) {
     chatLog = restored;
     appendMoneyDebugLog('restore', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
@@ -3644,10 +3950,10 @@ function restoreOrStartChat() {
   renderReplyPreview();
 }
 
-function syncChatLogFromStorageForCurrentCharacter(){
+async function syncChatLogFromStorageForCurrentCharacter(){
   if(!character || !character.id) return false;
   try{
-    var normalized = loadPreferredStoredChatForCurrentCharacter();
+    var normalized = await loadPreferredStoredChatForCurrentCharacter();
     if(!normalized.length) return false;
     var currentSig = JSON.stringify(chatLog.map(function(item){ return [item.id, item.role, item.type, item.content, item.readAt || 0]; }));
     var nextSig = JSON.stringify(normalized.map(function(item){ return [item.id, item.role, item.type, item.content, item.readAt || 0]; }));
@@ -4263,7 +4569,7 @@ function sendOnly() {
 async function triggerReply() {
   if(!canSendNow()) return;
   if (isTyping) return;
-  syncChatLogFromStorageForCurrentCharacter();
+  await syncChatLogFromStorageForCurrentCharacter();
 
   var input = document.getElementById('msg-input');
   var text = input.value.trim();
@@ -4677,15 +4983,18 @@ function maybeAutoTriggerFamilyReply(charId, attempt){
     if(!character || String(character.id || '') !== String(charId || '')) return;
     if(isTyping) return;
     if(!hasPendingFamilyRequestForChar(charId)) return;
-    syncChatLogFromStorageForCurrentCharacter();
-    processPendingFamilyAutoReply();
+    syncChatLogFromStorageForCurrentCharacter().then(function(){
+      processPendingFamilyAutoReply();
+    }).catch(function(err){
+      console.error('sync family auto reply failed', err);
+    });
   }, 80);
 }
 
 async function processPendingFamilyAutoReply(){
   if(!canSendNow()) return;
   if(isTyping || familyReplyBusy) return;
-  syncChatLogFromStorageForCurrentCharacter();
+  await syncChatLogFromStorageForCurrentCharacter();
   if(!character || !hasPendingFamilyRequestForChar(character.id)) return;
   var familyReplyId = '';
   isTyping = true;
@@ -4748,23 +5057,18 @@ function defaultWalletStateForChat(){
 }
 
 function loadWalletStateForChat(){
-  try{
-    var raw = JSON.parse(localStorage.getItem(walletStateKey()) || 'null');
-    if(!raw || typeof raw !== 'object') return defaultWalletStateForChat();
-    return {
-      balance: Number(raw.balance || 0) || 0,
-      records: Array.isArray(raw.records) ? raw.records : []
-    };
-  }catch(e){
-    return defaultWalletStateForChat();
-  }
+  var state = normalizeMoneyStateCache(moneyStateCache || defaultMoneyStateCache());
+  return cloneJsonSafe(state.walletState || defaultWalletStateForChat(), defaultWalletStateForChat());
 }
 
 function saveWalletStateForChat(state){
   var next = state || defaultWalletStateForChat();
   next.balance = Number(next.balance || 0) || 0;
   next.records = Array.isArray(next.records) ? next.records : [];
-  try{ localStorage.setItem(walletStateKey(), JSON.stringify(next)); }catch(e){}
+  moneyStateCache = normalizeMoneyStateCache(Object.assign({}, moneyStateCache || defaultMoneyStateCache(), {
+    walletState: next
+  }));
+  persistMoneyStateCache();
   postToShell({ type:'WALLET_UPDATED', payload: next });
 }
 
@@ -5039,12 +5343,8 @@ function renderFamilyCardBubble(bubble, raw){
 }
 
 function loadPendingFamilyQueue(){
-  try{
-    var raw = JSON.parse(localStorage.getItem(familyQueueKey()) || '[]');
-    return Array.isArray(raw) ? raw : [];
-  }catch(e){
-    return [];
-  }
+  var state = normalizeMoneyStateCache(moneyStateCache || defaultMoneyStateCache());
+  return cloneJsonSafe(state.familyQueue || [], []);
 }
 
 function hasPendingFamilyRequestForChar(charId){
@@ -5056,7 +5356,10 @@ function hasPendingFamilyRequestForChar(charId){
 }
 
 function savePendingFamilyQueue(queue){
-  try{ localStorage.setItem(familyQueueKey(), JSON.stringify(Array.isArray(queue) ? queue : [])); }catch(e){}
+  moneyStateCache = normalizeMoneyStateCache(Object.assign({}, moneyStateCache || defaultMoneyStateCache(), {
+    familyQueue: Array.isArray(queue) ? queue : []
+  }));
+  persistMoneyStateCache();
 }
 
 function popPendingFamilyRequest(charId){
@@ -5084,16 +5387,15 @@ function removeFamilyBindingsForChar(charId){
 }
 
 function loadActiveFamilyCards(){
-  try{
-    var raw = JSON.parse(localStorage.getItem(familyActiveKey()) || '[]');
-    return Array.isArray(raw) ? raw : [];
-  }catch(e){
-    return [];
-  }
+  var state = normalizeMoneyStateCache(moneyStateCache || defaultMoneyStateCache());
+  return cloneJsonSafe(state.familyActive || [], []);
 }
 
 function saveActiveFamilyCards(list){
-  try{ localStorage.setItem(familyActiveKey(), JSON.stringify(Array.isArray(list) ? list : [])); }catch(e){}
+  moneyStateCache = normalizeMoneyStateCache(Object.assign({}, moneyStateCache || defaultMoneyStateCache(), {
+    familyActive: Array.isArray(list) ? list : []
+  }));
+  persistMoneyStateCache();
 }
 
 function removeActiveFamilyCardById(requestId, charId){
@@ -6685,7 +6987,10 @@ function clearChatData(opts){
   replyTargetId = null;
   pendingFamilyFollowupCue = '';
   chatLog = [];
-  if (character) localStorage.removeItem(chatStorageKey(character.id));
+  if (character){
+    try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(e){}
+    removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
+  }
   if (character && character.id) removeFamilyBindingsForChar(character.id);
   if(options.clearMemory) clearMemorySummaries();
   if(options.clearMemory) clearInnerVoiceStore();
@@ -6715,14 +7020,23 @@ function confirmClearChatAll(){
   toast('已清空聊天和全部记忆');
 }
 
-function saveChat(forceReplace) {
+async function saveChat(forceReplace) {
   if (!character) return;
   var nextLog = Array.isArray(chatLog) ? chatLog.slice() : [];
   var storedHistory = nextLog.map(compactChatEntryForStorage);
-  var payload = JSON.stringify({ history: storedHistory });
   var storedOk = false;
   try{
-    localStorage.setItem(chatStorageKey(character.id), payload);
+    if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+      await window.PhoneStorage.put('chats', {
+        id: chatStorageKey(character.id),
+        charId: String(character.id || ''),
+        updatedAt: Date.now(),
+        history: storedHistory
+      });
+      try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(ignoreErr){}
+    }else{
+      localStorage.setItem(chatStorageKey(character.id), JSON.stringify({ history: storedHistory }));
+    }
     storedOk = true;
   }catch(err){
     appendMoneyDebugLog('save_chat_error', {
@@ -6734,7 +7048,17 @@ function saveChat(forceReplace) {
     try{
       localStorage.removeItem(moneyDebugKey());
       localStorage.removeItem(moneyReplySnapshotKey(character.id));
-      localStorage.setItem(chatStorageKey(character.id), payload);
+      if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+        await window.PhoneStorage.put('chats', {
+          id: chatStorageKey(character.id),
+          charId: String(character.id || ''),
+          updatedAt: Date.now(),
+          history: storedHistory
+        });
+        try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(ignoreErr2){}
+      }else{
+        localStorage.setItem(chatStorageKey(character.id), JSON.stringify({ history: storedHistory }));
+      }
       storedOk = true;
       appendMoneyDebugLog('save_chat_retry_ok', {
         forceReplace: !!forceReplace,
@@ -6832,11 +7156,16 @@ function saveMoneyReplySnapshot(reason){
   if(!character || !character.id) return;
   try{
     var payload = {
+      charId: String(character.id || ''),
       reason: String(reason || ''),
       savedAt: Date.now(),
       history: Array.isArray(chatLog) ? chatLog.map(compactChatEntryForStorage) : []
     };
-    localStorage.setItem(moneyReplySnapshotKey(character.id), JSON.stringify(payload));
+    moneyStateCache = normalizeMoneyStateCache(Object.assign({}, moneyStateCache || defaultMoneyStateCache(), {
+      replySnapshot: payload
+    }));
+    persistMoneyStateCache();
+    try{ localStorage.removeItem(moneyReplySnapshotKey(character.id)); }catch(ignoreErr){}
     appendMoneyDebugLog('snapshot_saved', {
       reason: payload.reason,
       count: payload.history.length,
@@ -6863,12 +7192,28 @@ function historySortStamp(list){
   return { lastTs: lastTs, count: entries.length };
 }
 
-function loadPreferredStoredChatForCurrentCharacter(){
+async function loadPreferredStoredChatForCurrentCharacter(){
   if(!character || !character.id) return [];
-  var primary = parseStoredChatHistory(localStorage.getItem(chatStorageKey(character.id)));
+  var primary = [];
+  try{
+    if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+      var stored = await window.PhoneStorage.get('chats', chatStorageKey(character.id));
+      primary = Array.isArray(stored && stored.history) ? stored.history.map(normalizeChatEntry) : [];
+    }
+  }catch(e){}
+  if(!primary.length) primary = parseStoredChatHistory(localStorage.getItem(chatStorageKey(character.id)));
   var backup = [];
   try{
-    var snap = JSON.parse(localStorage.getItem(moneyReplySnapshotKey(character.id)) || 'null');
+    var moneyState = moneyStateCache;
+    if((!moneyState || !moneyState.replySnapshot) && window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+      var moneyRecord = await window.PhoneStorage.get('moneyStates', moneyStateStorageId());
+      moneyState = normalizeMoneyStateCache(moneyRecord && moneyRecord.data ? moneyRecord.data : defaultMoneyStateCache());
+      if(character && character.id) moneyStateCache = moneyState;
+    }
+    var snap = moneyState && moneyState.replySnapshot ? moneyState.replySnapshot : null;
+    if(!snap){
+      snap = JSON.parse(localStorage.getItem(moneyReplySnapshotKey(character.id)) || 'null');
+    }
     backup = Array.isArray(snap && snap.history) ? snap.history.map(normalizeChatEntry) : [];
   }catch(e){}
   var primaryStamp = historySortStamp(primary);
@@ -7294,7 +7639,8 @@ function confirmGreetingChange(){
   innerVoiceEditingId = '';
   innerVoicePendingDeleteId = '';
   chatLog = [];
-  localStorage.removeItem(chatStorageKey(character.id));
+  try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(e){}
+  removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
   var msgs = document.getElementById('messages');
   msgs.innerHTML = '';
   var g = getGreeting();
@@ -7804,7 +8150,7 @@ async function deliverAiReply(text, limitOverride){
 // ════════════════════════════════════════════
 //  Message listener (from parent frame / other apps)
 // ════════════════════════════════════════════
-window.addEventListener('message', function(e) {
+window.addEventListener('message', async function(e) {
   var d = e.data || {};
   if (d.type === 'BACKGROUND_AI_MESSAGE') {
     var payload = d.payload || {};
@@ -7857,12 +8203,12 @@ window.addEventListener('message', function(e) {
       selectedMessageIds = [];
       editingMessageId = null;
       editingDraft = '';
-      restoreOrStartChat();
+      await restoreOrStartChat();
       updateFloatingUi();
       maybeAutoTriggerFamilyReply(character && character.id);
       return;
     }
-    syncChatLogFromStorageForCurrentCharacter();
+    await syncChatLogFromStorageForCurrentCharacter();
     updateFloatingUi();
     maybeAutoTriggerFamilyReply(character && character.id);
   }
@@ -7928,7 +8274,9 @@ window.addEventListener('pagehide', restoreParentTopbarFromChat);
 //  Start
 // ════════════════════════════════════════════
 syncChatViewport();
-init();
+init().catch(function(err){
+  console.error('chat init failed', err);
+});
 </script>
 </body>
 </html>

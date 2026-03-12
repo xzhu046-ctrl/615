@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>设置</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<script src="../accountManager.js"></script>
+<script src="../chatStorage.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:inherit;-webkit-text-fill-color:currentColor}
@@ -553,7 +555,43 @@ function getPreferredMoneyDebugCharId(records) {
   return records.length ? records[0].charId : '';
 }
 
-function refreshMoneyDebugPanel() {
+function settingsScopedKey(base){
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      return window.AccountManager.scopedKey(base);
+    }
+  }catch(e){}
+  return base;
+}
+
+function moneyStateStorageIdForSettings(){
+  return settingsScopedKey('chat_money_state');
+}
+
+async function loadMoneyDebugSnapshot(charId){
+  var snapshot = null;
+  var snapshotKey = '';
+  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+    try{
+      var record = await window.PhoneStorage.get('moneyStates', moneyStateStorageIdForSettings());
+      var candidate = record && record.data && record.data.replySnapshot ? record.data.replySnapshot : null;
+      if(candidate && (!charId || !candidate.charId || String(candidate.charId) === String(charId))){
+        snapshot = candidate;
+      }
+    }catch(e){}
+  }
+  if(!snapshot){
+    snapshotKey = settingsScopedKey(MONEY_SNAPSHOT_TOKEN + String(charId || ''));
+    snapshot = safeJsonParse(localStorage.getItem(snapshotKey) || 'null');
+  }
+  return {
+    snapshot: snapshot,
+    snapshotKey: snapshot ? (snapshotKey || moneyStateStorageIdForSettings()) : null
+  };
+}
+
+async function refreshMoneyDebugPanel() {
   var select = document.getElementById('money-debug-select');
   if(!select) return;
   var prev = select.value;
@@ -574,10 +612,10 @@ function refreshMoneyDebugPanel() {
     select.appendChild(opt);
   });
   select.value = records.some(function(item){ return item.charId === prev; }) ? prev : getPreferredMoneyDebugCharId(records);
-  renderMoneyDebugPanel();
+  await renderMoneyDebugPanel();
 }
 
-function renderMoneyDebugPanel() {
+async function renderMoneyDebugPanel() {
   var select = document.getElementById('money-debug-select');
   var meta = document.getElementById('money-debug-meta');
   var output = document.getElementById('money-debug-output');
@@ -596,21 +634,21 @@ function renderMoneyDebugPanel() {
     return;
   }
   var debugRaw = current.debugKey ? localStorage.getItem(current.debugKey) : '';
-  var snapshotRaw = current.snapshotKey ? localStorage.getItem(current.snapshotKey) : '';
   var debugList = safeJsonParse(debugRaw || '[]');
-  var snapshot = safeJsonParse(snapshotRaw || 'null');
+  var snapshotResult = await loadMoneyDebugSnapshot(charId);
+  var snapshot = snapshotResult.snapshot;
   var snapshotCount = snapshot && Array.isArray(snapshot.history) ? snapshot.history.length : 0;
   meta.textContent = [
     '角色 ID：' + charId,
     current.debugKey ? ('日志条数：' + (Array.isArray(debugList) ? debugList.length : 0)) : '日志：无',
-    current.snapshotKey ? ('快照消息数：' + snapshotCount) : '快照：无'
+    snapshot ? ('快照消息数：' + snapshotCount) : '快照：无'
   ].join('  |  ');
   output.textContent = JSON.stringify({
     charId: charId,
     debugKey: current.debugKey || null,
-    snapshotKey: current.snapshotKey || null,
+    snapshotKey: snapshotResult.snapshotKey || null,
     debug: Array.isArray(debugList) ? debugList : debugRaw,
-    snapshot: snapshot || snapshotRaw
+    snapshot: snapshot || ''
   }, null, 2);
 }
 
@@ -622,6 +660,17 @@ function clearMoneyDebugPanel() {
   if(!current) return;
   if(current.debugKey) localStorage.removeItem(current.debugKey);
   if(current.snapshotKey) localStorage.removeItem(current.snapshotKey);
+  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function' && typeof window.PhoneStorage.put === 'function'){
+    window.PhoneStorage.get('moneyStates', moneyStateStorageIdForSettings()).then(function(record){
+      if(!record || !record.data || !record.data.replySnapshot) return null;
+      if(record.data.replySnapshot.charId && String(record.data.replySnapshot.charId) !== String(select.value)) return null;
+      var next = Object.assign({}, record, {
+        data: Object.assign({}, record.data, { replySnapshot: null }),
+        updatedAt: Date.now()
+      });
+      return window.PhoneStorage.put('moneyStates', next);
+    }).catch(function(){});
+  }
   showToast('已清空当前红包调试记录');
   refreshMoneyDebugPanel();
 }

@@ -24,6 +24,18 @@ const AI_BG_ENABLED_KEY = 'ai_bg_activity_enabled';
 const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
+let persistentStorageRequestStarted = false;
+
+function requestPersistentStorageIfPossible(){
+  if(persistentStorageRequestStarted) return;
+  persistentStorageRequestStarted = true;
+  if(window.PhoneStorage && typeof window.PhoneStorage.requestPersistentStorage === 'function'){
+    window.PhoneStorage.requestPersistentStorage().catch(function(err){
+      console.warn('Persistent storage request failed', err);
+    });
+  }
+}
+requestPersistentStorageIfPossible();
 
 function hasSavedPhoneFramePreference(){
   const saved = localStorage.getItem(PHONE_FRAME_STORAGE_KEY);
