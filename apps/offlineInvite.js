@@ -270,7 +270,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var status = String(data.status || 'pending');
   bubble.innerHTML = '<div class="offline-bubble-shell">'
     + '<div class="offline-bubble-paper back"></div>'
-    + '<div class="offline-bubble-paper front"></div>'
+    + '<div class="offline-bubble-paper front"><div class="offline-paper-paw">🐾</div></div>'
     + '<div class="offline-invite-card' + (status !== 'pending' ? ' open' : '') + '" data-msg-id="' + escAttr(msgId || '') + '" data-status="' + escAttr(status) + '">'
     + '<div class="offline-envelope">'
     + '<div class="offline-envelope-back"></div>'
@@ -284,7 +284,6 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     + '</div>'
     + '<div class="offline-envelope-flap"></div>'
     + '<div class="offline-envelope-front"></div>'
-    + '<div class="offline-envelope-paws"><span>🐾</span><span>🐾</span></div>'
     + '<div class="offline-envelope-heart">♥</div>'
     + '</div>'
     + '</div>'
