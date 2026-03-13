@@ -102,6 +102,29 @@ function getCurrentUserDisplayName(){
   return getChatUserName(character && character.id) || resolveDisplayUserName() || '你';
 }
 
+function getOfflineInviteAvatarFallback(role){
+  if(role === 'user'){
+    return String(getCurrentUserDisplayName() || '你').trim().charAt(0) || '你';
+  }
+  var name = String((character && (character.nickname || character.name)) || 'C').trim();
+  return name.charAt(0) || 'C';
+}
+
+function hydrateOfflineInviteAvatar(card, role){
+  if(!card) return;
+  var badge = card.querySelector('.offline-envelope-avatar');
+  if(!badge) return;
+  if(role === 'user'){
+    resolveChatUserAvatarAsync(character && character.id).then(function(uav){
+      if(uav && uav.startsWith('data:')){
+        badge.innerHTML = '<img src="' + escAttr(uav) + '" alt="">';
+      }
+    }).catch(function(){});
+    return;
+  }
+  badge.innerHTML = getCharAvatarHTML();
+}
+
 function closeOfflineInviteComposer(){
   var overlay = document.getElementById('offlineInviteOverlay');
   if(overlay) overlay.classList.remove('open');
@@ -268,10 +291,12 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var data = buildOfflineInvitePayload(viewRole === 'user' ? 'user' : 'assistant', '', parseOfflineInvitePayload(raw) || {});
   var canRespond = viewRole !== 'user';
   var status = String(data.status || 'pending');
-  bubble.innerHTML = '<div class="offline-bubble-shell">'
+  var sideClass = viewRole === 'user' ? ' from-user' : ' from-ai';
+  var badgeClass = viewRole === 'user' ? ' right' : ' left';
+  bubble.innerHTML = '<div class="offline-bubble-shell' + sideClass + '">'
     + '<div class="offline-bubble-paper back"></div>'
-    + '<div class="offline-bubble-paper front"><div class="offline-paper-paw">🐾</div></div>'
-    + '<div class="offline-invite-card' + (status !== 'pending' ? ' open' : '') + '" data-msg-id="' + escAttr(msgId || '') + '" data-status="' + escAttr(status) + '">'
+    + '<div class="offline-bubble-paper front"><div class="offline-paper-paw"><span>🐾</span><span>🐾</span></div></div>'
+    + '<div class="offline-invite-card' + sideClass + (status !== 'pending' ? ' open' : '') + '" data-msg-id="' + escAttr(msgId || '') + '" data-status="' + escAttr(status) + '">'
     + '<div class="offline-envelope">'
     + '<div class="offline-envelope-back"></div>'
     + '<div class="offline-letter">'
@@ -284,11 +309,13 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     + '</div>'
     + '<div class="offline-envelope-flap"></div>'
     + '<div class="offline-envelope-front"></div>'
+    + '<div class="offline-envelope-avatar' + badgeClass + '">' + esc(getOfflineInviteAvatarFallback(viewRole === 'user' ? 'user' : 'assistant')) + '</div>'
     + '</div>'
     + '</div>'
     + '</div>';
   var card = bubble.querySelector('.offline-invite-card');
   if(!card) return;
+  hydrateOfflineInviteAvatar(card, viewRole === 'user' ? 'user' : 'assistant');
   card.addEventListener('click', function(evt){
     var actionBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-action]') : null;
     if(actionBtn){
