@@ -277,6 +277,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     + '<div class="offline-envelope">'
     + '<div class="offline-envelope-flap"></div>'
     + '<div class="offline-envelope-body"></div>'
+    + '<div class="offline-envelope-paws"><span>🐾</span><span>🐾</span></div>'
     + '<div class="offline-envelope-heart">♥</div>'
     + '</div>'
     + '<div class="offline-letter">'
