@@ -293,9 +293,10 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var status = String(data.status || 'pending');
   var sideClass = viewRole === 'user' ? ' from-user' : ' from-ai';
   var badgeClass = viewRole === 'user' ? ' right' : ' left';
+  var pawClass = viewRole === 'user' ? ' left' : ' right';
   bubble.innerHTML = '<div class="offline-bubble-shell' + sideClass + '">'
     + '<div class="offline-bubble-paper back"></div>'
-    + '<div class="offline-bubble-paper front"><div class="offline-paper-paw"><span>🐾</span><span>🐾</span></div></div>'
+    + '<div class="offline-bubble-paper front"></div>'
     + '<div class="offline-invite-card' + sideClass + (status !== 'pending' ? ' open' : '') + '" data-msg-id="' + escAttr(msgId || '') + '" data-status="' + escAttr(status) + '">'
     + '<div class="offline-envelope">'
     + '<div class="offline-envelope-back"></div>'
@@ -309,6 +310,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     + '</div>'
     + '<div class="offline-envelope-flap"></div>'
     + '<div class="offline-envelope-front"></div>'
+    + '<div class="offline-envelope-paw' + pawClass + '"><span>🐾</span><span>🐾</span></div>'
     + '<div class="offline-envelope-avatar' + badgeClass + '">' + esc(getOfflineInviteAvatarFallback(viewRole === 'user' ? 'user' : 'assistant')) + '</div>'
     + '</div>'
     + '</div>'
