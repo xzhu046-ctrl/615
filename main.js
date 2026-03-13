@@ -6,6 +6,7 @@ const APP_MAP = {
   settings:   { title: '设置',           src: 'apps/settings.html' },
   customize:  { title: '外观',           src: 'apps/customize.html' },
   worldbook:  { title: '世界书',         src: 'apps/worldbook.html' },
+  offline:    { title: '线下模式',       src: 'apps/offline_mode.html' },
 };
 const HOME_ICON_DEFAULTS = {
   qq: 'QQ',
