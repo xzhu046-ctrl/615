@@ -310,7 +310,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     + '</div>'
     + '<div class="offline-envelope-flap"></div>'
     + '<div class="offline-envelope-front"></div>'
-    + '<div class="offline-envelope-paw' + pawClass + '"><span>🐾</span><span>🐾</span></div>'
+    + '<div class="offline-envelope-paw' + pawClass + '"><span>🐾</span></div>'
     + '<div class="offline-envelope-avatar' + badgeClass + '">' + esc(getOfflineInviteAvatarFallback(viewRole === 'user' ? 'user' : 'assistant')) + '</div>'
     + '</div>'
     + '</div>'
