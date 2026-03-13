@@ -272,8 +272,6 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     + '<div class="offline-bubble-paper back"></div>'
     + '<div class="offline-bubble-paper front"></div>'
     + '<div class="offline-invite-card' + (status !== 'pending' ? ' open' : '') + '" data-msg-id="' + escAttr(msgId || '') + '" data-status="' + escAttr(status) + '">'
-    + '<div class="offline-bubble-dots left"><span></span><span></span><span></span></div>'
-    + '<div class="offline-bubble-dots right"><span></span><span></span><span></span></div>'
     + '<div class="offline-envelope">'
     + '<div class="offline-envelope-back"></div>'
     + '<div class="offline-letter">'
