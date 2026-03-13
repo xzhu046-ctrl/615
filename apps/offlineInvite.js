@@ -294,18 +294,22 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var sideClass = viewRole === 'user' ? ' from-user' : ' from-ai';
   var badgeClass = viewRole === 'user' ? ' right' : ' left';
   var pawClass = viewRole === 'user' ? ' left' : ' right';
+  var clipId = 'offlineEnvelopeClip' + String(msgId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
   bubble.innerHTML = '<div class="offline-bubble-shell' + sideClass + '">'
     + '<div class="offline-bubble-paper back"></div>'
     + '<div class="offline-bubble-paper front"></div>'
     + '<div class="offline-invite-card' + sideClass + (status !== 'pending' ? ' open' : '') + '" data-msg-id="' + escAttr(msgId || '') + '" data-status="' + escAttr(status) + '">'
     + '<div class="offline-envelope">'
     + '<svg class="offline-envelope-svg" viewBox="0 0 212 128" aria-hidden="true" shape-rendering="geometricPrecision">'
+    + '<defs><clipPath id="' + escAttr(clipId) + '"><rect x="13.5" y="23.5" width="176" height="88" rx="10" ry="10"></rect></clipPath></defs>'
     + '<rect x="16" y="27" width="176" height="88" rx="10" ry="10" fill="#111"/>'
-    + '<path d="M22 27.5 Q27 21.5 34 21.5 L170 21.5 Q177 21.5 182 27.5 L106 77.5 Z" fill="#111" opacity=".94"/>'
     + '<rect x="13.5" y="23.5" width="176" height="88" rx="10" ry="10" fill="#f7f7f7" stroke="#595959" stroke-width="1.25"/>'
-    + '<path d="M20.5 26.5 Q26.5 21 33.5 21 L169.5 21 Q176.5 21 182.5 26.5 L102 76 Z" fill="#d9d9d9" stroke="#595959" stroke-width="1.25" stroke-linejoin="round"/>'
-    + '<path d="M21.5 27 L102 76 L181.5 27" fill="none" stroke="#101010" stroke-width="2.15" stroke-linejoin="round" stroke-linecap="round"/>'
-    + '<path d="M22.5 28.5 L102 77 L180.5 28.5" fill="none" stroke="rgba(0,0,0,.15)" stroke-width="3.6" stroke-linejoin="round" stroke-linecap="round"/>'
+    + '<g clip-path="url(#' + escAttr(clipId) + ')">'
+    + '<path d="M22 25.5 Q27 19.5 34 19.5 L170 19.5 Q177 19.5 182 25.5 L106 75.5 Z" fill="#111" opacity=".94"/>'
+    + '<path d="M20.5 24.5 Q26.5 19 33.5 19 L169.5 19 Q176.5 19 182.5 24.5 L102 74 Z" fill="#d9d9d9" stroke="#595959" stroke-width="1.25" stroke-linejoin="round"/>'
+    + '<path d="M21.5 25 L102 74 L181.5 25" fill="none" stroke="#101010" stroke-width="2.15" stroke-linejoin="round" stroke-linecap="round"/>'
+    + '<path d="M22.5 26.5 L102 75 L180.5 26.5" fill="none" stroke="rgba(0,0,0,.15)" stroke-width="3.6" stroke-linejoin="round" stroke-linecap="round"/>'
+    + '</g>'
     + '<path d="M13.5 34.5 L13.5 103.5" stroke="#595959" stroke-width="1.15" stroke-linecap="round"/>'
     + '<path d="M189.5 34.5 L189.5 103.5" stroke="#595959" stroke-width="1.15" stroke-linecap="round"/>'
     + '</svg>'
