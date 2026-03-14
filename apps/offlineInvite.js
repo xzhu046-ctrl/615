@@ -147,6 +147,29 @@ function closeOfflineInviteModal(){
   modal.removeAttribute('data-msg-id');
 }
 
+function showOfflineInviteAsidePopup(letter, text, evt){
+  if(!letter || !text) return;
+  var pop = letter.querySelector('.offline-invite-modal-aside-pop');
+  if(!pop) return;
+  var rect = letter.getBoundingClientRect();
+  var offsetX = evt && typeof evt.clientX === 'number' ? evt.clientX - rect.left : rect.width * 0.58;
+  var offsetY = evt && typeof evt.clientY === 'number' ? evt.clientY - rect.top : rect.height * 0.46;
+  var maxLeft = Math.max(16, rect.width - 122);
+  var maxTop = Math.max(18, rect.height - 72);
+  var left = Math.min(maxLeft, Math.max(14, offsetX - 24));
+  var top = Math.min(maxTop, Math.max(18, offsetY - 34));
+  pop.textContent = text;
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+  pop.classList.remove('open');
+  if(pop._hideTimer) clearTimeout(pop._hideTimer);
+  void pop.offsetWidth;
+  pop.classList.add('open');
+  pop._hideTimer = setTimeout(function(){
+    pop.classList.remove('open');
+  }, 1600);
+}
+
 function buildOfflineInviteEnvelopeSvg(clipId){
   return ''
     + '<svg viewBox="0 0 212 128" aria-hidden="true" shape-rendering="geometricPrecision">'
@@ -187,7 +210,7 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
     + '<div class="offline-invite-modal-opening">给你偷偷塞来一张小小邀约单，如果你也想见我，就和我一起去赴约吧，想和你一起过一个开心的下午</div>'
     + (showMood ? '<div class="offline-invite-modal-mood">' + esc(mood) + '</div>' : '')
     + '<div class="offline-invite-modal-location"><span class="offline-invite-modal-pin">📍</span><span class="offline-invite-modal-location-text">' + esc(location) + '</span></div>'
-    + (showAside ? '<div class="offline-invite-modal-aside">' + esc(aside) + '</div>' : '')
+    + (showAside ? '<div class="offline-invite-modal-aside-pop"></div>' : '')
     + '<div class="offline-invite-modal-signoff">With love,</div>'
     + '<div class="offline-invite-modal-signature">' + esc(displayName) + '</div>'
     + '<div class="offline-invite-modal-letter-flower"></div>'
@@ -199,13 +222,21 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
   modal.classList.add('open');
   letter.onclick = function(evt){
     var actionBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-action]') : null;
-    if(!actionBtn) return;
-    evt.stopPropagation();
-    if(actionBtn.classList.contains('disabled') || !msgId) return;
-    var action = actionBtn.getAttribute('data-offline-action');
-    closeOfflineInviteModal();
-    if(action === 'accept') acceptOfflineInvite(msgId);
-    if(action === 'reject') rejectOfflineInvite(msgId);
+    if(actionBtn){
+      evt.stopPropagation();
+      if(actionBtn.classList.contains('disabled') || !msgId) return;
+      var action = actionBtn.getAttribute('data-offline-action');
+      closeOfflineInviteModal();
+      if(action === 'accept') acceptOfflineInvite(msgId);
+      if(action === 'reject') rejectOfflineInvite(msgId);
+      return;
+    }
+    var closeBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-modal-close]') : null;
+    if(closeBtn) return;
+    if(showAside){
+      evt.stopPropagation();
+      showOfflineInviteAsidePopup(letter, aside, evt);
+    }
   };
 }
 
