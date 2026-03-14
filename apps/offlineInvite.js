@@ -167,7 +167,7 @@ function showOfflineInviteAsidePopup(letter, text, evt){
   pop.classList.add('open');
   pop._hideTimer = setTimeout(function(){
     pop.classList.remove('open');
-  }, 1600);
+  }, 950);
 }
 
 function buildOfflineInviteEnvelopeSvg(clipId){
