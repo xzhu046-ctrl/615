@@ -2415,14 +2415,28 @@ function buildTimezoneTimeSnapshot(timezone){
   if(!tz) return null;
   try{
     var now = new Date();
+    var hour24 = Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour:'2-digit', hour12:false }).format(now));
     return {
       timeLabel: new Intl.DateTimeFormat('en-US', { timeZone: tz, hour:'numeric', minute:'2-digit' }).format(now),
       dateLabel: new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday:'short', month:'short', day:'numeric' }).format(now),
-      hour24: Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour:'2-digit', hour12:false }).format(now))
+      hour24: hour24,
+      periodLabel: getTimePeriodLabel(hour24)
     };
   }catch(e){
     return null;
   }
+}
+
+function getTimePeriodLabel(hour24){
+  var h = Number(hour24);
+  if(!isFinite(h)) return '';
+  if(h >= 0 && h <= 4) return '凌晨';
+  if(h <= 7) return '清晨';
+  if(h <= 10) return '上午';
+  if(h <= 13) return '中午';
+  if(h <= 17) return '下午';
+  if(h <= 22) return '晚上';
+  return '深夜';
 }
 
 async function fetchRealCityWeatherSnapshot(target){
@@ -2657,6 +2671,7 @@ function getInviteWeatherSnapshot(role){
     timeLabel: timeInfo && timeInfo.timeLabel ? timeInfo.timeLabel : '',
     dateLabel: timeInfo && timeInfo.dateLabel ? timeInfo.dateLabel : '',
     hour24: timeInfo && isFinite(timeInfo.hour24) ? timeInfo.hour24 : null,
+    periodLabel: timeInfo && timeInfo.periodLabel ? timeInfo.periodLabel : '',
     updatedAt: setting.updatedAt || 0
   };
 }
@@ -2693,7 +2708,7 @@ function buildWeatherCommonSensePrompt(){
     lines.push([
       '用户所在城市显示为：' + (userSnapshot.aliasName || userSnapshot.resolvedName || userSnapshot.realName || '未设定'),
       '对应真实天气城市：' + (userSnapshot.resolvedName || userSnapshot.realName || '未设定'),
-      '当地时间：' + ((userSnapshot.timeLabel || '') + (userSnapshot.dateLabel ? (' ' + userSnapshot.dateLabel) : '') || '未设定'),
+      '当地时间：' + ((userSnapshot.timeLabel || '') + (userSnapshot.dateLabel ? (' ' + userSnapshot.dateLabel) : '') || '未设定') + (userSnapshot.periodLabel ? ('（' + userSnapshot.periodLabel + '）') : ''),
       '当前天气：' + userSnapshot.weatherIcon + (userSnapshot.weatherLabel ? (' ' + userSnapshot.weatherLabel) : '') + (userSnapshot.temperatureC === null ? '' : ('，约 ' + userSnapshot.temperatureC + '°C'))
     ].join('；'));
   }
@@ -2701,7 +2716,7 @@ function buildWeatherCommonSensePrompt(){
     lines.push([
       '角色所在城市显示为：' + (charSnapshot.aliasName || charSnapshot.resolvedName || charSnapshot.realName || '未设定'),
       '对应真实天气城市：' + (charSnapshot.resolvedName || charSnapshot.realName || '未设定'),
-      '当地时间：' + ((charSnapshot.timeLabel || '') + (charSnapshot.dateLabel ? (' ' + charSnapshot.dateLabel) : '') || '未设定'),
+      '当地时间：' + ((charSnapshot.timeLabel || '') + (charSnapshot.dateLabel ? (' ' + charSnapshot.dateLabel) : '') || '未设定') + (charSnapshot.periodLabel ? ('（' + charSnapshot.periodLabel + '）') : ''),
       '当前天气：' + charSnapshot.weatherIcon + (charSnapshot.weatherLabel ? (' ' + charSnapshot.weatherLabel) : '') + (charSnapshot.temperatureC === null ? '' : ('，约 ' + charSnapshot.temperatureC + '°C'))
     ].join('；'));
   }
@@ -2729,6 +2744,7 @@ function buildWeatherCommonSensePrompt(){
   if(charSnapshot && charSnapshot.hour24 !== null && (charSnapshot.hour24 >= 23 || charSnapshot.hour24 <= 5)){
     lines.push('角色当地现在偏深夜或凌晨；你可以在语境合适时自然带出刚醒、犯困、被消息打断休息之类的感觉，但不要每次都强调。');
   }
+  lines.push('时段判断要贴近真人中文语感：0-4 点更像“凌晨”，5-7 点更像“清晨”，8-10 点才接近“上午”，不要把 1 点、2 点、3 点说成“一大早”。');
   lines.push('你平时聊天要把这些城市、时间和天气当成生活常识背景，用来约束距离感、作息感、出门建议和见面逻辑。');
   lines.push('但只有在和天气、季节、时间、作息、出门、距离、交通、见面安排、穿搭这些内容真的相关时，才自然地提到它们；不相关时不要硬提。');
   lines.push('如果你的表达将要和最近聊天或历史记忆总结冲突，以最近聊天和历史记忆总结为准；拿不准就先自然确认一句。');
