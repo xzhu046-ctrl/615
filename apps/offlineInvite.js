@@ -425,12 +425,6 @@ async function sendOfflineInviteFromUser(){
     toast('请先选择角色');
     return;
   }
-  var provider = localStorage.getItem('provider') || 'openai';
-  var key = localStorage.getItem('key_' + provider);
-  if(!key){
-    toast('亲爱的user，请去设置链接api哦');
-    return;
-  }
   var input = document.getElementById('offlineInviteInput');
   var locInput = document.getElementById('offlineInviteLocationInput');
   var text = String((input && input.value) || '').trim();
