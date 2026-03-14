@@ -183,7 +183,7 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
     + '<div class="offline-invite-modal-notehead">Invitation</div>'
     + '<div class="offline-invite-modal-time">' + esc(payload && payload.timeLabel || '') + '</div>'
     + '<div class="offline-invite-modal-date">' + esc(payload && payload.dateLabel || '') + '</div>'
-    + '<div class="offline-invite-modal-opening">给你偷偷塞来一张小小邀约单，如果你也想见我，就和我一起去赴约吧，想和你一起过一个开心的小下午</div>'
+    + '<div class="offline-invite-modal-opening">给你偷偷塞来一张小小邀约单，如果你也想见我，就和我一起去赴约吧，想和你一起过一个开心的下午</div>'
     + '<div class="offline-invite-modal-mood">' + esc(mood) + '</div>'
     + '<div class="offline-invite-modal-location"><span class="offline-invite-modal-pin">📍</span><span class="offline-invite-modal-location-text">' + esc(location) + '</span></div>'
     + (showAside ? '<div class="offline-invite-modal-aside">' + esc(aside) + '</div>' : '')
