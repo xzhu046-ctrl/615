@@ -325,7 +325,6 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     + '<button class="offline-action-btn' + (!canRespond || status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="accept">✓</button>'
     + '</div>'
     + '</div>'
-    + '<div class="offline-envelope-paw' + pawClass + '"><span>🐾</span></div>'
     + '<div class="offline-envelope-avatar' + badgeClass + '">' + esc(getOfflineInviteAvatarFallback(viewRole === 'user' ? 'user' : 'assistant')) + '</div>'
     + '</div>'
     + '</div>'
