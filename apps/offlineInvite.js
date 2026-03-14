@@ -183,6 +183,7 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
     + '<div class="offline-invite-modal-location"><span class="offline-invite-modal-pin">📍</span><span>' + esc(payload && payload.location || '') + '</span></div>'
     + '<div class="offline-invite-modal-aside">' + esc(aside) + '</div>'
     + '<div class="offline-invite-modal-signature">' + esc(displayName) + '</div>'
+    + '<div class="offline-invite-modal-letter-flower"></div>'
     + '<div class="offline-invite-modal-actions">'
     + '<button class="offline-action-btn' + (!canRespond || status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="reject">×</button>'
     + '<button class="offline-action-btn' + (!canRespond || status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="accept">✓</button>'
@@ -387,6 +388,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var clipId = 'offlineEnvelopeClip' + String(msgId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
   var displayName = getOfflineInviteDisplayName(viewRole === 'user' ? 'user' : 'assistant');
   bubble.innerHTML = '<div class="offline-bubble-shell' + sideClass + '">'
+    + '<div class="offline-bubble-flower"></div>'
     + '<div class="offline-bubble-paper back"></div>'
     + '<div class="offline-bubble-paper front"></div>'
     + '<div class="offline-invite-card' + sideClass + '" data-msg-id="' + escAttr(msgId || '') + '" data-status="' + escAttr(status) + '">'
