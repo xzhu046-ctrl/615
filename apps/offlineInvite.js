@@ -126,7 +126,6 @@ function ensureOfflineInviteModal(){
   host.innerHTML = ''
     + '<div class="offline-invite-modal-backdrop" data-offline-modal-close="1"></div>'
     + '<div class="offline-invite-modal-card">'
-    + '<button class="offline-invite-modal-close" type="button" data-offline-modal-close="1">×</button>'
     + '<div class="offline-invite-modal-papers">'
     + '<div class="offline-invite-modal-paper back"></div>'
     + '<div class="offline-invite-modal-paper front"></div>'
@@ -176,7 +175,7 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
   var displayName = getOfflineInviteDisplayName(viewRole === 'user' ? 'user' : 'assistant');
   letter.innerHTML = ''
     + '<div class="offline-invite-modal-weather">' + esc(payload && payload.weather || '☀︎') + '</div>'
-    + '<div class="offline-invite-modal-heart">♥</div>'
+    + '<button class="offline-invite-modal-heart" type="button" data-offline-modal-close="1" aria-label="关闭邀请"><span>♥</span></button>'
     + '<div class="offline-invite-modal-time">' + esc(payload && payload.timeLabel || '') + '</div>'
     + '<div class="offline-invite-modal-date">' + esc(payload && payload.dateLabel || '') + '</div>'
     + '<div class="offline-invite-modal-mood">Mood:<br>' + esc(payload && payload.mood || '') + '</div>'
