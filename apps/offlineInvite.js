@@ -130,8 +130,8 @@ function ensureOfflineInviteModal(){
     + '<div class="offline-invite-modal-papers">'
     + '<div class="offline-invite-modal-paper back"></div>'
     + '<div class="offline-invite-modal-paper front"></div>'
+    + '<div class="offline-invite-modal-flower"></div>'
     + '</div>'
-    + '<div class="offline-invite-modal-envelope"></div>'
     + '<div class="offline-invite-modal-letter"></div>'
     + '</div>';
   host.addEventListener('click', function(evt){
@@ -170,13 +170,10 @@ function buildOfflineInviteEnvelopeSvg(clipId){
 
 function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
   var modal = ensureOfflineInviteModal();
-  var clipId = 'offlineInviteModalClip' + String(msgId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
-  var envelope = modal.querySelector('.offline-invite-modal-envelope');
   var letter = modal.querySelector('.offline-invite-modal-letter');
-  if(!envelope || !letter) return;
+  if(!letter) return;
   var status = String((payload && payload.status) || 'pending');
   var aside = String((payload && payload.aside) || '').trim() || '想见你';
-  envelope.innerHTML = buildOfflineInviteEnvelopeSvg(clipId) + '<div class="offline-invite-modal-paw">🐾</div>';
   letter.innerHTML = ''
     + '<div class="offline-invite-modal-weather">' + esc(payload && payload.weather || '☀︎') + '</div>'
     + '<div class="offline-invite-modal-heart">♥</div>'
