@@ -173,14 +173,19 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
   var status = String((payload && payload.status) || 'pending');
   var aside = String((payload && payload.aside) || '').trim() || '想见你';
   var displayName = getOfflineInviteDisplayName(viewRole === 'user' ? 'user' : 'assistant');
+  var mood = String((payload && payload.mood) || '').trim() || '想你';
+  var location = String((payload && payload.location) || '').trim() || '待定地点';
   letter.innerHTML = ''
     + '<div class="offline-invite-modal-weather">' + esc(payload && payload.weather || '☀︎') + '</div>'
     + '<button class="offline-invite-modal-heart" type="button" data-offline-modal-close="1" aria-label="关闭邀请"><span>♥</span></button>'
+    + '<div class="offline-invite-modal-notehead">Invitation</div>'
     + '<div class="offline-invite-modal-time">' + esc(payload && payload.timeLabel || '') + '</div>'
     + '<div class="offline-invite-modal-date">' + esc(payload && payload.dateLabel || '') + '</div>'
-    + '<div class="offline-invite-modal-mood">Mood:<br>' + esc(payload && payload.mood || '') + '</div>'
-    + '<div class="offline-invite-modal-location"><span class="offline-invite-modal-pin">📍</span><span>' + esc(payload && payload.location || '') + '</span></div>'
+    + '<div class="offline-invite-modal-opening">想把这封小小的邀约信交给您，如果您愿意，我们就在那时那刻见面。</div>'
+    + '<div class="offline-invite-modal-detail"><span class="offline-invite-modal-detail-label">Mood</span><div class="offline-invite-modal-mood">' + esc(mood) + '</div></div>'
+    + '<div class="offline-invite-modal-detail"><span class="offline-invite-modal-detail-label">Place</span><div class="offline-invite-modal-location"><span class="offline-invite-modal-pin">📍</span><span>' + esc(location) + '</span></div></div>'
     + '<div class="offline-invite-modal-aside">' + esc(aside) + '</div>'
+    + '<div class="offline-invite-modal-signoff">With love,</div>'
     + '<div class="offline-invite-modal-signature">' + esc(displayName) + '</div>'
     + '<div class="offline-invite-modal-letter-flower"></div>'
     + '<div class="offline-invite-modal-actions">'
