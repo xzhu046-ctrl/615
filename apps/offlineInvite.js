@@ -177,6 +177,7 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
   var location = String((payload && payload.location) || '').trim() || '待定地点';
   var showActions = canRespond && viewRole !== 'user';
   var showAside = viewRole !== 'user';
+  var showMood = viewRole === 'user';
   letter.innerHTML = ''
     + '<div class="offline-invite-modal-weather">' + esc(payload && payload.weather || '☀︎') + '</div>'
     + '<button class="offline-invite-modal-heart" type="button" data-offline-modal-close="1" aria-label="关闭邀请"><span>♥</span></button>'
@@ -184,7 +185,7 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
     + '<div class="offline-invite-modal-time">' + esc(payload && payload.timeLabel || '') + '</div>'
     + '<div class="offline-invite-modal-date">' + esc(payload && payload.dateLabel || '') + '</div>'
     + '<div class="offline-invite-modal-opening">给你偷偷塞来一张小小邀约单，如果你也想见我，就和我一起去赴约吧，想和你一起过一个开心的下午</div>'
-    + '<div class="offline-invite-modal-mood">' + esc(mood) + '</div>'
+    + (showMood ? '<div class="offline-invite-modal-mood">' + esc(mood) + '</div>' : '')
     + '<div class="offline-invite-modal-location"><span class="offline-invite-modal-pin">📍</span><span class="offline-invite-modal-location-text">' + esc(location) + '</span></div>'
     + (showAside ? '<div class="offline-invite-modal-aside">' + esc(aside) + '</div>' : '')
     + '<div class="offline-invite-modal-signoff">With love,</div>'
