@@ -462,6 +462,55 @@ function getPendingUserOfflineInviteEntry(){
   return null;
 }
 
+function getLatestPendingUserOfflineInviteThread(){
+  if(!Array.isArray(chatLog) || !chatLog.length) return null;
+  for(var i = chatLog.length - 1; i >= 0; i--){
+    var entry = chatLog[i];
+    if(!entry) continue;
+    if(String(entry.role || '') === 'system') continue;
+    if(String(entry.role || '') === 'user'){
+      if(normalizeMessageType(entry.type || 'text') !== 'offlineinvite') return null;
+      var payload = parseOfflineInvitePayload(entry.content) || null;
+      if(payload && String(payload.status || 'pending') === 'pending'){
+        return { index: i, entry: entry, payload: payload };
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
+async function rerollPendingOfflineInviteReply(){
+  var pending = getLatestPendingUserOfflineInviteThread();
+  if(!pending) return false;
+  var removedAssistant = false;
+  for(var i = chatLog.length - 1; i > pending.index; i--){
+    var entry = chatLog[i];
+    if(!entry) continue;
+    if(String(entry.role || '') === 'user') return false;
+    if(String(entry.role || '') === 'assistant'){
+      removedAssistant = true;
+    }
+    chatLog.splice(i, 1);
+  }
+  if(!removedAssistant) return false;
+  if(typeof rollbackInnerVoiceOnReroll === 'function') rollbackInnerVoiceOnReroll();
+  await saveChat(true);
+  renderChatLog(false);
+  var provider = localStorage.getItem('provider') || 'openai';
+  var key = localStorage.getItem('key_' + provider);
+  if(!key){
+    showError('未找到 ' + provider + ' 的 API key，请先去设置');
+    return true;
+  }
+  hideError();
+  pendingMomentsChatCue = '';
+  pendingFamilyFollowupCue = '';
+  pendingModelUserCue = '';
+  await handlePendingOfflineInviteReply();
+  return true;
+}
+
 async function handlePendingOfflineInviteReply(){
   var pending = getPendingUserOfflineInviteEntry();
   if(!pending) return false;
