@@ -388,22 +388,36 @@ function getPendingUserOfflineInviteEntry(){
 async function handlePendingOfflineInviteReply(){
   var pending = getPendingUserOfflineInviteEntry();
   if(!pending) return false;
-  var decision = await requestCharOfflineInviteDecision(pending.payload);
-  if(decision && decision.accept){
-    var replyPayload = buildOfflineInvitePayload('assistant', normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面'), {
-      mood: decision.mood || randomPick(OFFLINE_MOODS, '(///v///)'),
-      weather: decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'),
-      location: decision.location || pending.payload.location,
-      aside: decision.aside || '这次别拒绝我'
-    });
-    await appendOfflineInviteToChat('assistant', replyPayload, true);
+  isTyping = true;
+  var genBtn = document.getElementById('genBtn');
+  var sendBtn = document.getElementById('sendBtn');
+  if(genBtn) genBtn.disabled = true;
+  if(sendBtn) sendBtn.disabled = true;
+  showTyping();
+  try{
+    var decision = await requestCharOfflineInviteDecision(pending.payload);
+    hideTyping();
+    if(decision && decision.accept){
+      var replyPayload = buildOfflineInvitePayload('assistant', normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面'), {
+        mood: decision.mood || randomPick(OFFLINE_MOODS, '(///v///)'),
+        weather: decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'),
+        location: decision.location || pending.payload.location,
+        aside: decision.aside || '这次别拒绝我'
+      });
+      await appendOfflineInviteToChat('assistant', replyPayload, true);
+      return true;
+    }
+    var responseEntry = makeChatEntry('assistant', normalizeOfflineInviteDecisionText(decision && decision.text, '今天先不出门了，不过我有点心动。'), 'text');
+    chatLog.push(responseEntry);
+    addMessage('ai', responseEntry.content, true, 'text', responseEntry.id);
+    await saveChat(true);
     return true;
+  } finally {
+    hideTyping();
+    isTyping = false;
+    if(genBtn) genBtn.disabled = false;
+    if(sendBtn) sendBtn.disabled = false;
   }
-  var responseEntry = makeChatEntry('assistant', normalizeOfflineInviteDecisionText(decision && decision.text, '今天先不出门了，不过我有点心动。'), 'text');
-  chatLog.push(responseEntry);
-  addMessage('ai', responseEntry.content, true, 'text', responseEntry.id);
-  await saveChat(true);
-  return true;
 }
 
 async function sendOfflineInviteFromUser(){
