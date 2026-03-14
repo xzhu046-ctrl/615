@@ -371,6 +371,8 @@ async function acceptOfflineInvite(messageId){
 }
 
 async function requestCharOfflineInviteDecision(userPayload){
+  var msgMin = Math.max(1, Number(character && character.msgMin) || 1);
+  var msgMax = Math.max(msgMin, Number(character && character.msgMax) || 3);
   var systemPrompt = [
     '你是角色本人，要决定是否接受用户发来的线下邀请。',
     '必须认真读取角色当前人设、世界书设定、最近聊天气氛、用户此刻的伤心或情绪状态，以及用户这次邀约里写的具体话和地点。',
@@ -378,7 +380,8 @@ async function requestCharOfflineInviteDecision(userPayload){
     'text 控制在大约 45 个字，允许上下浮动一点，但不要太短，也不要太长。',
     '只返回 JSON：{"accept":true|false,"text":"...","mood":"...","weather":"...","location":"...","aside":"..."}',
     '如果 accept 为 true，text 写一句自然口语的线下回应，其他字段用于邀约卡片。',
-    '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成邀约卡片文案；可以用 <msg> 分成 1 到 3 条短消息。',
+    '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成邀约卡片文案。',
+    '如果要分多条，请严格按照当前聊天设置里的消息范围来：最少 ' + msgMin + ' 条，最多 ' + msgMax + ' 条；如果不需要，就只回 1 条自然消息。',
     '不要 markdown，不要额外解释。'
   ].join('\n');
   var userPrompt = [
