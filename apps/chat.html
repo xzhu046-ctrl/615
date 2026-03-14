@@ -4289,7 +4289,16 @@ function ensureMsgRange(){
   if(!character) return;
   try{
     var list = JSON.parse(localStorage.getItem('characters') || '[]');
-    var rec = list.find(function(c){ return c.id === character.id; });
+    var activeAcctId = '';
+    try{ if(window.AccountManager) activeAcctId = (window.AccountManager.getActive()||{}).id || ''; }catch(err){}
+    var rec = list.find(function(c){
+      if(!c || c.id !== character.id) return false;
+      if(!activeAcctId) return true;
+      return c.ownerAccountId === activeAcctId;
+    });
+    if(!rec){
+      rec = list.find(function(c){ return c && c.id === character.id; }) || null;
+    }
     var src = rec || character;
     character.msgMin = Number(src.msgMin) || 1;
     character.msgMax = Number(src.msgMax) || Math.max(character.msgMin, 3);
@@ -8996,7 +9005,17 @@ function persistCharacter(){
       if(!activeAcctId) return true;
       return c.ownerAccountId === activeAcctId;
     });
-    if(idx >= 0){ list[idx] = character; localStorage.setItem('characters', JSON.stringify(list)); }
+    if(idx < 0){
+      idx = list.findIndex(function(c){ return c && c.id === character.id; });
+    }
+    var nextChar = Object.assign({}, character);
+    if(activeAcctId && !nextChar.ownerAccountId) nextChar.ownerAccountId = activeAcctId;
+    if(idx >= 0){
+      list[idx] = Object.assign({}, list[idx] || {}, nextChar);
+    }else{
+      list.push(nextChar);
+    }
+    localStorage.setItem('characters', JSON.stringify(list));
     var slim = compactChar(character);
     if(slim && isDefaultAccountContext()) localStorage.setItem('activeCharacter', JSON.stringify(slim));
     if(slim) localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim));
