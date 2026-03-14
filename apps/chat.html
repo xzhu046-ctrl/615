@@ -9071,6 +9071,60 @@ async function deliverAiReply(text, limitOverride){
     }
     return [{ text: cleaned, t: 'text' }];
   };
+  var rebalanceTextPartsToMin = function(parts, minCount, maxCount){
+    var list = Array.isArray(parts) ? parts.slice() : [];
+    if(minCount <= 1 || list.length >= minCount) return list;
+    if(!list.length) return list;
+    var textOnly = list.every(function(part){
+      return part && normalizeMessageType(part.t || 'text') === 'text' && String(part.text || '').trim();
+    });
+    if(!textOnly) return list;
+    var splitter = /([，、；：])/g;
+    var expanded = [];
+    list.forEach(function(part){
+      var text = String(part.text || '').trim();
+      if(!text) return;
+      var segments = text
+        .split(splitter)
+        .reduce(function(acc, chunk){
+          if(!chunk) return acc;
+          if(splitter.test(chunk)){
+            if(acc.length) acc[acc.length - 1] += chunk;
+          }else{
+            acc.push(chunk.trim());
+          }
+          splitter.lastIndex = 0;
+          return acc;
+        }, [])
+        .map(function(chunk){ return String(chunk || '').trim(); })
+        .filter(Boolean);
+      if(segments.length <= 1){
+        expanded.push(Object.assign({}, part, { text: text }));
+        return;
+      }
+      segments.forEach(function(segment){
+        expanded.push(Object.assign({}, part, { text: segment }));
+      });
+    });
+    if(expanded.length < minCount) return list;
+    if(expanded.length > maxCount) expanded = expanded.slice(0, maxCount);
+    var groupsNeeded = Math.max(minCount, Math.min(maxCount, expanded.length));
+    if(expanded.length === groupsNeeded) return expanded;
+    var regrouped = [];
+    var remaining = expanded.length;
+    for(var i = 0; i < groupsNeeded; i++){
+      var slotsLeft = groupsNeeded - i;
+      var take = Math.max(1, Math.ceil(remaining / slotsLeft));
+      var chunk = expanded.splice(0, take);
+      remaining -= chunk.length;
+      var base = chunk[0] || {};
+      var mergedText = chunk.map(function(entry){ return String(entry && entry.text || '').trim(); }).filter(Boolean).join('');
+      if(mergedText){
+        regrouped.push(Object.assign({}, base, { text: mergedText }));
+      }
+    }
+    return regrouped.length >= minCount ? regrouped : list;
+  };
   var parsed = null;
   var rawParts = [];
   var appendRawPart = function(item){
@@ -9251,6 +9305,7 @@ async function deliverAiReply(text, limitOverride){
     rawParts = splitPlainTextToParts(text);
   }
   if(!rawParts.length) rawParts = [{text:String(text||'(空消息)'), t:'text'}];
+  rawParts = rebalanceTextPartsToMin(rawParts, minN, maxN);
   if(rawParts.length > maxN){
     rawParts = rawParts.slice(0, maxN);
   }
