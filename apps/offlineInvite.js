@@ -117,6 +117,92 @@ function getOfflineInviteDisplayName(role){
   return String((character && (character.nickname || character.name)) || 'Char').trim() || 'Char';
 }
 
+function ensureOfflineInviteModal(){
+  var existing = document.getElementById('offlineInviteModal');
+  if(existing) return existing;
+  var host = document.createElement('div');
+  host.id = 'offlineInviteModal';
+  host.className = 'offline-invite-modal';
+  host.innerHTML = ''
+    + '<div class="offline-invite-modal-backdrop" data-offline-modal-close="1"></div>'
+    + '<div class="offline-invite-modal-card">'
+    + '<button class="offline-invite-modal-close" type="button" data-offline-modal-close="1">×</button>'
+    + '<div class="offline-invite-modal-papers">'
+    + '<div class="offline-invite-modal-paper back"></div>'
+    + '<div class="offline-invite-modal-paper front"></div>'
+    + '</div>'
+    + '<div class="offline-invite-modal-envelope"></div>'
+    + '<div class="offline-invite-modal-letter"></div>'
+    + '</div>';
+  host.addEventListener('click', function(evt){
+    var closeBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-modal-close]') : null;
+    if(closeBtn) closeOfflineInviteModal();
+  });
+  document.body.appendChild(host);
+  return host;
+}
+
+function closeOfflineInviteModal(){
+  var modal = document.getElementById('offlineInviteModal');
+  if(!modal) return;
+  modal.classList.remove('open');
+  modal.removeAttribute('data-msg-id');
+}
+
+function buildOfflineInviteEnvelopeSvg(clipId){
+  return ''
+    + '<svg viewBox="0 0 212 128" aria-hidden="true" shape-rendering="geometricPrecision">'
+    + '<defs>'
+    + '<clipPath id="' + escAttr(clipId) + '"><rect x="13.5" y="23.5" width="176" height="88" rx="10" ry="10"></rect></clipPath>'
+    + '<filter id="' + escAttr(clipId + 'Shadow') + '" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".12"/></filter>'
+    + '</defs>'
+    + '<rect x="17" y="28" width="174" height="86" rx="10" ry="10" fill="#111" opacity=".92"/>'
+    + '<rect x="13.5" y="23.5" width="176" height="88" rx="10" ry="10" fill="#fbfbfb" stroke="#4f4f4f" stroke-width="1.15" filter="url(#' + escAttr(clipId + 'Shadow') + ')"/>'
+    + '<g clip-path="url(#' + escAttr(clipId) + ')">'
+    + '<path d="M22 25.5 Q27 19.5 34 19.5 L170 19.5 Q177 19.5 182 25.5 L106 75.5 Z" fill="#141414" opacity=".92"/>'
+    + '<path d="M20.5 24.5 Q26.5 19 33.5 19 L169.5 19 Q176.5 19 182.5 24.5 L102 74 Z" fill="#dcdcdc" stroke="#575757" stroke-width="1.15" stroke-linejoin="round"/>'
+    + '<path d="M21.5 25 L102 74 L181.5 25" fill="none" stroke="#111" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/>'
+    + '</g>'
+    + '<path d="M13.5 34.5 L13.5 103.5" stroke="#595959" stroke-width="1.05" stroke-linecap="round"/>'
+    + '<path d="M189.5 34.5 L189.5 103.5" stroke="#595959" stroke-width="1.05" stroke-linecap="round"/>'
+    + '</svg>';
+}
+
+function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
+  var modal = ensureOfflineInviteModal();
+  var clipId = 'offlineInviteModalClip' + String(msgId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
+  var envelope = modal.querySelector('.offline-invite-modal-envelope');
+  var letter = modal.querySelector('.offline-invite-modal-letter');
+  if(!envelope || !letter) return;
+  var status = String((payload && payload.status) || 'pending');
+  var aside = String((payload && payload.aside) || '').trim() || '想见你';
+  envelope.innerHTML = buildOfflineInviteEnvelopeSvg(clipId) + '<div class="offline-invite-modal-paw">🐾</div>';
+  letter.innerHTML = ''
+    + '<div class="offline-invite-modal-weather">' + esc(payload && payload.weather || '☀︎') + '</div>'
+    + '<div class="offline-invite-modal-heart">♥</div>'
+    + '<div class="offline-invite-modal-time">' + esc(payload && payload.timeLabel || '') + '</div>'
+    + '<div class="offline-invite-modal-date">' + esc(payload && payload.dateLabel || '') + '</div>'
+    + '<div class="offline-invite-modal-mood">Mood:<br>' + esc(payload && payload.mood || '') + '</div>'
+    + '<div class="offline-invite-modal-location"><span class="offline-invite-modal-pin">📍</span><span>' + esc(payload && payload.location || '') + '</span></div>'
+    + '<div class="offline-invite-modal-aside">' + esc(aside) + '</div>'
+    + '<div class="offline-invite-modal-actions">'
+    + '<button class="offline-action-btn' + (!canRespond || status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="reject">×</button>'
+    + '<button class="offline-action-btn' + (!canRespond || status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="accept">✓</button>'
+    + '</div>';
+  modal.setAttribute('data-msg-id', String(msgId || ''));
+  modal.classList.add('open');
+  letter.onclick = function(evt){
+    var actionBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-action]') : null;
+    if(!actionBtn) return;
+    evt.stopPropagation();
+    if(actionBtn.classList.contains('disabled') || !msgId) return;
+    var action = actionBtn.getAttribute('data-offline-action');
+    closeOfflineInviteModal();
+    if(action === 'accept') acceptOfflineInvite(msgId);
+    if(action === 'reject') rejectOfflineInvite(msgId);
+  };
+}
+
 function hydrateOfflineInviteAvatar(card, role){
   if(!card) return;
   var badge = card.querySelector('.offline-envelope-avatar');
@@ -305,32 +391,10 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   bubble.innerHTML = '<div class="offline-bubble-shell' + sideClass + '">'
     + '<div class="offline-bubble-paper back"></div>'
     + '<div class="offline-bubble-paper front"></div>'
-    + '<div class="offline-invite-card' + sideClass + (status !== 'pending' ? ' open' : '') + '" data-msg-id="' + escAttr(msgId || '') + '" data-status="' + escAttr(status) + '">'
+    + '<div class="offline-invite-card' + sideClass + '" data-msg-id="' + escAttr(msgId || '') + '" data-status="' + escAttr(status) + '">'
     + '<div class="offline-envelope">'
-    + '<svg class="offline-envelope-svg" viewBox="0 0 212 128" aria-hidden="true" shape-rendering="geometricPrecision">'
-    + '<defs>'
-    + '<clipPath id="' + escAttr(clipId) + '"><rect x="13.5" y="23.5" width="176" height="88" rx="10" ry="10"></rect></clipPath>'
-    + '<filter id="' + escAttr(clipId + 'Shadow') + '" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#000" flood-opacity=".12"/></filter>'
-    + '</defs>'
-    + '<rect x="17" y="28" width="174" height="86" rx="10" ry="10" fill="#111" opacity=".92"/>'
-    + '<rect x="13.5" y="23.5" width="176" height="88" rx="10" ry="10" fill="#fbfbfb" stroke="#4f4f4f" stroke-width="1.15" filter="url(#' + escAttr(clipId + 'Shadow') + ')"/>'
-    + '<g clip-path="url(#' + escAttr(clipId) + ')">'
-    + '<path d="M22 25.5 Q27 19.5 34 19.5 L170 19.5 Q177 19.5 182 25.5 L106 75.5 Z" fill="#141414" opacity=".92"/>'
-    + '<path d="M20.5 24.5 Q26.5 19 33.5 19 L169.5 19 Q176.5 19 182.5 24.5 L102 74 Z" fill="#dcdcdc" stroke="#575757" stroke-width="1.15" stroke-linejoin="round"/>'
-    + '<path d="M21.5 25 L102 74 L181.5 25" fill="none" stroke="#111" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/>'
-    + '</g>'
-    + '<path d="M13.5 34.5 L13.5 103.5" stroke="#595959" stroke-width="1.05" stroke-linecap="round"/>'
-    + '<path d="M189.5 34.5 L189.5 103.5" stroke="#595959" stroke-width="1.05" stroke-linecap="round"/>'
-    + '</svg>'
+    + buildOfflineInviteEnvelopeSvg(clipId)
     + '<div class="offline-envelope-name">' + esc(displayName) + '</div>'
-    + '<div class="offline-letter">'
-    + '<div class="offline-letter-top"><div class="offline-letter-when">' + esc(data.timeLabel || '') + '<br>' + esc(data.dateLabel || '') + '</div><div class="offline-letter-deco">♥</div></div>'
-    + '<div class="offline-letter-body"><div class="offline-weather">' + esc(data.weather || '☀︎') + '</div><div class="offline-letter-main"><div class="offline-letter-mood">Mood: ' + esc(data.mood || '') + '</div><div class="offline-letter-location"><span class="offline-letter-pin">▣</span><span>' + esc(data.location || '') + '</span></div><div class="offline-letter-aside">' + esc(data.aside || '') + '</div></div></div>'
-    + '<div class="offline-letter-actions">'
-    + '<button class="offline-action-btn' + (!canRespond || status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="reject">×</button>'
-    + '<button class="offline-action-btn' + (!canRespond || status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="accept">✓</button>'
-    + '</div>'
-    + '</div>'
     + '<div class="offline-envelope-avatar' + badgeClass + '">' + esc(getOfflineInviteAvatarFallback(viewRole === 'user' ? 'user' : 'assistant')) + '</div>'
     + '</div>'
     + '</div>'
@@ -348,6 +412,6 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
       if(action === 'reject') rejectOfflineInvite(msgId);
       return;
     }
-    card.classList.toggle('open');
+    openOfflineInviteModal(msgId, data, viewRole, canRespond);
   });
 }
