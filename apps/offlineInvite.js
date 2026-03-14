@@ -100,19 +100,20 @@ function normalizeOfflineInviteRejectText(text, fallback){
   var clean = String(text || '').replace(/\s+/g, ' ').trim() || String(fallback || '').trim();
   if(!clean) return '';
   if(/<msg>/i.test(clean)) return clean;
+  if(clean.length <= 34) return clean;
   var minCount = Math.max(1, Number(character && character.msgMin) || 1);
   var maxCount = Math.max(minCount, Number(character && character.msgMax) || 3);
   var parts = clean.match(/[^，,。！？!?；;]+[，,。！？!?；;]?/g) || [clean];
   parts = parts.map(function(part){ return String(part || '').trim(); }).filter(Boolean);
   if(parts.length <= 1){
-    if(clean.length <= 22 || maxCount <= 1) return clean;
+    if(clean.length <= 54 || maxCount <= 1) return clean;
     var mid = Math.ceil(clean.length / 2);
     var splitAt = clean.indexOf('，', Math.max(6, mid - 6));
     if(splitAt < 0) splitAt = clean.indexOf(',', Math.max(6, mid - 6));
     if(splitAt < 0) splitAt = mid;
     parts = [clean.slice(0, splitAt + (splitAt === mid ? 0 : 1)).trim(), clean.slice(splitAt + (splitAt === mid ? 0 : 1)).trim()].filter(Boolean);
   }
-  if(parts.length <= 1) return clean;
+  if(parts.length <= 1 || parts.length > maxCount + 2) return clean;
   var targetCount = Math.min(maxCount, Math.max(Math.min(parts.length, maxCount), Math.min(minCount, parts.length)));
   if(targetCount <= 1) return clean;
   var groups = [];
@@ -414,7 +415,9 @@ async function requestCharOfflineInviteDecision(userPayload){
     '只返回 JSON：{"accept":true|false,"text":"...","mood":"...","weather":"...","location":"...","aside":"..."}',
     '如果 accept 为 true，text 写一句自然口语的线下回应，其他字段用于邀约卡片。',
     '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成邀约卡片文案。',
-    '如果要分多条，请严格按照当前聊天设置里的消息范围来：最少 ' + msgMin + ' 条，最多 ' + msgMax + ' 条；如果不需要，就只回 1 条自然消息。',
+    '如果 accept 为 false，请像真人聊天一样回复：可以先来一句当下反应，再补一句解释或安抚，语气要有停顿感和生活感。',
+    '优先由你自己决定是否分成多条短消息；如果分多条，请用 <msg> 隔开，并严格参考当前聊天设置的范围：最少 ' + msgMin + ' 条，最多 ' + msgMax + ' 条。',
+    '不要为了分条而硬切，只有真的像聊天那样自然停顿时才分开。',
     '不要 markdown，不要额外解释。'
   ].join('\n');
   var userPrompt = [
