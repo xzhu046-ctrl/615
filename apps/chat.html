@@ -2713,6 +2713,7 @@ function buildWeatherCommonSensePrompt(){
     }else{
       lines.push('双方不在同一城市，请把关系理解为异地或跨城相处；不要默认住在一起，不要默认随时能见面。');
       lines.push('如果要见面，请像真人一样考虑车程、火车、飞机、时间安排、季节和温度，不要在寒冷天气让对方穿不合时宜的衣服出门。');
+      lines.push('除非最近聊天已经明确约好见面、已经到达同一地点，或当前就在进行线下场景，否则不要把异地写成“已经在你楼下/马上抱住你/我们就在一起”。');
     }
     if(userSnapshot.hour24 !== null && charSnapshot.hour24 !== null){
       var diff = Math.abs(Number(userSnapshot.hour24) - Number(charSnapshot.hour24));
@@ -2728,8 +2729,29 @@ function buildWeatherCommonSensePrompt(){
   if(charSnapshot && charSnapshot.hour24 !== null && (charSnapshot.hour24 >= 23 || charSnapshot.hour24 <= 5)){
     lines.push('角色当地现在偏深夜或凌晨；你可以在语境合适时自然带出刚醒、犯困、被消息打断休息之类的感觉，但不要每次都强调。');
   }
-  lines.push('你平时聊天也要持续记住这些城市和天气信息，用来约束穿搭建议、出门建议、见面距离感和日常生活常识。');
-  lines.push('但只有在和天气、季节、时间、作息、出门、距离、交通、见面安排、穿搭这些内容真的相关时，才自然地提到它们；不要每句话都主动强调天气、时差或地理位置。');
+  lines.push('你平时聊天要把这些城市、时间和天气当成生活常识背景，用来约束距离感、作息感、出门建议和见面逻辑。');
+  lines.push('但只有在和天气、季节、时间、作息、出门、距离、交通、见面安排、穿搭这些内容真的相关时，才自然地提到它们；不相关时不要硬提。');
+  lines.push('如果你的表达将要和最近聊天或历史记忆总结冲突，以最近聊天和历史记忆总结为准；拿不准就先自然确认一句。');
+  return lines.join('\n');
+}
+
+function buildHighPriorityContextGuard(){
+  var memItems = getMemorySummaryItems();
+  var userSnapshot = getInviteWeatherSnapshot('user');
+  var charSnapshot = getInviteWeatherSnapshot('char');
+  var lines = ['【高优先级上下文守则】'];
+  lines.push('先读用户刚发的话，再读最近聊天和历史记忆总结；不要突然失忆、不要答非所问、不要跳去说和当前上下文对不上的内容。');
+  if(memItems.length){
+    lines.push('历史记忆总结是已经发生过的事实；除非最新聊天明确推翻它，否则不要和它冲突。');
+  }
+  if(userSnapshot && charSnapshot){
+    var userCity = userSnapshot.aliasName || userSnapshot.resolvedName || userSnapshot.realName || '';
+    var charCity = charSnapshot.aliasName || charSnapshot.resolvedName || charSnapshot.realName || '';
+    if(userCity && charCity && userCity !== charCity){
+      lines.push('当前默认是异地/跨城关系。除非最新聊天明确说明已经见面、同住或刚到对方面前，否则不要写成立刻出现在对方身边、楼下、房间里，或已经抱到对方。');
+    }
+  }
+  lines.push('如果有任何事实上拿不准的地方，先顺着聊天轻轻确认，不要自己脑补。');
   return lines.join('\n');
 }
 
@@ -4984,6 +5006,7 @@ function buildSystemPrompt() {
   }
 
   var parts = [];
+  parts.push(buildHighPriorityContextGuard());
 
   // Character card system prompt
   if (character) {
