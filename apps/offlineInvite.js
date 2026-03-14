@@ -173,7 +173,9 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
   var status = String((payload && payload.status) || 'pending');
   var aside = String((payload && payload.aside) || '').trim() || '想见你';
   var displayName = getOfflineInviteDisplayName(viewRole === 'user' ? 'user' : 'assistant');
+  var mood = String((payload && payload.mood) || '').trim() || '想你';
   var location = String((payload && payload.location) || '').trim() || '待定地点';
+  var showActions = canRespond && viewRole !== 'user';
   letter.innerHTML = ''
     + '<div class="offline-invite-modal-weather">' + esc(payload && payload.weather || '☀︎') + '</div>'
     + '<button class="offline-invite-modal-heart" type="button" data-offline-modal-close="1" aria-label="关闭邀请"><span>♥</span></button>'
@@ -181,15 +183,16 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
     + '<div class="offline-invite-modal-time">' + esc(payload && payload.timeLabel || '') + '</div>'
     + '<div class="offline-invite-modal-date">' + esc(payload && payload.dateLabel || '') + '</div>'
     + '<div class="offline-invite-modal-opening">想把这封小小的邀约信交给您，如果您愿意，我们就在那时那刻见面。</div>'
+    + '<div class="offline-invite-modal-mood">' + esc(mood) + '</div>'
     + '<div class="offline-invite-modal-location"><span class="offline-invite-modal-pin">📍</span><span class="offline-invite-modal-location-text">' + esc(location) + '</span></div>'
     + '<div class="offline-invite-modal-aside">' + esc(aside) + '</div>'
     + '<div class="offline-invite-modal-signoff">With love,</div>'
     + '<div class="offline-invite-modal-signature">' + esc(displayName) + '</div>'
     + '<div class="offline-invite-modal-letter-flower"></div>'
-    + '<div class="offline-invite-modal-actions">'
-    + '<button class="offline-action-btn' + (!canRespond || status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="reject">×</button>'
-    + '<button class="offline-action-btn' + (!canRespond || status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="accept">✓</button>'
-    + '</div>';
+    + (showActions ? '<div class="offline-invite-modal-actions">'
+    + '<button class="offline-action-btn' + (status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="reject">×</button>'
+    + '<button class="offline-action-btn' + (status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="accept">✓</button>'
+    + '</div>' : '');
   modal.setAttribute('data-msg-id', String(msgId || ''));
   modal.classList.add('open');
   letter.onclick = function(evt){
