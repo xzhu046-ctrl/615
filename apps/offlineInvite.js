@@ -173,6 +173,7 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
   if(!letter) return;
   var status = String((payload && payload.status) || 'pending');
   var aside = String((payload && payload.aside) || '').trim() || '想见你';
+  var displayName = getOfflineInviteDisplayName(viewRole === 'user' ? 'user' : 'assistant');
   letter.innerHTML = ''
     + '<div class="offline-invite-modal-weather">' + esc(payload && payload.weather || '☀︎') + '</div>'
     + '<div class="offline-invite-modal-heart">♥</div>'
@@ -181,6 +182,7 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
     + '<div class="offline-invite-modal-mood">Mood:<br>' + esc(payload && payload.mood || '') + '</div>'
     + '<div class="offline-invite-modal-location"><span class="offline-invite-modal-pin">📍</span><span>' + esc(payload && payload.location || '') + '</span></div>'
     + '<div class="offline-invite-modal-aside">' + esc(aside) + '</div>'
+    + '<div class="offline-invite-modal-signature">' + esc(displayName) + '</div>'
     + '<div class="offline-invite-modal-actions">'
     + '<button class="offline-action-btn' + (!canRespond || status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="reject">×</button>'
     + '<button class="offline-action-btn' + (!canRespond || status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="accept">✓</button>'
