@@ -329,6 +329,11 @@ function appendOfflineInviteNoticeText(role){
   return '系统提示：您收到了' + charName + '的约会邀请';
 }
 
+function appendOfflineInviteRejectNoticeText(){
+  var charName = (character && (character.nickname || character.name)) || 'Char';
+  return '系统提示：' + charName + '暂时拒绝了这次约会邀请';
+}
+
 async function appendOfflineInviteToChat(role, payload, doScroll){
   var notice = makeSystemNoticeEntry(appendOfflineInviteNoticeText(role));
   chatLog.push(notice);
@@ -373,7 +378,7 @@ async function requestCharOfflineInviteDecision(userPayload){
     'text 控制在大约 45 个字，允许上下浮动一点，但不要太短，也不要太长。',
     '只返回 JSON：{"accept":true|false,"text":"...","mood":"...","weather":"...","location":"...","aside":"..."}',
     '如果 accept 为 true，text 写一句自然口语的线下回应，其他字段用于邀约卡片。',
-    '如果 accept 为 false，text 写一句自然拒绝或婉拒的话，其他字段可留空。',
+    '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成邀约卡片文案；可以用 <msg> 分成 1 到 3 条短消息。',
     '不要 markdown，不要额外解释。'
   ].join('\n');
   var userPrompt = [
@@ -430,9 +435,10 @@ async function handlePendingOfflineInviteReply(){
       await appendOfflineInviteToChat('assistant', replyPayload, true);
       return true;
     }
-    var responseEntry = makeChatEntry('assistant', normalizeOfflineInviteDecisionText(decision && decision.text, '今天先不出门了，不过我有点心动。'), 'text');
-    chatLog.push(responseEntry);
-    addMessage('ai', responseEntry.content, true, 'text', responseEntry.id);
+    var rejectNotice = makeSystemNoticeEntry(appendOfflineInviteRejectNoticeText());
+    chatLog.push(rejectNotice);
+    addSystemNotice(rejectNotice.content, true, rejectNotice.id);
+    await deliverAiReply((decision && decision.text) || '今天先不出门了，不过我有点心动。', Math.max(1, character && character.msgMax ? character.msgMax : 3));
     await saveChat(true);
     return true;
   } finally {
