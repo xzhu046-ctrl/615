@@ -2410,6 +2410,21 @@ function weatherCodeToLabel(code){
   return '天气不错';
 }
 
+function buildTimezoneTimeSnapshot(timezone){
+  var tz = String(timezone || '').trim();
+  if(!tz) return null;
+  try{
+    var now = new Date();
+    return {
+      timeLabel: new Intl.DateTimeFormat('en-US', { timeZone: tz, hour:'numeric', minute:'2-digit' }).format(now),
+      dateLabel: new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday:'short', month:'short', day:'numeric' }).format(now),
+      hour24: Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour:'2-digit', hour12:false }).format(now))
+    };
+  }catch(e){
+    return null;
+  }
+}
+
 async function fetchRealCityWeatherSnapshot(target){
   if(!target || !isFinite(Number(target.latitude)) || !isFinite(Number(target.longitude))){
     throw new Error('missing coords');
@@ -2476,14 +2491,17 @@ function renderWeatherSettingUi(role){
   var icon = document.getElementById(prefix + 'PreviewIcon');
   var lockBtn = document.getElementById(prefix + 'LockBtn');
   var setting = getWeatherSettingState(role);
-  if(stateEl) stateEl.textContent = setting.locked ? '已锁定真实天气' : '未锁定';
+  if(stateEl) stateEl.textContent = setting.locked ? '已锁定真实天气 / 时间' : '未锁定';
   if(lockBtn) lockBtn.textContent = setting.locked ? '取消锁定' : '锁定';
   var hasPreview = !!(setting.locked && setting.resolvedName && setting.weatherIcon);
   if(preview) preview.classList.toggle('show', hasPreview);
   if(previewEmpty) previewEmpty.classList.toggle('show', !hasPreview);
   if(hasPreview){
     if(title) title.textContent = setting.aliasName || setting.realName || setting.resolvedName;
-    if(sub) sub.textContent = (setting.resolvedName || setting.realName || '已匹配城市') + (setting.temperatureC === null ? '' : ('  ·  ' + setting.temperatureC + '°C  ·  ' + setting.weatherLabel));
+    var timeInfo = buildTimezoneTimeSnapshot(setting.timezone);
+    if(sub) sub.textContent = (setting.resolvedName || setting.realName || '已匹配城市')
+      + (timeInfo && timeInfo.timeLabel ? ('  ·  ' + timeInfo.timeLabel) : '')
+      + (setting.temperatureC === null ? '' : ('  ·  ' + setting.temperatureC + '°C  ·  ' + setting.weatherLabel));
     if(icon) icon.textContent = setting.weatherIcon || '☀︎';
   }
 }
@@ -2537,7 +2555,7 @@ async function searchWeatherCity(role){
     setting.locked = false;
     stagedWeatherSettings[role] = cloneWeatherSetting(setting, role);
     renderWeatherSettingUi(role);
-    toast((setting.aliasName || result.realName || getWeatherRoleLabel(role)) + ' 已找到真实天气');
+    toast((setting.aliasName || result.realName || getWeatherRoleLabel(role)) + ' 已找到真实天气与时间');
   }catch(e){
     toast('没有找到这个城市');
   } finally {
@@ -2574,7 +2592,7 @@ async function toggleWeatherLock(role){
     if(aliasInput) aliasInput.value = '';
     if(realInput) realInput.value = '';
     renderWeatherSettingUi(role);
-    toast(getWeatherRoleLabel(role) + ' 真实天气已取消');
+    toast(getWeatherRoleLabel(role) + ' 真实天气 / 时间已取消');
     return;
   }
   var prefix = weatherUiPrefix(role);
@@ -2603,7 +2621,7 @@ async function toggleWeatherLock(role){
     setting.locked = true;
     saveWeatherSettingState(role, setting);
     renderWeatherSettingUi(role);
-    toast(getWeatherRoleLabel(role) + ' 真实天气已锁定');
+    toast(getWeatherRoleLabel(role) + ' 真实天气 / 时间已锁定');
   }catch(e){
     toast('锁定失败，请重新搜索城市');
   } finally {
@@ -2627,13 +2645,18 @@ function getInviteWeatherSnapshot(role){
   role = role === 'user' ? 'user' : 'char';
   var setting = getWeatherSettingState(role);
   if(!setting.locked || !setting.weatherIcon) return null;
+  var timeInfo = buildTimezoneTimeSnapshot(setting.timezone);
   return {
     aliasName: setting.aliasName || '',
     realName: setting.realName || '',
     resolvedName: setting.resolvedName || '',
+    timezone: setting.timezone || '',
     weatherIcon: normalizeOfflineWeatherIcon(setting.weatherIcon),
     weatherLabel: setting.weatherLabel || '',
     temperatureC: setting.temperatureC,
+    timeLabel: timeInfo && timeInfo.timeLabel ? timeInfo.timeLabel : '',
+    dateLabel: timeInfo && timeInfo.dateLabel ? timeInfo.dateLabel : '',
+    hour24: timeInfo && isFinite(timeInfo.hour24) ? timeInfo.hour24 : null,
     updatedAt: setting.updatedAt || 0
   };
 }
@@ -2656,6 +2679,7 @@ function getInviteWeatherPromptText(role){
     (role === 'user' ? '用户' : '角色') + '天气设定：',
     '显示城市=' + (snapshot.aliasName || '未设定'),
     '真实天气城市=' + (snapshot.resolvedName || snapshot.realName || '未设定'),
+    '当前时间=' + (snapshot.timeLabel || '未设定') + (snapshot.dateLabel ? (' ' + snapshot.dateLabel) : ''),
     '当前天气=' + snapshot.weatherIcon + (snapshot.weatherLabel ? (' ' + snapshot.weatherLabel) : '') + (snapshot.temperatureC === null ? '' : (' ' + snapshot.temperatureC + '°C'))
   ].join('');
 }
@@ -2669,6 +2693,7 @@ function buildWeatherCommonSensePrompt(){
     lines.push([
       '用户所在城市显示为：' + (userSnapshot.aliasName || userSnapshot.resolvedName || userSnapshot.realName || '未设定'),
       '对应真实天气城市：' + (userSnapshot.resolvedName || userSnapshot.realName || '未设定'),
+      '当地时间：' + ((userSnapshot.timeLabel || '') + (userSnapshot.dateLabel ? (' ' + userSnapshot.dateLabel) : '') || '未设定'),
       '当前天气：' + userSnapshot.weatherIcon + (userSnapshot.weatherLabel ? (' ' + userSnapshot.weatherLabel) : '') + (userSnapshot.temperatureC === null ? '' : ('，约 ' + userSnapshot.temperatureC + '°C'))
     ].join('；'));
   }
@@ -2676,6 +2701,7 @@ function buildWeatherCommonSensePrompt(){
     lines.push([
       '角色所在城市显示为：' + (charSnapshot.aliasName || charSnapshot.resolvedName || charSnapshot.realName || '未设定'),
       '对应真实天气城市：' + (charSnapshot.resolvedName || charSnapshot.realName || '未设定'),
+      '当地时间：' + ((charSnapshot.timeLabel || '') + (charSnapshot.dateLabel ? (' ' + charSnapshot.dateLabel) : '') || '未设定'),
       '当前天气：' + charSnapshot.weatherIcon + (charSnapshot.weatherLabel ? (' ' + charSnapshot.weatherLabel) : '') + (charSnapshot.temperatureC === null ? '' : ('，约 ' + charSnapshot.temperatureC + '°C'))
     ].join('；'));
   }
@@ -2688,9 +2714,22 @@ function buildWeatherCommonSensePrompt(){
       lines.push('双方不在同一城市，请把关系理解为异地或跨城相处；不要默认住在一起，不要默认随时能见面。');
       lines.push('如果要见面，请像真人一样考虑车程、火车、飞机、时间安排、季节和温度，不要在寒冷天气让对方穿不合时宜的衣服出门。');
     }
+    if(userSnapshot.hour24 !== null && charSnapshot.hour24 !== null){
+      var diff = Math.abs(Number(userSnapshot.hour24) - Number(charSnapshot.hour24));
+      diff = Math.min(diff, 24 - diff);
+      if(diff >= 3){
+        lines.push('双方存在明显时差，请自然地意识到发消息可能打扰对方休息，但只在语境合适时轻轻表现出来，不要频繁提醒睡觉。');
+      }
+    }
+  }
+  if(userSnapshot && userSnapshot.hour24 !== null && (userSnapshot.hour24 >= 23 || userSnapshot.hour24 <= 4)){
+    lines.push('用户当地现在偏深夜或凌晨；如果此刻聊天内容自然涉及状态、困意、熬夜、打扰休息，可以像真人一样稍微意识到对方在晚睡。');
+  }
+  if(charSnapshot && charSnapshot.hour24 !== null && (charSnapshot.hour24 >= 23 || charSnapshot.hour24 <= 5)){
+    lines.push('角色当地现在偏深夜或凌晨；你可以在语境合适时自然带出刚醒、犯困、被消息打断休息之类的感觉，但不要每次都强调。');
   }
   lines.push('你平时聊天也要持续记住这些城市和天气信息，用来约束穿搭建议、出门建议、见面距离感和日常生活常识。');
-  lines.push('但只有在和天气、季节、出门、距离、交通、见面安排、穿搭这些内容真的相关时，才自然地提到它们；不要每句话都主动强调天气或地理位置。');
+  lines.push('但只有在和天气、季节、时间、作息、出门、距离、交通、见面安排、穿搭这些内容真的相关时，才自然地提到它们；不要每句话都主动强调天气、时差或地理位置。');
   return lines.join('\n');
 }
 

@@ -48,7 +48,18 @@ function parseOfflineInvitePayload(content){
   return null;
 }
 
-function currentDateLabels(){
+function currentDateLabels(role){
+  try{
+    if(window.getInviteWeatherSnapshot){
+      var snapshot = window.getInviteWeatherSnapshot(role === 'user' ? 'user' : 'char');
+      if(snapshot && snapshot.timeLabel && snapshot.dateLabel){
+        return {
+          timeLabel: snapshot.timeLabel,
+          dateLabel: snapshot.dateLabel
+        };
+      }
+    }
+  }catch(e){}
   var d = new Date();
   return {
     timeLabel: d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }),
@@ -57,7 +68,7 @@ function currentDateLabels(){
 }
 
 function buildOfflineInvitePayload(sourceRole, text, overrides){
-  var labels = currentDateLabels();
+  var labels = currentDateLabels(sourceRole === 'user' ? 'user' : 'char');
   var data = Object.assign({
     type: 'offline_invite',
     sourceRole: sourceRole === 'user' ? 'user' : 'assistant',
