@@ -425,6 +425,12 @@ async function sendOfflineInviteFromUser(){
     toast('请先选择角色');
     return;
   }
+  var provider = localStorage.getItem('provider') || 'openai';
+  var key = localStorage.getItem('key_' + provider);
+  if(!key){
+    toast('亲爱的user，请去设置链接api哦');
+    return;
+  }
   var input = document.getElementById('offlineInviteInput');
   var locInput = document.getElementById('offlineInviteLocationInput');
   var text = String((input && input.value) || '').trim();
@@ -439,7 +445,6 @@ async function sendOfflineInviteFromUser(){
     location: location || (((character && (character.nickname || character.name)) || '对方') + '方便出现的地方')
   });
   await appendOfflineInviteToChat('user', payload, true);
-  toast('约会邀请已发出，点回复按钮等对方回应');
 }
 
 function importPendingOfflineArtifacts(){
