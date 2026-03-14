@@ -110,6 +110,13 @@ function getOfflineInviteAvatarFallback(role){
   return name.charAt(0) || 'C';
 }
 
+function getOfflineInviteDisplayName(role){
+  if(role === 'user'){
+    return String(getCurrentUserDisplayName() || 'User').trim() || 'User';
+  }
+  return String((character && (character.nickname || character.name)) || 'Char').trim() || 'Char';
+}
+
 function hydrateOfflineInviteAvatar(card, role){
   if(!card) return;
   var badge = card.querySelector('.offline-envelope-avatar');
@@ -293,8 +300,8 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var status = String(data.status || 'pending');
   var sideClass = viewRole === 'user' ? ' from-user' : ' from-ai';
   var badgeClass = viewRole === 'user' ? ' right' : ' left';
-  var pawClass = viewRole === 'user' ? ' left' : ' right';
   var clipId = 'offlineEnvelopeClip' + String(msgId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
+  var displayName = getOfflineInviteDisplayName(viewRole === 'user' ? 'user' : 'assistant');
   bubble.innerHTML = '<div class="offline-bubble-shell' + sideClass + '">'
     + '<div class="offline-bubble-paper back"></div>'
     + '<div class="offline-bubble-paper front"></div>'
@@ -315,6 +322,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     + '<path d="M13.5 34.5 L13.5 103.5" stroke="#595959" stroke-width="1.05" stroke-linecap="round"/>'
     + '<path d="M189.5 34.5 L189.5 103.5" stroke="#595959" stroke-width="1.05" stroke-linecap="round"/>'
     + '</svg>'
+    + '<div class="offline-envelope-name">' + esc(displayName) + '</div>'
     + '<div class="offline-letter">'
     + '<div class="offline-letter-top"><div class="offline-letter-when">' + esc(data.timeLabel || '') + '<br>' + esc(data.dateLabel || '') + '</div><div class="offline-letter-deco">♥</div></div>'
     + '<div class="offline-letter-body"><div class="offline-weather">' + esc(data.weather || '☀︎') + '</div><div class="offline-letter-main"><div class="offline-letter-mood">Mood: ' + esc(data.mood || '') + '</div><div class="offline-letter-location"><span class="offline-letter-pin">▣</span><span>' + esc(data.location || '') + '</span></div><div class="offline-letter-aside">' + esc(data.aside || '') + '</div></div></div>'
