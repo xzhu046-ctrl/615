@@ -130,8 +130,8 @@ function ensureOfflineInviteModal(){
     + '<div class="offline-invite-modal-papers">'
     + '<div class="offline-invite-modal-paper back"></div>'
     + '<div class="offline-invite-modal-paper front"></div>'
-    + '<div class="offline-invite-modal-flower"></div>'
     + '</div>'
+    + '<div class="offline-invite-modal-flower"></div>'
     + '<div class="offline-invite-modal-letter"></div>'
     + '</div>';
   host.addEventListener('click', function(evt){
