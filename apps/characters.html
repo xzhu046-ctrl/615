@@ -1078,15 +1078,41 @@ function parseCard(jsonStr, imageData, filename) {
     // Auto-import character_book entries as world book
     if (charBook) autoImportWorldBook(card, charBook);
 
+    function normalizeImportName(value){
+      return String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+    }
+
+    function shouldReuseImportedId(existingCard, nextCard){
+      if(!existingCard || !nextCard) return false;
+      var existingName = normalizeImportName(existingCard.nickname || existingCard.name || '');
+      var nextName = normalizeImportName(nextCard.nickname || nextCard.name || '');
+      if(!existingName || !nextName) return true;
+      return existingName === nextName;
+    }
+
+    function mintImportedCharacterId(base){
+      var seed = String(base || 'c').trim() || 'c';
+      return seed + '__' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    }
+
     function doImportNow(){
       var existIdx = chars.findIndex(function(c){
         return c && c.id === card.id && c.ownerAccountId === card.ownerAccountId;
       });
       if (existIdx >= 0) {
-        var oldId = chars[existIdx].id;
-        card.id = oldId;
-        chars[existIdx] = card;
-        log('已更新: ' + card.name + (charBook ? ' (含世界书 ✓)' : ''));
+        var existingCard = chars[existIdx];
+        if(shouldReuseImportedId(existingCard, card)){
+          var oldId = existingCard.id;
+          card.id = oldId;
+          chars[existIdx] = card;
+          log('已更新: ' + card.name + (charBook ? ' (含世界书 ✓)' : ''));
+        }else{
+          card.id = mintImportedCharacterId(card.id || card.name || 'c');
+          chars.push(card);
+          log('检测到角色卡 ID 冲突，已为 ' + card.name + ' 分配新身份');
+          log('已导入: ' + card.name + (charBook ? ' · 世界书已载入 ✓' : '') +
+            (card.alternate_greetings.length ? ' · ' + (card.alternate_greetings.length+1) + '条开场白' : ''));
+        }
       } else {
         chars.push(card);
         log('已导入: ' + card.name + (charBook ? ' · 世界书已载入 ✓' : '') +

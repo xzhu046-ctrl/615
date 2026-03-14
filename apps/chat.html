@@ -4303,6 +4303,9 @@ async function restoreOrStartChat() {
   storageHydrationPromise = hydrateCharacterStorageState();
   var restored = await storageHydrationPromise;
   if (!restored.length) restored = await loadPreferredStoredChatForCurrentCharacter();
+  if(restored.length && !hasAnyGreetingForCharacter() && isLikelyStrayGreetingHistory(restored)){
+    restored = [];
+  }
   if (restored.length) {
     chatLog = restored;
     appendMoneyDebugLog('restore', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
@@ -4313,6 +4316,7 @@ async function restoreOrStartChat() {
   var greeting = getGreeting();
   if(shouldWaitForFirstUserTurn(character && character.id)) greeting = '';
   msgs.innerHTML = '';
+  chatLog = [];
   if (greeting) {
     var first = makeChatEntry('assistant', greeting, 'text');
     chatLog = [first];
@@ -4364,6 +4368,23 @@ function getGreeting() {
   if (!all.length) return '';
   var idx = curGreetingIdx;
   return all[Math.min(idx, all.length - 1)] || '';
+}
+
+function hasAnyGreetingForCharacter(){
+  if(!character) return false;
+  if(String(character.first_mes || '').trim()) return true;
+  return Array.isArray(character.alternate_greetings) && character.alternate_greetings.some(function(item){
+    return !!String(item || '').trim();
+  });
+}
+
+function isLikelyStrayGreetingHistory(history){
+  var list = Array.isArray(history) ? history : [];
+  if(list.length !== 1) return false;
+  var only = list[0] || {};
+  if(String(only.role || '') !== 'assistant') return false;
+  if(String(only.type || 'text') !== 'text') return false;
+  return !!String(only.content || '').trim();
 }
 
 function getPromptGreeting(){
