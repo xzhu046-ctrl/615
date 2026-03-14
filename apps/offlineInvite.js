@@ -69,6 +69,13 @@ function offlineInviteSummaryText(content){
   return OFFLINE_INVITE_SNIPPET + (data.location ? (' ' + data.location) : '');
 }
 
+function normalizeOfflineInviteDecisionText(text, fallback){
+  var clean = String(text || '').replace(/\s+/g, ' ').trim() || String(fallback || '').trim();
+  if(!clean) return '';
+  if(clean.length > 48) return clean.slice(0, 48);
+  return clean;
+}
+
 function makeSystemNoticeEntry(text){
   return makeChatEntry('system', String(text || '').trim(), 'text');
 }
@@ -343,6 +350,7 @@ async function requestCharOfflineInviteDecision(userPayload){
     '你是角色本人，要决定是否接受用户发来的线下邀请。',
     '必须认真读取角色当前人设、世界书设定、最近聊天气氛、用户此刻的伤心或情绪状态，以及用户这次邀约里写的具体话和地点。',
     '如果 accept 为 true，text 不是模板句，而是角色本人认真写给用户的一句约会邀请或回应，语气要符合角色，不要套话，不要默认文案。',
+    'text 控制在大约 45 个字，允许上下浮动一点，但不要太短，也不要太长。',
     '只返回 JSON：{"accept":true|false,"text":"...","mood":"...","weather":"...","location":"...","aside":"..."}',
     '如果 accept 为 true，text 写一句自然口语的线下回应，其他字段用于邀约卡片。',
     '如果 accept 为 false，text 写一句自然拒绝或婉拒的话，其他字段可留空。',
@@ -360,6 +368,42 @@ async function requestCharOfflineInviteDecision(userPayload){
   }catch(e){
     return { accept: false, text: '今天先不出门了，不过我有点心动。' };
   }
+}
+
+function getPendingUserOfflineInviteEntry(){
+  if(!Array.isArray(chatLog) || !chatLog.length) return null;
+  for(var i = chatLog.length - 1; i >= 0; i--){
+    var entry = chatLog[i];
+    if(!entry) continue;
+    if(String(entry.role || '') === 'system') continue;
+    if(normalizeMessageType(entry.type || 'text') === 'offlineinvite' && String(entry.role || '') === 'user'){
+      var payload = parseOfflineInvitePayload(entry.content) || null;
+      if(payload && String(payload.status || 'pending') === 'pending') return { entry: entry, payload: payload };
+    }
+    break;
+  }
+  return null;
+}
+
+async function handlePendingOfflineInviteReply(){
+  var pending = getPendingUserOfflineInviteEntry();
+  if(!pending) return false;
+  var decision = await requestCharOfflineInviteDecision(pending.payload);
+  if(decision && decision.accept){
+    var replyPayload = buildOfflineInvitePayload('assistant', normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面'), {
+      mood: decision.mood || randomPick(OFFLINE_MOODS, '(///v///)'),
+      weather: decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'),
+      location: decision.location || pending.payload.location,
+      aside: decision.aside || '这次别拒绝我'
+    });
+    await appendOfflineInviteToChat('assistant', replyPayload, true);
+    return true;
+  }
+  var responseEntry = makeChatEntry('assistant', normalizeOfflineInviteDecisionText(decision && decision.text, '今天先不出门了，不过我有点心动。'), 'text');
+  chatLog.push(responseEntry);
+  addMessage('ai', responseEntry.content, true, 'text', responseEntry.id);
+  await saveChat(true);
+  return true;
 }
 
 async function sendOfflineInviteFromUser(){
@@ -381,21 +425,7 @@ async function sendOfflineInviteFromUser(){
     location: location || (((character && (character.nickname || character.name)) || '对方') + '方便出现的地方')
   });
   await appendOfflineInviteToChat('user', payload, true);
-  var decision = await requestCharOfflineInviteDecision(payload);
-  if(decision && decision.accept){
-    var replyPayload = buildOfflineInvitePayload('assistant', String(decision.text || '我来了').trim(), {
-      mood: decision.mood || randomPick(OFFLINE_MOODS, '(///v///)'),
-      weather: decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'),
-      location: decision.location || payload.location,
-      aside: decision.aside || '这次别拒绝我'
-    });
-    await appendOfflineInviteToChat('assistant', replyPayload, true);
-    return;
-  }
-  var responseEntry = makeChatEntry('assistant', String((decision && decision.text) || '今天先不出门了。').trim(), 'text');
-  chatLog.push(responseEntry);
-  addMessage('ai', responseEntry.content, true, 'text', responseEntry.id);
-  await saveChat(true);
+  toast('约会邀请已发出，点回复按钮等对方回应');
 }
 
 function importPendingOfflineArtifacts(){
