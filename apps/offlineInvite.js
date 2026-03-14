@@ -1,4 +1,4 @@
-var OFFLINE_INVITE_SNIPPET = '【线下邀请】';
+var OFFLINE_INVITE_SNIPPET = '【约会邀请】';
 var OFFLINE_WEATHERS = ['☀︎','☁︎','⛅︎','☂︎','☃︎'];
 var OFFLINE_MOODS = ['(///v///)','(,,> <,,)','(๑´ㅂ`๑)','(｡･ω･｡)','(っ˘ڡ˘ς)','( ´ ▽ ` )'];
 
@@ -213,6 +213,9 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
   var showActions = canRespond && viewRole !== 'user';
   var showAside = viewRole !== 'user';
   var showMood = viewRole === 'user';
+  var popupText = viewRole === 'user'
+    ? String((payload && payload.content) || '').trim()
+    : aside;
   letter.innerHTML = ''
     + '<div class="offline-invite-modal-weather">' + esc(payload && payload.weather || '☀︎') + '</div>'
     + '<button class="offline-invite-modal-heart" type="button" data-offline-modal-close="1" aria-label="关闭邀请"><span>♥</span></button>'
@@ -245,9 +248,9 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
     }
     var closeBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-modal-close]') : null;
     if(closeBtn) return;
-    if(showAside){
+    if(popupText){
       evt.stopPropagation();
-      showOfflineInviteAsidePopup(letter, aside, evt);
+      showOfflineInviteAsidePopup(letter, popupText, evt);
     }
   };
 }
@@ -281,18 +284,20 @@ function openOfflineInviteComposer(){
   var overlay = document.getElementById('offlineInviteOverlay');
   if(overlay) overlay.classList.add('open');
   var input = document.getElementById('offlineInviteInput');
+  var locInput = document.getElementById('offlineInviteLocationInput');
   if(input){
     input.value = '';
     setTimeout(function(){ input.focus(); }, 40);
   }
+  if(locInput) locInput.value = '';
 }
 
 function appendOfflineInviteNoticeText(role){
   var charName = (character && (character.nickname || character.name)) || 'Char';
   if(role === 'user'){
-    return '系统提示：' + getCurrentUserDisplayName() + '向' + charName + '发出了线下邀请';
+    return '系统提示：' + getCurrentUserDisplayName() + '向' + charName + '发出了约会邀请';
   }
-  return '系统提示：您收到了' + charName + '的线下邀请';
+  return '系统提示：您收到了' + charName + '的约会邀请';
 }
 
 async function appendOfflineInviteToChat(role, payload, doScroll){
@@ -359,7 +364,9 @@ async function sendOfflineInviteFromUser(){
     return;
   }
   var input = document.getElementById('offlineInviteInput');
+  var locInput = document.getElementById('offlineInviteLocationInput');
   var text = String((input && input.value) || '').trim();
+  var location = String((locInput && locInput.value) || '').trim();
   if(!text){
     toast('写一句邀约再发出去吧');
     return;
@@ -367,7 +374,7 @@ async function sendOfflineInviteFromUser(){
   closeOfflineInviteComposer();
   var payload = buildOfflineInvitePayload('user', text, {
     aside: '想立刻见你',
-    location: ((character && (character.nickname || character.name)) || '对方') + '方便出现的地方'
+    location: location || (((character && (character.nickname || character.name)) || '对方') + '方便出现的地方')
   });
   await appendOfflineInviteToChat('user', payload, true);
   var decision = await requestCharOfflineInviteDecision(payload);
