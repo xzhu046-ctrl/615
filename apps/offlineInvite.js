@@ -14,6 +14,26 @@ function normalizeOfflineWeatherIcon(value){
   return '☀︎';
 }
 
+async function resolveOfflineInviteWeather(role, fallbackIcon){
+  var safeRole = role === 'user' ? 'user' : 'char';
+  var fallback = normalizeOfflineWeatherIcon(fallbackIcon || '☀︎');
+  try{
+    if(window.refreshInviteWeatherSnapshot){
+      var snapshot = await window.refreshInviteWeatherSnapshot(safeRole);
+      if(snapshot && snapshot.weatherIcon){
+        return {
+          icon: normalizeOfflineWeatherIcon(snapshot.weatherIcon),
+          label: String(snapshot.weatherLabel || '').trim(),
+          temperatureC: snapshot.temperatureC,
+          aliasName: String(snapshot.aliasName || '').trim(),
+          resolvedName: String(snapshot.resolvedName || snapshot.realName || '').trim()
+        };
+      }
+    }
+  }catch(e){}
+  return { icon: fallback, label: '', temperatureC: null, aliasName: '', resolvedName: '' };
+}
+
 function randomPick(list, fallback){
   return Array.isArray(list) && list.length ? list[Math.floor(Math.random() * list.length)] : fallback;
 }
@@ -359,6 +379,8 @@ async function requestCharOfflineInviteDecision(userPayload){
   var userPrompt = [
     buildSystemPrompt(),
     '用户刚刚发来线下邀请：' + JSON.stringify(userPayload),
+    (window.getInviteWeatherPromptText ? window.getInviteWeatherPromptText('char') : ''),
+    (window.getInviteWeatherPromptText ? window.getInviteWeatherPromptText('user') : ''),
     '最近聊天：\n' + formatChatForModel(chatLog.slice(-12))
   ].join('\n\n');
   try{
@@ -398,9 +420,10 @@ async function handlePendingOfflineInviteReply(){
     var decision = await requestCharOfflineInviteDecision(pending.payload);
     hideTyping();
     if(decision && decision.accept){
+      var charWeather = await resolveOfflineInviteWeather('char', decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'));
       var replyPayload = buildOfflineInvitePayload('assistant', normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面'), {
         mood: decision.mood || randomPick(OFFLINE_MOODS, '(///v///)'),
-        weather: decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'),
+        weather: charWeather.icon,
         location: decision.location || pending.payload.location,
         aside: decision.aside || '这次别拒绝我'
       });
@@ -434,8 +457,10 @@ async function sendOfflineInviteFromUser(){
     return;
   }
   closeOfflineInviteComposer();
+  var userWeather = await resolveOfflineInviteWeather('user', '☀︎');
   var payload = buildOfflineInvitePayload('user', text, {
     aside: '想立刻见你',
+    weather: userWeather.icon,
     location: location || (((character && (character.nickname || character.name)) || '对方') + '方便出现的地方')
   });
   await appendOfflineInviteToChat('user', payload, true);
