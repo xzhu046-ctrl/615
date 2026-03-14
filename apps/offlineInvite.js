@@ -96,6 +96,39 @@ function normalizeOfflineInviteDecisionText(text, fallback){
   return clean;
 }
 
+function normalizeOfflineInviteRejectText(text, fallback){
+  var clean = String(text || '').replace(/\s+/g, ' ').trim() || String(fallback || '').trim();
+  if(!clean) return '';
+  if(/<msg>/i.test(clean)) return clean;
+  var minCount = Math.max(1, Number(character && character.msgMin) || 1);
+  var maxCount = Math.max(minCount, Number(character && character.msgMax) || 3);
+  var parts = clean.match(/[^，,。！？!?；;]+[，,。！？!?；;]?/g) || [clean];
+  parts = parts.map(function(part){ return String(part || '').trim(); }).filter(Boolean);
+  if(parts.length <= 1){
+    if(clean.length <= 22 || maxCount <= 1) return clean;
+    var mid = Math.ceil(clean.length / 2);
+    var splitAt = clean.indexOf('，', Math.max(6, mid - 6));
+    if(splitAt < 0) splitAt = clean.indexOf(',', Math.max(6, mid - 6));
+    if(splitAt < 0) splitAt = mid;
+    parts = [clean.slice(0, splitAt + (splitAt === mid ? 0 : 1)).trim(), clean.slice(splitAt + (splitAt === mid ? 0 : 1)).trim()].filter(Boolean);
+  }
+  if(parts.length <= 1) return clean;
+  var targetCount = Math.min(maxCount, Math.max(Math.min(parts.length, maxCount), Math.min(minCount, parts.length)));
+  if(targetCount <= 1) return clean;
+  var groups = [];
+  var idx = 0;
+  for(var i = 0; i < targetCount; i++){
+    var remainingParts = parts.length - idx;
+    var remainingSlots = targetCount - i;
+    var take = Math.ceil(remainingParts / remainingSlots);
+    var slice = parts.slice(idx, idx + take).join('').trim();
+    if(slice) groups.push(slice);
+    idx += take;
+  }
+  groups = groups.filter(Boolean);
+  return groups.length > 1 ? groups.join('<msg>') : clean;
+}
+
 function makeSystemNoticeEntry(text){
   return makeChatEntry('system', String(text || '').trim(), 'text');
 }
@@ -441,7 +474,7 @@ async function handlePendingOfflineInviteReply(){
     var rejectNotice = makeSystemNoticeEntry(appendOfflineInviteRejectNoticeText());
     chatLog.push(rejectNotice);
     addSystemNotice(rejectNotice.content, true, rejectNotice.id);
-    await deliverAiReply((decision && decision.text) || '今天先不出门了，不过我有点心动。', Math.max(1, character && character.msgMax ? character.msgMax : 3));
+    await deliverAiReply(normalizeOfflineInviteRejectText((decision && decision.text) || '', '今天先不出门了，不过我有点心动。'), Math.max(1, character && character.msgMax ? character.msgMax : 3));
     await saveChat(true);
     return true;
   } finally {
