@@ -2,6 +2,18 @@ var OFFLINE_INVITE_SNIPPET = '【线下邀请】';
 var OFFLINE_WEATHERS = ['☀︎','☁︎','⛅︎','☂︎','☃︎'];
 var OFFLINE_MOODS = ['(///v///)','(,,> <,,)','(๑´ㅂ`๑)','(｡･ω･｡)','(っ˘ڡ˘ς)','( ´ ▽ ` )'];
 
+function normalizeOfflineWeatherIcon(value){
+  var raw = String(value || '').trim();
+  if(!raw) return '☀︎';
+  if(raw === '☀︎' || raw === '☁︎' || raw === '⛅︎' || raw === '☂︎' || raw === '☃︎') return raw;
+  if(/[雪|snow]/i.test(raw)) return '☃︎';
+  if(/[雨|rain|storm|shower]/i.test(raw)) return '☂︎';
+  if(/[多云|阴|cloud|overcast]/i.test(raw)) return '☁︎';
+  if(/[晴间多云|云间晴|partly|mixed|fair]/i.test(raw)) return '⛅︎';
+  if(/[晴|sun|clear|bright]/i.test(raw)) return '☀︎';
+  return '☀︎';
+}
+
 function randomPick(list, fallback){
   return Array.isArray(list) && list.length ? list[Math.floor(Math.random() * list.length)] : fallback;
 }
@@ -43,7 +55,7 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   data.sourceRole = data.sourceRole === 'user' ? 'user' : 'assistant';
   data.content = String(data.content || '').trim() || '想见你。';
   data.mood = String(data.mood || '').trim() || '(｡･ω･｡)';
-  data.weather = String(data.weather || '').trim() || '☀︎';
+  data.weather = normalizeOfflineWeatherIcon(data.weather);
   data.location = String(data.location || '').trim() || '老地方';
   data.aside = String(data.aside || '').trim() || '快答应我';
   data.timeLabel = String(data.timeLabel || labels.timeLabel);
