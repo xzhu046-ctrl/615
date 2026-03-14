@@ -126,7 +126,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .offline-envelope-name{position:absolute;top:68px;left:50%;transform:translateX(-50%) rotate(-2deg);max-width:108px;padding:3px 10px 4px;border:1px solid rgba(30,30,30,.18);border-radius:999px;background:rgba(255,255,255,.72);box-shadow:0 4px 10px rgba(0,0,0,.05),inset 0 1px 0 rgba(255,255,255,.78);font-family:var(--fontcute);font-size:16px;line-height:1;color:#2a2a2a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:6;pointer-events:none}
 .offline-invite-card.from-ai .offline-envelope-name{transform:translateX(-50%) rotate(-5deg)}
 .offline-invite-card.from-user .offline-envelope-name{transform:translateX(-50%) rotate(4deg)}
-.offline-envelope-avatar{position:absolute;bottom:12px;width:70px;height:70px;border-radius:999px;background:#f6f6f6;box-shadow:0 10px 18px rgba(0,0,0,.1),3px 4px 0 #111,inset 0 1px 0 rgba(255,255,255,.75);display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:900;color:#111;z-index:7;overflow:hidden}
+.offline-envelope-avatar{position:absolute;bottom:12px;width:70px;height:70px;border-radius:999px;background:#f6f6f6;border:1.5px solid #111;box-shadow:0 0 0 3px #fff,0 10px 18px rgba(0,0,0,.1),3px 4px 0 #111;display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:900;color:#111;z-index:7;overflow:hidden}
 .offline-envelope-avatar.left{left:-8px}
 .offline-envelope-avatar.right{right:-8px}
 .offline-envelope-avatar img{width:100%;height:100%;object-fit:cover}
@@ -2659,9 +2659,43 @@ function getInviteWeatherPromptText(role){
   ].join('');
 }
 
+function buildWeatherCommonSensePrompt(){
+  var userSnapshot = getInviteWeatherSnapshot('user');
+  var charSnapshot = getInviteWeatherSnapshot('char');
+  if(!userSnapshot && !charSnapshot) return '';
+  var lines = ['【真实天气与城市常识】'];
+  if(userSnapshot){
+    lines.push([
+      '用户所在城市显示为：' + (userSnapshot.aliasName || userSnapshot.resolvedName || userSnapshot.realName || '未设定'),
+      '对应真实天气城市：' + (userSnapshot.resolvedName || userSnapshot.realName || '未设定'),
+      '当前天气：' + userSnapshot.weatherIcon + (userSnapshot.weatherLabel ? (' ' + userSnapshot.weatherLabel) : '') + (userSnapshot.temperatureC === null ? '' : ('，约 ' + userSnapshot.temperatureC + '°C'))
+    ].join('；'));
+  }
+  if(charSnapshot){
+    lines.push([
+      '角色所在城市显示为：' + (charSnapshot.aliasName || charSnapshot.resolvedName || charSnapshot.realName || '未设定'),
+      '对应真实天气城市：' + (charSnapshot.resolvedName || charSnapshot.realName || '未设定'),
+      '当前天气：' + charSnapshot.weatherIcon + (charSnapshot.weatherLabel ? (' ' + charSnapshot.weatherLabel) : '') + (charSnapshot.temperatureC === null ? '' : ('，约 ' + charSnapshot.temperatureC + '°C'))
+    ].join('；'));
+  }
+  if(userSnapshot && charSnapshot){
+    var sameDisplayCity = (userSnapshot.aliasName || userSnapshot.resolvedName || userSnapshot.realName || '') === (charSnapshot.aliasName || charSnapshot.resolvedName || charSnapshot.realName || '');
+    var sameRealCity = (userSnapshot.resolvedName || userSnapshot.realName || '') === (charSnapshot.resolvedName || charSnapshot.realName || '');
+    if(sameDisplayCity || sameRealCity){
+      lines.push('双方当前应视为同城或至少近距离活动，请保持生活化，但也不要无端默认已经同居。');
+    }else{
+      lines.push('双方不在同一城市，请把关系理解为异地或跨城相处；不要默认住在一起，不要默认随时能见面。');
+      lines.push('如果要见面，请像真人一样考虑车程、火车、飞机、时间安排、季节和温度，不要在寒冷天气让对方穿不合时宜的衣服出门。');
+    }
+  }
+  lines.push('你平时聊天也要持续记住这些城市和天气信息，用来约束穿搭建议、出门建议、见面距离感和日常生活常识。');
+  return lines.join('\n');
+}
+
 window.getInviteWeatherSnapshot = getInviteWeatherSnapshot;
 window.refreshInviteWeatherSnapshot = refreshInviteWeatherSnapshot;
 window.getInviteWeatherPromptText = getInviteWeatherPromptText;
+window.buildWeatherCommonSensePrompt = buildWeatherCommonSensePrompt;
 
 function cloneJsonSafe(value, fallback){
   try{
@@ -4934,6 +4968,8 @@ function buildSystemPrompt() {
   }
   var identityHint = getSubAccountIdentityHint();
   if(identityHint) parts.push(identityHint);
+  var weatherCommonSense = buildWeatherCommonSensePrompt();
+  if(weatherCommonSense) parts.push(weatherCommonSense);
   if(pendingMomentsChatCue){
     parts.push(['【朋友圈新互动】', pendingMomentsChatCue].join('\n'));
   }
