@@ -211,8 +211,10 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
   var mood = String((payload && payload.mood) || '').trim() || '想你';
   var location = String((payload && payload.location) || '').trim() || '待定地点';
   var showActions = canRespond && viewRole !== 'user';
-  var showAside = viewRole !== 'user';
   var showMood = viewRole === 'user';
+  var openingText = viewRole === 'user'
+    ? '给你偷偷塞来一张小小邀约单，如果你也想见我，就和我一起去赴约吧，想和你一起过一个开心的下午'
+    : String((payload && payload.content) || '').trim() || '想和你认真见一面';
   var popupText = viewRole === 'user'
     ? String((payload && payload.content) || '').trim()
     : aside;
@@ -222,10 +224,10 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
     + '<div class="offline-invite-modal-notehead">Invitation</div>'
     + '<div class="offline-invite-modal-time">' + esc(payload && payload.timeLabel || '') + '</div>'
     + '<div class="offline-invite-modal-date">' + esc(payload && payload.dateLabel || '') + '</div>'
-    + '<div class="offline-invite-modal-opening">给你偷偷塞来一张小小邀约单，如果你也想见我，就和我一起去赴约吧，想和你一起过一个开心的下午</div>'
+    + '<div class="offline-invite-modal-opening">' + esc(openingText) + '</div>'
     + (showMood ? '<div class="offline-invite-modal-mood">' + esc(mood) + '</div>' : '')
     + '<div class="offline-invite-modal-location"><span class="offline-invite-modal-pin">📍</span><span class="offline-invite-modal-location-text">' + esc(location) + '</span></div>'
-    + (showAside ? '<div class="offline-invite-modal-aside-pop"></div>' : '')
+    + (popupText ? '<div class="offline-invite-modal-aside-pop"></div>' : '')
     + '<div class="offline-invite-modal-signoff">With love,</div>'
     + '<div class="offline-invite-modal-signature">' + esc(displayName) + '</div>'
     + '<div class="offline-invite-modal-letter-flower"></div>'
@@ -339,6 +341,8 @@ async function acceptOfflineInvite(messageId){
 async function requestCharOfflineInviteDecision(userPayload){
   var systemPrompt = [
     '你是角色本人，要决定是否接受用户发来的线下邀请。',
+    '必须认真读取角色当前人设、世界书设定、最近聊天气氛、用户此刻的伤心或情绪状态，以及用户这次邀约里写的具体话和地点。',
+    '如果 accept 为 true，text 不是模板句，而是角色本人认真写给用户的一句约会邀请或回应，语气要符合角色，不要套话，不要默认文案。',
     '只返回 JSON：{"accept":true|false,"text":"...","mood":"...","weather":"...","location":"...","aside":"..."}',
     '如果 accept 为 true，text 写一句自然口语的线下回应，其他字段用于邀约卡片。',
     '如果 accept 为 false，text 写一句自然拒绝或婉拒的话，其他字段可留空。',
