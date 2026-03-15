@@ -768,7 +768,7 @@ async function generateOpeningTextInChunks(basePrompt){
   var fullText = '';
   for(var i = 0; i < chunkCount; i += 1){
     var chunkPrompt = buildOpeningChunkPrompt(basePrompt, fullText, i, chunkCount);
-    var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), chunkPrompt, 30000);
+    var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), chunkPrompt, 60000);
     var chunk = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
     if(!chunk) throw new Error('线下首幕分段为空');
     fullText += (fullText ? '\n\n' : '') + chunk;
@@ -777,15 +777,22 @@ async function generateOpeningTextInChunks(basePrompt){
 }
 async function generateOpeningIfNeeded(){
   if(!session || (!session.pendingOpening && !shouldBootOpeningFlow())) return;
+  var openingText = '';
   try{
     var openingPrompt = [
       '请写这场线下见面的第一个场景。',
       session && session.invite ? ('邀约信息：' + JSON.stringify(session.invite)) : '',
       '最近线上聊天：' + (session.chatHistory || '无')
     ].filter(Boolean).join('\n\n');
-    var openingText = '';
     for(var attempt = 0; attempt < 4; attempt += 1){
-      openingText = await generateOpeningTextInChunks(openingPrompt);
+      try{
+        openingText = await generateOpeningTextInChunks(openingPrompt);
+      }catch(err){
+        if(openingTextLength(openingText) >= 320){
+          break;
+        }
+        throw err;
+      }
       if(openingTextLength(openingText) >= 2000 && !containsOpeningViolation(openingText)){
         break;
       }
@@ -802,8 +809,20 @@ async function generateOpeningIfNeeded(){
     session.pendingOpening = false;
     saveSession();
   }catch(e){
-    var fallback = nowLabels();
-    session.entries.push({ role:'assistant', text:'他真的来了，站在你面前时连呼吸都轻了下来，像是怕把这场见面碰碎。', heart:'♥', bubbles:['终于见到你','别赶我走'], timeLabel:fallback.timeLabel, meta:fallback.meta });
+    if(openingTextLength(openingText) >= 120){
+      var partial = nowLabels();
+      session.entries.push({
+        role:'assistant',
+        text:String(openingText || '').trim(),
+        heart:'♥',
+        bubbles:['终于见到你','过来一点'],
+        timeLabel:partial.timeLabel,
+        meta:partial.meta
+      });
+    }else{
+      var fallback = nowLabels();
+      session.entries.push({ role:'assistant', text:'他真的来了，站在你面前时连呼吸都轻了下来，像是怕把这场见面碰碎。', heart:'♥', bubbles:['终于见到你','别赶我走'], timeLabel:fallback.timeLabel, meta:fallback.meta });
+    }
     session.pendingOpening = false;
     saveSession();
   }
