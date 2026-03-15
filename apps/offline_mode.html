@@ -205,16 +205,62 @@ function loadCharacter(){
   if(!raw) return null;
   try{ return JSON.parse(raw); }catch(e){ return null; }
 }
+function loadCharactersList(){
+  try{
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    return Array.isArray(list) ? list : [];
+  }catch(e){
+    return [];
+  }
+}
+function findCharacterById(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return null;
+  var list = loadCharactersList();
+  for(var i = 0; i < list.length; i += 1){
+    var item = list[i];
+    if(item && String(item.id || '').trim() === safeId) return item;
+  }
+  return null;
+}
+function findLatestOfflineSessionRecord(){
+  var best = null;
+  try{
+    for(var i = 0; i < localStorage.length; i += 1){
+      var key = localStorage.key(i);
+      if(!key || key.indexOf('offline_meet_session_') === -1) continue;
+      var raw = localStorage.getItem(key);
+      if(!raw) continue;
+      var parsed = JSON.parse(raw);
+      if(!parsed || parsed.active === false) continue;
+      var charId = String(key.split('offline_meet_session_').pop() || '').trim();
+      if(!charId) continue;
+      if(!best || Number(parsed.updatedAt || 0) >= Number(best.session && best.session.updatedAt || 0)){
+        best = { charId: charId, session: parsed };
+      }
+    }
+  }catch(e){}
+  return best;
+}
 function saveSession(){
   if(!session || !character || !character.id) return;
   session.updatedAt = Date.now();
   localStorage.setItem(offlineSessionKey(character.id), JSON.stringify(session));
 }
 function loadSession(){
-  if(!character || !character.id) return null;
-  var raw = localStorage.getItem(offlineSessionKey(character.id)) || '';
-  if(!raw) return null;
-  try{ return JSON.parse(raw); }catch(e){ return null; }
+  if(character && character.id){
+    var raw = localStorage.getItem(offlineSessionKey(character.id)) || '';
+    if(raw){
+      try{ return JSON.parse(raw); }catch(e){}
+    }
+  }
+  var fallback = findLatestOfflineSessionRecord();
+  if(!fallback) return null;
+  if((!character || !character.id) && fallback.charId){
+    var matched = findCharacterById(fallback.charId);
+    if(matched) character = matched;
+  }
+  return fallback.session || null;
 }
 function resolveCharAvatar(){
   if(character && character.imageData) return character.imageData;
@@ -644,6 +690,13 @@ function hideFlightOverlay(){
 async function init(){
   character = loadCharacter();
   session = loadSession();
+  if((!character || !character.id) && session && session.invite){
+    var fallbackRecord = findLatestOfflineSessionRecord();
+    if(fallbackRecord && fallbackRecord.charId){
+      var fallbackChar = findCharacterById(fallbackRecord.charId);
+      if(fallbackChar) character = fallbackChar;
+    }
+  }
   if(!session){
     session = { active:false, entries:[] };
   }
