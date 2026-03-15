@@ -103,21 +103,13 @@ body{font-family:var(--font);background:linear-gradient(180deg,#efefeb 0%,#f8f8f
 .flight-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(244,244,240,.16);backdrop-filter:blur(18px) saturate(115%);-webkit-backdrop-filter:blur(18px) saturate(115%);z-index:60}
 .flight-overlay.show{display:flex}
 .flight-card{width:min(338px,calc(100vw - 32px));border:1.5px solid rgba(10,10,10,.55);border-radius:30px;background:linear-gradient(180deg,rgba(255,255,255,.68) 0%,rgba(250,250,247,.56) 100%);box-shadow:0 20px 48px rgba(0,0,0,.14),0 1px 0 rgba(255,255,255,.7) inset;padding:18px 18px 16px;display:flex;flex-direction:column;gap:14px}
-.flight-map{position:relative;height:168px;border:1.5px solid rgba(10,10,10,.18);border-radius:24px;background:radial-gradient(circle at 20% 18%,rgba(255,255,255,.88),transparent 26%),linear-gradient(180deg,rgba(255,255,255,.76) 0%,rgba(238,238,233,.58) 100%);overflow:hidden}
-.flight-route{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-.flight-route path{fill:none;stroke:#0a0a0a;stroke-width:2.2;stroke-linecap:round;stroke-dasharray:6 8;opacity:.55}
-.flight-plane{position:absolute;left:0;top:0;width:44px;height:44px;margin-left:-22px;margin-top:-22px;offset-path:path('M 34 126 C 88 106, 138 40, 196 56 S 284 118, 306 50');offset-distance:0%;animation:flyPath 2.2s cubic-bezier(.34,.02,.2,1) infinite;filter:drop-shadow(0 4px 10px rgba(0,0,0,.16))}
-.flight-plane img{width:100%;height:100%;display:block;object-fit:contain;filter:grayscale(1) contrast(1.08)}
+.flight-map{position:relative;height:176px;border:1.5px solid rgba(10,10,10,.18);border-radius:24px;background:radial-gradient(circle at 20% 18%,rgba(255,255,255,.88),transparent 26%),linear-gradient(180deg,rgba(255,255,255,.76) 0%,rgba(238,238,233,.58) 100%);overflow:hidden}
+.flight-game{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:manipulation;cursor:pointer}
 .flight-copy{font-family:var(--fontd);font-size:17px;font-weight:900;text-align:center}
 .flight-subcopy{font-size:12px;line-height:1.6;color:#4f4f4f;text-align:center}
+.flight-tip{font-size:11px;line-height:1.4;color:#5b5b5b;text-align:center}
 .toast{position:fixed;bottom:164px;left:50%;transform:translateX(-50%) translateY(16px);background:#0a0a0a;color:#fff;padding:9px 16px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;transition:.24s;z-index:80}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-@keyframes flyPath{
-  0%{offset-distance:0%;transform:scale(.86) rotate(-8deg);opacity:.15}
-  8%{opacity:1}
-  48%{transform:scale(1) rotate(4deg)}
-  100%{offset-distance:100%;transform:scale(.94) rotate(8deg);opacity:1}
-}
 </style>
 </head>
 <body>
@@ -140,13 +132,11 @@ body{font-family:var(--font);background:linear-gradient(180deg,#efefeb 0%,#f8f8f
 <div class="flight-overlay" id="flightOverlay">
   <div class="flight-card">
     <div class="flight-copy">正在赶往这场见面</div>
-    <div class="flight-subcopy">小飞机已经起飞啦，第一幕正在慢慢写好</div>
+    <div class="flight-subcopy">第一幕在认真写啦，点一下屏幕让小恐龙跳起来</div>
     <div class="flight-map">
-      <svg class="flight-route" viewBox="0 0 338 168" preserveAspectRatio="none" aria-hidden="true">
-        <path d="M 34 126 C 88 106, 138 40, 196 56 S 284 118, 306 50"></path>
-      </svg>
-      <div class="flight-plane"><img src="assets/线下模式图标.png" alt=""></div>
+      <canvas class="flight-game" id="flightGame" width="300" height="176" aria-label="等待中的小恐龙跳跃游戏"></canvas>
     </div>
+    <div class="flight-tip" id="flightGameTip">轻点屏幕或按空格跳跃</div>
   </div>
 </div>
 
@@ -169,6 +159,7 @@ var promptManager = new (window.PromptManager || function(){})();
 var session = null;
 var character = null;
 var sending = false;
+var flightGameState = null;
 
 function activeAccountId(){
   try{ return window.AccountManager && window.AccountManager.getActive ? ((window.AccountManager.getActive() || {}).id || '') : ''; }catch(e){ return ''; }
@@ -565,6 +556,197 @@ function hasAssistantOpeningEntry(){
     return entry && entry.role === 'assistant' && String(entry.text || '').trim();
   });
 }
+function ensureFlightGameState(){
+  if(flightGameState) return flightGameState;
+  flightGameState = {
+    canvas: null,
+    ctx: null,
+    frameId: 0,
+    running: false,
+    lastAt: 0,
+    score: 0,
+    best: 0,
+    speed: 210,
+    gravity: 1680,
+    jumpVelocity: 580,
+    groundY: 138,
+    dino: { x: 40, y: 104, w: 28, h: 34, vy: 0, jumping: false },
+    obstacles: [],
+    spawnAt: 0
+  };
+  return flightGameState;
+}
+function resizeFlightCanvas(){
+  var state = ensureFlightGameState();
+  var canvas = document.getElementById('flightGame');
+  if(!canvas) return;
+  state.canvas = canvas;
+  state.ctx = canvas.getContext('2d');
+  var dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  var rect = canvas.getBoundingClientRect();
+  var width = Math.max(280, Math.round(rect.width || 300));
+  var height = Math.max(160, Math.round(rect.height || 176));
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  state.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  state.groundY = height - 34;
+  state.dino.y = state.groundY - state.dino.h;
+}
+function resetFlightGame(){
+  var state = ensureFlightGameState();
+  state.score = 0;
+  state.speed = 210;
+  state.obstacles = [];
+  state.spawnAt = 0;
+  state.lastAt = 0;
+  state.dino.vy = 0;
+  state.dino.jumping = false;
+  state.dino.y = state.groundY - state.dino.h;
+}
+function flightGameJump(){
+  var state = ensureFlightGameState();
+  if(!state.running) return;
+  if(state.dino.jumping) return;
+  state.dino.jumping = true;
+  state.dino.vy = -state.jumpVelocity;
+}
+function drawFlightGame(){
+  var state = ensureFlightGameState();
+  if(!state.ctx || !state.canvas) return;
+  var ctx = state.ctx;
+  var width = state.canvas.width / (Math.max(1, Math.min(2, window.devicePixelRatio || 1)));
+  var height = state.canvas.height / (Math.max(1, Math.min(2, window.devicePixelRatio || 1)));
+  ctx.clearRect(0, 0, width, height);
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(10,10,10,.24)';
+  ctx.lineWidth = 1.2;
+  ctx.setLineDash([7, 7]);
+  ctx.beginPath();
+  ctx.moveTo(0, state.groundY + 0.5);
+  ctx.lineTo(width, state.groundY + 0.5);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = '#0a0a0a';
+  state.obstacles.forEach(function(obs){
+    ctx.fillRect(obs.x, state.groundY - obs.h, obs.w, obs.h);
+    if(obs.w > 16){
+      ctx.fillRect(obs.x + 8, state.groundY - obs.h - 10, 6, 10);
+    }
+  });
+
+  var d = state.dino;
+  ctx.save();
+  ctx.translate(d.x, d.y);
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillRect(0, 8, 20, 18);
+  ctx.fillRect(18, 0, 8, 10);
+  ctx.fillRect(8, 24, 4, 10);
+  ctx.fillRect(18, 24, 4, 10);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(21, 3, 2, 2);
+  ctx.restore();
+
+  ctx.save();
+  ctx.fillStyle = '#0a0a0a';
+  ctx.font = '700 12px Quicksand';
+  ctx.textAlign = 'left';
+  ctx.fillText('SCORE ' + String(Math.floor(state.score)).padStart(4, '0'), 12, 18);
+  ctx.textAlign = 'right';
+  ctx.fillText('BEST ' + String(Math.floor(state.best)).padStart(4, '0'), width - 12, 18);
+  ctx.restore();
+}
+function stepFlightGame(ts){
+  var state = ensureFlightGameState();
+  if(!state.running) return;
+  if(!state.lastAt) state.lastAt = ts;
+  var dt = Math.min(0.032, Math.max(0.001, (ts - state.lastAt) / 1000));
+  state.lastAt = ts;
+
+  state.score += dt * 12;
+  state.speed = Math.min(360, state.speed + dt * 6);
+  state.best = Math.max(state.best, state.score);
+
+  if(!state.spawnAt) state.spawnAt = ts + 650;
+  if(ts >= state.spawnAt){
+    var width = state.canvas ? state.canvas.width / (Math.max(1, Math.min(2, window.devicePixelRatio || 1))) : 300;
+    var h = 22 + Math.round(Math.random() * 18);
+    var w = h > 30 ? 18 : 14;
+    state.obstacles.push({ x: width + 20, w: w, h: h });
+    state.spawnAt = ts + 850 + Math.random() * 700;
+  }
+
+  state.dino.vy += state.gravity * dt;
+  state.dino.y += state.dino.vy * dt;
+  var floorY = state.groundY - state.dino.h;
+  if(state.dino.y >= floorY){
+    state.dino.y = floorY;
+    state.dino.vy = 0;
+    state.dino.jumping = false;
+  }
+
+  state.obstacles.forEach(function(obs){ obs.x -= state.speed * dt; });
+  state.obstacles = state.obstacles.filter(function(obs){ return obs.x + obs.w > -20; });
+
+  var hit = state.obstacles.some(function(obs){
+    var dx = state.dino.x + 4;
+    var dy = state.dino.y + 6;
+    var dw = state.dino.w - 8;
+    var dh = state.dino.h - 6;
+    var ox = obs.x;
+    var oy = state.groundY - obs.h;
+    return dx < ox + obs.w && dx + dw > ox && dy < oy + obs.h && dy + dh > oy;
+  });
+  if(hit){
+    resetFlightGame();
+  }
+
+  drawFlightGame();
+  state.frameId = requestAnimationFrame(stepFlightGame);
+}
+function startFlightGame(){
+  var state = ensureFlightGameState();
+  resizeFlightCanvas();
+  resetFlightGame();
+  state.running = true;
+  cancelAnimationFrame(state.frameId);
+  state.frameId = requestAnimationFrame(stepFlightGame);
+}
+function stopFlightGame(){
+  var state = ensureFlightGameState();
+  state.running = false;
+  cancelAnimationFrame(state.frameId);
+  state.frameId = 0;
+}
+function bindFlightGameControls(){
+  var canvas = document.getElementById('flightGame');
+  if(canvas && !canvas.dataset.bound){
+    canvas.dataset.bound = '1';
+    canvas.addEventListener('pointerdown', function(evt){
+      evt.preventDefault();
+      flightGameJump();
+    });
+  }
+  if(!document.body.dataset.flightGameKeyBound){
+    document.body.dataset.flightGameKeyBound = '1';
+    window.addEventListener('keydown', function(evt){
+      if(evt.code === 'Space' || evt.code === 'ArrowUp'){
+        var overlay = document.getElementById('flightOverlay');
+        if(overlay && overlay.classList.contains('show')){
+          evt.preventDefault();
+          flightGameJump();
+        }
+      }
+    });
+    window.addEventListener('resize', function(){
+      var overlay = document.getElementById('flightOverlay');
+      if(overlay && overlay.classList.contains('show')){
+        resizeFlightCanvas();
+      }
+    });
+  }
+}
 function shouldBootOpeningFlow(){
   if(!session) return false;
   if(session.active === false) return false;
@@ -738,11 +920,14 @@ function showFlightIfNeeded(){
   if(!overlay || !session) return;
   if(!session.pendingAnimation && !shouldBootOpeningFlow()) return;
   overlay.classList.add('show');
+  bindFlightGameControls();
+  startFlightGame();
 }
 function hideFlightOverlay(){
   var overlay = document.getElementById('flightOverlay');
   if(!overlay) return;
   overlay.classList.remove('show');
+  stopFlightGame();
   if(session){
     session.pendingAnimation = false;
     saveSession();
