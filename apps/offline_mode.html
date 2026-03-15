@@ -134,9 +134,9 @@ body{font-family:var(--font);background:linear-gradient(180deg,#efefeb 0%,#f8f8f
     <div class="flight-copy">正在赶往这场见面</div>
     <div class="flight-subcopy">第一幕在认真写啦，点一下屏幕让小恐龙跳起来</div>
     <div class="flight-map">
-      <canvas class="flight-game" id="flightGame" width="300" height="176" aria-label="等待中的小恐龙跳跃游戏"></canvas>
+      <canvas class="flight-game" id="flightGame" width="300" height="176" aria-label="等待中的小兔子跳跃游戏"></canvas>
     </div>
-    <div class="flight-tip" id="flightGameTip">轻点屏幕或按空格跳跃</div>
+    <div class="flight-tip" id="flightGameTip">轻点屏幕或按空格让小兔子跳跃</div>
   </div>
 </div>
 
@@ -570,7 +570,7 @@ function ensureFlightGameState(){
     gravity: 1680,
     jumpVelocity: 580,
     groundY: 138,
-    dino: { x: 40, y: 104, w: 28, h: 34, vy: 0, jumping: false },
+    bunny: { x: 38, y: 102, w: 30, h: 34, vy: 0, jumping: false },
     obstacles: [],
     spawnAt: 0
   };
@@ -590,7 +590,7 @@ function resizeFlightCanvas(){
   canvas.height = Math.round(height * dpr);
   state.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   state.groundY = height - 34;
-  state.dino.y = state.groundY - state.dino.h;
+  state.bunny.y = state.groundY - state.bunny.h;
 }
 function resetFlightGame(){
   var state = ensureFlightGameState();
@@ -599,16 +599,16 @@ function resetFlightGame(){
   state.obstacles = [];
   state.spawnAt = 0;
   state.lastAt = 0;
-  state.dino.vy = 0;
-  state.dino.jumping = false;
-  state.dino.y = state.groundY - state.dino.h;
+  state.bunny.vy = 0;
+  state.bunny.jumping = false;
+  state.bunny.y = state.groundY - state.bunny.h;
 }
 function flightGameJump(){
   var state = ensureFlightGameState();
   if(!state.running) return;
-  if(state.dino.jumping) return;
-  state.dino.jumping = true;
-  state.dino.vy = -state.jumpVelocity;
+  if(state.bunny.jumping) return;
+  state.bunny.jumping = true;
+  state.bunny.vy = -state.jumpVelocity;
 }
 function drawFlightGame(){
   var state = ensureFlightGameState();
@@ -636,16 +636,19 @@ function drawFlightGame(){
     }
   });
 
-  var d = state.dino;
+  var d = state.bunny;
   ctx.save();
   ctx.translate(d.x, d.y);
   ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(0, 8, 20, 18);
-  ctx.fillRect(18, 0, 8, 10);
+  ctx.fillRect(4, 12, 18, 14);
+  ctx.fillRect(16, 8, 8, 10);
+  ctx.fillRect(18, 0, 4, 12);
+  ctx.fillRect(23, 2, 4, 10);
   ctx.fillRect(8, 24, 4, 10);
   ctx.fillRect(18, 24, 4, 10);
+  ctx.fillRect(0, 16, 6, 4);
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(21, 3, 2, 2);
+  ctx.fillRect(18, 11, 2, 2);
   ctx.restore();
 
   ctx.save();
@@ -677,23 +680,23 @@ function stepFlightGame(ts){
     state.spawnAt = ts + 850 + Math.random() * 700;
   }
 
-  state.dino.vy += state.gravity * dt;
-  state.dino.y += state.dino.vy * dt;
-  var floorY = state.groundY - state.dino.h;
-  if(state.dino.y >= floorY){
-    state.dino.y = floorY;
-    state.dino.vy = 0;
-    state.dino.jumping = false;
+  state.bunny.vy += state.gravity * dt;
+  state.bunny.y += state.bunny.vy * dt;
+  var floorY = state.groundY - state.bunny.h;
+  if(state.bunny.y >= floorY){
+    state.bunny.y = floorY;
+    state.bunny.vy = 0;
+    state.bunny.jumping = false;
   }
 
   state.obstacles.forEach(function(obs){ obs.x -= state.speed * dt; });
   state.obstacles = state.obstacles.filter(function(obs){ return obs.x + obs.w > -20; });
 
   var hit = state.obstacles.some(function(obs){
-    var dx = state.dino.x + 4;
-    var dy = state.dino.y + 6;
-    var dw = state.dino.w - 8;
-    var dh = state.dino.h - 6;
+    var dx = state.bunny.x + 4;
+    var dy = state.bunny.y + 6;
+    var dw = state.bunny.w - 8;
+    var dh = state.bunny.h - 6;
     var ox = obs.x;
     var oy = state.groundY - obs.h;
     return dx < ox + obs.w && dx + dw > ox && dy < oy + obs.h && dy + dh > oy;
@@ -753,28 +756,6 @@ function shouldBootOpeningFlow(){
   if(!session.invite) return false;
   return !hasAssistantOpeningEntry();
 }
-function buildOpeningChunkPrompt(basePrompt, existingText, chunkIndex, chunkCount){
-  return [
-    basePrompt,
-    '现在请写第 ' + (chunkIndex + 1) + ' / ' + chunkCount + ' 段。',
-    chunkIndex === 0
-      ? '从见面的第一个瞬间直接开始写，马上进入场景。'
-      : ('下面是已经写好的前文，请无缝续写，不要重复前文句子：\n' + existingText),
-    '这一次只写当前这一段正文，不要收尾，不要总结，不要跳到很后面。'
-  ].join('\n\n');
-}
-async function generateOpeningTextInChunks(basePrompt){
-  var chunkCount = 3;
-  var fullText = '';
-  for(var i = 0; i < chunkCount; i += 1){
-    var chunkPrompt = buildOpeningChunkPrompt(basePrompt, fullText, i, chunkCount);
-    var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), chunkPrompt, 60000);
-    var chunk = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
-    if(!chunk) throw new Error('线下首幕分段为空');
-    fullText += (fullText ? '\n\n' : '') + chunk;
-  }
-  return fullText.trim();
-}
 async function generateOpeningIfNeeded(){
   if(!session || (!session.pendingOpening && !shouldBootOpeningFlow())) return;
   var openingText = '';
@@ -782,11 +763,13 @@ async function generateOpeningIfNeeded(){
     var openingPrompt = [
       '请写这场线下见面的第一个场景。',
       session && session.invite ? ('邀约信息：' + JSON.stringify(session.invite)) : '',
-      '最近线上聊天：' + (session.chatHistory || '无')
+      '最近线上聊天：' + (session.chatHistory || '无'),
+      '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
-    for(var attempt = 0; attempt < 4; attempt += 1){
+    for(var attempt = 0; attempt < 2; attempt += 1){
       try{
-        openingText = await generateOpeningTextInChunks(openingPrompt);
+        var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 45000);
+        openingText = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
       }catch(err){
         if(openingTextLength(openingText) >= 320){
           break;
