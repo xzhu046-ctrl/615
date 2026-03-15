@@ -791,6 +791,28 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
     </div>
   </div>
 
+  <div class="cs-card">
+    <div class="cs-card-title">约会邀请</div>
+    <div style="display:flex; gap:8px; align-items:flex-end;">
+      <div style="flex:1">
+        <span class="cs-label">字数 (min)</span>
+        <input class="cs-input" id="csInviteMin" type="number" min="10" max="300" step="1" placeholder="如 28">
+      </div>
+      <div style="flex:1">
+        <span class="cs-label">字数 (max)</span>
+        <input class="cs-input" id="csInviteMax" type="number" min="10" max="300" step="1" placeholder="如 52">
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <span class="cs-label">人称</span>
+      <select class="cs-input" id="csInvitePerspective">
+        <option value="first">第一人称</option>
+        <option value="second">第二人称</option>
+        <option value="third">第三人称</option>
+      </select>
+    </div>
+  </div>
+
     <div class="cs-card">
       <div class="cs-card-title">用户 / 你</div>
       <div class="avatar-row">
@@ -4355,9 +4377,15 @@ function ensureMsgRange(){
     var src = rec || character;
     character.msgMin = Number(src.msgMin) || 1;
     character.msgMax = Number(src.msgMax) || Math.max(character.msgMin, 3);
+    character.offlineInviteMin = Number(src.offlineInviteMin) || 28;
+    character.offlineInviteMax = Number(src.offlineInviteMax) || Math.max(character.offlineInviteMin, 52);
+    character.offlineInvitePerspective = String(src.offlineInvitePerspective || 'first');
   }catch(e){
     character.msgMin = character.msgMin || 1;
     character.msgMax = character.msgMax || Math.max(character.msgMin,3);
+    character.offlineInviteMin = character.offlineInviteMin || 28;
+    character.offlineInviteMax = character.offlineInviteMax || Math.max(character.offlineInviteMin, 52);
+    character.offlineInvitePerspective = String(character.offlineInvitePerspective || 'first');
   }
 }
 function compactChar(c){
@@ -4368,6 +4396,9 @@ function compactChar(c){
     first_mes:c.first_mes, alternate_greetings:c.alternate_greetings, tags:c.tags,
     character_version:c.character_version, spec:c.spec, creator:c.creator
     , msgMin:Number(c.msgMin)||1, msgMax:Number(c.msgMax)||Math.max(Number(c.msgMin)||1,3)
+    , offlineInviteMin:Number(c.offlineInviteMin)||28
+    , offlineInviteMax:Number(c.offlineInviteMax)||Math.max(Number(c.offlineInviteMin)||28,52)
+    , offlineInvitePerspective:String(c.offlineInvitePerspective||'first')
   };
 }
 
@@ -5074,6 +5105,17 @@ function buildSystemPrompt() {
   if(identityHint) parts.push(identityHint);
   var weatherCommonSense = buildWeatherCommonSensePrompt();
   if(weatherCommonSense) parts.push(weatherCommonSense);
+  if(character){
+    var inviteMin = Number(character.offlineInviteMin) || 28;
+    var inviteMax = Math.max(inviteMin, Number(character.offlineInviteMax) || 52);
+    var invitePerspective = String(character.offlineInvitePerspective || 'first');
+    var invitePerspectiveLabel = invitePerspective === 'second' ? '第二人称' : (invitePerspective === 'third' ? '第三人称' : '第一人称');
+    parts.push([
+      '【约会邀请输出约束】',
+      '当你输出 offline_invite 时，content 的长度严格控制在 ' + inviteMin + ' 到 ' + inviteMax + ' 个中文字符之间。',
+      '当你输出 offline_invite 时，content 的人称严格使用：' + invitePerspectiveLabel + '。'
+    ].join('\n'));
+  }
   if(pendingMomentsChatCue){
     parts.push(['【朋友圈新互动】', pendingMomentsChatCue].join('\n'));
   }
@@ -8744,6 +8786,9 @@ function openChatSettings() {
       document.getElementById('csCharPersona').value = character.personality || character.description || character.name || '暂无人设';
       document.getElementById('csMsgMin').value = (character.msgMin || 1);
       document.getElementById('csMsgMax').value = (character.msgMax || 3);
+      document.getElementById('csInviteMin').value = (character.offlineInviteMin || 28);
+      document.getElementById('csInviteMax').value = (character.offlineInviteMax || 52);
+      document.getElementById('csInvitePerspective').value = (character.offlineInvitePerspective || 'first');
       loadChatBackgroundForCharacter(character.id).then(function(src){
         stagedChatBackground = src || '';
         var bgUrl = document.getElementById('csChatBgUrl');
@@ -8997,6 +9042,9 @@ async function saveChatSettings() {
   var cp = document.getElementById('csCharPersona').value.trim() || (character ? (character.description || character.name || '无') : '无');
   var cmn = parseInt(document.getElementById('csMsgMin').value || '1');
   var cmx = parseInt(document.getElementById('csMsgMax').value || '3');
+  var inviteMin = parseInt(document.getElementById('csInviteMin').value || '28');
+  var inviteMax = parseInt(document.getElementById('csInviteMax').value || '52');
+  var invitePerspective = String(document.getElementById('csInvitePerspective').value || 'first');
   var cwin = parseInt(document.getElementById('csContextWindow').value || String(DEFAULT_CONTEXT_WINDOW), 10);
   var severy = parseInt(document.getElementById('csSummaryEvery').value || String(DEFAULT_SUMMARY_EVERY), 10);
   var manualSize = parseInt(document.getElementById('csManualSummarySize').value || String(DEFAULT_MANUAL_SUMMARY_SIZE), 10);
@@ -9019,6 +9067,9 @@ async function saveChatSettings() {
     character.personality = cp;
     character.msgMin = isFinite(cmn) && cmn>0 ? cmn : 1;
     character.msgMax = isFinite(cmx) && cmx>=character.msgMin ? cmx : Math.max(character.msgMin,3);
+    character.offlineInviteMin = isFinite(inviteMin) && inviteMin > 0 ? inviteMin : 28;
+    character.offlineInviteMax = isFinite(inviteMax) && inviteMax >= character.offlineInviteMin ? inviteMax : Math.max(character.offlineInviteMin, 52);
+    character.offlineInvitePerspective = /^(first|second|third)$/.test(invitePerspective) ? invitePerspective : 'first';
     updateHeader();
     persistCharacter();
     var slim = compactChar(character);
