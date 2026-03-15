@@ -2762,6 +2762,16 @@ function buildHighPriorityContextGuard(){
   var charSnapshot = getInviteWeatherSnapshot('char');
   var lines = ['【高优先级上下文守则】'];
   lines.push('先读用户刚发的话，再读最近聊天和历史记忆总结；不要突然失忆、不要答非所问、不要跳去说和当前上下文对不上的内容。');
+  var recentFocus = getVisibleChatForModel().slice(-6).map(function(msg){
+    if(!msg || msg.hidden || msg.role === 'system') return '';
+    var who = msg.role === 'user' ? 'User' : 'Char';
+    var body = String(formatMessageForModel(msg) || '').replace(/\s+/g, ' ').trim();
+    if(!body) return '';
+    return who + '：' + body;
+  }).filter(Boolean);
+  if(recentFocus.length){
+    lines.push('最近几轮聊天重点：\n' + recentFocus.join('\n'));
+  }
   if(memItems.length){
     lines.push('历史记忆总结是已经发生过的事实；除非最新聊天明确推翻它，否则不要和它冲突。');
   }
@@ -9154,6 +9164,35 @@ async function deliverAiReply(text, limitOverride){
         expanded.push(Object.assign({}, part, { text: segment }));
       });
     });
+    if(expanded.length < minCount){
+      var fallbackExpanded = [];
+      list.forEach(function(part){
+        var text = String(part && part.text || '').trim();
+        if(!text) return;
+        var targetLen = Math.max(10, Math.ceil(text.length / Math.max(minCount, 1)));
+        var cursor = 0;
+        while(cursor < text.length){
+          var remaining = text.length - cursor;
+          var size = Math.min(Math.max(targetLen, 10), remaining);
+          if(remaining <= targetLen + 6){
+            fallbackExpanded.push(Object.assign({}, part, { text: text.slice(cursor).trim() }));
+            break;
+          }
+          var chunk = text.slice(cursor, cursor + size);
+          var splitAt = Math.max(
+            chunk.lastIndexOf('，'),
+            chunk.lastIndexOf('、'),
+            chunk.lastIndexOf('；'),
+            chunk.lastIndexOf('：'),
+            chunk.lastIndexOf(' ')
+          );
+          if(splitAt < 6) splitAt = size;
+          fallbackExpanded.push(Object.assign({}, part, { text: text.slice(cursor, cursor + splitAt).trim() }));
+          cursor += splitAt;
+        }
+      });
+      expanded = fallbackExpanded.filter(function(part){ return String(part && part.text || '').trim(); });
+    }
     if(expanded.length < minCount) return list;
     if(expanded.length > maxCount) expanded = expanded.slice(0, maxCount);
     var groupsNeeded = Math.max(minCount, Math.min(maxCount, expanded.length));
