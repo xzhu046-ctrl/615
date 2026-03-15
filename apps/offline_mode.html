@@ -478,6 +478,26 @@ async function callAI(systemPrompt, userPrompt){
     if(dor.error) throw new Error(dor.error.message || JSON.stringify(dor.error));
     return dor.choices && dor.choices[0] && dor.choices[0].message ? dor.choices[0].message.content : '';
   }
+  if(provider === 'custom'){
+    var baseUrl = (localStorage.getItem('custom_url') || '').replace(/\/$/, '');
+    if(!baseUrl) throw new Error('未设置反代地址，请在设置中填写');
+    var headers = { 'Content-Type':'application/json' };
+    if(key) headers['Authorization'] = 'Bearer ' + key;
+    var customModel = localStorage.getItem('model_custom_manual') || model;
+    var resCustom;
+    try{
+      resCustom = await fetch(baseUrl + '/chat/completions', {
+        method:'POST',
+        headers: headers,
+        body: JSON.stringify({ model: customModel, temperature: temperature, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
+      });
+    }catch(err){
+      throw new Error('自定义接口请求被浏览器拦截。请检查反代地址和 CORS 设置。');
+    }
+    var dCustom = await resCustom.json();
+    if(dCustom.error) throw new Error(dCustom.error.message || JSON.stringify(dCustom.error));
+    return dCustom.choices && dCustom.choices[0] && dCustom.choices[0].message ? dCustom.choices[0].message.content : '';
+  }
   throw new Error('当前 provider 暂不支持线下模式');
 }
 function parseOfflineReply(raw){
