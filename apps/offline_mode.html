@@ -424,6 +424,19 @@ function buildOfflineSystemPrompt(options){
   }
   return lines.join('\n');
 }
+function buildOfflineOpeningChunkSystemPrompt(){
+  var persona = character ? (character.personality || character.description || '') : '';
+  return [
+    '你在生成“线下见面模式”的第一幕正文分段。',
+    '必须保持第一人称沉浸感，像真人面对面相处，不要说自己是 AI。',
+    '只返回纯文本正文，不要 JSON，不要标题，不要代码块，不要解释。',
+    '每次只续写当前这一小段，字数控制在 450 到 650 个中文字符左右。',
+    '要和上一段严丝合缝接上，不能重复开头，也不要总结回顾。',
+    '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
+    '人设：' + (persona || '未提供'),
+    offlineOpeningBanRules()
+  ].join('\n');
+}
 function buildOfflineUserPrompt(userText){
   return [
     '这是一次已经开始的线下见面，请顺着当前氛围继续。',
@@ -508,6 +521,15 @@ function parseOfflineReply(raw){
   }catch(e){}
   return { text: clean || '他靠近了一点，眼神里带着藏不住的柔软。', heart:'♥', bubbles:['别躲开我'] };
 }
+async function callAIWithTimeout(systemPrompt, userPrompt, timeoutMs){
+  var ms = Math.max(5000, Number(timeoutMs) || 30000);
+  return await Promise.race([
+    callAI(systemPrompt, userPrompt),
+    new Promise(function(_, reject){
+      setTimeout(function(){ reject(new Error('线下首幕生成超时')); }, ms);
+    })
+  ]);
+}
 function openingBannedPatterns(){
   return [
     /比[^，。！？\n]{0,20}还[^，。！？\n]{0,20}/,
@@ -549,6 +571,28 @@ function shouldBootOpeningFlow(){
   if(!session.invite) return false;
   return !hasAssistantOpeningEntry();
 }
+function buildOpeningChunkPrompt(basePrompt, existingText, chunkIndex, chunkCount){
+  return [
+    basePrompt,
+    '现在请写第 ' + (chunkIndex + 1) + ' / ' + chunkCount + ' 段。',
+    chunkIndex === 0
+      ? '从见面的第一个瞬间直接开始写，马上进入场景。'
+      : ('下面是已经写好的前文，请无缝续写，不要重复前文句子：\n' + existingText),
+    '这一次只写当前这一段正文，不要收尾，不要总结，不要跳到很后面。'
+  ].join('\n\n');
+}
+async function generateOpeningTextInChunks(basePrompt){
+  var chunkCount = 4;
+  var fullText = '';
+  for(var i = 0; i < chunkCount; i += 1){
+    var chunkPrompt = buildOpeningChunkPrompt(basePrompt, fullText, i, chunkCount);
+    var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), chunkPrompt, 30000);
+    var chunk = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+    if(!chunk) throw new Error('线下首幕分段为空');
+    fullText += (fullText ? '\n\n' : '') + chunk;
+  }
+  return fullText.trim();
+}
 async function generateOpeningIfNeeded(){
   if(!session || (!session.pendingOpening && !shouldBootOpeningFlow())) return;
   try{
@@ -557,22 +601,19 @@ async function generateOpeningIfNeeded(){
       session && session.invite ? ('邀约信息：' + JSON.stringify(session.invite)) : '',
       '最近线上聊天：' + (session.chatHistory || '无')
     ].filter(Boolean).join('\n\n');
-    var parsed = null;
+    var openingText = '';
     for(var attempt = 0; attempt < 4; attempt += 1){
-      var raw = await callAI(buildOfflineSystemPrompt({ opening:true }), openingPrompt);
-      parsed = parseOfflineReply(raw);
-      var openingText = String(parsed && parsed.text || '').trim();
+      openingText = await generateOpeningTextInChunks(openingPrompt);
       if(openingTextLength(openingText) >= 2000 && !containsOpeningViolation(openingText)){
         break;
       }
     }
-    parsed = parsed || { text:'', heart:'♥', bubbles:[] };
     var labels = nowLabels();
     session.entries.push({
       role:'assistant',
-      text:String(parsed.text || '').trim() || '他真的来了，站在离你很近的地方，声音轻得像怕惊扰你。',
-      heart:String(parsed.heart || '♥').trim() || '♥',
-      bubbles:Array.isArray(parsed.bubbles) ? parsed.bubbles.slice(0,3) : [],
+      text:String(openingText || '').trim() || '他真的来了，站在离你很近的地方，声音轻得像怕惊扰你。',
+      heart:'♥',
+      bubbles:['终于见到你','过来一点'],
       timeLabel:labels.timeLabel,
       meta:labels.meta
     });
