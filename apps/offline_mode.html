@@ -471,10 +471,14 @@ function containsOpeningViolation(text){
   var body = String(text || '');
   return openingBannedPatterns().some(function(pattern){ return pattern.test(body); });
 }
+function hasAssistantOpeningEntry(){
+  var list = Array.isArray(session && session.entries) ? session.entries : [];
+  return list.some(function(entry){
+    return entry && entry.role === 'assistant' && String(entry.text || '').trim();
+  });
+}
 async function generateOpeningIfNeeded(){
   if(!session || !session.pendingOpening) return;
-  session.pendingOpening = false;
-  saveSession();
   try{
     var openingPrompt = [
       '请写这场线下见面的第一个场景。',
@@ -500,10 +504,12 @@ async function generateOpeningIfNeeded(){
       timeLabel:labels.timeLabel,
       meta:labels.meta
     });
+    session.pendingOpening = false;
     saveSession();
   }catch(e){
     var fallback = nowLabels();
     session.entries.push({ role:'assistant', text:'他真的来了，站在你面前时连呼吸都轻了下来，像是怕把这场见面碰碎。', heart:'♥', bubbles:['终于见到你','别赶我走'], timeLabel:fallback.timeLabel, meta:fallback.meta });
+    session.pendingOpening = false;
     saveSession();
   }
   hideFlightOverlay();
@@ -633,6 +639,11 @@ async function init(){
   session = loadSession();
   if(!session){
     session = { active:false, entries:[] };
+  }
+  if(session && session.active && !hasAssistantOpeningEntry()){
+    if(!session.pendingOpening) session.pendingOpening = true;
+    if(!session.pendingAnimation) session.pendingAnimation = true;
+    saveSession();
   }
   if(session && session.minimized){
     document.querySelector('.shell')?.classList.add('minimized');
