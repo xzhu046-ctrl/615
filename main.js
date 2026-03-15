@@ -25,8 +25,79 @@ const AI_BG_ENABLED_KEY = 'ai_bg_activity_enabled';
 const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
+const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
+
+function offlineMinimizedStorageKey(){
+  return mainScopedKey(OFFLINE_MINIMIZED_CHAR_KEY);
+}
+
+function getMinimizedOfflineCharId(){
+  try{ return String(localStorage.getItem(offlineMinimizedStorageKey()) || '').trim(); }catch(e){ return ''; }
+}
+
+function offlineSessionStorageKeyMain(charId){
+  return mainScopedKey('offline_meet_session_' + String(charId || '').trim());
+}
+
+function ensureOfflineMiniLauncher(){
+  var existing = document.getElementById('offline-mini-launcher-shell');
+  if(existing) return existing;
+  var btn = document.createElement('button');
+  btn.id = 'offline-mini-launcher-shell';
+  btn.type = 'button';
+  btn.title = '继续线下模式';
+  btn.setAttribute('aria-label', '继续线下模式');
+  btn.style.position = 'fixed';
+  btn.style.left = '16px';
+  btn.style.bottom = '22px';
+  btn.style.zIndex = '1400';
+  btn.style.display = 'none';
+  btn.style.width = '68px';
+  btn.style.height = '68px';
+  btn.style.border = '2px solid #0a0a0a';
+  btn.style.borderRadius = '999px';
+  btn.style.background = '#fff';
+  btn.style.boxShadow = '2px 2px 0 #0a0a0a';
+  btn.style.alignItems = 'center';
+  btn.style.justifyContent = 'center';
+  btn.style.cursor = 'pointer';
+  btn.innerHTML = '<img src="apps/assets/线下模式图标.png" alt="线下模式" style="width:42px;height:42px;object-fit:contain;filter:grayscale(1) contrast(1.06);pointer-events:none;">';
+  btn.addEventListener('click', function(){
+    var charId = getMinimizedOfflineCharId();
+    if(!charId) return;
+    try{
+      var raw = localStorage.getItem(offlineSessionStorageKeyMain(charId));
+      if(raw){
+        var session = JSON.parse(raw);
+        if(session && typeof session === 'object'){
+          session.minimized = false;
+          localStorage.setItem(offlineSessionStorageKeyMain(charId), JSON.stringify(session));
+        }
+      }
+    }catch(e){}
+    setMinimizedOfflineCharId('');
+    openApp('offline');
+  });
+  document.body.appendChild(btn);
+  return btn;
+}
+
+function renderOfflineMiniLauncher(){
+  var btn = ensureOfflineMiniLauncher();
+  if(!btn) return;
+  btn.style.display = getMinimizedOfflineCharId() ? 'flex' : 'none';
+}
+
+function setMinimizedOfflineCharId(charId){
+  try{
+    var next = String(charId || '').trim();
+    if(next) localStorage.setItem(offlineMinimizedStorageKey(), next);
+    else localStorage.removeItem(offlineMinimizedStorageKey());
+  }catch(e){}
+  renderOfflineMiniLauncher();
+}
 
 function widgetPreviewStorageKey(charId){
   return scopedKeyForAccount('widget_preview_' + String(charId || ''), getActiveAccountId());
@@ -2039,6 +2110,13 @@ window.addEventListener('message',(e)=>{
     if(payload.charId) localStorage.setItem('wbCharId', payload.charId);
     openApp(appId);
   }
+  if(type==='OFFLINE_MINIMIZED'){
+    setMinimizedOfflineCharId(payload && payload.charId ? payload.charId : '');
+    openApp('chat');
+  }
+  if(type==='OFFLINE_EXITED'){
+    setMinimizedOfflineCharId('');
+  }
   if(type==='OPEN_APP'){ openApp(payload); }
   if(type==='SET_APP_ICON'){
     const app = payload && payload.app;
@@ -2434,7 +2512,8 @@ function restoreState(){
   if(safeAreaCover) safeAreaCover.remove();
   compactCharKey('activeCharacter');
   compactCharKey('pendingChatChar');
-  bindTextNormalization();
+bindTextNormalization();
+renderOfflineMiniLauncher();
   syncAppHeight();
   applyPhoneFrameVisibility(getPhoneFrameVisibility(), false);
   bindHomePager();
