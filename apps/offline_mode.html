@@ -376,6 +376,16 @@ function formatOfflineHistory(limit){
     return (entry.role === 'user' ? '用户' : '角色') + '：' + String(entry.text || '').replace(/\s+/g, ' ').trim();
   }).join('\n');
 }
+function getOfflineStoryPrefs(){
+  var minChars = Math.max(10, Number(character && character.offlineInviteMin) || 28);
+  var maxChars = Math.max(minChars, Number(character && character.offlineInviteMax) || 52);
+  var perspective = String(character && character.offlineInvitePerspective || 'first');
+  if(!/^(first|second|third)$/.test(perspective)) perspective = 'first';
+  return { minChars:minChars, maxChars:maxChars, perspective:perspective };
+}
+function getOfflineStoryPerspectiveLabel(value){
+  return value === 'second' ? '第二人称' : (value === 'third' ? '第三人称' : '第一人称');
+}
 function offlineOpeningBanRules(){
   return [
     '以下句式/词组/结构严禁出现在任何输出中，匹配到任意一条即违规，必须改写或删除。',
@@ -397,11 +407,14 @@ function offlineOpeningBanRules(){
 function buildOfflineSystemPrompt(options){
   options = options || {};
   var persona = character ? (character.personality || character.description || '') : '';
+  var storyPrefs = getOfflineStoryPrefs();
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
     '必须保持第一人称沉浸感，像真人面对面相处，不要说自己是 AI。',
     '只返回 JSON：{"text":"...","heart":"...","bubbles":["...","..."]}',
     'text 写成长一点的线下面对面段落，细节感更强，但不要写成小说章节标题。',
+    '在线下模式正文里，text 的长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
+    '在线下模式正文里，text 的叙述人称严格使用：' + getOfflineStoryPerspectiveLabel(storyPrefs.perspective) + '。',
     'heart 是右上角爱心里的短心声，2-10 个字。',
     'bubbles 是点击头像后弹出的 1-3 条小气泡，每条 4-12 个字。',
     '不要 markdown，不要代码块，不要额外解释。',
@@ -418,11 +431,13 @@ function buildOfflineSystemPrompt(options){
 }
 function buildOfflineOpeningChunkSystemPrompt(){
   var persona = character ? (character.personality || character.description || '') : '';
+  var storyPrefs = getOfflineStoryPrefs();
   return [
     '你在生成“线下见面模式”的第一幕正文分段。',
     '必须保持第一人称沉浸感，像真人面对面相处，不要说自己是 AI。',
     '只返回纯文本正文，不要 JSON，不要标题，不要代码块，不要解释。',
-    '每次只续写当前这一小段，字数控制在 420 到 560 个中文字符左右。',
+    '这次直接写完整第一幕正文，长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
+    '第一幕正文的叙述人称严格使用：' + getOfflineStoryPerspectiveLabel(storyPrefs.perspective) + '。',
     '要和上一段严丝合缝接上，不能重复开头，也不要总结回顾。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '人设：' + (persona || '未提供'),

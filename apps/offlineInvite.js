@@ -2,18 +2,6 @@ var OFFLINE_INVITE_SNIPPET = '【约会邀请】';
 var OFFLINE_WEATHERS = ['☀︎','☁︎','⛅︎','☂︎','☃︎'];
 var OFFLINE_MOODS = ['(///v///)','(,,> <,,)','(๑´ㅂ`๑)','(｡･ω･｡)','(っ˘ڡ˘ς)','( ´ ▽ ` )'];
 
-function getOfflineInvitePrefs(){
-  var minChars = Math.max(10, Number(character && character.offlineInviteMin) || 28);
-  var maxChars = Math.max(minChars, Number(character && character.offlineInviteMax) || 52);
-  var perspective = String(character && character.offlineInvitePerspective || 'first');
-  if(!/^(first|second|third)$/.test(perspective)) perspective = 'first';
-  return { minChars: minChars, maxChars: maxChars, perspective: perspective };
-}
-
-function getOfflineInvitePerspectiveLabel(value){
-  return value === 'second' ? '第二人称' : (value === 'third' ? '第三人称' : '第一人称');
-}
-
 function normalizeOfflineWeatherIcon(value){
   var raw = String(value || '').trim();
   if(!raw) return '☀︎';
@@ -113,10 +101,9 @@ function offlineInviteSummaryText(content){
 }
 
 function normalizeOfflineInviteDecisionText(text, fallback){
-  var prefs = getOfflineInvitePrefs();
   var clean = String(text || '').replace(/\s+/g, ' ').trim() || String(fallback || '').trim();
   if(!clean) return '';
-  if(clean.length > prefs.maxChars) return clean.slice(0, prefs.maxChars);
+  if(clean.length > 48) return clean.slice(0, 48);
   return clean;
 }
 
@@ -431,13 +418,11 @@ async function acceptOfflineInvite(messageId){
 async function requestCharOfflineInviteDecision(userPayload){
   var msgMin = Math.max(1, Number(character && character.msgMin) || 1);
   var msgMax = Math.max(msgMin, Number(character && character.msgMax) || 3);
-  var invitePrefs = getOfflineInvitePrefs();
   var systemPrompt = [
     '你是角色本人，要决定是否接受用户发来的线下邀请。',
     '必须认真读取角色当前人设、世界书设定、最近聊天气氛、用户此刻的伤心或情绪状态，以及用户这次邀约里写的具体话和地点。',
     '如果 accept 为 true，text 不是模板句，而是角色本人认真写给用户的一句约会邀请或回应，语气要符合角色，不要套话，不要默认文案。',
-    '约会邀请/回应文本长度严格控制在 ' + invitePrefs.minChars + ' 到 ' + invitePrefs.maxChars + ' 个中文字符之间。',
-    '约会邀请/回应文本的人称严格使用：' + getOfflineInvitePerspectiveLabel(invitePrefs.perspective) + '。',
+    'text 控制在大约 45 个字，允许上下浮动一点，但不要太短，也不要太长。',
     '只返回 JSON：{"accept":true|false,"text":"...","mood":"...","weather":"...","location":"...","aside":"..."}',
     '如果 accept 为 true，text 写一句自然口语的线下回应，其他字段用于邀约卡片。',
     '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成邀约卡片文案。',
