@@ -38,7 +38,7 @@ body{font-family:var(--font);background:linear-gradient(180deg,#efefeb 0%,#f8f8f
 .char-paper-layer.back-two{left:2px;top:58px;background-image:url('assets/报纸2.jpg');transform:rotate(-5.2deg);z-index:1;opacity:1}
 .char-main-sheet{position:absolute;left:26px;top:28px;width:326px;height:340px;background:#fdfdf8;border:1.8px solid rgba(10,10,10,.56);box-shadow:none;z-index:2}
 .char-main-sheet::before{content:'';position:absolute;inset:0;border:1px solid rgba(255,255,255,.78);pointer-events:none}
-.char-flower{position:absolute;right:-2px;top:164px;width:98px;height:166px;z-index:4;pointer-events:none;transform:rotate(18deg);opacity:.7}
+.char-flower{position:absolute;right:-24px;top:164px;width:98px;height:166px;z-index:4;pointer-events:none;transform:rotate(18deg);opacity:.7}
 .char-flower img{display:block;width:100%;height:100%;object-fit:contain;filter:grayscale(1) contrast(1.08)}
 .char-heart-pin{display:none}
 .char-polaroid-stack{position:absolute;left:-10px;top:4px;width:116px;height:138px;z-index:6}
@@ -328,9 +328,9 @@ function sheetHeightForText(text, sign){
   var signText = String(sign || '').trim();
   var lines = body ? body.split(/\n+/).length : 1;
   var chars = body.replace(/\s+/g, '').length;
-  var estimatedLines = Math.max(lines, Math.ceil(chars / 24));
-  var signAllowance = signText ? 78 : 0;
-  return Math.max(248, 92 + estimatedLines * 26 + signAllowance);
+  var estimatedLines = Math.max(lines, Math.ceil(chars / 22));
+  var signAllowance = signText ? 108 : 0;
+  return Math.max(292, 132 + estimatedLines * 28 + signAllowance);
 }
 function charBackTwoTop(sheetHeight){
   return Math.max(42, Math.round(sheetHeight * 0.17));
@@ -385,6 +385,17 @@ function getOfflineStoryPrefs(){
 }
 function getOfflineStoryPerspectiveLabel(value){
   return value === 'second' ? '第二人称' : (value === 'third' ? '第三人称' : '第一人称');
+}
+function violatesOfflinePerspective(text, perspective){
+  var body = String(text || '');
+  if(!body) return false;
+  if(perspective === 'third'){
+    return /(^|[，。！？、\s“”"'‘’（(【\[])(我|我们|你|你们)(?=[，。！？、\s”"'’）)】\]]|$)/.test(body);
+  }
+  if(perspective === 'second'){
+    return /(^|[，。！？、\s“”"'‘’（(【\[])(我|我们)(?=[，。！？、\s”"'’）)】\]]|$)/.test(body);
+  }
+  return false;
 }
 function offlinePerspectiveRuleLine(value){
   if(value === 'third'){
@@ -837,9 +848,12 @@ async function generateOpeningIfNeeded(){
         }
         throw err;
       }
-      if(openingTextLength(openingText) >= minChars && !containsOpeningViolation(openingText)){
+      if(openingTextLength(openingText) >= minChars && !containsOpeningViolation(openingText) && !violatesOfflinePerspective(openingText, storyPrefs.perspective)){
         break;
       }
+    }
+    if(violatesOfflinePerspective(openingText, storyPrefs.perspective) || containsOpeningViolation(openingText) || openingTextLength(openingText) < minChars){
+      openingText = '';
     }
     var labels = nowLabels();
     session.entries.push({
@@ -888,8 +902,23 @@ async function sendOfflineTurn(){
   saveSession();
   renderStory();
   try{
-    var raw = await callAI(buildOfflineSystemPrompt(), buildOfflineUserPrompt(text));
-    var parsed = parseOfflineReply(raw);
+    var prefs = getOfflineStoryPrefs();
+    var parsed = null;
+    for(var attempt = 0; attempt < 2; attempt += 1){
+      var raw = await callAI(buildOfflineSystemPrompt(), buildOfflineUserPrompt(text));
+      parsed = parseOfflineReply(raw);
+      if(parsed && parsed.text && !violatesOfflinePerspective(parsed.text, prefs.perspective)){
+        break;
+      }
+      parsed = null;
+    }
+    if(!parsed){
+      parsed = {
+        text: buildOfflineOpeningFallback(),
+        heart: '♥',
+        bubbles: ['慢一点','让我看看你']
+      };
+    }
     var nextLabels = nowLabels();
     session.entries.push({
       role:'assistant',
