@@ -272,24 +272,36 @@ function extraCharPhotoKey(){
 function getCharDisplayName(){
   return String((character && (character.name || character.nickname)) || 'Char').trim() || 'Char';
 }
-function renderCharSheetBody(text, aside){
+function renderCharSheetBody(text, asides){
   var body = String(text || '').trim();
-  var note = String(aside || '').trim();
+  var notes = Array.isArray(asides) ? asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [];
   var parts = body ? body.split(/\n+/).filter(Boolean) : ['这场线下见面还没正式开始。'];
-  if(note && parts.length === 1){
+  if(notes.length && parts.length === 1){
     var solo = parts[0];
-    var splitAt = Math.max(18, Math.min(solo.length - 18, Math.floor(solo.length * 0.52)));
-    if(solo.length > 42){
+    if(solo.length > 84){
+      var first = Math.max(18, Math.min(solo.length - 36, Math.floor(solo.length * 0.34)));
+      var second = Math.max(first + 18, Math.min(solo.length - 18, Math.floor(solo.length * 0.68)));
+      parts = [solo.slice(0, first), solo.slice(first, second), solo.slice(second)];
+    }else if(solo.length > 42){
+      var splitAt = Math.max(18, Math.min(solo.length - 18, Math.floor(solo.length * 0.52)));
       parts = [solo.slice(0, splitAt), solo.slice(splitAt)];
     }
   }
-  var insertAt = note ? Math.min(parts.length - 1, Math.max(0, Math.floor(parts.length / 2))) : -1;
+  var insertSlots = [];
+  if(notes.length === 1){
+    insertSlots = [Math.min(parts.length - 1, Math.max(0, Math.floor(parts.length / 2)))];
+  }else if(notes.length >= 2){
+    insertSlots = [
+      Math.max(0, Math.floor((parts.length - 1) / 3)),
+      Math.max(0, Math.min(parts.length - 1, Math.floor((parts.length - 1) * 2 / 3)))
+    ];
+  }
   var html = '';
   parts.forEach(function(part, idx){
     html += '<p>' + esc(part) + '</p>';
-    if(note && idx === insertAt){
-      html += '<p class="char-sheet-aside">' + esc(note) + '</p>';
-    }
+    insertSlots.forEach(function(slot, noteIdx){
+      if(idx === slot && notes[noteIdx]) html += '<p class="char-sheet-aside">' + esc(notes[noteIdx]) + '</p>';
+    });
   });
   return html;
 }
@@ -298,7 +310,7 @@ function renderStory(){
   if(!wrap) return;
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   if(!list.length){
-    var emptyHeight = sheetHeightForText('这场线下见面还没正式开始。', getCharDisplayName(), '');
+    var emptyHeight = sheetHeightForText('这场线下见面还没正式开始。', getCharDisplayName(), []);
     var emptyBackTwoTop = charBackTwoTop(emptyHeight);
     var emptyFlowerTop = charFlowerTop(emptyHeight);
     wrap.innerHTML = '<div class="story-card char"><div class="char-layout" style="min-height:' + (emptyHeight + 84) + 'px"><div class="char-paper-layer back-one" style="height:' + emptyHeight + 'px"></div><div class="char-paper-layer back-two" style="height:' + emptyHeight + 'px;top:' + emptyBackTwoTop + 'px"></div><div class="char-main-sheet" style="height:' + emptyHeight + 'px"></div><div class="char-polaroid-stack"><div class="char-polaroid-main"><div class="char-polaroid-frame">' + esc(getCharDisplayName()) + '</div></div><div class="char-camera"></div></div><div class="char-sheet-content"><div class="char-sheet-actline">第1幕</div><div class="char-sheet-text">' + renderCharSheetBody('这场线下见面还没正式开始。', '') + '</div><div class="char-sheet-sign">' + esc(getCharDisplayName()) + '</div></div><div class="char-flower" style="top:' + emptyFlowerTop + 'px"><img src="assets/floral-border-1.png" alt=""></div></div></div>';
@@ -310,7 +322,7 @@ function renderStory(){
     var label = isChar ? 'Char' : resolveUserName();
     var bubbles = encodeURIComponent(JSON.stringify(entry.bubbles || []));
     if(isChar){
-      var sheetHeight = sheetHeightForText(entry.text || '', getCharDisplayName(), entry.aside || '');
+      var sheetHeight = sheetHeightForText(entry.text || '', getCharDisplayName(), entry.asides || (entry.aside ? [entry.aside] : []));
       var backTwoTop = charBackTwoTop(sheetHeight);
       var flowerTop = charFlowerTop(sheetHeight);
       return '<div class="story-card char">' +
@@ -324,7 +336,7 @@ function renderStory(){
         '</div></div>' +
         '<div class="char-camera"></div>' +
         '</div>' +
-        '<div class="char-sheet-content"><div class="char-sheet-actline">第' + (idx + 1) + '幕</div><div class="char-sheet-text">' + renderCharSheetBody(entry.text || '', entry.aside || '') + '</div><div class="char-sheet-sign">' + esc(getCharDisplayName()) + '</div></div>' +
+        '<div class="char-sheet-content"><div class="char-sheet-actline">第' + (idx + 1) + '幕</div><div class="char-sheet-text">' + renderCharSheetBody(entry.text || '', entry.asides || (entry.aside ? [entry.aside] : [])) + '</div><div class="char-sheet-sign">' + esc(getCharDisplayName()) + '</div></div>' +
         '<div class="char-flower" style="top:' + flowerTop + 'px"><img src="assets/floral-border-1.png" alt=""></div>' +
         '</div>' +
       '</div>';
@@ -347,16 +359,18 @@ function renderStory(){
   document.getElementById('offlineStatus').textContent = '线下模式 · ' + ((character && (character.nickname || character.name)) || 'Char');
   wrap.scrollTop = wrap.scrollHeight;
 }
-function sheetHeightForText(text, sign, aside){
+function sheetHeightForText(text, sign, asides){
   var body = String(text || '').trim();
   var signText = String(sign || '').trim();
-  var asideText = String(aside || '').trim();
+  var noteList = Array.isArray(asides) ? asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean) : [];
   var lines = body ? body.split(/\n+/).length : 1;
   var chars = body.replace(/\s+/g, '').length;
-  var asideLines = asideText ? Math.max(1, Math.ceil(asideText.replace(/\s+/g, '').length / 20)) : 0;
+  var asideLines = noteList.reduce(function(sum, note){
+    return sum + Math.max(1, Math.ceil(note.replace(/\s+/g, '').length / 20));
+  }, 0);
   var estimatedLines = Math.max(lines, Math.ceil(chars / 22)) + asideLines;
   var signAllowance = signText ? 108 : 0;
-  var asideAllowance = asideText ? 26 : 0;
+  var asideAllowance = noteList.length ? (18 * noteList.length) : 0;
   return Math.max(292, 132 + estimatedLines * 28 + signAllowance + asideAllowance);
 }
 function charBackTwoTop(sheetHeight){
@@ -426,7 +440,7 @@ function violatesOfflinePerspective(text, perspective){
 }
 function offlinePerspectiveRuleLine(value){
   if(value === 'third'){
-    return '正文叙述严格使用自然的第三人称。char 和 user 都用名字、他、她这类第三人称称呼，不要突然切回“我/你”的自述口吻，也不要生硬机械地重复名字。';
+    return '正文叙述严格使用自然的第三人称。char 和 user 都用名字、他、她这类第三人称称呼，不要突然切回“我/你”的自述口吻，也不要生硬机械地重复名字。正文参考语感："' + getCharDisplayName() + '看向' + resolveUserName() + '时，呼吸慢慢放轻了。他没有立刻说话，只是安静地站在原地。"';
   }
   if(value === 'second'){
     return '正文叙述严格使用第二人称，保持“你/他（她）”这种面对面的信件口吻，不要突然切回第一人称自述。';
@@ -467,7 +481,63 @@ function buildOfflineOpeningFallback(){
   return body.trim();
 }
 function buildOfflineAsideFallback(){
-  return '我真的已经想你很久了。';
+  return ['我真的已经想你很久了。','我现在还是有点不敢相信你就在这里。'];
+}
+function normalizeOfflineAsides(raw){
+  var list = [];
+  if(Array.isArray(raw)) list = raw;
+  else if(typeof raw === 'string' && raw.trim()) list = raw.split(/\n+/);
+  list = list.map(function(it){ return String(it || '').trim(); }).filter(Boolean);
+  if(!list.length) list = buildOfflineAsideFallback();
+  return list.slice(0, 2);
+}
+function memorySummaryStorageKey(charId){
+  return scopedKey('memory_summaries_' + String(charId || '').trim());
+}
+function getOfflineMemorySnippet(){
+  if(!character || !character.id) return '';
+  try{
+    var raw = localStorage.getItem(memorySummaryStorageKey(character.id)) || '';
+    if(!raw) return '';
+    var parsed = JSON.parse(raw);
+    var items = Array.isArray(parsed && parsed.items) ? parsed.items : [];
+    return items.map(function(it){ return String((it && it.text) || '').trim(); }).filter(Boolean).slice(-4).join('\n');
+  }catch(e){
+    return '';
+  }
+}
+function getOfflineWorldbookSnippet(){
+  if(!character || !character.id) return '';
+  function isEntryEnabled(entry){
+    if(!entry) return false;
+    if(entry.enabled === false || entry.active === false) return false;
+    if(entry.disabled === true || entry.disable === true) return false;
+    return !!String(entry.content || '').trim();
+  }
+  function makeBookKey(bucketKey, wb, idx){
+    return [bucketKey || '', (wb && wb.id) || ('wb_' + idx), (wb && wb.name) || '世界书'].join('::');
+  }
+  try{
+    var all = JSON.parse(localStorage.getItem('worldbooks') || '{}') || {};
+    var bucketIds = [String(character.id || '').trim()];
+    var texts = [];
+    Object.keys(all).forEach(function(bucketKey){
+      (all[bucketKey] || []).forEach(function(wb, idx){
+        if(!wb) return;
+        var isRoleBook = bucketIds.indexOf(bucketKey) !== -1;
+        var isGlobalBook = !!wb.global;
+        if(!isRoleBook && !isGlobalBook) return;
+        (wb.entries || []).forEach(function(entry){
+          if(!isEntryEnabled(entry)) return;
+          var text = String(entry.content || '').trim();
+          if(text) texts.push(text);
+        });
+      });
+    });
+    return texts.slice(0, 8).join('\n\n');
+  }catch(e){
+    return '';
+  }
 }
 function offlineOpeningBanRules(){
   return [
@@ -491,19 +561,24 @@ function buildOfflineSystemPrompt(options){
   options = options || {};
   var persona = character ? (character.personality || character.description || '') : '';
   var storyPrefs = getOfflineStoryPrefs();
+  var worldBook = getOfflineWorldbookSnippet();
+  var memoryText = getOfflineMemorySnippet();
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"text":"...","aside":"...","heart":"...","bubbles":["...","..."]}',
+    '只返回 JSON：{"text":"...","asides":["...","..."],"heart":"...","bubbles":["...","..."]}',
     'text 写成长一点的线下面对面段落，细节感更强，但不要写成小说章节标题。',
     '在线下模式正文里，text 的长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
-    'aside 是夹在正文里的 1-2 句心声，必须永远使用 char 的第一人称，长度控制在 12-36 个中文字符之间。',
+    'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间。',
     'heart 是右上角爱心里的短心声，2-10 个字。',
     'bubbles 是点击头像后弹出的 1-3 条小气泡，每条 4-12 个字。',
+    '最近线上聊天、记忆总结、世界书优先级很高，必须先读懂再写；不要驴唇不对马嘴，不要脱离当下话题乱写。',
     '不要 markdown，不要代码块，不要额外解释。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
-    '人设：' + (persona || '未提供')
+    '人设：' + (persona || '未提供'),
+    worldBook ? ('世界书（已启用条目）：\n' + worldBook) : '世界书（已启用条目）：无',
+    memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无'
   ];
   if(options.opening){
     lines.push('现在要写的是线下模式的第一幕正文。');
@@ -516,16 +591,21 @@ function buildOfflineSystemPrompt(options){
 function buildOfflineOpeningChunkSystemPrompt(){
   var persona = character ? (character.personality || character.description || '') : '';
   var storyPrefs = getOfflineStoryPrefs();
+  var worldBook = getOfflineWorldbookSnippet();
+  var memoryText = getOfflineMemorySnippet();
   return [
     '你在生成“线下见面模式”的第一幕正文。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"text":"...","aside":"..."}，不要标题，不要代码块，不要解释。',
+    '只返回 JSON：{"text":"...","asides":["...","..."]}，不要标题，不要代码块，不要解释。',
     '这次直接写完整第一幕正文，长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
-    'aside 是夹在正文里的 1-2 句心声，必须永远使用 char 的第一人称，长度控制在 12-36 个中文字符之间。',
+    'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间。',
+    '最近线上聊天、记忆总结、世界书优先级很高，必须先读懂再写；不要脱离上下文瞎写。',
     '要直接进入见面的第一幕，不要总结回顾，不要写成说明书，也不要偷懒只写很短一段。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '人设：' + (persona || '未提供'),
+    worldBook ? ('世界书（已启用条目）：\n' + worldBook) : '世界书（已启用条目）：无',
+    memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无',
     offlineOpeningBanRules()
   ].join('\n');
 }
@@ -609,9 +689,12 @@ function parseOfflineReply(raw){
   var clean = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
   try{
     var obj = JSON.parse(clean);
-    if(obj && typeof obj === 'object') return obj;
+    if(obj && typeof obj === 'object'){
+      if(!Array.isArray(obj.asides) && typeof obj.aside === 'string') obj.asides = [obj.aside];
+      return obj;
+    }
   }catch(e){}
-  return { text: clean || '他靠近了一点，眼神里带着藏不住的柔软。', aside:'', heart:'♥', bubbles:['别躲开我'] };
+  return { text: clean || '他靠近了一点，眼神里带着藏不住的柔软。', asides:[], heart:'♥', bubbles:['别躲开我'] };
 }
 async function callAIWithTimeout(systemPrompt, userPrompt, timeoutMs){
   var ms = Math.max(5000, Number(timeoutMs) || 30000);
@@ -863,7 +946,7 @@ async function generateOpeningIfNeeded(){
   var minChars = storyPrefs.minChars;
   var partialThreshold = Math.max(120, Math.floor(minChars * 0.65));
   var openingText = '';
-  var openingAside = '';
+  var openingAsides = [];
   try{
     var openingPrompt = [
       '请写这场线下见面的第一个场景。',
@@ -871,12 +954,12 @@ async function generateOpeningIfNeeded(){
       '最近线上聊天：' + (session.chatHistory || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
-    for(var attempt = 0; attempt < 2; attempt += 1){
+    for(var attempt = 0; attempt < 3; attempt += 1){
       try{
         var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 45000);
         var parsedOpening = parseOfflineReply(raw);
         openingText = String(parsedOpening && parsedOpening.text || '').trim();
-        openingAside = String(parsedOpening && parsedOpening.aside || '').trim();
+        openingAsides = normalizeOfflineAsides(parsedOpening && parsedOpening.asides);
       }catch(err){
         if(openingTextLength(openingText) >= partialThreshold){
           break;
@@ -894,7 +977,7 @@ async function generateOpeningIfNeeded(){
     session.entries.push({
       role:'assistant',
       text:String(openingText || '').trim() || buildOfflineOpeningFallback(),
-      aside: openingAside || buildOfflineAsideFallback(),
+      asides: openingAsides.length ? openingAsides : buildOfflineAsideFallback(),
       heart:'♥',
       bubbles:['终于见到你','过来一点'],
       timeLabel:labels.timeLabel,
@@ -908,7 +991,7 @@ async function generateOpeningIfNeeded(){
       session.entries.push({
         role:'assistant',
         text:String(openingText || '').trim(),
-        aside: openingAside || buildOfflineAsideFallback(),
+        asides: openingAsides.length ? openingAsides : buildOfflineAsideFallback(),
         heart:'♥',
         bubbles:['终于见到你','过来一点'],
         timeLabel:partial.timeLabel,
@@ -916,7 +999,7 @@ async function generateOpeningIfNeeded(){
       });
     }else{
       var fallback = nowLabels();
-      session.entries.push({ role:'assistant', text:buildOfflineOpeningFallback(), aside:buildOfflineAsideFallback(), heart:'♥', bubbles:['终于见到你','别赶我走'], timeLabel:fallback.timeLabel, meta:fallback.meta });
+      session.entries.push({ role:'assistant', text:buildOfflineOpeningFallback(), asides:buildOfflineAsideFallback(), heart:'♥', bubbles:['终于见到你','别赶我走'], timeLabel:fallback.timeLabel, meta:fallback.meta });
     }
     session.pendingOpening = false;
     saveSession();
@@ -941,7 +1024,7 @@ async function sendOfflineTurn(){
   try{
     var prefs = getOfflineStoryPrefs();
     var parsed = null;
-    for(var attempt = 0; attempt < 2; attempt += 1){
+    for(var attempt = 0; attempt < 3; attempt += 1){
       var raw = await callAI(buildOfflineSystemPrompt(), buildOfflineUserPrompt(text));
       parsed = parseOfflineReply(raw);
       if(parsed && parsed.text && !violatesOfflinePerspective(parsed.text, prefs.perspective)){
@@ -952,7 +1035,7 @@ async function sendOfflineTurn(){
     if(!parsed){
       parsed = {
         text: buildOfflineOpeningFallback(),
-        aside: buildOfflineAsideFallback(),
+        asides: buildOfflineAsideFallback(),
         heart: '♥',
         bubbles: ['慢一点','让我看看你']
       };
@@ -961,7 +1044,7 @@ async function sendOfflineTurn(){
     session.entries.push({
       role:'assistant',
       text:String(parsed.text || '').trim() || '他安静地看着你，慢慢接上了你刚才的话。',
-      aside:String(parsed.aside || '').trim() || buildOfflineAsideFallback(),
+      asides: normalizeOfflineAsides(parsed.asides),
       heart:String(parsed.heart || '♥').trim() || '♥',
       bubbles:Array.isArray(parsed.bubbles) ? parsed.bubbles.slice(0,3) : [],
       timeLabel:nextLabels.timeLabel,
