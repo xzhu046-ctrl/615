@@ -51,6 +51,9 @@ body{font-family:var(--font);background:linear-gradient(180deg,#efefeb 0%,#f8f8f
 .char-sheet-actline{font-family:'Ma Shan Zheng',cursive;font-size:44px;line-height:1;color:#111;text-align:center;margin-bottom:12px}
 .char-sheet-rule,.char-sheet-heart,.char-sheet-note{display:none}
 .char-sheet-text{width:100%;font-family:'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;font-size:14px;font-weight:600;line-height:1.86;letter-spacing:0;white-space:pre-wrap;word-break:break-word;color:#111}
+.char-sheet-text p{margin:0 0 12px}
+.char-sheet-text p:last-child{margin-bottom:0}
+.char-sheet-aside{margin:4px 0 14px;color:#6f8fd8;font-style:italic;font-weight:600}
 .char-sheet-sign{display:block;margin-top:28px;margin-left:-12px;max-width:198px;font-family:'Zhi Mang Xing',cursive;font-size:32px;font-weight:400;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none}
 .char-act-badge{position:absolute;left:132px;top:42px;z-index:5;padding:0;border:none;border-radius:0;background:transparent;box-shadow:none;font-family:'Ma Shan Zheng',cursive;font-size:36px;font-weight:400;color:#1b1b1b;text-decoration:none;display:none}
 .card-paper{position:absolute;inset:26px;border-radius:24px;background:rgba(248,248,244,.88)}
@@ -269,15 +272,31 @@ function extraCharPhotoKey(){
 function getCharDisplayName(){
   return String((character && (character.name || character.nickname)) || 'Char').trim() || 'Char';
 }
+function renderCharSheetBody(text, aside){
+  var body = String(text || '').trim();
+  var note = String(aside || '').trim();
+  var parts = body ? body.split(/\n+/).filter(Boolean) : ['这场线下见面还没正式开始。'];
+  var html = '';
+  parts.forEach(function(part, idx){
+    html += '<p>' + esc(part) + '</p>';
+    if(note && idx === 0){
+      html += '<p class="char-sheet-aside">' + esc(note) + '</p>';
+    }
+  });
+  if(note && !parts.length){
+    html += '<p class="char-sheet-aside">' + esc(note) + '</p>';
+  }
+  return html;
+}
 function renderStory(){
   var wrap = document.getElementById('storyList');
   if(!wrap) return;
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   if(!list.length){
-    var emptyHeight = sheetHeightForText('这场线下见面还没正式开始。', getCharDisplayName());
+    var emptyHeight = sheetHeightForText('这场线下见面还没正式开始。', getCharDisplayName(), '');
     var emptyBackTwoTop = charBackTwoTop(emptyHeight);
     var emptyFlowerTop = charFlowerTop(emptyHeight);
-    wrap.innerHTML = '<div class="story-card char"><div class="char-layout" style="min-height:' + (emptyHeight + 84) + 'px"><div class="char-paper-layer back-one" style="height:' + emptyHeight + 'px"></div><div class="char-paper-layer back-two" style="height:' + emptyHeight + 'px;top:' + emptyBackTwoTop + 'px"></div><div class="char-main-sheet" style="height:' + emptyHeight + 'px"></div><div class="char-polaroid-stack"><div class="char-polaroid-main"><div class="char-polaroid-frame">' + esc(getCharDisplayName()) + '</div></div><div class="char-camera"></div></div><div class="char-sheet-content"><div class="char-sheet-actline">第1幕</div><div class="char-sheet-text">这场线下见面还没正式开始。</div><div class="char-sheet-sign">' + esc(getCharDisplayName()) + '</div></div><div class="char-flower" style="top:' + emptyFlowerTop + 'px"><img src="assets/floral-border-1.png" alt=""></div></div></div>';
+    wrap.innerHTML = '<div class="story-card char"><div class="char-layout" style="min-height:' + (emptyHeight + 84) + 'px"><div class="char-paper-layer back-one" style="height:' + emptyHeight + 'px"></div><div class="char-paper-layer back-two" style="height:' + emptyHeight + 'px;top:' + emptyBackTwoTop + 'px"></div><div class="char-main-sheet" style="height:' + emptyHeight + 'px"></div><div class="char-polaroid-stack"><div class="char-polaroid-main"><div class="char-polaroid-frame">' + esc(getCharDisplayName()) + '</div></div><div class="char-camera"></div></div><div class="char-sheet-content"><div class="char-sheet-actline">第1幕</div><div class="char-sheet-text">' + renderCharSheetBody('这场线下见面还没正式开始。', '') + '</div><div class="char-sheet-sign">' + esc(getCharDisplayName()) + '</div></div><div class="char-flower" style="top:' + emptyFlowerTop + 'px"><img src="assets/floral-border-1.png" alt=""></div></div></div>';
     return;
   }
   wrap.innerHTML = list.map(function(entry, idx){
@@ -286,7 +305,7 @@ function renderStory(){
     var label = isChar ? 'Char' : resolveUserName();
     var bubbles = encodeURIComponent(JSON.stringify(entry.bubbles || []));
     if(isChar){
-      var sheetHeight = sheetHeightForText(entry.text || '', getCharDisplayName());
+      var sheetHeight = sheetHeightForText(entry.text || '', getCharDisplayName(), entry.aside || '');
       var backTwoTop = charBackTwoTop(sheetHeight);
       var flowerTop = charFlowerTop(sheetHeight);
       return '<div class="story-card char">' +
@@ -300,7 +319,7 @@ function renderStory(){
         '</div></div>' +
         '<div class="char-camera"></div>' +
         '</div>' +
-        '<div class="char-sheet-content"><div class="char-sheet-actline">第' + (idx + 1) + '幕</div><div class="char-sheet-text">' + esc(entry.text || '') + '</div><div class="char-sheet-sign">' + esc(getCharDisplayName()) + '</div></div>' +
+        '<div class="char-sheet-content"><div class="char-sheet-actline">第' + (idx + 1) + '幕</div><div class="char-sheet-text">' + renderCharSheetBody(entry.text || '', entry.aside || '') + '</div><div class="char-sheet-sign">' + esc(getCharDisplayName()) + '</div></div>' +
         '<div class="char-flower" style="top:' + flowerTop + 'px"><img src="assets/floral-border-1.png" alt=""></div>' +
         '</div>' +
       '</div>';
@@ -323,14 +342,17 @@ function renderStory(){
   document.getElementById('offlineStatus').textContent = '线下模式 · ' + ((character && (character.nickname || character.name)) || 'Char');
   wrap.scrollTop = wrap.scrollHeight;
 }
-function sheetHeightForText(text, sign){
+function sheetHeightForText(text, sign, aside){
   var body = String(text || '').trim();
   var signText = String(sign || '').trim();
+  var asideText = String(aside || '').trim();
   var lines = body ? body.split(/\n+/).length : 1;
   var chars = body.replace(/\s+/g, '').length;
-  var estimatedLines = Math.max(lines, Math.ceil(chars / 22));
+  var asideLines = asideText ? Math.max(1, Math.ceil(asideText.replace(/\s+/g, '').length / 20)) : 0;
+  var estimatedLines = Math.max(lines, Math.ceil(chars / 22)) + asideLines;
   var signAllowance = signText ? 108 : 0;
-  return Math.max(292, 132 + estimatedLines * 28 + signAllowance);
+  var asideAllowance = asideText ? 26 : 0;
+  return Math.max(292, 132 + estimatedLines * 28 + signAllowance + asideAllowance);
 }
 function charBackTwoTop(sheetHeight){
   return Math.max(42, Math.round(sheetHeight * 0.17));
@@ -439,6 +461,9 @@ function buildOfflineOpeningFallback(){
   }
   return body.trim();
 }
+function buildOfflineAsideFallback(){
+  return '我真的已经想你很久了。';
+}
 function offlineOpeningBanRules(){
   return [
     '以下句式/词组/结构严禁出现在任何输出中，匹配到任意一条即违规，必须改写或删除。',
@@ -464,10 +489,11 @@ function buildOfflineSystemPrompt(options){
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"text":"...","heart":"...","bubbles":["...","..."]}',
+    '只返回 JSON：{"text":"...","aside":"...","heart":"...","bubbles":["...","..."]}',
     'text 写成长一点的线下面对面段落，细节感更强，但不要写成小说章节标题。',
     '在线下模式正文里，text 的长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
+    'aside 是夹在正文里的 1-2 句心声，必须永远使用 char 的第一人称，长度控制在 12-36 个中文字符之间。',
     'heart 是右上角爱心里的短心声，2-10 个字。',
     'bubbles 是点击头像后弹出的 1-3 条小气泡，每条 4-12 个字。',
     '不要 markdown，不要代码块，不要额外解释。',
@@ -488,9 +514,10 @@ function buildOfflineOpeningChunkSystemPrompt(){
   return [
     '你在生成“线下见面模式”的第一幕正文。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回纯文本正文，不要 JSON，不要标题，不要代码块，不要解释。',
+    '只返回 JSON：{"text":"...","aside":"..."}，不要标题，不要代码块，不要解释。',
     '这次直接写完整第一幕正文，长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
+    'aside 是夹在正文里的 1-2 句心声，必须永远使用 char 的第一人称，长度控制在 12-36 个中文字符之间。',
     '要直接进入见面的第一幕，不要总结回顾，不要写成说明书，也不要偷懒只写很短一段。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '人设：' + (persona || '未提供'),
@@ -579,7 +606,7 @@ function parseOfflineReply(raw){
     var obj = JSON.parse(clean);
     if(obj && typeof obj === 'object') return obj;
   }catch(e){}
-  return { text: clean || '他靠近了一点，眼神里带着藏不住的柔软。', heart:'♥', bubbles:['别躲开我'] };
+  return { text: clean || '他靠近了一点，眼神里带着藏不住的柔软。', aside:'', heart:'♥', bubbles:['别躲开我'] };
 }
 async function callAIWithTimeout(systemPrompt, userPrompt, timeoutMs){
   var ms = Math.max(5000, Number(timeoutMs) || 30000);
@@ -831,6 +858,7 @@ async function generateOpeningIfNeeded(){
   var minChars = storyPrefs.minChars;
   var partialThreshold = Math.max(120, Math.floor(minChars * 0.65));
   var openingText = '';
+  var openingAside = '';
   try{
     var openingPrompt = [
       '请写这场线下见面的第一个场景。',
@@ -841,7 +869,9 @@ async function generateOpeningIfNeeded(){
     for(var attempt = 0; attempt < 2; attempt += 1){
       try{
         var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 45000);
-        openingText = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+        var parsedOpening = parseOfflineReply(raw);
+        openingText = String(parsedOpening && parsedOpening.text || '').trim();
+        openingAside = String(parsedOpening && parsedOpening.aside || '').trim();
       }catch(err){
         if(openingTextLength(openingText) >= partialThreshold){
           break;
@@ -859,6 +889,7 @@ async function generateOpeningIfNeeded(){
     session.entries.push({
       role:'assistant',
       text:String(openingText || '').trim() || buildOfflineOpeningFallback(),
+      aside: openingAside || buildOfflineAsideFallback(),
       heart:'♥',
       bubbles:['终于见到你','过来一点'],
       timeLabel:labels.timeLabel,
@@ -872,6 +903,7 @@ async function generateOpeningIfNeeded(){
       session.entries.push({
         role:'assistant',
         text:String(openingText || '').trim(),
+        aside: openingAside || buildOfflineAsideFallback(),
         heart:'♥',
         bubbles:['终于见到你','过来一点'],
         timeLabel:partial.timeLabel,
@@ -879,7 +911,7 @@ async function generateOpeningIfNeeded(){
       });
     }else{
       var fallback = nowLabels();
-      session.entries.push({ role:'assistant', text:buildOfflineOpeningFallback(), heart:'♥', bubbles:['终于见到你','别赶我走'], timeLabel:fallback.timeLabel, meta:fallback.meta });
+      session.entries.push({ role:'assistant', text:buildOfflineOpeningFallback(), aside:buildOfflineAsideFallback(), heart:'♥', bubbles:['终于见到你','别赶我走'], timeLabel:fallback.timeLabel, meta:fallback.meta });
     }
     session.pendingOpening = false;
     saveSession();
@@ -915,6 +947,7 @@ async function sendOfflineTurn(){
     if(!parsed){
       parsed = {
         text: buildOfflineOpeningFallback(),
+        aside: buildOfflineAsideFallback(),
         heart: '♥',
         bubbles: ['慢一点','让我看看你']
       };
@@ -923,6 +956,7 @@ async function sendOfflineTurn(){
     session.entries.push({
       role:'assistant',
       text:String(parsed.text || '').trim() || '他安静地看着你，慢慢接上了你刚才的话。',
+      aside:String(parsed.aside || '').trim() || buildOfflineAsideFallback(),
       heart:String(parsed.heart || '♥').trim() || '♥',
       bubbles:Array.isArray(parsed.bubbles) ? parsed.bubbles.slice(0,3) : [],
       timeLabel:nextLabels.timeLabel,
