@@ -1110,11 +1110,14 @@ async function generateOpeningIfNeeded(){
     if(violatesOfflinePerspective(openingText, storyPrefs.perspective) || containsOpeningViolation(openingText) || openingTextLength(openingText) < minChars){
       openingText = '';
     }
+    if(!String(openingText || '').trim()){
+      throw new Error('首幕正文生成失败');
+    }
     var labels = nowLabels();
     session.entries.push({
       role:'assistant',
-      text:String(openingText || '').trim() || buildOfflineOpeningFallback(),
-      asides: openingAsides.length ? openingAsides : buildOfflineAsideFallback(),
+      text:String(openingText || '').trim(),
+      asides: openingAsides.length ? openingAsides : [],
       heart:'♥',
       bubbles:['终于见到你','过来一点'],
       timeLabel:labels.timeLabel,
@@ -1128,15 +1131,15 @@ async function generateOpeningIfNeeded(){
       session.entries.push({
         role:'assistant',
         text:String(openingText || '').trim(),
-        asides: openingAsides.length ? openingAsides : buildOfflineAsideFallback(),
+        asides: openingAsides.length ? openingAsides : [],
         heart:'♥',
         bubbles:['终于见到你','过来一点'],
         timeLabel:partial.timeLabel,
         meta:partial.meta
       });
+      toast('首幕正文部分生成，已先显示');
     }else{
-      var fallback = nowLabels();
-      session.entries.push({ role:'assistant', text:buildOfflineOpeningFallback(), asides:buildOfflineAsideFallback(), heart:'♥', bubbles:['终于见到你','别赶我走'], timeLabel:fallback.timeLabel, meta:fallback.meta });
+      toast('首幕正文生成失败，请重试');
     }
     session.pendingOpening = false;
     saveSession();
@@ -1180,17 +1183,12 @@ async function requestOfflineReply(){
       parsed = null;
     }
     if(!parsed){
-      parsed = {
-        text:'气氛安静地停了一秒，他还是先把想说的话轻轻接了下去。',
-        asides: buildOfflineAsideFallback(),
-        heart:'♥',
-        bubbles:['还想靠近你','别躲开我']
-      };
+      throw new Error('线下回复生成失败');
     }
     var nextLabels = nowLabels();
     session.entries.push({
       role:'assistant',
-      text:String(parsed.text || '').trim() || '气氛安静地停了一秒，他还是先把想说的话轻轻接了下去。',
+      text:String(parsed.text || '').trim(),
       asides: normalizeOfflineAsides(parsed.asides),
       heart:String(parsed.heart || '♥').trim() || '♥',
       bubbles:Array.isArray(parsed.bubbles) ? parsed.bubbles.slice(0,3) : [],
@@ -1200,7 +1198,7 @@ async function requestOfflineReply(){
     saveSession();
     renderStory();
   }catch(e){
-    toast('线下回复生成失败，稍后再试');
+    toast('线下回复生成失败，请重试');
   }finally{
     setOfflineComposerBusy(false);
   }
