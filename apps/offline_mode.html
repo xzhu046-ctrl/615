@@ -276,16 +276,21 @@ function renderCharSheetBody(text, aside){
   var body = String(text || '').trim();
   var note = String(aside || '').trim();
   var parts = body ? body.split(/\n+/).filter(Boolean) : ['这场线下见面还没正式开始。'];
+  if(note && parts.length === 1){
+    var solo = parts[0];
+    var splitAt = Math.max(18, Math.min(solo.length - 18, Math.floor(solo.length * 0.52)));
+    if(solo.length > 42){
+      parts = [solo.slice(0, splitAt), solo.slice(splitAt)];
+    }
+  }
+  var insertAt = note ? Math.min(parts.length - 1, Math.max(0, Math.floor(parts.length / 2))) : -1;
   var html = '';
   parts.forEach(function(part, idx){
     html += '<p>' + esc(part) + '</p>';
-    if(note && idx === 0){
+    if(note && idx === insertAt){
       html += '<p class="char-sheet-aside">' + esc(note) + '</p>';
     }
   });
-  if(note && !parts.length){
-    html += '<p class="char-sheet-aside">' + esc(note) + '</p>';
-  }
   return html;
 }
 function renderStory(){
@@ -419,9 +424,22 @@ function violatesOfflinePerspective(text, perspective){
   }
   return false;
 }
+function normalizeOfflinePerspective(text, perspective){
+  var body = String(text || '').trim();
+  if(!body) return body;
+  if(perspective !== 'third') return body;
+  var charName = getCharDisplayName();
+  var userName = resolveUserName();
+  body = body.replace(/她（他）|他（她）/g, userName);
+  body = body.replace(/你们/g, userName + '们');
+  body = body.replace(/你/g, userName);
+  body = body.replace(/我们/g, charName + '和' + userName);
+  body = body.replace(/我/g, charName);
+  return body;
+}
 function offlinePerspectiveRuleLine(value){
   if(value === 'third'){
-    return '正文叙述严格使用第三人称。char 和 user 都用第三人称称呼，不要突然切回“我/你”的自述口吻。';
+    return '正文叙述严格使用第三人称。char 和 user 都用名字、他、她这类第三人称称呼，不要突然切回“我/你”的自述口吻。';
   }
   if(value === 'second'){
     return '正文叙述严格使用第二人称，保持“你/他（她）”这种面对面的信件口吻，不要突然切回第一人称自述。';
@@ -435,9 +453,9 @@ function buildOfflineOpeningFallback(){
   var body = '';
   if(prefs.perspective === 'third'){
     body = charName + '真的来了，站到' + userName + '面前的时候，呼吸都下意识放轻了些，像怕这场见面稍微重一点就会散。' +
-      '他先看了看' + userName + '的眼睛，又低头去碰她（他）袖口边缘那点褶皱，动作慢得近乎克制，像在确认这一切不是临时做出来的梦。' +
+      '他先看了看' + userName + '的眼睛，又低头去碰' + userName + '袖口边缘那点褶皱，动作慢得近乎克制，像在确认这一切不是临时做出来的梦。' +
       '风从街口绕过来，把周围细碎的声响都吹得发软，连脚步也像被放慢了半拍。' +
-      charName + '没有急着说太多，只是陪着' + userName + '并肩站了一会儿，视线时不时落回她（他）脸上，藏不住那点终于见到人的松动和珍惜。' +
+      charName + '没有急着说太多，只是陪着' + userName + '并肩站了一会儿，视线时不时落回' + userName + '脸上，藏不住那点终于见到人的松动和珍惜。' +
       '等气氛一点点稳下来，他才轻声开口，把一路上压着没说的话慢慢交出来，像终于把这场期待安安稳稳放到现实里。';
   }else if(prefs.perspective === 'second'){
     body = '他真的来了，站到你面前的时候连呼吸都轻了下来，像怕把这场见面碰碎。' +
@@ -870,7 +888,7 @@ async function generateOpeningIfNeeded(){
       try{
         var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 45000);
         var parsedOpening = parseOfflineReply(raw);
-        openingText = String(parsedOpening && parsedOpening.text || '').trim();
+        openingText = normalizeOfflinePerspective(String(parsedOpening && parsedOpening.text || '').trim(), storyPrefs.perspective);
         openingAside = String(parsedOpening && parsedOpening.aside || '').trim();
       }catch(err){
         if(openingTextLength(openingText) >= partialThreshold){
@@ -902,7 +920,7 @@ async function generateOpeningIfNeeded(){
       var partial = nowLabels();
       session.entries.push({
         role:'assistant',
-        text:String(openingText || '').trim(),
+        text:normalizeOfflinePerspective(String(openingText || '').trim(), storyPrefs.perspective),
         aside: openingAside || buildOfflineAsideFallback(),
         heart:'♥',
         bubbles:['终于见到你','过来一点'],
@@ -939,6 +957,9 @@ async function sendOfflineTurn(){
     for(var attempt = 0; attempt < 2; attempt += 1){
       var raw = await callAI(buildOfflineSystemPrompt(), buildOfflineUserPrompt(text));
       parsed = parseOfflineReply(raw);
+      if(parsed && parsed.text){
+        parsed.text = normalizeOfflinePerspective(parsed.text, prefs.perspective);
+      }
       if(parsed && parsed.text && !violatesOfflinePerspective(parsed.text, prefs.perspective)){
         break;
       }
