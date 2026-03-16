@@ -6,7 +6,7 @@ const APP_MAP = {
   settings:   { title: '设置',           src: 'apps/settings.html' },
   customize:  { title: '外观',           src: 'apps/customize.html' },
   worldbook:  { title: '世界书',         src: 'apps/worldbook.html' },
-  offline:    { title: '线下模式',       src: 'apps/offline_mode.html' },
+  offline:    { title: '线下模式',       src: 'apps/offline_mode.html', hideTopbar: true },
 };
 const HOME_ICON_DEFAULTS = {
   qq: 'QQ',
@@ -1976,10 +1976,12 @@ function renderApp(id){
   const a=APP_MAP[id]; if(!a) return;
   currentApp=id;
   const outer = document.querySelector('.phone-outer');
+  const container = document.getElementById('app-container');
   if(outer) outer.classList.add('app-open');
   document.documentElement.classList.add('app-open-mode');
   document.body.classList.add('app-open-mode');
   document.getElementById('app-title-label').textContent=a.title;
+  if(container) container.classList.toggle('no-topbar', !!a.hideTopbar);
   document.getElementById('app-iframe').src=a.src;
   document.getElementById('app-container').classList.add('open');
   document.getElementById('home-screen').classList.add('hidden');
