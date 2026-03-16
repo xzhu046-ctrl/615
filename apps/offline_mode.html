@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&display=swap" rel="stylesheet">
+<script src="../assetStore.js"></script>
 <script src="../promptManager.js"></script>
 <script src="../accountManager.js"></script>
 <style>
@@ -57,7 +58,7 @@ body{font-family:var(--font);background:linear-gradient(180deg,#efefeb 0%,#f8f8f
 .char-sheet-aside{margin:4px 0 14px;color:#6f8fd8;font-style:italic;font-weight:600}
 .char-sheet-sign{display:block;margin-top:28px;margin-left:-12px;max-width:198px;font-family:'Zhi Mang Xing',cursive;font-size:32px;font-weight:400;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none}
 .char-act-badge{position:absolute;left:132px;top:42px;z-index:5;padding:0;border:none;border-radius:0;background:transparent;box-shadow:none;font-family:'Ma Shan Zheng',cursive;font-size:36px;font-weight:400;color:#1b1b1b;text-decoration:none;display:none}
-.story-card.user{padding:0;background:transparent;border:none;box-shadow:none;overflow:visible;min-height:380px;margin-top:18px}
+.story-card.user{padding:0;background:transparent;border:none;box-shadow:none;overflow:visible;min-height:380px;margin-top:42px}
 .story-card.user::before{display:none}
 .story-card.user .char-paper-layer.back-one{left:auto;right:64px;transform:rotate(-4.2deg)}
 .story-card.user .char-paper-layer.back-two{left:auto;right:16px;transform:rotate(5.2deg)}
@@ -182,6 +183,8 @@ var session = null;
 var character = null;
 var sending = false;
 var flightGameState = null;
+var runtimeUserAvatar = '';
+var runtimeCharAvatar = '';
 
 function activeAccountId(){
   try{ return window.AccountManager && window.AccountManager.getActive ? ((window.AccountManager.getActive() || {}).id || '') : ''; }catch(e){ return ''; }
@@ -201,6 +204,12 @@ function pendingOfflineMemoryKey(charId){
 }
 function pendingOfflineNoticeKey(charId){
   return scopedKey('offline_notice_pending_' + String(charId || ''));
+}
+function loadStoredAsset(key){
+  if(window.assetStore && typeof window.assetStore.load === 'function'){
+    return window.assetStore.load(key);
+  }
+  return Promise.resolve(localStorage.getItem(key) || '');
 }
 function toast(msg){
   var el = document.getElementById('toast');
@@ -292,6 +301,7 @@ function loadSession(){
   return fallback.session || null;
 }
 function resolveCharAvatar(){
+  if(runtimeCharAvatar) return runtimeCharAvatar;
   if(character && character.imageData) return character.imageData;
   return '';
 }
@@ -304,10 +314,40 @@ function resolveUserName(){
 }
 function resolveUserAvatar(){
   var charId = character && character.id ? String(character.id) : '';
-  return (charId ? localStorage.getItem(scopedKey('user_avatar_' + charId)) : '')
+  return runtimeUserAvatar
+    || (charId ? localStorage.getItem(scopedKey('user_avatar_' + charId)) : '')
     || localStorage.getItem(scopedKey('user_avatar'))
     || localStorage.getItem('user_avatar')
     || '';
+}
+function refreshOfflineAvatarAssets(){
+  var charId = character && character.id ? String(character.id) : '';
+  var userKeys = [];
+  var charKeys = [];
+  if(charId){
+    userKeys.push(scopedKey('user_avatar_' + charId));
+    userKeys.push('user_avatar_' + charId);
+    charKeys.push('char_avatar_' + charId);
+  }
+  userKeys.push(scopedKey('user_avatar'));
+  userKeys.push('user_avatar');
+  Promise.all([
+    Promise.all(charKeys.map(function(key){ return loadStoredAsset(key).catch(function(){ return ''; }); })),
+    Promise.all(userKeys.map(function(key){ return loadStoredAsset(key).catch(function(){ return ''; }); }))
+  ]).then(function(results){
+    var nextChar = (results[0] || []).find(function(it){ return String(it || '').trim().startsWith('data:'); }) || '';
+    var nextUser = (results[1] || []).find(function(it){ return String(it || '').trim().startsWith('data:'); }) || '';
+    var changed = false;
+    if(nextChar && nextChar !== runtimeCharAvatar){
+      runtimeCharAvatar = nextChar;
+      changed = true;
+    }
+    if(nextUser && nextUser !== runtimeUserAvatar){
+      runtimeUserAvatar = nextUser;
+      changed = true;
+    }
+    if(changed) renderStory();
+  }).catch(function(){ return null; });
 }
 function extraCharPhotoKey(){
   return character && character.id ? scopedKey('offline_char_extra_photo_' + String(character.id)) : '';
@@ -341,7 +381,8 @@ function renderCharSheetBody(text, asides){
   var html = '';
   parts.forEach(function(part, idx){
     var safePart = esc(part);
-    var quoteClass = /[“”"「」『』]/.test(part) ? ' class="sheet-quote"' : '';
+    var trimmedPart = String(part || '').trim();
+    var quoteClass = /^[“"「『].+[”"」』][。！？!?]?$/.test(trimmedPart) ? ' class="sheet-quote"' : '';
     html += '<p' + quoteClass + '>' + safePart + '</p>';
     insertSlots.forEach(function(slot, noteIdx){
       if(idx === slot && notes[noteIdx]) html += '<p class="char-sheet-aside">' + esc(notes[noteIdx]) + '</p>';
@@ -1261,6 +1302,7 @@ function hideFlightOverlay(){
 async function init(){
   character = loadCharacter();
   session = loadSession();
+  refreshOfflineAvatarAssets();
   if((!character || !character.id) && session && session.invite){
     var fallbackRecord = findLatestOfflineSessionRecord();
     if(fallbackRecord && fallbackRecord.charId){
