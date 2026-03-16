@@ -24,7 +24,7 @@ body{font-family:var(--font);background:linear-gradient(180deg,#efefeb 0%,#f8f8f
 .topbar{padding:12px 14px 8px;display:flex;align-items:center;justify-content:space-between;gap:10px}
 .top-pill{padding:8px 12px;border:var(--bd);border-radius:999px;background:rgba(255,255,255,.86);box-shadow:var(--sh);font-family:var(--fontd);font-size:12px;font-weight:900}
 .top-heart{width:48px;height:48px;border:none;border-radius:999px;background:#d91c1c;color:#fff;box-shadow:var(--sh);display:flex;align-items:center;justify-content:center;font-size:24px;font-family:var(--fontd);font-weight:900;cursor:pointer}
-.story-wrap{flex:1;min-height:0;overflow:auto;padding:6px 14px 132px;display:flex;flex-direction:column;gap:128px;scrollbar-width:none}
+.story-wrap{flex:1;min-height:0;overflow:auto;padding:6px 14px 132px;display:flex;flex-direction:column;gap:96px;scrollbar-width:none}
 .story-wrap::-webkit-scrollbar{display:none}
 .story-card{position:relative;min-height:320px;border:var(--bd);border-radius:34px;background:rgba(255,255,255,.82);box-shadow:3px 4px 0 #0a0a0a;padding:22px 18px 20px;overflow:hidden}
 .story-card::before{content:'';position:absolute;inset:18px;border:1.5px solid rgba(10,10,10,.48);border-radius:26px;pointer-events:none}
@@ -59,7 +59,7 @@ body{font-family:var(--font);background:linear-gradient(180deg,#efefeb 0%,#f8f8f
 .char-sheet-aside{margin:4px 0 14px;color:#6f8fd8;font-style:italic;font-weight:600}
 .char-sheet-sign{display:block;margin-top:10px;margin-left:0;max-width:198px;font-family:'Zhi Mang Xing',cursive;font-size:30px;font-weight:400;color:#575757;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none}
 .char-act-badge{position:absolute;left:132px;top:42px;z-index:5;padding:0;border:none;border-radius:0;background:transparent;box-shadow:none;font-family:'Ma Shan Zheng',cursive;font-size:36px;font-weight:400;color:#1b1b1b;text-decoration:none;display:none}
-.story-card.user{padding:0;background:transparent;border:none;box-shadow:none;overflow:visible;min-height:380px;margin-top:418px}
+.story-card.user{padding:0;background:transparent;border:none;box-shadow:none;overflow:visible;min-height:380px;margin-top:308px}
 .story-card.user::before{display:none}
 .story-card.user .char-paper-layer.back-one{left:auto;right:52px;transform:rotate(-3.1deg)}
 .story-card.user .char-paper-layer.back-two{left:auto;right:0;transform:rotate(3.8deg)}
@@ -400,13 +400,12 @@ function renderPaperStoryCard(entry, idx, isChar){
   var avatar = isChar ? resolveCharAvatar() : resolveUserAvatar();
   var displayName = isChar ? getCharDisplayName() : resolveUserName();
   var bubbles = encodeURIComponent(JSON.stringify(entry.bubbles || []));
-  var sheetHeight = sheetHeightForText(entry.text || '', displayName, entry.asides || (entry.aside ? [entry.aside] : []));
-  if(!isChar){
-    sheetHeight = Math.max(220, sheetHeight - 118);
-  }
+  var sheetHeight = isChar
+    ? sheetHeightForCharText(entry.text || '', displayName, entry.asides || (entry.aside ? [entry.aside] : []))
+    : sheetHeightForUserText(entry.text || '', displayName, entry.asides || (entry.aside ? [entry.aside] : []));
   var backTwoTop = charBackTwoTop(sheetHeight);
   var flowerTop = charFlowerTop(sheetHeight);
-  var layoutHeight = sheetHeight + (isChar ? 300 : 186);
+  var layoutHeight = sheetHeight + (isChar ? 312 : 176);
   return '<div class="story-card ' + (isChar ? 'char' : 'user') + '">' +
     '<div class="char-layout" style="min-height:' + layoutHeight + 'px">' +
     '<div class="char-paper-layer back-one" style="height:' + sheetHeight + 'px"></div>' +
@@ -428,7 +427,7 @@ function renderStory(){
   if(!wrap) return;
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   if(!list.length){
-    var emptyHeight = sheetHeightForText('这场线下见面还没正式开始。', getCharDisplayName(), []);
+    var emptyHeight = sheetHeightForCharText('这场线下见面还没正式开始。', getCharDisplayName(), []);
     var emptyBackTwoTop = charBackTwoTop(emptyHeight);
     var emptyFlowerTop = charFlowerTop(emptyHeight);
     wrap.innerHTML = '<div class="story-card char"><div class="char-layout" style="min-height:' + (emptyHeight + 320) + 'px"><div class="char-paper-layer back-one" style="height:' + emptyHeight + 'px"></div><div class="char-paper-layer back-two" style="height:' + emptyHeight + 'px;top:' + emptyBackTwoTop + 'px"></div><div class="char-main-sheet" style="height:' + emptyHeight + 'px"></div><div class="char-polaroid-stack"><div class="char-polaroid-main"><div class="char-polaroid-frame">' + esc(getCharDisplayName()) + '</div></div><div class="char-camera"></div></div><div class="char-sheet-content"><div class="char-sheet-actline">第1幕</div><div class="char-sheet-text">' + renderCharSheetBody('这场线下见面还没正式开始。', '') + '</div><div class="char-sheet-sign">' + esc(getCharDisplayName()) + '</div></div><div class="char-flower" style="top:' + emptyFlowerTop + 'px"><img src="assets/floral-border-1.png" alt=""></div></div></div>';
@@ -442,7 +441,7 @@ function renderStory(){
   document.getElementById('offlineStatus').textContent = '线下模式 · ' + ((character && (character.nickname || character.name)) || 'Char');
   wrap.scrollTop = wrap.scrollHeight;
 }
-function sheetHeightForText(text, sign, asides){
+function baseSheetHeight(text, sign, asides){
   var body = String(text || '').trim();
   var signText = String(sign || '').trim();
   var noteList = Array.isArray(asides) ? asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean) : [];
@@ -454,7 +453,13 @@ function sheetHeightForText(text, sign, asides){
   var estimatedLines = Math.max(lines, Math.ceil(chars / 24)) + asideLines;
   var signAllowance = signText ? 78 : 0;
   var asideAllowance = noteList.length ? (18 * noteList.length) : 0;
-  return Math.max(278, 118 + estimatedLines * 28 + signAllowance + asideAllowance);
+  return 118 + estimatedLines * 28 + signAllowance + asideAllowance;
+}
+function sheetHeightForCharText(text, sign, asides){
+  return Math.max(332, baseSheetHeight(text, sign, asides) + 34);
+}
+function sheetHeightForUserText(text, sign, asides){
+  return Math.max(236, baseSheetHeight(text, sign, asides) - 38);
 }
 function charBackTwoTop(sheetHeight){
   return Math.max(26, Math.round(sheetHeight * 0.11));
