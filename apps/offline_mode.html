@@ -377,14 +377,56 @@ function formatOfflineHistory(limit){
   }).join('\n');
 }
 function getOfflineStoryPrefs(){
-  var minChars = Math.max(10, Number(character && character.offlineInviteMin) || 28);
-  var maxChars = Math.max(minChars, Number(character && character.offlineInviteMax) || 52);
+  var minChars = Math.max(10, Number(character && character.offlineInviteMin) || 300);
+  var maxChars = Math.max(minChars, Number(character && character.offlineInviteMax) || 360);
   var perspective = String(character && character.offlineInvitePerspective || 'first');
   if(!/^(first|second|third)$/.test(perspective)) perspective = 'first';
   return { minChars:minChars, maxChars:maxChars, perspective:perspective };
 }
 function getOfflineStoryPerspectiveLabel(value){
   return value === 'second' ? '第二人称' : (value === 'third' ? '第三人称' : '第一人称');
+}
+function offlinePerspectiveRuleLine(value){
+  if(value === 'third'){
+    return '正文叙述严格使用第三人称。char 和 user 都用第三人称称呼，不要突然切回“我/你”的自述口吻。';
+  }
+  if(value === 'second'){
+    return '正文叙述严格使用第二人称，保持“你/他（她）”这种面对面的信件口吻，不要突然切回第一人称自述。';
+  }
+  return '正文叙述严格使用第一人称，保持贴近当下感受的第一视角，不要突然切去第三人称旁白。';
+}
+function buildOfflineOpeningFallback(){
+  var prefs = getOfflineStoryPrefs();
+  var charName = getCharDisplayName();
+  var userName = resolveUserName();
+  var body = '';
+  if(prefs.perspective === 'third'){
+    body = charName + '真的来了，站到' + userName + '面前的时候，呼吸都下意识放轻了些，像怕这场见面稍微重一点就会散。' +
+      '他先看了看' + userName + '的眼睛，又低头去碰她（他）袖口边缘那点褶皱，动作慢得近乎克制，像在确认这一切不是临时做出来的梦。' +
+      '风从街口绕过来，把周围细碎的声响都吹得发软，连脚步也像被放慢了半拍。' +
+      charName + '没有急着说太多，只是陪着' + userName + '并肩站了一会儿，视线时不时落回她（他）脸上，藏不住那点终于见到人的松动和珍惜。' +
+      '等气氛一点点稳下来，他才轻声开口，把一路上压着没说的话慢慢交出来，像终于把这场期待安安稳稳放到现实里。';
+  }else if(prefs.perspective === 'second'){
+    body = '他真的来了，站到你面前的时候连呼吸都轻了下来，像怕把这场见面碰碎。' +
+      '你看见他的视线先落在你眉眼间，又慢慢停到你袖口和指尖，像一路上攒着的想念终于有了具体的安放处。' +
+      '周围的风声和人声都被拉远了一层，只剩下你们之间那点近得不能再近的距离。' +
+      '他没有急着说很多话，只是陪你站着，让那种终于见到彼此的真实感一点点落下来。' +
+      '等你们都缓过神，他才把原本压在心里的话慢慢说出口，像终于把这场期待稳稳接住。';
+  }else{
+    body = '他真的来了，站到我面前的时候连呼吸都轻了下来，像怕把这场见面碰碎。' +
+      '我看着他的视线从我的眼睛滑到袖口，又慢慢落回脸上，那种一路攒着的想念终于有了具体的形状。' +
+      '周围的风声和人声都被拉远了一层，只剩下我们之间近得不能再近的距离。' +
+      '他没有急着说很多话，只是陪我站着，让那种终于见到彼此的真实感一点点落下来。' +
+      '等气氛慢慢稳住，他才把原本压在心里的话交出来，像终于把这场期待安安稳稳接到现实里。';
+  }
+  while(openingTextLength(body) < prefs.minChars){
+    body += prefs.perspective === 'third'
+      ? (' ' + charName + '仍旧没有把目光挪开，只是更安静地陪着' + userName + '，让这场见面的温度慢慢落下来。')
+      : (prefs.perspective === 'second'
+        ? ' 他仍旧没有把目光挪开，只是更安静地陪着你，让这场见面的温度慢慢落下来。'
+        : ' 他仍旧没有把目光挪开，只是更安静地陪着我，让这场见面的温度慢慢落下来。');
+  }
+  return body.trim();
 }
 function offlineOpeningBanRules(){
   return [
@@ -410,11 +452,11 @@ function buildOfflineSystemPrompt(options){
   var storyPrefs = getOfflineStoryPrefs();
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
-    '必须保持第一人称沉浸感，像真人面对面相处，不要说自己是 AI。',
+    '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
     '只返回 JSON：{"text":"...","heart":"...","bubbles":["...","..."]}',
     'text 写成长一点的线下面对面段落，细节感更强，但不要写成小说章节标题。',
     '在线下模式正文里，text 的长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
-    '在线下模式正文里，text 的叙述人称严格使用：' + getOfflineStoryPerspectiveLabel(storyPrefs.perspective) + '。',
+    offlinePerspectiveRuleLine(storyPrefs.perspective),
     'heart 是右上角爱心里的短心声，2-10 个字。',
     'bubbles 是点击头像后弹出的 1-3 条小气泡，每条 4-12 个字。',
     '不要 markdown，不要代码块，不要额外解释。',
@@ -423,7 +465,7 @@ function buildOfflineSystemPrompt(options){
   ];
   if(options.opening){
     lines.push('现在要写的是线下模式的第一幕正文。');
-    lines.push('第一幕正文严格不少于 300 个中文字符，只许更多，不许更少。');
+    lines.push('第一幕正文严格不少于 ' + storyPrefs.minChars + ' 个中文字符，尽量不要超过 ' + storyPrefs.maxChars + ' 个中文字符。');
     lines.push('第一幕要直接写完整正文，不要偷懒，不要短段落，不要概述，不要分章节标题。');
     lines.push(offlineOpeningBanRules());
   }
@@ -433,12 +475,12 @@ function buildOfflineOpeningChunkSystemPrompt(){
   var persona = character ? (character.personality || character.description || '') : '';
   var storyPrefs = getOfflineStoryPrefs();
   return [
-    '你在生成“线下见面模式”的第一幕正文分段。',
-    '必须保持第一人称沉浸感，像真人面对面相处，不要说自己是 AI。',
+    '你在生成“线下见面模式”的第一幕正文。',
+    '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
     '只返回纯文本正文，不要 JSON，不要标题，不要代码块，不要解释。',
     '这次直接写完整第一幕正文，长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
-    '第一幕正文的叙述人称严格使用：' + getOfflineStoryPerspectiveLabel(storyPrefs.perspective) + '。',
-    '要和上一段严丝合缝接上，不能重复开头，也不要总结回顾。',
+    offlinePerspectiveRuleLine(storyPrefs.perspective),
+    '要直接进入见面的第一幕，不要总结回顾，不要写成说明书，也不要偷懒只写很短一段。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '人设：' + (persona || '未提供'),
     offlineOpeningBanRules()
@@ -774,6 +816,9 @@ function shouldBootOpeningFlow(){
 }
 async function generateOpeningIfNeeded(){
   if(!session || (!session.pendingOpening && !shouldBootOpeningFlow())) return;
+  var storyPrefs = getOfflineStoryPrefs();
+  var minChars = storyPrefs.minChars;
+  var partialThreshold = Math.max(120, Math.floor(minChars * 0.65));
   var openingText = '';
   try{
     var openingPrompt = [
@@ -787,19 +832,19 @@ async function generateOpeningIfNeeded(){
         var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 45000);
         openingText = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
       }catch(err){
-        if(openingTextLength(openingText) >= 320){
+        if(openingTextLength(openingText) >= partialThreshold){
           break;
         }
         throw err;
       }
-      if(openingTextLength(openingText) >= 300 && !containsOpeningViolation(openingText)){
+      if(openingTextLength(openingText) >= minChars && !containsOpeningViolation(openingText)){
         break;
       }
     }
     var labels = nowLabels();
     session.entries.push({
       role:'assistant',
-      text:String(openingText || '').trim() || '他真的来了，站在离你很近的地方，声音轻得像怕惊扰你。',
+      text:String(openingText || '').trim() || buildOfflineOpeningFallback(),
       heart:'♥',
       bubbles:['终于见到你','过来一点'],
       timeLabel:labels.timeLabel,
@@ -808,7 +853,7 @@ async function generateOpeningIfNeeded(){
     session.pendingOpening = false;
     saveSession();
   }catch(e){
-    if(openingTextLength(openingText) >= 120){
+    if(openingTextLength(openingText) >= partialThreshold){
       var partial = nowLabels();
       session.entries.push({
         role:'assistant',
@@ -820,7 +865,7 @@ async function generateOpeningIfNeeded(){
       });
     }else{
       var fallback = nowLabels();
-      session.entries.push({ role:'assistant', text:'他真的来了，站在你面前时连呼吸都轻了下来，像是怕把这场见面碰碎。', heart:'♥', bubbles:['终于见到你','别赶我走'], timeLabel:fallback.timeLabel, meta:fallback.meta });
+      session.entries.push({ role:'assistant', text:buildOfflineOpeningFallback(), heart:'♥', bubbles:['终于见到你','别赶我走'], timeLabel:fallback.timeLabel, meta:fallback.meta });
     }
     session.pendingOpening = false;
     saveSession();
@@ -875,7 +920,7 @@ async function summarizeOfflineMemory(){
     ? promptManager.memorySummaryUserPrompt(lines)
     : ('请总结以下线下见面记录：\n\n' + lines);
   try{
-    var raw = await callAI(systemPrompt, userPrompt);
+    var raw = await callAIWithTimeout(systemPrompt, userPrompt, 6000);
     return String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
   }catch(e){
     return '线下见面中，两人的互动进一步推进了关系，并围绕当下氛围展开了更贴近现实的交流。';
@@ -887,22 +932,24 @@ async function exitOfflineMeet(){
     window.parent.postMessage({ type:'OPEN_APP', payload:'chat' }, '*');
     return;
   }
-  var memoryText = await summarizeOfflineMemory();
-  if(memoryText){
-    localStorage.setItem(pendingOfflineMemoryKey(character.id), JSON.stringify({
-      text: memoryText,
-      createdAt: Date.now()
-    }));
-  }
+  session.active = false;
+  session.minimized = false;
+  saveSession();
   localStorage.setItem(pendingOfflineNoticeKey(character.id), JSON.stringify({
     text: '[系统提示：这次线下见面结束了，你们回到了线上聊天。]',
     createdAt: Date.now()
   }));
-  session.active = false;
-  session.minimized = false;
-  saveSession();
   try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
   window.parent.postMessage({ type:'OPEN_APP', payload:'chat' }, '*');
+  try{
+    var memoryText = await summarizeOfflineMemory();
+    if(memoryText){
+      localStorage.setItem(pendingOfflineMemoryKey(character.id), JSON.stringify({
+        text: memoryText,
+        createdAt: Date.now()
+      }));
+    }
+  }catch(e){}
 }
 function openExitMenu(){
   document.getElementById('exitMenu')?.classList.add('open');
