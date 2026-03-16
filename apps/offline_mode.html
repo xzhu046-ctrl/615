@@ -265,7 +265,7 @@ function loadSession(){
   }
   var fallback = findLatestOfflineSessionRecord();
   if(!fallback) return null;
-  if((!character || !character.id) && fallback.charId){
+  if(fallback.charId && (!character || !character.id || String(character.id || '').trim() !== String(fallback.charId || '').trim())){
     var matched = findCharacterById(fallback.charId);
     if(matched) character = matched;
   }
@@ -290,17 +290,16 @@ function getCharDisplayName(){
 function renderCharSheetBody(text, asides){
   var body = String(text || '').trim();
   var notes = Array.isArray(asides) ? asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [];
-  var parts = body ? body.split(/(?<=[。！？!?])\s*|\n+/).map(function(it){ return String(it || '').trim(); }).filter(Boolean) : ['这场线下见面还没正式开始。'];
-  if(notes.length && parts.length === 1){
-    var solo = parts[0];
-    if(solo.length > 84){
-      var first = Math.max(18, Math.min(solo.length - 36, Math.floor(solo.length * 0.34)));
-      var second = Math.max(first + 18, Math.min(solo.length - 18, Math.floor(solo.length * 0.68)));
-      parts = [solo.slice(0, first), solo.slice(first, second), solo.slice(second)];
-    }else if(solo.length > 42){
-      var splitAt = Math.max(18, Math.min(solo.length - 18, Math.floor(solo.length * 0.52)));
-      parts = [solo.slice(0, splitAt), solo.slice(splitAt)];
-    }
+  var parts = body
+    ? body.split(/\n+/).map(function(it){ return String(it || '').trim(); }).filter(Boolean)
+    : ['这场线下见面还没正式开始。'];
+  if(parts.length < 3){
+    parts = body
+      ? body.split(/(?<=[。！？!?])\s*/).map(function(it){ return String(it || '').trim(); }).filter(Boolean)
+      : ['这场线下见面还没正式开始。'];
+  }
+  if(!parts.length){
+    parts = ['这场线下见面还没正式开始。'];
   }
   var insertSlots = [];
   if(notes.length === 1){
@@ -456,12 +455,16 @@ function violatesOfflinePerspective(text, perspective){
 function offlinePerspectiveRuleLine(value){
   if(value === 'third'){
     return [
-      '采用上帝视角（叙述者站在故事之外，从上方观察和讲述）。',
-      '正文中凡指代 User 处，必须使用第三人称“他”或“她”（根据 User 的自我认知确定）；也可以自然使用 User 的名字。',
-      '尽管叙述者位于故事之外，但所有存在的认知都必须严格遵守感知边界：User 只能知晓亲眼所见、亲耳所闻的信息，不能知晓另一处场景，不能窥见他人内心；角色只能知晓其自身感知范围内的信息；NPC 同样只能知晓其自身感知范围内的信息。',
-      '任何使用“我”或“你”指代 User 均属违规。',
-      '正文参考语感："' + getCharDisplayName() + '看向' + resolveUserName() + '时，呼吸慢慢放轻了。他没有立刻说话，只是安静地站在原地。"'
-    ].join('');
+      '<rule name="上帝视角·用户第三人称">',
+      '采用上帝视角（叙述者站在故事之外，从上方观察和讲述），正文中凡指代User处，必须使用第三人称"他"或"她"（根据User的自我认知确定），也可以自然使用User名字。',
+      '尽管叙述者位于故事之外，但所有存在的认知都必须严格遵守感知边界：',
+      '- User只能知晓亲眼所见、亲耳所闻的信息，不能知晓另一处的场景，不能窥见他人内心',
+      '- 角色只能知晓其自身感知范围内的信息',
+      '- NPC同样只能知晓其自身感知范围内的信息',
+      '任何使用"我"或"你"指代User均属违规。',
+      '第三人称时，char和user都不要突然切成“我和你”对话式叙述；涉及User时，只能写成名字/他/她。',
+      '</rule>'
+    ].join('\n');
   }
   if(value === 'second'){
     return '正文叙述严格使用第二人称，保持“你/他（她）”这种面对面的信件口吻，不要突然切回第一人称自述。';
@@ -581,6 +584,8 @@ function offlineOpeningBanRules(){
 function buildOfflineSystemPrompt(options){
   options = options || {};
   var persona = character ? (character.personality || character.description || '') : '';
+  var scenario = character ? String(character.scenario || '').trim() : '';
+  var systemPrompt = character ? String(character.system_prompt || '').trim() : '';
   var storyPrefs = getOfflineStoryPrefs();
   var worldBook = getOfflineWorldbookSnippet();
   var memoryText = getOfflineMemorySnippet();
@@ -591,13 +596,16 @@ function buildOfflineSystemPrompt(options){
     'text 写成长一点的线下面对面段落，细节感更强，但不要写成小说章节标题。',
     '在线下模式正文里，text 的长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
-    'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间。',
+    'text 至少写成 3 个自然段，每一段都用完整句子收尾。',
+    'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
     'heart 是右上角爱心里的短心声，2-10 个字。',
     'bubbles 是点击头像后弹出的 1-3 条小气泡，每条 4-12 个字。',
-    '最近线上聊天、记忆总结、世界书优先级很高，必须先读懂再写；不要驴唇不对马嘴，不要脱离当下话题乱写。',
+    '最近线上聊天、记忆总结、世界书、人设、scenario、system prompt 优先级很高，必须先读懂再写；不要驴唇不对马嘴，不要脱离当下话题乱写，不要 OOC。',
     '不要 markdown，不要代码块，不要额外解释。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '人设：' + (persona || '未提供'),
+    scenario ? ('场景设定：' + scenario) : '场景设定：无',
+    systemPrompt ? ('角色补充规则：' + systemPrompt) : '角色补充规则：无',
     worldBook ? ('世界书（已启用条目）：\n' + worldBook) : '世界书（已启用条目）：无',
     memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无'
   ];
@@ -611,6 +619,8 @@ function buildOfflineSystemPrompt(options){
 }
 function buildOfflineOpeningChunkSystemPrompt(){
   var persona = character ? (character.personality || character.description || '') : '';
+  var scenario = character ? String(character.scenario || '').trim() : '';
+  var systemPrompt = character ? String(character.system_prompt || '').trim() : '';
   var storyPrefs = getOfflineStoryPrefs();
   var worldBook = getOfflineWorldbookSnippet();
   var memoryText = getOfflineMemorySnippet();
@@ -620,11 +630,14 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '只返回 JSON：{"text":"...","asides":["...","..."]}，不要标题，不要代码块，不要解释。',
     '这次直接写完整第一幕正文，长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
-    'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间。',
-    '最近线上聊天、记忆总结、世界书优先级很高，必须先读懂再写；不要脱离上下文瞎写。',
+    'text 至少写成 3 个自然段，每一段都用完整句子收尾。',
+    'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
+    '最近线上聊天、记忆总结、世界书、人设、scenario、system prompt 优先级很高，必须先读懂再写；不要脱离上下文瞎写，不要 OOC。',
     '要直接进入见面的第一幕，不要总结回顾，不要写成说明书，也不要偷懒只写很短一段。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '人设：' + (persona || '未提供'),
+    scenario ? ('场景设定：' + scenario) : '场景设定：无',
+    systemPrompt ? ('角色补充规则：' + systemPrompt) : '角色补充规则：无',
     worldBook ? ('世界书（已启用条目）：\n' + worldBook) : '世界书（已启用条目）：无',
     memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无',
     offlineOpeningBanRules()
