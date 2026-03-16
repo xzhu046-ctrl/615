@@ -197,7 +197,22 @@ function esc(s){
 function loadCharacter(){
   var raw = localStorage.getItem(activeCharacterKey()) || localStorage.getItem('activeCharacter') || '';
   if(!raw) return null;
-  try{ return JSON.parse(raw); }catch(e){ return null; }
+  try{
+    var parsed = JSON.parse(raw);
+    if(parsed && parsed.id){
+      var latest = findCharacterById(parsed.id);
+      if(latest && typeof latest === 'object'){
+        return Object.assign({}, latest, parsed, {
+          offlineInviteMin: Number(latest.offlineInviteMin || parsed.offlineInviteMin || 300),
+          offlineInviteMax: Number(latest.offlineInviteMax || parsed.offlineInviteMax || 360),
+          offlineInvitePerspective: String(latest.offlineInvitePerspective || parsed.offlineInvitePerspective || 'first')
+        });
+      }
+    }
+    return parsed;
+  }catch(e){
+    return null;
+  }
 }
 function loadCharactersList(){
   try{
@@ -275,7 +290,7 @@ function getCharDisplayName(){
 function renderCharSheetBody(text, asides){
   var body = String(text || '').trim();
   var notes = Array.isArray(asides) ? asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [];
-  var parts = body ? body.split(/\n+/).filter(Boolean) : ['这场线下见面还没正式开始。'];
+  var parts = body ? body.split(/(?<=[。！？!?])\s*|\n+/).map(function(it){ return String(it || '').trim(); }).filter(Boolean) : ['这场线下见面还没正式开始。'];
   if(notes.length && parts.length === 1){
     var solo = parts[0];
     if(solo.length > 84){
@@ -440,7 +455,13 @@ function violatesOfflinePerspective(text, perspective){
 }
 function offlinePerspectiveRuleLine(value){
   if(value === 'third'){
-    return '正文叙述严格使用自然的第三人称。char 和 user 都用名字、他、她这类第三人称称呼，不要突然切回“我/你”的自述口吻，也不要生硬机械地重复名字。正文参考语感："' + getCharDisplayName() + '看向' + resolveUserName() + '时，呼吸慢慢放轻了。他没有立刻说话，只是安静地站在原地。"';
+    return [
+      '采用上帝视角（叙述者站在故事之外，从上方观察和讲述）。',
+      '正文中凡指代 User 处，必须使用第三人称“他”或“她”（根据 User 的自我认知确定）；也可以自然使用 User 的名字。',
+      '尽管叙述者位于故事之外，但所有存在的认知都必须严格遵守感知边界：User 只能知晓亲眼所见、亲耳所闻的信息，不能知晓另一处场景，不能窥见他人内心；角色只能知晓其自身感知范围内的信息；NPC 同样只能知晓其自身感知范围内的信息。',
+      '任何使用“我”或“你”指代 User 均属违规。',
+      '正文参考语感："' + getCharDisplayName() + '看向' + resolveUserName() + '时，呼吸慢慢放轻了。他没有立刻说话，只是安静地站在原地。"'
+    ].join('');
   }
   if(value === 'second'){
     return '正文叙述严格使用第二人称，保持“你/他（她）”这种面对面的信件口吻，不要突然切回第一人称自述。';
