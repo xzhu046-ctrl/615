@@ -54,7 +54,6 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 .char-sheet-text{width:100%;font-family:'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;font-size:14px;font-weight:600;line-height:1.86;letter-spacing:0;white-space:pre-wrap;word-break:break-word;color:#111}
 .char-sheet-text p{margin:0 0 12px}
 .char-sheet-text p:last-child{margin-bottom:0}
-.char-sheet-text p.sheet-quote{display:inline-block;max-width:100%;padding:5px 8px;border:2px solid #0a0a0a;border-radius:7px;background:#fff;box-shadow:1px 1px 0 #0a0a0a}
 .char-sheet-text .sheet-quote-inline{display:inline-block;padding:4px 7px;border:2px solid #0a0a0a;border-radius:7px;background:#fff;box-shadow:1px 1px 0 #0a0a0a}
 .char-sheet-aside{margin:4px 0 14px;color:#6f8fd8;font-style:italic;font-weight:600}
 .char-sheet-sign{display:block;margin-top:10px;margin-left:0;max-width:198px;font-family:'Zhi Mang Xing',cursive;font-size:30px;font-weight:400;color:#575757;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none}
@@ -98,11 +97,11 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 .thought-clouds{position:fixed;left:18px;right:18px;top:84px;z-index:35;display:none;flex-wrap:wrap;gap:10px;justify-content:center}
 .thought-clouds.show{display:flex}
 .thought-pill{padding:10px 14px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);font-size:12px;font-weight:900;max-width:220px}
-.composer{position:fixed;left:14px;right:14px;bottom:14px;z-index:25;display:flex;gap:10px;align-items:flex-end}
-.composer-box{flex:1;border:var(--bd);border-radius:18px;background:rgba(255,255,255,.95);box-shadow:var(--sh);padding:5px 10px}
-.composer-box textarea{width:100%;border:none;outline:none;background:transparent;min-height:24px;max-height:72px;resize:none;font-family:var(--font);font-size:13px;font-weight:600;line-height:1.4;color:var(--b)}
+.composer{position:fixed;left:14px;right:14px;bottom:14px;z-index:25;display:flex;gap:8px;align-items:flex-end}
+.composer-box{flex:1;border:var(--bd);border-radius:16px;background:rgba(255,255,255,.95);box-shadow:var(--sh);padding:3px 10px}
+.composer-box textarea{width:100%;border:none;outline:none;background:transparent;min-height:20px;max-height:56px;resize:none;font-family:var(--font);font-size:13px;font-weight:600;line-height:1.35;color:var(--b)}
 .composer-actions{display:flex;gap:8px;align-items:flex-end}
-.composer-btn{width:38px;height:38px;border-radius:50%;border:var(--bd);background:#fff;color:#0a0a0a;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--sh);transition:transform .12s,box-shadow .12s;margin-bottom:2px}
+.composer-btn{width:34px;height:34px;border-radius:50%;border:var(--bd);background:#fff;color:#0a0a0a;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--sh);transition:transform .12s,box-shadow .12s;margin-bottom:1px}
 .composer-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .composer-btn.primary{background:#fff;color:#0a0a0a}
 .composer-btn.reply{background:#fff;color:#0a0a0a}
@@ -136,13 +135,10 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 <body>
 <div class="paper-bg" aria-hidden="true"></div>
 <div class="shell">
-  <div class="topbar">
-    <div class="top-pill" id="offlineStatus">线下模式</div>
-    <button class="top-heart" id="offlineHeart" type="button" onclick="openExitMenu()">×</button>
-  </div>
   <div class="thought-clouds" id="thoughtClouds"></div>
   <div class="story-wrap" id="storyList"></div>
   <div class="composer">
+    <button class="composer-btn reply" id="offlineRerollBtn" type="button" onclick="rerollOfflineTurn()">↻</button>
     <div class="composer-box">
       <textarea id="offlineInput" placeholder="写下你此刻线下想说的话..."></textarea>
     </div>
@@ -388,8 +384,7 @@ function renderCharSheetBody(text, asides){
   var html = '';
   parts.forEach(function(part, idx){
     var trimmedPart = String(part || '').trim();
-    var quoteClass = /^[“"「『].+[”"」』][。！？!?]?$/.test(trimmedPart) ? ' class="sheet-quote"' : '';
-    html += '<p' + quoteClass + '>' + (quoteClass ? esc(trimmedPart) : renderQuotedInline(trimmedPart)) + '</p>';
+    html += '<p>' + renderQuotedInline(trimmedPart) + '</p>';
     insertSlots.forEach(function(slot, noteIdx){
       if(idx === slot && notes[noteIdx]) html += '<p class="char-sheet-aside">' + esc(notes[noteIdx]) + '</p>';
     });
@@ -440,7 +435,8 @@ function renderStory(){
   }).join('');
   syncStoryCardHeights();
   var last = list[list.length - 1] || {};
-  document.getElementById('offlineStatus').textContent = '线下模式 · ' + ((character && (character.nickname || character.name)) || 'Char');
+  var statusEl = document.getElementById('offlineStatus');
+  if(statusEl) statusEl.textContent = '线下模式 · ' + ((character && (character.nickname || character.name)) || 'Char');
   wrap.scrollTop = wrap.scrollHeight;
 }
 function syncStoryCardHeights(){
@@ -549,9 +545,11 @@ function setOfflineComposerBusy(flag){
   sending = !!flag;
   var sendBtn = document.getElementById('offlineSendBtn');
   var replyBtn = document.getElementById('offlineReplyBtn');
+  var rerollBtn = document.getElementById('offlineRerollBtn');
   var input = document.getElementById('offlineInput');
   if(sendBtn) sendBtn.disabled = !!flag;
   if(replyBtn) replyBtn.disabled = !!flag;
+  if(rerollBtn) rerollBtn.disabled = !!flag;
   if(input) input.disabled = !!flag;
 }
 function nowLabels(){
@@ -1250,6 +1248,24 @@ async function requestOfflineReply(){
     setOfflineComposerBusy(false);
   }
 }
+async function rerollOfflineTurn(){
+  if(sending || !session || !Array.isArray(session.entries) || !session.entries.length) return;
+  var lastAssistantIndex = -1;
+  for(var i = session.entries.length - 1; i >= 0; i -= 1){
+    if(session.entries[i] && session.entries[i].role === 'assistant'){
+      lastAssistantIndex = i;
+      break;
+    }
+  }
+  if(lastAssistantIndex === -1){
+    toast('还没有可以重生成的回复');
+    return;
+  }
+  session.entries = session.entries.slice(0, lastAssistantIndex);
+  saveSession();
+  renderStory();
+  await requestOfflineReply();
+}
 async function summarizeOfflineMemory(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   var lines = list.map(function(entry){
@@ -1369,6 +1385,16 @@ async function init(){
   showFlightIfNeeded();
   await generateOpeningIfNeeded();
   renderStory();
+  var input = document.getElementById('offlineInput');
+  if(input && !input.dataset.boundEnter){
+    input.dataset.boundEnter = '1';
+    input.addEventListener('keydown', function(evt){
+      if(evt.key === 'Enter' && !evt.shiftKey){
+        evt.preventDefault();
+        sendOfflineTurn();
+      }
+    });
+  }
 }
 document.addEventListener('click', function(e){
   var avatar = e.target && e.target.closest ? e.target.closest('.avatar,.char-polaroid-frame') : null;
