@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T12:57:00Z';
+const APP_BUILD_ID = '2026-03-17T13:05:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
@@ -42,6 +42,7 @@ let hostedUpdateRetryTimer = 0;
 let swControllerRefreshPending = false;
 let shownHostedUpdateFingerprint = '';
 let hostedUpdateBootstrapped = false;
+let hostedUpdateModalShown = false;
 
 function offlineMinimizedStorageKey(){
   return mainScopedKey(OFFLINE_MINIMIZED_CHAR_KEY);
@@ -281,8 +282,10 @@ function simpleStringFingerprint(text){
 }
 
 function showHostedUpdateCard(){
+  if(hostedUpdateModalShown) return;
   var card = document.getElementById('update-toast-card');
   if(card) card.hidden = false;
+  hostedUpdateModalShown = true;
   hostedUpdateLockedOpen = true;
 }
 
@@ -395,6 +398,21 @@ async function primeLatestCoreFiles(){
   }));
 }
 
+async function clearHostedUpdateCaches(){
+  if('serviceWorker' in navigator){
+    try{
+      var regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(function(reg){ return reg.unregister().catch(function(){ return null; }); }));
+    }catch(e){}
+  }
+  if(typeof caches !== 'undefined' && caches && typeof caches.keys === 'function'){
+    try{
+      var names = await caches.keys();
+      await Promise.all(names.map(function(name){ return caches.delete(name).catch(function(){ return null; }); }));
+    }catch(e){}
+  }
+}
+
 function bindHostedServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   if(!window.isSecureContext) return;
@@ -420,6 +438,7 @@ async function checkForHostedUpdate(){
       }
       pendingRemoteAppFingerprint = '';
       shownHostedUpdateFingerprint = '';
+      hostedUpdateModalShown = false;
       hostedUpdateLockedOpen = false;
       hideHostedUpdateCard();
       return;
@@ -462,11 +481,13 @@ function refreshInstalledApp(evt){
     hostedUpdateLockedOpen = false;
     pendingRemoteAppFingerprint = '';
     shownHostedUpdateFingerprint = '';
+    hostedUpdateModalShown = false;
     try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
     hideHostedUpdateCard();
     window.location.reload();
   };
   Promise.resolve()
+    .then(function(){ return clearHostedUpdateCaches(); })
     .then(function(){ return primeLatestCoreFiles(); })
     .then(function(){
       if(!('serviceWorker' in navigator)) return null;
