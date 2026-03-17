@@ -324,23 +324,38 @@ async function buildRemoteAppFingerprint(){
   return simpleStringFingerprint(texts.join('\n<!-- split -->\n'));
 }
 
+async function buildLocalAppFingerprint(){
+  if(!/^https?:$/.test(window.location.protocol)) return '';
+  var targets = ['index.html', 'main.js', 'style.css'];
+  try{
+    var texts = await Promise.all(targets.map(function(path){
+      var url = new URL(path, window.location.href);
+      return fetch(url.toString(), { cache:'default' }).then(function(res){
+        if(!res.ok) throw new Error('local fetch failed: ' + path);
+        return res.text();
+      });
+    }));
+    return 'local:' + simpleStringFingerprint(texts.join('\n<!-- local split -->\n'));
+  }catch(err){
+    console.warn('[update-check] local fingerprint skipped', err);
+    return '';
+  }
+}
+
 async function checkForHostedUpdate(){
   if(!/^https?:$/.test(window.location.protocol)) return;
   try{
-    var fingerprint = await buildRemoteAppFingerprint();
-    if(!fingerprint) return;
-    var known = localStorage.getItem(REMOTE_APP_FINGERPRINT_KEY) || '';
-    if(!known){
-      if(isStandaloneMode()){
-        pendingRemoteAppFingerprint = fingerprint;
-        showHostedUpdateCard();
-      }else{
-        localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, fingerprint);
-      }
+    var remoteFingerprint = await buildRemoteAppFingerprint();
+    if(!remoteFingerprint) return;
+    var localFingerprint = await buildLocalAppFingerprint();
+    if(localFingerprint && localFingerprint !== remoteFingerprint){
+      pendingRemoteAppFingerprint = remoteFingerprint;
+      showHostedUpdateCard();
       return;
     }
-    if(known !== fingerprint){
-      pendingRemoteAppFingerprint = fingerprint;
+    var known = localStorage.getItem(REMOTE_APP_FINGERPRINT_KEY) || '';
+    if(!localFingerprint && known !== remoteFingerprint){
+      pendingRemoteAppFingerprint = remoteFingerprint;
       showHostedUpdateCard();
     }
   }catch(err){
