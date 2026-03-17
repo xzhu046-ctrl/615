@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-17T11:20:00Z';
+const CACHE_VERSION = '2026-03-17T14:05:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -32,7 +32,6 @@ self.addEventListener('install', (event)=>{
     caches.open(CACHE_NAME)
       .then((cache)=>cache.addAll(CORE_URLS))
       .catch(()=>null)
-      .then(()=>self.skipWaiting())
   );
 });
 
@@ -43,7 +42,6 @@ self.addEventListener('activate', (event)=>{
         if(key === CACHE_NAME) return null;
         return caches.delete(key);
       })))
-      .then(()=>self.clients.claim())
   );
 });
 
@@ -65,15 +63,18 @@ self.addEventListener('fetch', (event)=>{
 
   if(isNavigate || isDocument){
     event.respondWith(
-      fetch(event.request, { cache:'no-store' })
-        .then((response)=>{
-          if(response && response.ok){
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache)=>cache.put(event.request, copy)).catch(()=>null);
-          }
-          return response;
+      caches.match(event.request)
+        .then((cached)=>{
+          if(cached) return cached;
+          return fetch(event.request, { cache:'no-store' }).then((response)=>{
+            if(response && response.ok){
+              const copy = response.clone();
+              caches.open(CACHE_NAME).then((cache)=>cache.put(event.request, copy)).catch(()=>null);
+            }
+            return response;
+          });
         })
-        .catch(()=>caches.match(event.request).then((cached)=>cached || caches.match('./index.html')))
+        .catch(()=>caches.match('./index.html'))
     );
     return;
   }
@@ -81,7 +82,8 @@ self.addEventListener('fetch', (event)=>{
   if(isShellAsset){
     event.respondWith(
       caches.match(event.request).then((cached)=>{
-        const network = fetch(event.request, { cache:'no-store' })
+        if(cached) return cached;
+        return fetch(event.request, { cache:'no-store' })
           .then((response)=>{
             if(response && response.ok){
               const copy = response.clone();
@@ -89,7 +91,6 @@ self.addEventListener('fetch', (event)=>{
             }
             return response;
           });
-        return cached || network;
       }).catch(()=>fetch(event.request, { cache:'no-store' }))
     );
     return;
