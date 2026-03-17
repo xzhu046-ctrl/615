@@ -26,8 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T12:49:00Z';
-const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
+const APP_BUILD_ID = '2026-03-17T12:57:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
@@ -365,14 +364,7 @@ async function buildRemoteAppFingerprint(){
       console.warn('[update-check] source skipped', err);
     }
   }
-  if(!/^https?:$/.test(window.location.protocol)) return '';
-  var targets = ['index.html', 'main.js', 'style.css'];
-  var texts = await Promise.all(targets.map(function(path){
-    var url = new URL(path, window.location.href);
-    url.searchParams.set('updateCheck', String(stamp));
-    return fetchTextWithTimeout(url.toString(), 15000);
-  }));
-  return simpleStringFingerprint(texts.join('\n<!-- split -->\n'));
+  return '';
 }
 
 function getServiceWorkerUrl(){
@@ -416,12 +408,7 @@ async function checkForHostedUpdate(){
     if(hostedUpdateLockedOpen && pendingRemoteAppFingerprint){
       return;
     }
-    var cachedRemoteFingerprint = '';
-    try{ cachedRemoteFingerprint = String(localStorage.getItem(REMOTE_APP_FINGERPRINT_KEY) || '').trim(); }catch(e){}
     var remoteFingerprint = await buildRemoteAppFingerprint();
-    if(remoteFingerprint){
-      try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, remoteFingerprint); }catch(e){}
-    }
     if(remoteFingerprint && remoteFingerprint !== APP_BUILD_ID){
       pendingRemoteAppFingerprint = remoteFingerprint;
       announceHostedUpdate(remoteFingerprint);
@@ -431,16 +418,10 @@ async function checkForHostedUpdate(){
       if(hostedUpdateLockedOpen && shownHostedUpdateFingerprint){
         return;
       }
-      try{ localStorage.removeItem(REMOTE_APP_FINGERPRINT_KEY); }catch(e){}
       pendingRemoteAppFingerprint = '';
       shownHostedUpdateFingerprint = '';
       hostedUpdateLockedOpen = false;
       hideHostedUpdateCard();
-      return;
-    }
-    if(cachedRemoteFingerprint && cachedRemoteFingerprint !== APP_BUILD_ID){
-      pendingRemoteAppFingerprint = cachedRemoteFingerprint;
-      announceHostedUpdate(cachedRemoteFingerprint);
       return;
     }
   }catch(err){
@@ -478,10 +459,9 @@ function refreshInstalledApp(evt){
     try{ evt.stopPropagation(); }catch(e){}
   }
   var finishReload = function(){
-    if(pendingRemoteAppFingerprint){
-      try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, pendingRemoteAppFingerprint); }catch(e){}
-    }
     hostedUpdateLockedOpen = false;
+    pendingRemoteAppFingerprint = '';
+    shownHostedUpdateFingerprint = '';
     try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
     hideHostedUpdateCard();
     window.location.reload();
