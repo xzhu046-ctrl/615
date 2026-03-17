@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-16T20:36:00Z';
+const APP_BUILD_ID = '2026-03-16T20:48:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
@@ -285,6 +285,13 @@ function hideHostedUpdateCard(){
   if(card) card.hidden = true;
 }
 
+function removeAppFromStack(appId){
+  if(!appId) return;
+  for(var i = appStack.length - 1; i >= 0; i -= 1){
+    if(appStack[i] === appId) appStack.splice(i, 1);
+  }
+}
+
 async function fetchTextWithTimeout(url, timeoutMs){
   var ms = Math.max(3000, Number(timeoutMs) || 8000);
   var controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -344,13 +351,21 @@ async function buildRemoteAppFingerprint(){
 
 async function checkForHostedUpdate(){
   try{
+    var cachedRemoteFingerprint = '';
+    try{ cachedRemoteFingerprint = String(localStorage.getItem(REMOTE_APP_FINGERPRINT_KEY) || '').trim(); }catch(e){}
+    if(cachedRemoteFingerprint && cachedRemoteFingerprint !== APP_BUILD_ID){
+      pendingRemoteAppFingerprint = cachedRemoteFingerprint;
+      showHostedUpdateCard();
+    }
     var remoteFingerprint = await buildRemoteAppFingerprint();
     if(!remoteFingerprint) return;
+    try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, remoteFingerprint); }catch(e){}
     if(remoteFingerprint !== APP_BUILD_ID){
       pendingRemoteAppFingerprint = remoteFingerprint;
       showHostedUpdateCard();
       return;
     }
+    try{ localStorage.removeItem(REMOTE_APP_FINGERPRINT_KEY); }catch(e){}
     hideHostedUpdateCard();
   }catch(err){
     console.warn('[update-check] skipped', err);
@@ -2255,6 +2270,7 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='OFFLINE_EXITED'){
     setMinimizedOfflineCharId('');
+    removeAppFromStack('offline');
   }
   if(type==='OPEN_APP'){ openApp(payload); }
   if(type==='SET_APP_ICON'){
