@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T12:43:00Z';
+const APP_BUILD_ID = '2026-03-17T12:49:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
@@ -42,6 +42,7 @@ let hostedUpdateLockedOpen = false;
 let hostedUpdateRetryTimer = 0;
 let swControllerRefreshPending = false;
 let shownHostedUpdateFingerprint = '';
+let hostedUpdateBootstrapped = false;
 
 function offlineMinimizedStorageKey(){
   return mainScopedKey(OFFLINE_MINIMIZED_CHAR_KEY);
@@ -339,7 +340,6 @@ async function buildRemoteAppFingerprint(){
   var remoteTasks = [
     function(){ return fetchJsonWithTimeout('https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 15000).then(function(data){ return String(data && data.buildId || '').trim(); }); },
     function(){ return fetchJsonWithTimeout('https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 15000).then(function(data){ return String(data && data.buildId || '').trim(); }); },
-    function(){ return fetchJsonWithTimeout('https://api.github.com/repos/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/commits/' + GITHUB_UPDATE_BRANCH + '?t=' + stamp, 15000).then(function(data){ return String(data && data.sha || '').trim(); }); },
     function(){
       if(!/^https?:$/.test(window.location.protocol)) return Promise.resolve('');
       return fetchJsonWithTimeout(new URL('version.json?updateCheck=' + stamp, window.location.href).toString(), 15000).then(function(data){
@@ -464,6 +464,12 @@ function kickOffHostedUpdateRetries(){
     hostedUpdateRetryTimer = 0;
   }
   scheduleHostedUpdateCheck(true);
+}
+
+function bootHostedUpdateCheck(){
+  if(hostedUpdateBootstrapped) return;
+  hostedUpdateBootstrapped = true;
+  kickOffHostedUpdateRetries();
 }
 
 function refreshInstalledApp(evt){
@@ -2845,7 +2851,7 @@ function restoreState(){
   }
   renderHomePages(true);
   setupAiBgScheduler();
-  setTimeout(function(){ kickOffHostedUpdateRetries(); }, 900);
+  setTimeout(function(){ bootHostedUpdateCheck(); }, 900);
   try{
     if(sessionStorage.getItem(REFRESH_RECALC_FLAG_KEY) === '1'){
       sessionStorage.removeItem(REFRESH_RECALC_FLAG_KEY);
@@ -2869,7 +2875,7 @@ window.addEventListener('resize', ()=>{
 window.addEventListener('load', ()=>{
   syncAppHeight();
   renderHomePages(true);
-  kickOffHostedUpdateRetries();
+  bootHostedUpdateCheck();
   var frame = document.getElementById('app-iframe');
   if(frame){
     frame.addEventListener('load', function(){
