@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-16T21:02:00Z';
+const APP_BUILD_ID = '2026-03-17T10:18:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
@@ -38,6 +38,7 @@ var widgetPreviewCache = {};
 let pendingRemoteAppFingerprint = '';
 let lastHostedUpdateCheckAt = 0;
 let hostedUpdateLockedOpen = false;
+let hostedUpdateRetryTimer = 0;
 
 function offlineMinimizedStorageKey(){
   return mainScopedKey(OFFLINE_MINIMIZED_CHAR_KEY);
@@ -387,6 +388,20 @@ function scheduleHostedUpdateCheck(force){
   if(!force && now - lastHostedUpdateCheckAt < UPDATE_CHECK_THROTTLE_MS) return;
   lastHostedUpdateCheckAt = now;
   checkForHostedUpdate();
+}
+
+function kickOffHostedUpdateRetries(){
+  var delays = [0, 1200, 3500, 7000];
+  if(hostedUpdateRetryTimer){
+    clearTimeout(hostedUpdateRetryTimer);
+    hostedUpdateRetryTimer = 0;
+  }
+  delays.forEach(function(delay, idx){
+    setTimeout(function(){
+      if(idx === 0) scheduleHostedUpdateCheck(true);
+      else checkForHostedUpdate();
+    }, delay);
+  });
 }
 
 function refreshInstalledApp(){
@@ -2720,7 +2735,7 @@ renderOfflineMiniLauncher();
   }
   renderHomePages(true);
   setupAiBgScheduler();
-  setTimeout(function(){ scheduleHostedUpdateCheck(true); }, 900);
+  setTimeout(function(){ kickOffHostedUpdateRetries(); }, 900);
   try{
     if(sessionStorage.getItem(REFRESH_RECALC_FLAG_KEY) === '1'){
       sessionStorage.removeItem(REFRESH_RECALC_FLAG_KEY);
@@ -2756,7 +2771,7 @@ window.addEventListener('load', ()=>{
 window.addEventListener('pageshow', ()=>{
   syncAppHeight();
   renderHomePages(true);
-  scheduleHostedUpdateCheck();
+  kickOffHostedUpdateRetries();
   setTimeout(function(){
     syncAppHeight();
     renderHomePages(true);
@@ -2786,7 +2801,7 @@ document.addEventListener('visibilitychange', ()=>{
     renderHomeDockBadges();
     refreshQqUnreadCountCache();
     maybeRunAiBgTick(false);
-    scheduleHostedUpdateCheck();
+    kickOffHostedUpdateRetries();
   }
 });
 window.addEventListener('resize', ()=>renderHomePages(true));
