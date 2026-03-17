@@ -29,6 +29,9 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
+const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
+const GITHUB_UPDATE_REPO = '615';
+const GITHUB_UPDATE_BRANCH = 'main';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
 let pendingRemoteAppFingerprint = '';
@@ -283,6 +286,17 @@ function hideHostedUpdateCard(){
 
 async function buildRemoteAppFingerprint(){
   if(!/^https?:$/.test(window.location.protocol)) return '';
+  try{
+    var apiUrl = 'https://api.github.com/repos/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/commits/' + GITHUB_UPDATE_BRANCH + '?t=' + Date.now();
+    var apiRes = await fetch(apiUrl, { cache:'no-store' });
+    if(apiRes.ok){
+      var commit = await apiRes.json();
+      var sha = String(commit && commit.sha || '').trim();
+      if(sha) return sha;
+    }
+  }catch(err){
+    console.warn('[update-check] github sha skipped', err);
+  }
   var stamp = Date.now();
   var targets = ['index.html', 'main.js', 'style.css'];
   var texts = await Promise.all(targets.map(function(path){
