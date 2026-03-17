@@ -28,9 +28,11 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
+const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
 let pendingRemoteAppFingerprint = '';
+let lastHostedUpdateCheckAt = 0;
 
 function offlineMinimizedStorageKey(){
   return mainScopedKey(OFFLINE_MINIMIZED_CHAR_KEY);
@@ -316,6 +318,14 @@ async function checkForHostedUpdate(){
   }catch(err){
     console.warn('[update-check] skipped', err);
   }
+}
+
+function scheduleHostedUpdateCheck(force){
+  if(!/^https?:$/.test(window.location.protocol)) return;
+  var now = Date.now();
+  if(!force && now - lastHostedUpdateCheckAt < UPDATE_CHECK_THROTTLE_MS) return;
+  lastHostedUpdateCheckAt = now;
+  checkForHostedUpdate();
 }
 
 function refreshInstalledApp(){
@@ -2647,7 +2657,7 @@ renderOfflineMiniLauncher();
   }
   renderHomePages(true);
   setupAiBgScheduler();
-  setTimeout(function(){ checkForHostedUpdate(); }, 900);
+  setTimeout(function(){ scheduleHostedUpdateCheck(true); }, 900);
   try{
     if(sessionStorage.getItem(REFRESH_RECALC_FLAG_KEY) === '1'){
       sessionStorage.removeItem(REFRESH_RECALC_FLAG_KEY);
@@ -2683,6 +2693,7 @@ window.addEventListener('load', ()=>{
 window.addEventListener('pageshow', ()=>{
   syncAppHeight();
   renderHomePages(true);
+  scheduleHostedUpdateCheck();
   setTimeout(function(){
     syncAppHeight();
     renderHomePages(true);
@@ -2712,6 +2723,7 @@ document.addEventListener('visibilitychange', ()=>{
     renderHomeDockBadges();
     refreshQqUnreadCountCache();
     maybeRunAiBgTick(false);
+    scheduleHostedUpdateCheck();
   }
 });
 window.addEventListener('resize', ()=>renderHomePages(true));
