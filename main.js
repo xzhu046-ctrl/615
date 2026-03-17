@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T14:20:00Z';
+const APP_BUILD_ID = '2026-03-17T15:05:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
@@ -341,30 +341,24 @@ async function buildRemoteAppFingerprint(){
   var stamp = Date.now();
   var remoteTasks = [
     function(){ return fetchJsonWithTimeout('https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 15000).then(function(data){ return String(data && data.buildId || '').trim(); }); },
-    function(){ return fetchJsonWithTimeout('https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 15000).then(function(data){ return String(data && data.buildId || '').trim(); }); },
-    function(){
-      if(!/^https?:$/.test(window.location.protocol)) return Promise.resolve('');
-      return fetchJsonWithTimeout(new URL('version.json?updateCheck=' + stamp, window.location.href).toString(), 15000).then(function(data){
-        return String(data && data.buildId || '').trim();
-      });
-    }
+    function(){ return fetchJsonWithTimeout('https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 15000).then(function(data){ return String(data && data.buildId || '').trim(); }); }
   ];
-  if(typeof Promise.any === 'function'){
-    try{
-      return await Promise.any(remoteTasks.map(function(run){
-        return run().then(function(value){
-          if(!value) throw new Error('empty fingerprint');
-          return value;
-        });
-      }));
-    }catch(errAny){}
-  }
   for(var i = 0; i < remoteTasks.length; i += 1){
     try{
       var nextFingerprint = await remoteTasks[i]();
       if(nextFingerprint) return nextFingerprint;
     }catch(err){
       console.warn('[update-check] source skipped', err);
+    }
+  }
+  if(/^https?:$/.test(window.location.protocol)){
+    try{
+      var sameOriginFingerprint = await fetchJsonWithTimeout(new URL('version.json?updateCheck=' + stamp, window.location.href).toString(), 15000).then(function(data){
+        return String(data && data.buildId || '').trim();
+      });
+      if(sameOriginFingerprint) return sameOriginFingerprint;
+    }catch(errSameOrigin){
+      console.warn('[update-check] same-origin fallback skipped', errSameOrigin);
     }
   }
   return '';
