@@ -26,9 +26,10 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T12:08:00Z';
+const APP_BUILD_ID = '2026-03-17T12:18:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
+const UPDATE_PROMPT_SEEN_KEY = 'update_prompt_seen_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
 const GITHUB_UPDATE_REPO = '615';
@@ -279,12 +280,43 @@ function simpleStringFingerprint(text){
   return (hash >>> 0).toString(16);
 }
 
+function getSeenHostedUpdateFingerprint(){
+  try{ return String(sessionStorage.getItem(UPDATE_PROMPT_SEEN_KEY) || '').trim(); }catch(e){ return ''; }
+}
+
+function setSeenHostedUpdateFingerprint(value){
+  try{
+    if(value) sessionStorage.setItem(UPDATE_PROMPT_SEEN_KEY, String(value));
+    else sessionStorage.removeItem(UPDATE_PROMPT_SEEN_KEY);
+  }catch(e){}
+}
+
 function showHostedUpdateCard(){
   var card = document.getElementById('update-toast-card');
   if(card) card.hidden = false;
   var pill = document.getElementById('update-persist-pill');
   if(pill) pill.hidden = false;
   hostedUpdateLockedOpen = true;
+}
+
+function showHostedUpdatePillOnly(){
+  var pill = document.getElementById('update-persist-pill');
+  if(pill) pill.hidden = false;
+}
+
+function announceHostedUpdate(fingerprint){
+  var nextFingerprint = String(fingerprint || pendingRemoteAppFingerprint || '').trim();
+  if(nextFingerprint) pendingRemoteAppFingerprint = nextFingerprint;
+  if(!nextFingerprint){
+    showHostedUpdateCard();
+    return;
+  }
+  if(getSeenHostedUpdateFingerprint() === nextFingerprint){
+    showHostedUpdatePillOnly();
+    return;
+  }
+  setSeenHostedUpdateFingerprint(nextFingerprint);
+  showHostedUpdateCard();
 }
 
 function hideHostedUpdateCard(){
@@ -406,7 +438,7 @@ function bindHostedServiceWorker(){
     function notifyWaitingWorker(){
       if(reg.waiting){
         pendingRemoteAppFingerprint = 'sw:' + APP_BUILD_ID;
-        showHostedUpdateCard();
+        announceHostedUpdate(pendingRemoteAppFingerprint);
       }
     }
     notifyWaitingWorker();
@@ -436,7 +468,7 @@ async function checkForHostedUpdate(){
         var registration = await navigator.serviceWorker.getRegistration();
         if(registration && registration.waiting){
           pendingRemoteAppFingerprint = 'sw:' + APP_BUILD_ID;
-          showHostedUpdateCard();
+          announceHostedUpdate(pendingRemoteAppFingerprint);
           return;
         }
       }catch(swErr){
@@ -449,19 +481,20 @@ async function checkForHostedUpdate(){
     }
     if(remoteFingerprint && remoteFingerprint !== APP_BUILD_ID){
       pendingRemoteAppFingerprint = remoteFingerprint;
-      showHostedUpdateCard();
+      announceHostedUpdate(remoteFingerprint);
       return;
     }
     if(remoteFingerprint && remoteFingerprint === APP_BUILD_ID){
       try{ localStorage.removeItem(REMOTE_APP_FINGERPRINT_KEY); }catch(e){}
       pendingRemoteAppFingerprint = '';
+      setSeenHostedUpdateFingerprint('');
       hostedUpdateLockedOpen = false;
       hideHostedUpdateCard();
       return;
     }
     if(cachedRemoteFingerprint && cachedRemoteFingerprint !== APP_BUILD_ID){
       pendingRemoteAppFingerprint = cachedRemoteFingerprint;
-      showHostedUpdateCard();
+      announceHostedUpdate(cachedRemoteFingerprint);
       return;
     }
   }catch(err){
