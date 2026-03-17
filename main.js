@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-16T20:05:00Z';
+const APP_BUILD_ID = '2026-03-16T20:18:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
@@ -286,7 +286,6 @@ function hideHostedUpdateCard(){
 }
 
 async function buildRemoteAppFingerprint(){
-  if(!/^https?:$/.test(window.location.protocol)) return '';
   var stamp = Date.now();
   try{
     var versionUrl = 'https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp;
@@ -310,6 +309,7 @@ async function buildRemoteAppFingerprint(){
   }catch(err){
     console.warn('[update-check] github sha skipped', err);
   }
+  if(!/^https?:$/.test(window.location.protocol)) return '';
   var targets = ['index.html', 'main.js', 'style.css'];
   var texts = await Promise.all(targets.map(function(path){
     var url = new URL(path, window.location.href);
@@ -323,7 +323,6 @@ async function buildRemoteAppFingerprint(){
 }
 
 async function checkForHostedUpdate(){
-  if(!/^https?:$/.test(window.location.protocol)) return;
   try{
     var remoteFingerprint = await buildRemoteAppFingerprint();
     if(!remoteFingerprint) return;
@@ -339,7 +338,6 @@ async function checkForHostedUpdate(){
 }
 
 function scheduleHostedUpdateCheck(force){
-  if(!/^https?:$/.test(window.location.protocol)) return;
   var now = Date.now();
   if(!force && now - lastHostedUpdateCheckAt < UPDATE_CHECK_THROTTLE_MS) return;
   lastHostedUpdateCheckAt = now;
