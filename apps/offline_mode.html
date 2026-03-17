@@ -687,30 +687,6 @@ function buildOfflineOpeningFallback(){
 function buildOfflineAsideFallback(){
   return ['我真的已经想你很久了。','我现在还是有点不敢相信你就在这里。'];
 }
-function buildOfflineReplyFallback(seedText){
-  var clean = String(seedText || '').replace(/\s+/g, ' ').trim();
-  var perspective = getOfflineStoryPrefs().perspective;
-  var base = '';
-  if(perspective === 'third'){
-    base = clean
-      ? ('他看着' + resolveUserName() + '刚说完的话，先安静了一下，像是把那点情绪认真接住了。随后他靠近半步，语气放轻下来，顺着当下的话题回了一句，没让这阵气氛掉下去。视线落在' + resolveUserName() + '脸上的时候，他还是带着一点藏不住的在意，像想继续把这场见面慢慢往下接。')
-      : ('他没有把这阵气氛晾住，只是顺着当下的距离和眼神，接了一句更轻一点的话。那种在意没有故意说满，却能从停顿和靠近里看出来，像是想把这场见面继续稳稳往前推。');
-  }else if(perspective === 'second'){
-    base = clean
-      ? '他看着你刚说完的话，先安静了一下，像是把那点情绪认真接住了。随后他靠近半步，语气放轻下来，顺着你的意思回了一句，没让这阵气氛掉下去。视线落在你脸上的时候，他还是带着一点藏不住的在意，像想继续把这场见面慢慢往下接。'
-      : '他没有把这阵气氛晾住，只是顺着当下的距离和眼神，接了一句更轻一点的话。那种在意没有故意说满，却能从停顿和靠近里看出来，像是想把这场见面继续稳稳往前推。';
-  }else{
-    base = clean
-      ? '他看着我刚说完的话，先安静了一下，像是把那点情绪认真接住了。随后他靠近半步，语气放轻下来，顺着我的意思回了一句，没让这阵气氛掉下去。视线落在我脸上的时候，他还是带着一点藏不住的在意，像想继续把这场见面慢慢往下接。'
-      : '他没有把这阵气氛晾住，只是顺着当下的距离和眼神，接了一句更轻一点的话。那种在意没有故意说满，却能从停顿和靠近里看出来，像是想把这场见面继续稳稳往前推。';
-  }
-  return {
-    text: base,
-    asides: buildOfflineAsideFallback(),
-    heart: '♥',
-    bubbles: ['看着我','继续说吧']
-  };
-}
 function normalizeOfflineAsides(raw){
   var list = [];
   if(Array.isArray(raw)) list = raw;
@@ -1411,7 +1387,7 @@ async function requestOfflineReply(options){
       parsed = null;
     }
     if(!parsed){
-      parsed = buildOfflineReplyFallback((session.entries && session.entries.length ? session.entries[session.entries.length - 1].text : '') || '');
+      throw new Error('回复生成失败或未通过规则校验');
     }
     var nextLabels = nowLabels();
     session.entries.push({
@@ -1427,21 +1403,7 @@ async function requestOfflineReply(options){
     renderStory();
     keepOfflineComposerVisible();
   }catch(e){
-    var fallbackParsed = buildOfflineReplyFallback((session.entries && session.entries.length ? session.entries[session.entries.length - 1].text : '') || '');
-    var fallbackLabels = nowLabels();
-    session.entries.push({
-      role:'assistant',
-      text:String(fallbackParsed.text || '').trim(),
-      asides: normalizeOfflineAsides(fallbackParsed.asides),
-      heart:String(fallbackParsed.heart || '♥').trim() || '♥',
-      bubbles:Array.isArray(fallbackParsed.bubbles) ? fallbackParsed.bubbles.slice(0,3) : [],
-      timeLabel:fallbackLabels.timeLabel,
-      meta:fallbackLabels.meta
-    });
-    saveSession();
-    renderStory();
-    keepOfflineComposerVisible();
-    toast('线下回复有点慢，先显示保底回复');
+    toast('线下回复生成失败：' + summarizeOfflineError(e));
   }finally{
     setOfflineComposerBusy(false);
   }
