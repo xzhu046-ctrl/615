@@ -105,6 +105,35 @@
       });
     },
 
+    listAll: function(){
+      return withStore('readonly', function(store){
+        return new Promise(function(resolve, reject){
+          var items = {};
+          if(typeof store.openCursor !== 'function'){
+            resolve(items);
+            return;
+          }
+          var req = store.openCursor();
+          req.onsuccess = function(event){
+            var cursor = event.target.result;
+            if(!cursor){
+              resolve(items);
+              return;
+            }
+            items[cursor.key] = cursor.value;
+            cursor.continue();
+          };
+          req.onerror = function(event){
+            reject((event.target && event.target.error) || new Error('asset list failed'));
+          };
+        });
+      }).then(function(result){
+        return result && typeof result.then === 'function' ? result : (result || {});
+      }).catch(function(){
+        return {};
+      });
+    },
+
     saveOrFallback: function(key, value){
       if(!value){
         return this.remove(key).then(function(){ return true; });

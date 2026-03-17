@@ -298,7 +298,12 @@ async function checkForHostedUpdate(){
     if(!fingerprint) return;
     var known = localStorage.getItem(REMOTE_APP_FINGERPRINT_KEY) || '';
     if(!known){
-      localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, fingerprint);
+      if(isStandaloneMode()){
+        pendingRemoteAppFingerprint = fingerprint;
+        showHostedUpdateCard();
+      }else{
+        localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, fingerprint);
+      }
       return;
     }
     if(known !== fingerprint){

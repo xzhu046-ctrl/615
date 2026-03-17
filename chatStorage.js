@@ -231,6 +231,7 @@
   }
 
   global.PhoneStorage = {
+    STORE_NAMES: STORE_NAMES.slice(),
     supportsIndexedDb: supportsIndexedDb,
     get: get,
     put: put,

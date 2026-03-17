@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <script src="../accountManager.js"></script>
 <script src="../chatStorage.js"></script>
+<script src="../assetStore.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:inherit;-webkit-text-fill-color:currentColor}
@@ -268,6 +269,21 @@ textarea{resize:none}
   </div>
 
   <!-- Reset / Format -->
+  <div class="card">
+    <div class="card-header">
+      <h3>整机备份</h3>
+      <span style="font-size:11px;color:#666;font-weight:800">导出 / 导入</span>
+    </div>
+    <div class="card-body" style="gap:12px">
+      <div style="font-size:12px;line-height:1.6;color:#444">可以把当前小手机的全部数据打包成一个 JSON 文件，也可以从备份文件完整恢复，包括 API、角色、聊天、头像、壁纸和自定义外观。</div>
+      <div class="btn-row">
+        <button class="btn btn-white btn-full" type="button" onclick="exportAllData()">导出所有数据</button>
+        <button class="btn btn-white btn-full" type="button" onclick="triggerImportAllData()">导入所有数据</button>
+      </div>
+      <input type="file" id="import-all-data-input" accept=".json,application/json" style="display:none" onchange="onImportAllData(event)">
+    </div>
+  </div>
+
   <div class="card" style="border-color:#c00;box-shadow:2px 2px 0 #c00">
     <div class="card-header" style="border-color:#c00">
       <h3 style="color:#c00">格式化 Ephone</h3>
@@ -498,6 +514,146 @@ function showToast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(function(){ t.classList.remove('show'); }, 2200);
+}
+
+function getPhoneStorageStoreNames(){
+  if(window.PhoneStorage && Array.isArray(window.PhoneStorage.STORE_NAMES) && window.PhoneStorage.STORE_NAMES.length){
+    return window.PhoneStorage.STORE_NAMES.slice();
+  }
+  return ['chats','moneyStates','memorySummaries','innerVoices','callRecords','kv'];
+}
+
+function storageToObject(storage){
+  var out = {};
+  if(!storage) return out;
+  try{
+    Object.keys(storage).forEach(function(key){
+      out[key] = storage.getItem(key);
+    });
+  }catch(err){}
+  return out;
+}
+
+function restoreStorageFromObject(storage, values){
+  if(!storage || !values || typeof values !== 'object') return;
+  Object.keys(values).forEach(function(key){
+    try{
+      var val = values[key];
+      if(val === null || typeof val === 'undefined') return;
+      storage.setItem(key, String(val));
+    }catch(err){}
+  });
+}
+
+async function exportAllData(){
+  try{
+    var stores = getPhoneStorageStoreNames();
+    var phoneStorageData = {};
+    if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function'){
+      for(var i = 0; i < stores.length; i += 1){
+        phoneStorageData[stores[i]] = await window.PhoneStorage.list(stores[i]).catch(function(){ return []; });
+      }
+    }
+    var assets = {};
+    if(window.assetStore && typeof window.assetStore.listAll === 'function'){
+      assets = await window.assetStore.listAll().catch(function(){ return {}; });
+    }
+    var payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      localStorage: storageToObject(window.localStorage),
+      sessionStorage: storageToObject(window.sessionStorage),
+      assets: assets,
+      phoneStorage: phoneStorageData
+    };
+    var stamp = new Date().toISOString().replace(/[:T]/g, '-').replace(/\..+$/, '');
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = 'ephone-backup-' + stamp + '.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1200);
+    showToast('已导出全部数据');
+  }catch(err){
+    console.error(err);
+    showToast('导出失败，请重试');
+  }
+}
+
+function triggerImportAllData(){
+  var input = document.getElementById('import-all-data-input');
+  if(!input) return;
+  input.value = '';
+  input.click();
+}
+
+async function onImportAllData(event){
+  var input = event && event.target;
+  var file = input && input.files && input.files[0];
+  if(!file) return;
+  try{
+    var text = await file.text();
+    var payload = JSON.parse(text);
+    if(!payload || typeof payload !== 'object'){
+      throw new Error('备份文件无效');
+    }
+    if(!confirm('导入后会覆盖当前手机上的所有数据，确认继续？')) return;
+
+    if(window.assetStore && typeof window.assetStore.clearAll === 'function'){
+      await window.assetStore.clearAll().catch(function(){});
+    }
+    if(window.PhoneStorage){
+      if(typeof window.PhoneStorage.deleteDatabase === 'function'){
+        await window.PhoneStorage.deleteDatabase().catch(function(){});
+      }else if(typeof window.PhoneStorage.clearAll === 'function'){
+        await window.PhoneStorage.clearAll().catch(function(){});
+      }
+    }
+    try{ localStorage.clear(); }catch(err){}
+    try{ sessionStorage.clear(); }catch(err){}
+
+    restoreStorageFromObject(window.localStorage, payload.localStorage);
+    restoreStorageFromObject(window.sessionStorage, payload.sessionStorage);
+
+    var assetKeys = payload.assets && typeof payload.assets === 'object' ? Object.keys(payload.assets) : [];
+    for(var i = 0; i < assetKeys.length; i += 1){
+      if(window.assetStore && typeof window.assetStore.set === 'function'){
+        await window.assetStore.set(assetKeys[i], payload.assets[assetKeys[i]]);
+      }else{
+        try{ localStorage.setItem(assetKeys[i], payload.assets[assetKeys[i]]); }catch(err){}
+      }
+    }
+
+    var stores = payload.phoneStorage && typeof payload.phoneStorage === 'object' ? Object.keys(payload.phoneStorage) : [];
+    for(var s = 0; s < stores.length; s += 1){
+      var storeName = stores[s];
+      var records = Array.isArray(payload.phoneStorage[storeName]) ? payload.phoneStorage[storeName] : [];
+      for(var r = 0; r < records.length; r += 1){
+        if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+          await window.PhoneStorage.put(storeName, records[r]);
+        }
+      }
+    }
+
+    showToast('已导入，正在重启…');
+    setTimeout(function(){
+      try{
+        if(window.parent && window.parent !== window && window.parent.location){
+          window.parent.location.reload();
+          return;
+        }
+      }catch(err){}
+      window.location.reload();
+    }, 450);
+  }catch(err){
+    console.error(err);
+    showToast('导入失败，请检查备份文件');
+  }finally{
+    if(input) input.value = '';
+  }
 }
 
 async function confirmFormat() {
