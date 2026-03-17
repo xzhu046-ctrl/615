@@ -1239,6 +1239,8 @@ async function generateOpeningIfNeeded(){
   var openingText = '';
   var openingAsides = [];
   var lastError = null;
+  var bestText = '';
+  var bestAsides = [];
   try{
     var openingPrompt = [
       '请写这场线下见面的第一个场景。',
@@ -1252,6 +1254,10 @@ async function generateOpeningIfNeeded(){
         var parsedOpening = parseOfflineReply(raw);
         openingText = String(parsedOpening && parsedOpening.text || '').trim();
         openingAsides = normalizeOfflineAsides(parsedOpening && parsedOpening.asides);
+        if(openingTextLength(openingText) > openingTextLength(bestText)){
+          bestText = openingText;
+          bestAsides = openingAsides.slice();
+        }
         for(var extendAttempt = 0; extendAttempt < 2; extendAttempt += 1){
           if(openingTextLength(openingText) >= minChars) break;
           if(containsOpeningViolation(openingText) || violatesOfflinePerspective(openingText, storyPrefs.perspective)) break;
@@ -1263,29 +1269,44 @@ async function generateOpeningIfNeeded(){
             '现在还差至少 ' + missing + ' 个中文字符才达到目标长度。',
             '只返回新增内容的 JSON：{"text":"...","asides":["...","..."]}。text 里不要重复上面已经写过的句子。'
           ].join('\n\n');
-          var continueRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), continuePrompt, 120000);
-          var continueParsed = parseOfflineReply(continueRaw);
-          var extraText = String(continueParsed && continueParsed.text || '').trim();
-          if(!extraText || extraText === openingText) break;
-          openingText = mergeOfflineOpeningText(openingText, extraText);
-          openingAsides = mergeOfflineAsides(openingAsides, normalizeOfflineAsides(continueParsed && continueParsed.asides));
+          try{
+            var continueRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), continuePrompt, 120000);
+            var continueParsed = parseOfflineReply(continueRaw);
+            var extraText = String(continueParsed && continueParsed.text || '').trim();
+            if(!extraText || extraText === openingText) break;
+            openingText = mergeOfflineOpeningText(openingText, extraText);
+            openingAsides = mergeOfflineAsides(openingAsides, normalizeOfflineAsides(continueParsed && continueParsed.asides));
+            if(openingTextLength(openingText) > openingTextLength(bestText)){
+              bestText = openingText;
+              bestAsides = openingAsides.slice();
+            }
+          }catch(continueErr){
+            lastError = continueErr;
+            break;
+          }
         }
       }catch(err){
         lastError = err;
-        if(openingTextLength(openingText) >= partialThreshold){
-          break;
+        if(openingTextLength(openingText) > openingTextLength(bestText)){
+          bestText = openingText;
+          bestAsides = openingAsides.slice();
         }
-        throw err;
+        continue;
       }
       if(openingTextLength(openingText) >= minChars && !containsOpeningViolation(openingText) && !violatesOfflinePerspective(openingText, storyPrefs.perspective)){
         break;
       }
     }
+    if(openingTextLength(bestText) > openingTextLength(openingText)){
+      openingText = bestText;
+      openingAsides = bestAsides.slice();
+    }
     if(violatesOfflinePerspective(openingText, storyPrefs.perspective) || containsOpeningViolation(openingText) || openingTextLength(openingText) < minChars){
       openingText = '';
     }
     if(!String(openingText || '').trim()){
-      throw new Error(lastError ? summarizeOfflineError(lastError) : '首幕未达到目标字数');
+      var currentLen = openingTextLength(bestText || openingText);
+      throw new Error(lastError ? (summarizeOfflineError(lastError) + '，当前字数 ' + currentLen + '/' + minChars) : ('首幕未达到目标字数（' + currentLen + '/' + minChars + '）'));
     }
     var labels = nowLabels();
     session.entries.push({
@@ -1300,11 +1321,7 @@ async function generateOpeningIfNeeded(){
     session.pendingOpening = false;
     saveSession();
   }catch(e){
-    if(openingTextLength(openingText) >= partialThreshold){
-      toast('首幕未达目标字数：' + summarizeOfflineError(e));
-    }else{
-      toast('线下首幕生成失败：' + summarizeOfflineError(e));
-    }
+    toast('线下首幕生成失败：' + summarizeOfflineError(e));
     session.pendingOpening = true;
     saveSession();
   }

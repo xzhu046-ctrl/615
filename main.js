@@ -37,6 +37,7 @@ let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
 let pendingRemoteAppFingerprint = '';
 let lastHostedUpdateCheckAt = 0;
+let hostedUpdateLockedOpen = false;
 
 function offlineMinimizedStorageKey(){
   return mainScopedKey(OFFLINE_MINIMIZED_CHAR_KEY);
@@ -278,9 +279,11 @@ function simpleStringFingerprint(text){
 function showHostedUpdateCard(){
   var card = document.getElementById('update-toast-card');
   if(card) card.hidden = false;
+  hostedUpdateLockedOpen = true;
 }
 
 function hideHostedUpdateCard(){
+  if(hostedUpdateLockedOpen) return;
   var card = document.getElementById('update-toast-card');
   if(card) card.hidden = true;
 }
@@ -365,6 +368,7 @@ async function checkForHostedUpdate(){
     if(remoteFingerprint && remoteFingerprint === APP_BUILD_ID){
       try{ localStorage.removeItem(REMOTE_APP_FINGERPRINT_KEY); }catch(e){}
       pendingRemoteAppFingerprint = '';
+      hostedUpdateLockedOpen = false;
       hideHostedUpdateCard();
       return;
     }
@@ -389,6 +393,7 @@ function refreshInstalledApp(){
   if(pendingRemoteAppFingerprint){
     try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, pendingRemoteAppFingerprint); }catch(e){}
   }
+  hostedUpdateLockedOpen = false;
   try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
   hideHostedUpdateCard();
   window.location.reload();
