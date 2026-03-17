@@ -282,9 +282,11 @@ function hideHostedUpdateCard(){
 async function buildRemoteAppFingerprint(){
   if(!/^https?:$/.test(window.location.protocol)) return '';
   var stamp = Date.now();
-  var targets = ['index.html', 'main.js', 'style.css', 'manifest.webmanifest'];
+  var targets = ['index.html', 'main.js', 'style.css'];
   var texts = await Promise.all(targets.map(function(path){
-    return fetch(path + '?updateCheck=' + stamp, { cache:'no-store' }).then(function(res){
+    var url = new URL(path, window.location.href);
+    url.searchParams.set('updateCheck', String(stamp));
+    return fetch(url.toString(), { cache:'no-store' }).then(function(res){
       if(!res.ok) throw new Error('fetch failed: ' + path);
       return res.text();
     });
