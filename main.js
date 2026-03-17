@@ -294,14 +294,7 @@ function setSeenHostedUpdateFingerprint(value){
 function showHostedUpdateCard(){
   var card = document.getElementById('update-toast-card');
   if(card) card.hidden = false;
-  var pill = document.getElementById('update-persist-pill');
-  if(pill) pill.hidden = false;
   hostedUpdateLockedOpen = true;
-}
-
-function showHostedUpdatePillOnly(){
-  var pill = document.getElementById('update-persist-pill');
-  if(pill) pill.hidden = false;
 }
 
 function announceHostedUpdate(fingerprint){
@@ -312,7 +305,6 @@ function announceHostedUpdate(fingerprint){
     return;
   }
   if(getSeenHostedUpdateFingerprint() === nextFingerprint){
-    showHostedUpdatePillOnly();
     return;
   }
   setSeenHostedUpdateFingerprint(nextFingerprint);
@@ -323,8 +315,6 @@ function hideHostedUpdateCard(){
   if(hostedUpdateLockedOpen) return;
   var card = document.getElementById('update-toast-card');
   if(card) card.hidden = true;
-  var pill = document.getElementById('update-persist-pill');
-  if(pill) pill.hidden = true;
 }
 
 function removeAppFromStack(appId){
