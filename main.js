@@ -2646,10 +2646,31 @@ window.addEventListener('resize', ()=>{
   }
 });
 
+window.addEventListener('load', ()=>{
+  syncAppHeight();
+  renderHomePages(true);
+});
+
+window.addEventListener('pageshow', ()=>{
+  syncAppHeight();
+  renderHomePages(true);
+  setTimeout(function(){
+    syncAppHeight();
+    renderHomePages(true);
+  }, 180);
+});
+
+window.addEventListener('orientationchange', ()=>{
+  setTimeout(function(){
+    syncAppHeight();
+    renderHomePages(true);
+  }, 120);
+});
+
 if(window.visualViewport){
   window.visualViewport.addEventListener('resize', ()=>{
-    if(isStandaloneMode()) return;
     syncAppHeight();
+    renderHomePages(true);
   });
 }
 
