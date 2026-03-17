@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T16:25:00Z';
+const APP_BUILD_ID = '2026-03-17T16:40:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
@@ -478,6 +478,13 @@ function refreshInstalledApp(evt){
     hostedUpdateModalShown = false;
     try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
     hideHostedUpdateCard();
+    try{
+      var url = new URL(window.location.href);
+      url.searchParams.set('__appBuild', APP_BUILD_ID);
+      url.searchParams.set('__ts', String(Date.now()));
+      window.location.replace(url.toString());
+      return;
+    }catch(err){}
     window.location.reload();
   };
   Promise.resolve()
@@ -505,6 +512,17 @@ function refreshInstalledApp(evt){
       console.warn('[update-check] refresh fallback', err);
       finishReload();
     });
+}
+
+function clearHostedRefreshParams(){
+  try{
+    var url = new URL(window.location.href);
+    var hadRefreshParams = url.searchParams.has('__appBuild') || url.searchParams.has('__ts');
+    if(!hadRefreshParams) return;
+    url.searchParams.delete('__appBuild');
+    url.searchParams.delete('__ts');
+    window.history.replaceState({}, document.title, url.toString());
+  }catch(err){}
 }
 
 function bindTextNormalization(){
@@ -2866,6 +2884,7 @@ window.addEventListener('resize', ()=>{
 });
 
 window.addEventListener('load', ()=>{
+  clearHostedRefreshParams();
   syncAppHeight();
   renderHomePages(true);
   bootHostedUpdateCheck();
