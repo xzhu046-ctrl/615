@@ -173,7 +173,7 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
     <div class="exit-menu-sub">你可以把这次约会暂时缩起来，或者认真说完再见后退出。</div>
     <div class="exit-menu-actions">
       <button class="exit-menu-btn" type="button" onclick="minimizeOfflineMeet()">暂时离开</button>
-      <button class="exit-menu-btn" type="button" onclick="confirmExitOfflineMeet()">先说再见</button>
+      <button class="exit-menu-btn" id="exitMenuConfirmBtn" type="button" onclick="confirmExitOfflineMeet()">先说再见</button>
       <button class="exit-menu-btn" type="button" onclick="closeExitMenu()">再待一会</button>
     </div>
   </div>
@@ -184,6 +184,7 @@ var promptManager = new (window.PromptManager || function(){})();
 var session = null;
 var character = null;
 var sending = false;
+var exitingOfflineMeet = false;
 var flightGameState = null;
 var runtimeUserAvatar = '';
 var runtimeCharAvatar = '';
@@ -1445,10 +1446,42 @@ async function summarizeOfflineMemory(){
     return '线下见面中，两人的互动进一步推进了关系，并围绕当下氛围展开了更贴近现实的交流。';
   }
 }
+function summarizeOfflineMemoryLocally(snapshot){
+  var list = Array.isArray(snapshot && snapshot.entries) ? snapshot.entries : [];
+  if(!list.length) return '';
+  var lastUser = '';
+  var lastAssistant = '';
+  for(var i = list.length - 1; i >= 0; i -= 1){
+    var entry = list[i];
+    if(!entry) continue;
+    var text = String(entry.text || '').replace(/\s+/g, ' ').trim();
+    if(!text) continue;
+    if(!lastAssistant && entry.role === 'assistant') lastAssistant = text;
+    if(!lastUser && entry.role === 'user') lastUser = text;
+    if(lastUser && lastAssistant) break;
+  }
+  var parts = ['这次线下见面已经结束，两人的关系在这次见面里继续推进。'];
+  if(lastUser) parts.push('用户最后表达了：' + lastUser.slice(0, 60) + '。');
+  if(lastAssistant) parts.push('角色最后回应了：' + lastAssistant.slice(0, 60) + '。');
+  return parts.join('');
+}
+function setExitMenuBusy(busy){
+  var btn = document.getElementById('exitMenuConfirmBtn');
+  if(!btn) return;
+  btn.disabled = !!busy;
+  btn.textContent = busy ? '正在退出...' : '先说再见';
+}
 async function exitOfflineMeet(){
+  if(exitingOfflineMeet) return;
+  exitingOfflineMeet = true;
+  setExitMenuBusy(true);
   if(!session || !character || !character.id){
     try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
     window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*');
+    setTimeout(function(){
+      exitingOfflineMeet = false;
+      setExitMenuBusy(false);
+    }, 120);
     return;
   }
   var finishedSession = JSON.parse(JSON.stringify(session || {}));
@@ -1457,8 +1490,7 @@ async function exitOfflineMeet(){
     createdAt: Date.now()
   }));
   try{
-    session = finishedSession;
-    var memoryText = await summarizeOfflineMemory();
+    var memoryText = summarizeOfflineMemoryLocally(finishedSession);
     if(memoryText){
       localStorage.setItem(pendingOfflineMemoryKey(character.id), JSON.stringify({
         text: memoryText,
@@ -1470,6 +1502,10 @@ async function exitOfflineMeet(){
   session = { active:false, entries:[], minimized:false };
   try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
   window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*');
+  setTimeout(function(){
+    exitingOfflineMeet = false;
+    setExitMenuBusy(false);
+  }, 120);
 }
 function openExitMenu(){
   document.getElementById('exitMenu')?.classList.add('open');
@@ -1497,6 +1533,7 @@ function restoreOfflineMeet(){
   document.getElementById('offlineMiniLauncher')?.classList.remove('show');
 }
 async function confirmExitOfflineMeet(){
+  if(exitingOfflineMeet) return;
   closeExitMenu();
   await exitOfflineMeet();
 }
