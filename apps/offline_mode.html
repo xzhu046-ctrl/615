@@ -779,12 +779,20 @@ function offlineOpeningBanRules(){
     '"你的身体比你的嘴诚实多了"及所有变体、"尝尝你自己的味道"',
     '"此刻他不再是A，只是一个B"及所有变体、"这已经不是A了，而是B"',
     '禁用动作/场景套路：打横抱起+惊呼+搂住脖子、头埋进颈窝+叹息、下巴放在发旋/头顶、在身体上画圈/打圈、额头抵着额头、指腹擦去嘴角食物残渣、赤足、投下大片阴影笼罩对方、低吼一声',
-    '禁用比喻/意象：石子投入湖面/激起涟漪、水滴入热油/滚油、溺水的人抓住浮木、手术刀/利刃精准划开、淬了毒的刀子、投入深水的炸弹、理智的弦崩断、达摩克利斯之剑、揉进骨血/嵌入骨血、捏碎下巴',
+    '禁用比喻/意象：石子投入湖面/激起涟漪、小石子投进空气里/心里/水里、漾开一圈/一层/一阵涟漪、波纹/波澜慢慢散开、水滴入热油/滚油、溺水的人抓住浮木、手术刀/利刃精准划开、淬了毒的刀子、投入深水的炸弹、理智的弦崩断、达摩克利斯之剑、揉进骨血/嵌入骨血、捏碎下巴',
     '禁用修饰结构："不容置疑的[名词]"、"不容拒绝的力度"、"带着惩罚意味的xx"、"撬开唇舌长驱直入"、"像完成某项仪式"、"他所有的伪装、所有的骄傲、所有的自尊都xx"、"他不在A，不在B，而是C"、"xx是xx的变量"、"规则的掌控者/制定者""规则之上""无法理解的规则"、"眼中的玩味褪去，取而代之的是"',
     '禁用固定气味描写：char 禁止写为"雪松+烟草味"，user 禁止写为"奶香+沐浴露味"，气味描写必须每次具体化且不重复',
     '禁用音色比喻："音色如大提琴"及所有"声音像[乐器]"结构',
     '禁用描述："胸腔震动"及其近似表达'
   ].join('\n');
+}
+function clipOfflinePromptText(text, maxChars){
+  var clean = String(text || '').trim();
+  var limit = Math.max(120, Number(maxChars) || 0);
+  if(!clean || !limit || clean.length <= limit) return clean;
+  var head = clean.slice(0, Math.floor(limit * 0.65)).trim();
+  var tail = clean.slice(-Math.floor(limit * 0.25)).trim();
+  return (head + '\n...\n' + tail).trim();
 }
 function buildOfflineSystemPrompt(options){
   options = options || {};
@@ -794,8 +802,12 @@ function buildOfflineSystemPrompt(options){
   var scenario = character ? String(character.scenario || '').trim() : '';
   var systemPrompt = character ? String(character.system_prompt || '').trim() : '';
   var storyPrefs = getOfflineStoryPrefs();
-  var worldBook = getOfflineWorldbookSnippet();
-  var memoryText = getOfflineMemorySnippet();
+  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), isMobileOfflineRuntime() ? 1500 : 2200);
+  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), isMobileOfflineRuntime() ? 1200 : 1800);
+  var compactPersona = clipOfflinePromptText(persona, isMobileOfflineRuntime() ? 1400 : 2200);
+  var compactUserPersona = clipOfflinePromptText(userPersona, isMobileOfflineRuntime() ? 900 : 1400);
+  var compactScenario = clipOfflinePromptText(scenario, 500);
+  var compactSystemPrompt = clipOfflinePromptText(systemPrompt, isMobileOfflineRuntime() ? 1000 : 1600);
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
@@ -818,12 +830,12 @@ function buildOfflineSystemPrompt(options){
     storyPrefs.style ? ('这次线下正文的文风额外要求：' + storyPrefs.style) : '这次线下正文的文风额外要求：保持自然、细腻、有活人感。',
     '不要 markdown，不要代码块，不要额外解释。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
-    '角色 persona：' + (persona || '未提供'),
+    '角色 persona：' + (compactPersona || '未提供'),
     '用户名字：' + resolveUserName(),
-    '用户 persona：' + (userPersona || '未提供'),
+    '用户 persona：' + (compactUserPersona || '未提供'),
     pendingFriendIntro ? ('用户附言/补充背景：' + pendingFriendIntro) : '用户附言/补充背景：无',
-    scenario ? ('场景设定：' + scenario) : '场景设定：无',
-    systemPrompt ? ('角色补充规则：' + systemPrompt) : '角色补充规则：无',
+    compactScenario ? ('场景设定：' + compactScenario) : '场景设定：无',
+    compactSystemPrompt ? ('角色补充规则：' + compactSystemPrompt) : '角色补充规则：无',
     worldBook ? ('世界书（已启用条目）：\n' + worldBook) : '世界书（已启用条目）：无',
     memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无'
   ];
@@ -842,8 +854,12 @@ function buildOfflineOpeningChunkSystemPrompt(){
   var scenario = character ? String(character.scenario || '').trim() : '';
   var systemPrompt = character ? String(character.system_prompt || '').trim() : '';
   var storyPrefs = getOfflineStoryPrefs();
-  var worldBook = getOfflineWorldbookSnippet();
-  var memoryText = getOfflineMemorySnippet();
+  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), isMobileOfflineRuntime() ? 1500 : 2200);
+  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), isMobileOfflineRuntime() ? 1200 : 1800);
+  var compactPersona = clipOfflinePromptText(persona, isMobileOfflineRuntime() ? 1400 : 2200);
+  var compactUserPersona = clipOfflinePromptText(userPersona, isMobileOfflineRuntime() ? 900 : 1400);
+  var compactScenario = clipOfflinePromptText(scenario, 500);
+  var compactSystemPrompt = clipOfflinePromptText(systemPrompt, isMobileOfflineRuntime() ? 1000 : 1600);
   return [
     '你在生成“线下见面模式”的第一幕正文。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
@@ -863,12 +879,12 @@ function buildOfflineOpeningChunkSystemPrompt(){
     storyPrefs.style ? ('这次线下正文的文风额外要求：' + storyPrefs.style) : '这次线下正文的文风额外要求：保持自然、细腻、有活人感。',
     '要直接进入见面的第一幕，不要总结回顾，不要写成说明书，也不要偷懒只写很短一段。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
-    '角色 persona：' + (persona || '未提供'),
+    '角色 persona：' + (compactPersona || '未提供'),
     '用户名字：' + resolveUserName(),
-    '用户 persona：' + (userPersona || '未提供'),
+    '用户 persona：' + (compactUserPersona || '未提供'),
     pendingFriendIntro ? ('用户附言/补充背景：' + pendingFriendIntro) : '用户附言/补充背景：无',
-    scenario ? ('场景设定：' + scenario) : '场景设定：无',
-    systemPrompt ? ('角色补充规则：' + systemPrompt) : '角色补充规则：无',
+    compactScenario ? ('场景设定：' + compactScenario) : '场景设定：无',
+    compactSystemPrompt ? ('角色补充规则：' + compactSystemPrompt) : '角色补充规则：无',
     worldBook ? ('世界书（已启用条目）：\n' + worldBook) : '世界书（已启用条目）：无',
     memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无',
     offlineOpeningBanRules()
@@ -878,7 +894,7 @@ function buildOfflineUserPrompt(userText){
   return [
     '这是一次已经开始的线下见面，请顺着当前氛围继续。',
     session && session.invite ? ('邀约背景：' + JSON.stringify(session.invite)) : '',
-    '最近线下记录：\n' + (formatOfflineHistory(10) || '无'),
+    '最近线下记录：\n' + (clipOfflinePromptText(formatOfflineHistory(10) || '无', isMobileOfflineRuntime() ? 1600 : 2400) || '无'),
     '用户刚刚线下说：' + String(userText || '').trim()
   ].filter(Boolean).join('\n\n');
 }
@@ -996,7 +1012,7 @@ function mergeOfflineAsides(base, extra){
     return true;
   }).slice(0, 2);
 }
-function openingBannedPatterns(){
+function offlineStyleBannedPatterns(){
   return [
     /比[^，。！？\n]{0,20}还[^，。！？\n]{0,20}/,
     /^我的。?$/m,
@@ -1012,11 +1028,14 @@ function openingBannedPatterns(){
     /不再是.+只是一个/,
     /这已经不是.+而是/,
     /打横抱起|头埋进颈窝|发旋|头顶|画圈|打圈|额头抵着额头|擦去嘴角|赤足|大片阴影|低吼一声/,
-    /石子投入湖面|激起涟漪|水滴入热油|滚油|溺水的人抓住浮木|手术刀|利刃精准划开|淬了毒的刀子|投入深水的炸弹|理智的弦崩断|达摩克利斯之剑|揉进骨血|嵌入骨血|捏碎下巴/,
+    /石子投入湖面|激起涟漪|小石子|漾开一圈|漾开一层|漾开一阵|涟漪|波纹慢慢散开|波澜慢慢散开|水滴入热油|滚油|溺水的人抓住浮木|手术刀|利刃精准划开|淬了毒的刀子|投入深水的炸弹|理智的弦崩断|达摩克利斯之剑|揉进骨血|嵌入骨血|捏碎下巴/,
     /不容置疑的|不容拒绝的力度|带着惩罚意味|撬开唇舌长驱直入|像完成某项仪式|所有的伪装.*所有的骄傲.*所有的自尊|他不在.+不在.+而是|是.+的变量|规则的掌控者|规则的制定者|规则之上|无法理解的规则|眼中的玩味褪去，取而代之的是/,
     /雪松.*烟草|烟草.*雪松|奶香.*沐浴露|沐浴露.*奶香/,
     /音色如.*大提琴|声音像.*乐器/
   ];
+}
+function openingBannedPatterns(){
+  return offlineStyleBannedPatterns();
 }
 function openingTextLength(text){
   return String(text || '').replace(/\s+/g,'').length;
@@ -1024,6 +1043,32 @@ function openingTextLength(text){
 function containsOpeningViolation(text){
   var body = String(text || '');
   return openingBannedPatterns().some(function(pattern){ return pattern.test(body); });
+}
+function containsOfflineStyleViolation(text){
+  var body = String(text || '');
+  return offlineStyleBannedPatterns().some(function(pattern){ return pattern.test(body); });
+}
+function isMobileOfflineRuntime(){
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '') || window.innerWidth <= 820;
+}
+function getOfflineOpeningAttemptPlan(){
+  if(isMobileOfflineRuntime()){
+    return {
+      mainTimeout: 240000,
+      continueTimeout: 180000,
+      attempts: 4,
+      extendAttempts: 3
+    };
+  }
+  return {
+    mainTimeout: 180000,
+    continueTimeout: 120000,
+    attempts: 3,
+    extendAttempts: 2
+  };
+}
+function getOfflineReplyTimeoutMs(){
+  return isMobileOfflineRuntime() ? 90000 : 60000;
 }
 function hasAssistantOpeningEntry(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
@@ -1234,8 +1279,8 @@ function shouldBootOpeningFlow(){
 async function generateOpeningIfNeeded(){
   if(!session || (!session.pendingOpening && !shouldBootOpeningFlow())) return;
   var storyPrefs = getOfflineStoryPrefs();
+  var plan = getOfflineOpeningAttemptPlan();
   var minChars = storyPrefs.minChars;
-  var partialThreshold = Math.max(120, Math.floor(minChars * 0.65));
   var openingText = '';
   var openingAsides = [];
   var lastError = null;
@@ -1245,12 +1290,12 @@ async function generateOpeningIfNeeded(){
     var openingPrompt = [
       '请写这场线下见面的第一个场景。',
       session && session.invite ? ('邀约信息：' + JSON.stringify(session.invite)) : '',
-      '最近线上聊天：' + (session.chatHistory || '无'),
+      '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 1800 : 2800) || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
-    for(var attempt = 0; attempt < 3; attempt += 1){
+    for(var attempt = 0; attempt < plan.attempts; attempt += 1){
       try{
-        var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 180000);
+        var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, plan.mainTimeout);
         var parsedOpening = parseOfflineReply(raw);
         openingText = String(parsedOpening && parsedOpening.text || '').trim();
         openingAsides = normalizeOfflineAsides(parsedOpening && parsedOpening.asides);
@@ -1258,7 +1303,7 @@ async function generateOpeningIfNeeded(){
           bestText = openingText;
           bestAsides = openingAsides.slice();
         }
-        for(var extendAttempt = 0; extendAttempt < 2; extendAttempt += 1){
+        for(var extendAttempt = 0; extendAttempt < plan.extendAttempts; extendAttempt += 1){
           if(openingTextLength(openingText) >= minChars) break;
           if(containsOpeningViolation(openingText) || violatesOfflinePerspective(openingText, storyPrefs.perspective)) break;
           var missing = minChars - openingTextLength(openingText);
@@ -1270,7 +1315,7 @@ async function generateOpeningIfNeeded(){
             '只返回新增内容的 JSON：{"text":"...","asides":["...","..."]}。text 里不要重复上面已经写过的句子。'
           ].join('\n\n');
           try{
-            var continueRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), continuePrompt, 120000);
+            var continueRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), continuePrompt, plan.continueTimeout);
             var continueParsed = parseOfflineReply(continueRaw);
             var extraText = String(continueParsed && continueParsed.text || '').trim();
             if(!extraText || extraText === openingText) break;
@@ -1354,15 +1399,15 @@ async function requestOfflineReply(options){
   try{
     var prefs = getOfflineStoryPrefs();
     var parsed = null;
-    for(var attempt = 0; attempt < 2; attempt += 1){
+    for(var attempt = 0; attempt < 3; attempt += 1){
       var raw = await callAIWithTimeout(buildOfflineSystemPrompt(), [
         '这是一次已经开始的线下见面，请顺着当前氛围继续。',
         session && session.invite ? ('邀约背景：' + JSON.stringify(session.invite)) : '',
-        '最近线下记录：\n' + (formatOfflineHistory(10) || '无'),
+        '最近线下记录：\n' + (clipOfflinePromptText(formatOfflineHistory(10) || '无', isMobileOfflineRuntime() ? 1600 : 2400) || '无'),
         '用户此刻没有说新话，请角色自己顺着当前氛围，自然接一句或接一小段。'
-      ].filter(Boolean).join('\n\n'), 60000);
+      ].filter(Boolean).join('\n\n'), getOfflineReplyTimeoutMs());
       parsed = parseOfflineReply(raw);
-      if(parsed && parsed.text && !violatesOfflinePerspective(parsed.text, prefs.perspective)) break;
+      if(parsed && parsed.text && !violatesOfflinePerspective(parsed.text, prefs.perspective) && !containsOfflineStyleViolation(parsed.text)) break;
       parsed = null;
     }
     if(!parsed){
