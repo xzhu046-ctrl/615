@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T17:55:00Z';
+const APP_BUILD_ID = '2026-03-17T18:10:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -46,6 +46,7 @@ let swControllerRefreshPending = false;
 let shownHostedUpdateFingerprint = '';
 let hostedUpdateBootstrapped = false;
 let hostedUpdateModalShown = false;
+let stableShellAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
 
 function offlineMinimizedStorageKey(){
   return mainScopedKey(OFFLINE_MINIMIZED_CHAR_KEY);
@@ -223,13 +224,19 @@ function syncAppHeight(){
   const keyboardLikelyOpen = rawBottomOffset > 120;
   const vvBottomOffset = keyboardLikelyOpen ? 0 : rawBottomOffset;
   const viewportHeight = Math.round((keyboardLikelyOpen && vv) ? (vv.height + rawBottomOffset + vvTopOffset) : window.innerHeight);
-  document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
+  if(!keyboardLikelyOpen){
+    if(!stableShellAppHeight || viewportHeight > stableShellAppHeight || Math.abs(viewportHeight - stableShellAppHeight) > 120){
+      stableShellAppHeight = viewportHeight;
+    }
+  }
+  const appliedHeight = stableShellAppHeight || viewportHeight;
+  document.documentElement.style.setProperty('--app-height', appliedHeight + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', vvBottomOffset + 'px');
   const contentTopInset = isStandalone ? 6 : vvTopOffset;
   const contentBottomInset = 0;
   const mobileFrameDrop = isStandalone ? 18 : 0;
-  const usableHeight = Math.max(1, viewportHeight - contentTopInset - contentBottomInset - mobileFrameDrop);
+  const usableHeight = Math.max(1, appliedHeight - contentTopInset - contentBottomInset - mobileFrameDrop);
   const frameScale = Math.min(viewportWidth / 375, usableHeight / 780);
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
   document.documentElement.style.setProperty('--mobile-frame-drop', mobileFrameDrop + 'px');
