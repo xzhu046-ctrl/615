@@ -27,6 +27,7 @@ const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
+const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
 let pendingRemoteAppFingerprint = '';
@@ -319,9 +320,9 @@ function refreshInstalledApp(){
   if(pendingRemoteAppFingerprint){
     try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, pendingRemoteAppFingerprint); }catch(e){}
   }
+  try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
   hideHostedUpdateCard();
-  var next = window.location.pathname + '?refresh=' + Date.now() + window.location.hash;
-  window.location.replace(next);
+  window.location.reload();
 }
 
 function bindTextNormalization(){
@@ -2625,6 +2626,17 @@ renderOfflineMiniLauncher();
   renderHomePages(true);
   setupAiBgScheduler();
   setTimeout(function(){ checkForHostedUpdate(); }, 900);
+  try{
+    if(sessionStorage.getItem(REFRESH_RECALC_FLAG_KEY) === '1'){
+      sessionStorage.removeItem(REFRESH_RECALC_FLAG_KEY);
+      [80, 260, 520, 900].forEach(function(delay){
+        setTimeout(function(){
+          syncAppHeight();
+          renderHomePages(true);
+        }, delay);
+      });
+    }
+  }catch(e){}
 }
 
 window.addEventListener('resize', ()=>{
