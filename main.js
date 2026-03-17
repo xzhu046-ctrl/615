@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T10:18:00Z';
+const APP_BUILD_ID = '2026-03-17T10:31:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
@@ -391,7 +391,7 @@ function scheduleHostedUpdateCheck(force){
 }
 
 function kickOffHostedUpdateRetries(){
-  var delays = [0, 1200, 3500, 7000];
+  var delays = [0, 1200, 3500, 7000, 12000, 20000];
   if(hostedUpdateRetryTimer){
     clearTimeout(hostedUpdateRetryTimer);
     hostedUpdateRetryTimer = 0;
@@ -2759,6 +2759,7 @@ window.addEventListener('resize', ()=>{
 window.addEventListener('load', ()=>{
   syncAppHeight();
   renderHomePages(true);
+  kickOffHostedUpdateRetries();
   var frame = document.getElementById('app-iframe');
   if(frame){
     frame.addEventListener('load', function(){
@@ -2804,6 +2805,7 @@ document.addEventListener('visibilitychange', ()=>{
     kickOffHostedUpdateRetries();
   }
 });
+window.addEventListener('online', kickOffHostedUpdateRetries);
 window.addEventListener('resize', ()=>renderHomePages(true));
 setInterval(()=>{
   renderHomeDockBadges();
