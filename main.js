@@ -286,8 +286,24 @@ function hideHostedUpdateCard(){
 
 async function buildRemoteAppFingerprint(){
   if(!/^https?:$/.test(window.location.protocol)) return '';
+  var stamp = Date.now();
+  var targets = ['index.html', 'main.js', 'style.css'];
   try{
-    var apiUrl = 'https://api.github.com/repos/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/commits/' + GITHUB_UPDATE_BRANCH + '?t=' + Date.now();
+    var rawBase = 'https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/';
+    var rawTexts = await Promise.all(targets.map(function(path){
+      var url = rawBase + path + '?t=' + stamp;
+      return fetch(url, { cache:'no-store' }).then(function(res){
+        if(!res.ok) throw new Error('raw fetch failed: ' + path);
+        return res.text();
+      });
+    }));
+    var rawFingerprint = simpleStringFingerprint(rawTexts.join('\n<!-- raw split -->\n'));
+    if(rawFingerprint) return 'raw:' + rawFingerprint;
+  }catch(err){
+    console.warn('[update-check] raw github skipped', err);
+  }
+  try{
+    var apiUrl = 'https://api.github.com/repos/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/commits/' + GITHUB_UPDATE_BRANCH + '?t=' + stamp;
     var apiRes = await fetch(apiUrl, { cache:'no-store' });
     if(apiRes.ok){
       var commit = await apiRes.json();
@@ -297,8 +313,6 @@ async function buildRemoteAppFingerprint(){
   }catch(err){
     console.warn('[update-check] github sha skipped', err);
   }
-  var stamp = Date.now();
-  var targets = ['index.html', 'main.js', 'style.css'];
   var texts = await Promise.all(targets.map(function(path){
     var url = new URL(path, window.location.href);
     url.searchParams.set('updateCheck', String(stamp));
