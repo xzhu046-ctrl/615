@@ -26,6 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
+const APP_BUILD_ID = '2026-03-16T18:24:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
@@ -287,20 +288,16 @@ function hideHostedUpdateCard(){
 async function buildRemoteAppFingerprint(){
   if(!/^https?:$/.test(window.location.protocol)) return '';
   var stamp = Date.now();
-  var targets = ['index.html', 'main.js', 'style.css'];
   try{
-    var rawBase = 'https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/';
-    var rawTexts = await Promise.all(targets.map(function(path){
-      var url = rawBase + path + '?t=' + stamp;
-      return fetch(url, { cache:'no-store' }).then(function(res){
-        if(!res.ok) throw new Error('raw fetch failed: ' + path);
-        return res.text();
-      });
-    }));
-    var rawFingerprint = simpleStringFingerprint(rawTexts.join('\n<!-- raw split -->\n'));
-    if(rawFingerprint) return 'raw:' + rawFingerprint;
+    var versionUrl = 'https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp;
+    var versionRes = await fetch(versionUrl, { cache:'no-store' });
+    if(versionRes.ok){
+      var versionData = await versionRes.json();
+      var buildId = String(versionData && versionData.buildId || '').trim();
+      if(buildId) return buildId;
+    }
   }catch(err){
-    console.warn('[update-check] raw github skipped', err);
+    console.warn('[update-check] version file skipped', err);
   }
   try{
     var apiUrl = 'https://api.github.com/repos/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/commits/' + GITHUB_UPDATE_BRANCH + '?t=' + stamp;
@@ -313,6 +310,7 @@ async function buildRemoteAppFingerprint(){
   }catch(err){
     console.warn('[update-check] github sha skipped', err);
   }
+  var targets = ['index.html', 'main.js', 'style.css'];
   var texts = await Promise.all(targets.map(function(path){
     var url = new URL(path, window.location.href);
     url.searchParams.set('updateCheck', String(stamp));
@@ -324,40 +322,17 @@ async function buildRemoteAppFingerprint(){
   return simpleStringFingerprint(texts.join('\n<!-- split -->\n'));
 }
 
-async function buildLocalAppFingerprint(){
-  if(!/^https?:$/.test(window.location.protocol)) return '';
-  var targets = ['index.html', 'main.js', 'style.css'];
-  try{
-    var texts = await Promise.all(targets.map(function(path){
-      var url = new URL(path, window.location.href);
-      return fetch(url.toString(), { cache:'default' }).then(function(res){
-        if(!res.ok) throw new Error('local fetch failed: ' + path);
-        return res.text();
-      });
-    }));
-    return 'local:' + simpleStringFingerprint(texts.join('\n<!-- local split -->\n'));
-  }catch(err){
-    console.warn('[update-check] local fingerprint skipped', err);
-    return '';
-  }
-}
-
 async function checkForHostedUpdate(){
   if(!/^https?:$/.test(window.location.protocol)) return;
   try{
     var remoteFingerprint = await buildRemoteAppFingerprint();
     if(!remoteFingerprint) return;
-    var localFingerprint = await buildLocalAppFingerprint();
-    if(localFingerprint && localFingerprint !== remoteFingerprint){
+    if(remoteFingerprint !== APP_BUILD_ID){
       pendingRemoteAppFingerprint = remoteFingerprint;
       showHostedUpdateCard();
       return;
     }
-    var known = localStorage.getItem(REMOTE_APP_FINGERPRINT_KEY) || '';
-    if(!localFingerprint && known !== remoteFingerprint){
-      pendingRemoteAppFingerprint = remoteFingerprint;
-      showHostedUpdateCard();
-    }
+    hideHostedUpdateCard();
   }catch(err){
     console.warn('[update-check] skipped', err);
   }
