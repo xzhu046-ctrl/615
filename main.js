@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T12:25:00Z';
+const APP_BUILD_ID = '2026-03-17T12:34:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_SEEN_KEY = 'update_prompt_seen_v1';
@@ -417,34 +417,7 @@ async function primeLatestCoreFiles(){
 function bindHostedServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   if(!window.isSecureContext) return;
-  navigator.serviceWorker.addEventListener('controllerchange', function(){
-    if(!pendingRemoteAppFingerprint && !hostedUpdateLockedOpen) return;
-    if(swControllerRefreshPending) return;
-    swControllerRefreshPending = true;
-    try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
-    window.location.reload();
-  });
-  navigator.serviceWorker.register(getServiceWorkerUrl()).then(function(reg){
-    function notifyWaitingWorker(){
-      if(reg.waiting){
-        pendingRemoteAppFingerprint = 'sw:' + APP_BUILD_ID;
-        announceHostedUpdate(pendingRemoteAppFingerprint);
-      }
-    }
-    notifyWaitingWorker();
-    reg.addEventListener('updatefound', function(){
-      var worker = reg.installing;
-      if(!worker) return;
-      worker.addEventListener('statechange', function(){
-        if(worker.state === 'installed' && navigator.serviceWorker.controller){
-          notifyWaitingWorker();
-        }
-      });
-    });
-    setTimeout(function(){
-      reg.update().catch(function(){});
-    }, 1200);
-  }).catch(function(err){
+  navigator.serviceWorker.register(getServiceWorkerUrl()).catch(function(err){
     console.warn('[sw] register failed', err);
   });
 }
@@ -456,18 +429,6 @@ async function checkForHostedUpdate(){
     }
     var cachedRemoteFingerprint = '';
     try{ cachedRemoteFingerprint = String(localStorage.getItem(REMOTE_APP_FINGERPRINT_KEY) || '').trim(); }catch(e){}
-    if('serviceWorker' in navigator){
-      try{
-        var registration = await navigator.serviceWorker.getRegistration();
-        if(registration && registration.waiting){
-          pendingRemoteAppFingerprint = 'sw:' + APP_BUILD_ID;
-          announceHostedUpdate(pendingRemoteAppFingerprint);
-          return;
-        }
-      }catch(swErr){
-        console.warn('[update-check] waiting sw probe failed', swErr);
-      }
-    }
     var remoteFingerprint = await buildRemoteAppFingerprint();
     if(remoteFingerprint){
       try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, remoteFingerprint); }catch(e){}
@@ -509,17 +470,11 @@ function kickOffHostedUpdateRetries(){
   if(hostedUpdateLockedOpen && pendingRemoteAppFingerprint){
     return;
   }
-  var delays = [0, 1200, 3500, 7000, 12000, 20000];
   if(hostedUpdateRetryTimer){
     clearTimeout(hostedUpdateRetryTimer);
     hostedUpdateRetryTimer = 0;
   }
-  delays.forEach(function(delay, idx){
-    setTimeout(function(){
-      if(idx === 0) scheduleHostedUpdateCheck(true);
-      else checkForHostedUpdate();
-    }, delay);
-  });
+  scheduleHostedUpdateCheck(true);
 }
 
 function refreshInstalledApp(evt){
@@ -2938,7 +2893,6 @@ window.addEventListener('load', ()=>{
 window.addEventListener('pageshow', ()=>{
   syncAppHeight();
   renderHomePages(true);
-  kickOffHostedUpdateRetries();
   setTimeout(function(){
     syncAppHeight();
     renderHomePages(true);
@@ -2968,10 +2922,8 @@ document.addEventListener('visibilitychange', ()=>{
     renderHomeDockBadges();
     refreshQqUnreadCountCache();
     maybeRunAiBgTick(false);
-    kickOffHostedUpdateRetries();
   }
 });
-window.addEventListener('online', kickOffHostedUpdateRetries);
 window.addEventListener('resize', ()=>renderHomePages(true));
 setInterval(()=>{
   renderHomeDockBadges();
