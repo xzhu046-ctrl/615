@@ -26,10 +26,11 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T17:10:00Z';
+const APP_BUILD_ID = '2026-03-17T17:25:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
+const HOSTED_UPDATE_ACCEPTED_BUILD_KEY = 'hosted_update_accepted_build_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
 const GITHUB_UPDATE_REPO = '615';
@@ -309,6 +310,28 @@ function shouldSuppressHostedUpdatePrompt(fingerprint){
   }
 }
 
+function getAcceptedHostedUpdateBuild(){
+  try{
+    return String(localStorage.getItem(HOSTED_UPDATE_ACCEPTED_BUILD_KEY) || '').trim();
+  }catch(e){
+    return '';
+  }
+}
+
+function setAcceptedHostedUpdateBuild(fingerprint){
+  var value = String(fingerprint || '').trim();
+  if(!value) return;
+  try{
+    localStorage.setItem(HOSTED_UPDATE_ACCEPTED_BUILD_KEY, value);
+  }catch(e){}
+}
+
+function clearAcceptedHostedUpdateBuildIfCurrent(){
+  var accepted = getAcceptedHostedUpdateBuild();
+  if(!accepted || accepted !== APP_BUILD_ID) return;
+  try{ localStorage.removeItem(HOSTED_UPDATE_ACCEPTED_BUILD_KEY); }catch(e){}
+}
+
 function showHostedUpdateCard(){
   if(hostedUpdateModalShown) return;
   if(shouldSuppressHostedUpdatePrompt()) return;
@@ -452,11 +475,20 @@ async function checkForHostedUpdate(){
     }
     var remoteFingerprint = await buildRemoteAppFingerprint();
     if(remoteFingerprint && remoteFingerprint !== APP_BUILD_ID){
+      if(getAcceptedHostedUpdateBuild() === remoteFingerprint){
+        pendingRemoteAppFingerprint = '';
+        shownHostedUpdateFingerprint = '';
+        hostedUpdateModalShown = false;
+        hostedUpdateLockedOpen = false;
+        hideHostedUpdateCard();
+        return;
+      }
       pendingRemoteAppFingerprint = remoteFingerprint;
       announceHostedUpdate(remoteFingerprint);
       return;
     }
     if(remoteFingerprint && remoteFingerprint === APP_BUILD_ID){
+      clearAcceptedHostedUpdateBuildIfCurrent();
       if(hostedUpdateLockedOpen && shownHostedUpdateFingerprint){
         return;
       }
@@ -501,6 +533,7 @@ function refreshInstalledApp(evt){
     try{ evt.preventDefault(); }catch(e){}
     try{ evt.stopPropagation(); }catch(e){}
   }
+  setAcceptedHostedUpdateBuild(pendingRemoteAppFingerprint || shownHostedUpdateFingerprint || '');
   var finishReload = function(){
     hostedUpdateLockedOpen = false;
     pendingRemoteAppFingerprint = '';
