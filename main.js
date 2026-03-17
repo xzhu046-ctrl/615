@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T12:18:00Z';
+const APP_BUILD_ID = '2026-03-17T12:25:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_SEEN_KEY = 'update_prompt_seen_v1';
@@ -451,6 +451,9 @@ function bindHostedServiceWorker(){
 
 async function checkForHostedUpdate(){
   try{
+    if(hostedUpdateLockedOpen && pendingRemoteAppFingerprint){
+      return;
+    }
     var cachedRemoteFingerprint = '';
     try{ cachedRemoteFingerprint = String(localStorage.getItem(REMOTE_APP_FINGERPRINT_KEY) || '').trim(); }catch(e){}
     if('serviceWorker' in navigator){
@@ -475,6 +478,9 @@ async function checkForHostedUpdate(){
       return;
     }
     if(remoteFingerprint && remoteFingerprint === APP_BUILD_ID){
+      if(hostedUpdateLockedOpen && getSeenHostedUpdateFingerprint()){
+        return;
+      }
       try{ localStorage.removeItem(REMOTE_APP_FINGERPRINT_KEY); }catch(e){}
       pendingRemoteAppFingerprint = '';
       setSeenHostedUpdateFingerprint('');
@@ -500,6 +506,9 @@ function scheduleHostedUpdateCheck(force){
 }
 
 function kickOffHostedUpdateRetries(){
+  if(hostedUpdateLockedOpen && pendingRemoteAppFingerprint){
+    return;
+  }
   var delays = [0, 1200, 3500, 7000, 12000, 20000];
   if(hostedUpdateRetryTimer){
     clearTimeout(hostedUpdateRetryTimer);
