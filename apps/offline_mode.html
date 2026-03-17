@@ -966,9 +966,35 @@ async function callAIWithTimeout(systemPrompt, userPrompt, timeoutMs){
   return await Promise.race([
     callAI(systemPrompt, userPrompt),
     new Promise(function(_, reject){
-      setTimeout(function(){ reject(new Error('线下首幕生成超时')); }, ms);
+      setTimeout(function(){ reject(new Error('请求超时（' + Math.round(ms / 1000) + 's）')); }, ms);
     })
   ]);
+}
+function summarizeOfflineError(err){
+  var text = String(err && (err.message || err) || '').trim();
+  if(!text) return '未知错误';
+  if(text.length > 72) text = text.slice(0, 72) + '...';
+  return text;
+}
+function mergeOfflineOpeningText(base, extra){
+  var left = String(base || '').trim();
+  var right = String(extra || '').trim();
+  if(!left) return right;
+  if(!right) return left;
+  return left + (/[。！？!?]$/.test(left) ? '\n\n' : ' ') + right;
+}
+function mergeOfflineAsides(base, extra){
+  var list = []
+    .concat(Array.isArray(base) ? base : [])
+    .concat(Array.isArray(extra) ? extra : [])
+    .map(function(it){ return String(it || '').trim(); })
+    .filter(Boolean);
+  var seen = {};
+  return list.filter(function(it){
+    if(seen[it]) return false;
+    seen[it] = true;
+    return true;
+  }).slice(0, 2);
 }
 function openingBannedPatterns(){
   return [
@@ -1212,6 +1238,7 @@ async function generateOpeningIfNeeded(){
   var partialThreshold = Math.max(120, Math.floor(minChars * 0.65));
   var openingText = '';
   var openingAsides = [];
+  var lastError = null;
   try{
     var openingPrompt = [
       '请写这场线下见面的第一个场景。',
@@ -1219,28 +1246,46 @@ async function generateOpeningIfNeeded(){
       '最近线上聊天：' + (session.chatHistory || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
-    for(var attempt = 0; attempt < 2; attempt += 1){
+    for(var attempt = 0; attempt < 3; attempt += 1){
       try{
-        var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 70000);
+        var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 180000);
         var parsedOpening = parseOfflineReply(raw);
         openingText = String(parsedOpening && parsedOpening.text || '').trim();
         openingAsides = normalizeOfflineAsides(parsedOpening && parsedOpening.asides);
+        for(var extendAttempt = 0; extendAttempt < 2; extendAttempt += 1){
+          if(openingTextLength(openingText) >= minChars) break;
+          if(containsOpeningViolation(openingText) || violatesOfflinePerspective(openingText, storyPrefs.perspective)) break;
+          var missing = minChars - openingTextLength(openingText);
+          var continuePrompt = [
+            openingPrompt,
+            '这是已经写好的第一幕正文，请保持同一幕、同一视角、同一氛围继续往下写，不要重复前文：',
+            openingText,
+            '现在还差至少 ' + missing + ' 个中文字符才达到目标长度。',
+            '只返回新增内容的 JSON：{"text":"...","asides":["...","..."]}。text 里不要重复上面已经写过的句子。'
+          ].join('\n\n');
+          var continueRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), continuePrompt, 120000);
+          var continueParsed = parseOfflineReply(continueRaw);
+          var extraText = String(continueParsed && continueParsed.text || '').trim();
+          if(!extraText || extraText === openingText) break;
+          openingText = mergeOfflineOpeningText(openingText, extraText);
+          openingAsides = mergeOfflineAsides(openingAsides, normalizeOfflineAsides(continueParsed && continueParsed.asides));
+        }
       }catch(err){
+        lastError = err;
         if(openingTextLength(openingText) >= partialThreshold){
           break;
         }
         throw err;
       }
-      if(openingTextLength(openingText) >= partialThreshold && !containsOpeningViolation(openingText) && !violatesOfflinePerspective(openingText, storyPrefs.perspective)){
+      if(openingTextLength(openingText) >= minChars && !containsOpeningViolation(openingText) && !violatesOfflinePerspective(openingText, storyPrefs.perspective)){
         break;
       }
     }
-    if(violatesOfflinePerspective(openingText, storyPrefs.perspective) || containsOpeningViolation(openingText)){
+    if(violatesOfflinePerspective(openingText, storyPrefs.perspective) || containsOpeningViolation(openingText) || openingTextLength(openingText) < minChars){
       openingText = '';
     }
     if(!String(openingText || '').trim()){
-      openingText = buildOfflineOpeningFallback();
-      openingAsides = buildOfflineAsideFallback();
+      throw new Error(lastError ? summarizeOfflineError(lastError) : '首幕未达到目标字数');
     }
     var labels = nowLabels();
     session.entries.push({
@@ -1256,32 +1301,11 @@ async function generateOpeningIfNeeded(){
     saveSession();
   }catch(e){
     if(openingTextLength(openingText) >= partialThreshold){
-      var partial = nowLabels();
-      session.entries.push({
-        role:'assistant',
-        text:String(openingText || '').trim(),
-        asides: openingAsides.length ? openingAsides : [],
-        heart:'♥',
-        bubbles:['终于见到你','过来一点'],
-        timeLabel:partial.timeLabel,
-        meta:partial.meta
-      });
-      toast('首幕正文部分生成，已先显示');
+      toast('首幕未达目标字数：' + summarizeOfflineError(e));
     }else{
-      var fallback = nowLabels();
-      var fallbackText = buildOfflineOpeningFallback();
-      session.entries.push({
-        role:'assistant',
-        text:fallbackText,
-        asides: buildOfflineAsideFallback(),
-        heart:'♥',
-        bubbles:['终于见到你','过来一点'],
-        timeLabel:fallback.timeLabel,
-        meta:fallback.meta
-      });
-      toast('首幕有点慢，先显示保底正文');
+      toast('线下首幕生成失败：' + summarizeOfflineError(e));
     }
-    session.pendingOpening = false;
+    session.pendingOpening = true;
     saveSession();
   }
   hideFlightOverlay();
