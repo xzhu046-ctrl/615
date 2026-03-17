@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-17T18:38:00Z';
+const CACHE_VERSION = '2026-03-17T18:50:00Z';
 const CACHE_NAME = 'phone-shell';
 const CORE_URLS = [
   './',
@@ -63,7 +63,7 @@ self.addEventListener('fetch', (event)=>{
 
   if(isNavigate || isDocument){
     event.respondWith(
-      caches.match(event.request)
+      caches.match(event.request, { ignoreSearch: true })
         .then((cached)=>{
           if(cached) return cached;
           return fetch(event.request, { cache:'no-store' }).then((response)=>{
@@ -74,14 +74,14 @@ self.addEventListener('fetch', (event)=>{
             return response;
           });
         })
-        .catch(()=>caches.match('./index.html'))
+        .catch(()=>caches.match('./index.html', { ignoreSearch: true }))
     );
     return;
   }
 
   if(isShellAsset){
     event.respondWith(
-      caches.match(event.request).then((cached)=>{
+      caches.match(event.request, { ignoreSearch: true }).then((cached)=>{
         if(cached) return cached;
         return fetch(event.request, { cache:'no-store' })
           .then((response)=>{
