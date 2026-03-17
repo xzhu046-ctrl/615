@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T10:31:00Z';
+const APP_BUILD_ID = '2026-03-17T10:48:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
@@ -280,6 +280,8 @@ function simpleStringFingerprint(text){
 function showHostedUpdateCard(){
   var card = document.getElementById('update-toast-card');
   if(card) card.hidden = false;
+  var pill = document.getElementById('update-persist-pill');
+  if(pill) pill.hidden = false;
   hostedUpdateLockedOpen = true;
 }
 
@@ -287,6 +289,8 @@ function hideHostedUpdateCard(){
   if(hostedUpdateLockedOpen) return;
   var card = document.getElementById('update-toast-card');
   if(card) card.hidden = true;
+  var pill = document.getElementById('update-persist-pill');
+  if(pill) pill.hidden = true;
 }
 
 function removeAppFromStack(appId){
@@ -319,29 +323,28 @@ async function fetchJsonWithTimeout(url, timeoutMs){
 
 async function buildRemoteAppFingerprint(){
   var stamp = Date.now();
-  var versionUrls = [
-    'https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp,
-    'https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp
+  var remoteTasks = [
+    function(){ return fetchJsonWithTimeout('https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 15000).then(function(data){ return String(data && data.buildId || '').trim(); }); },
+    function(){ return fetchJsonWithTimeout('https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 15000).then(function(data){ return String(data && data.buildId || '').trim(); }); },
+    function(){ return fetchJsonWithTimeout('https://api.github.com/repos/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/commits/' + GITHUB_UPDATE_BRANCH + '?t=' + stamp, 15000).then(function(data){ return String(data && data.sha || '').trim(); }); }
   ];
-  for(var i = 0; i < versionUrls.length; i += 1){
+  if(typeof Promise.any === 'function'){
     try{
-      var versionData = await fetchJsonWithTimeout(versionUrls[i], 15000);
-      var buildId = String(versionData && versionData.buildId || '').trim();
-      if(buildId) return buildId;
-    }catch(err){
-      console.warn('[update-check] version source skipped', err);
-    }
+      return await Promise.any(remoteTasks.map(function(run){
+        return run().then(function(value){
+          if(!value) throw new Error('empty fingerprint');
+          return value;
+        });
+      }));
+    }catch(errAny){}
   }
-  var apiUrls = [
-    'https://api.github.com/repos/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/commits/' + GITHUB_UPDATE_BRANCH + '?t=' + stamp,
-    'https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?commitFallback=' + stamp
-  ];
-  try{
-    var commit = await fetchJsonWithTimeout(apiUrls[0], 15000);
-    var sha = String(commit && commit.sha || '').trim();
-    if(sha) return sha;
-  }catch(err){
-    console.warn('[update-check] github sha skipped', err);
+  for(var i = 0; i < remoteTasks.length; i += 1){
+    try{
+      var nextFingerprint = await remoteTasks[i]();
+      if(nextFingerprint) return nextFingerprint;
+    }catch(err){
+      console.warn('[update-check] source skipped', err);
+    }
   }
   if(!/^https?:$/.test(window.location.protocol)) return '';
   var targets = ['index.html', 'main.js', 'style.css'];
