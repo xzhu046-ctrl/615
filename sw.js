@@ -1,5 +1,5 @@
-const CACHE_VERSION = '2026-03-17T18:08:00Z';
-const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
+const CACHE_VERSION = '2026-03-17T18:20:00Z';
+const CACHE_NAME = 'phone-shell';
 const CORE_URLS = [
   './',
   './index.html',
@@ -30,18 +30,18 @@ function isSameOrigin(requestUrl){
 self.addEventListener('install', (event)=>{
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache)=>cache.addAll(CORE_URLS))
+      .then(async (cache)=>{
+        const existing = await cache.keys();
+        if(existing && existing.length) return null;
+        return cache.addAll(CORE_URLS);
+      })
       .catch(()=>null)
   );
 });
 
 self.addEventListener('activate', (event)=>{
   event.waitUntil(
-    caches.keys()
-      .then((keys)=>Promise.all(keys.map((key)=>{
-        if(key === CACHE_NAME) return null;
-        return caches.delete(key);
-      })))
+    self.clients.claim()
   );
 });
 
