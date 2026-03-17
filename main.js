@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-16T20:18:00Z';
+const APP_BUILD_ID = '2026-03-16T20:36:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
@@ -285,27 +285,50 @@ function hideHostedUpdateCard(){
   if(card) card.hidden = true;
 }
 
-async function buildRemoteAppFingerprint(){
-  var stamp = Date.now();
-  try{
-    var versionUrl = 'https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp;
-    var versionRes = await fetch(versionUrl, { cache:'no-store' });
-    if(versionRes.ok){
-      var versionData = await versionRes.json();
-      var buildId = String(versionData && versionData.buildId || '').trim();
-      if(buildId) return buildId;
-    }
-  }catch(err){
-    console.warn('[update-check] version file skipped', err);
+async function fetchTextWithTimeout(url, timeoutMs){
+  var ms = Math.max(3000, Number(timeoutMs) || 8000);
+  var controller = typeof AbortController === 'function' ? new AbortController() : null;
+  var timer = null;
+  if(controller){
+    timer = setTimeout(function(){ controller.abort(); }, ms);
   }
   try{
-    var apiUrl = 'https://api.github.com/repos/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/commits/' + GITHUB_UPDATE_BRANCH + '?t=' + stamp;
-    var apiRes = await fetch(apiUrl, { cache:'no-store' });
-    if(apiRes.ok){
-      var commit = await apiRes.json();
-      var sha = String(commit && commit.sha || '').trim();
-      if(sha) return sha;
+    var res = await fetch(url, Object.assign({ cache:'no-store' }, controller ? { signal: controller.signal } : {}));
+    if(!res.ok) throw new Error('fetch failed: ' + url);
+    return await res.text();
+  } finally {
+    if(timer) clearTimeout(timer);
+  }
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs){
+  var text = await fetchTextWithTimeout(url, timeoutMs);
+  return JSON.parse(text);
+}
+
+async function buildRemoteAppFingerprint(){
+  var stamp = Date.now();
+  var versionUrls = [
+    'https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp,
+    'https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp
+  ];
+  for(var i = 0; i < versionUrls.length; i += 1){
+    try{
+      var versionData = await fetchJsonWithTimeout(versionUrls[i], 7000);
+      var buildId = String(versionData && versionData.buildId || '').trim();
+      if(buildId) return buildId;
+    }catch(err){
+      console.warn('[update-check] version source skipped', err);
     }
+  }
+  var apiUrls = [
+    'https://api.github.com/repos/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/commits/' + GITHUB_UPDATE_BRANCH + '?t=' + stamp,
+    'https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?commitFallback=' + stamp
+  ];
+  try{
+    var commit = await fetchJsonWithTimeout(apiUrls[0], 7000);
+    var sha = String(commit && commit.sha || '').trim();
+    if(sha) return sha;
   }catch(err){
     console.warn('[update-check] github sha skipped', err);
   }
@@ -314,10 +337,7 @@ async function buildRemoteAppFingerprint(){
   var texts = await Promise.all(targets.map(function(path){
     var url = new URL(path, window.location.href);
     url.searchParams.set('updateCheck', String(stamp));
-    return fetch(url.toString(), { cache:'no-store' }).then(function(res){
-      if(!res.ok) throw new Error('fetch failed: ' + path);
-      return res.text();
-    });
+    return fetchTextWithTimeout(url.toString(), 7000);
   }));
   return simpleStringFingerprint(texts.join('\n<!-- split -->\n'));
 }

@@ -28,7 +28,7 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 .topbar{display:none}
 .top-pill{display:none}
 .top-heart{display:none}
-.story-wrap{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:calc(68px + env(safe-area-inset-top)) 14px calc(var(--offline-composer-height) + 10px) 14px;display:flex;flex-direction:column;gap:6px;scrollbar-width:none;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
+.story-wrap{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:calc(68px + env(safe-area-inset-top)) 14px calc(var(--offline-composer-height) + 2px) 14px;display:flex;flex-direction:column;gap:6px;scrollbar-width:none;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
 .story-wrap::-webkit-scrollbar{display:none}
 .story-card{position:relative;min-height:320px;border:var(--bd);border-radius:34px;background:rgba(255,255,255,.82);box-shadow:3px 4px 0 #0a0a0a;padding:22px 18px 20px;overflow:hidden}
 .story-card::before{content:'';position:absolute;inset:18px;border:1.5px solid rgba(10,10,10,.48);border-radius:26px;pointer-events:none}
@@ -101,7 +101,7 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 .thought-clouds{position:fixed;left:18px;right:18px;top:84px;z-index:35;display:none;flex-wrap:wrap;gap:10px;justify-content:center}
 .thought-clouds.show{display:flex}
 .thought-pill{padding:10px 14px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);font-size:12px;font-weight:900;max-width:220px}
-.composer{position:fixed;left:14px;right:14px;bottom:var(--offline-keyboard-inset);z-index:25;display:flex;gap:8px;align-items:center;padding-bottom:max(8px,var(--offline-safe-bottom))}
+.composer{position:fixed;left:14px;right:14px;bottom:calc(var(--offline-keyboard-inset) + 6px);z-index:25;display:flex;gap:8px;align-items:center;padding-bottom:max(4px,var(--offline-safe-bottom))}
 .composer-box{flex:1;min-height:34px;border:var(--bd);border-radius:16px;background:rgba(255,255,255,.95);box-shadow:var(--sh);padding:6px 10px;display:flex;align-items:center}
 .composer-box textarea{width:100%;border:none;outline:none;background:transparent;height:20px;min-height:20px;max-height:20px;resize:none;font-family:var(--font);font-size:13px;font-weight:600;line-height:20px;color:var(--b);overflow:hidden}
 .composer-actions{display:flex;gap:8px;align-items:center}
@@ -687,6 +687,30 @@ function buildOfflineOpeningFallback(){
 function buildOfflineAsideFallback(){
   return ['我真的已经想你很久了。','我现在还是有点不敢相信你就在这里。'];
 }
+function buildOfflineReplyFallback(seedText){
+  var clean = String(seedText || '').replace(/\s+/g, ' ').trim();
+  var perspective = getOfflineStoryPrefs().perspective;
+  var base = '';
+  if(perspective === 'third'){
+    base = clean
+      ? ('他看着' + resolveUserName() + '刚说完的话，先安静了一下，像是把那点情绪认真接住了。随后他靠近半步，语气放轻下来，顺着当下的话题回了一句，没让这阵气氛掉下去。视线落在' + resolveUserName() + '脸上的时候，他还是带着一点藏不住的在意，像想继续把这场见面慢慢往下接。')
+      : ('他没有把这阵气氛晾住，只是顺着当下的距离和眼神，接了一句更轻一点的话。那种在意没有故意说满，却能从停顿和靠近里看出来，像是想把这场见面继续稳稳往前推。');
+  }else if(perspective === 'second'){
+    base = clean
+      ? '他看着你刚说完的话，先安静了一下，像是把那点情绪认真接住了。随后他靠近半步，语气放轻下来，顺着你的意思回了一句，没让这阵气氛掉下去。视线落在你脸上的时候，他还是带着一点藏不住的在意，像想继续把这场见面慢慢往下接。'
+      : '他没有把这阵气氛晾住，只是顺着当下的距离和眼神，接了一句更轻一点的话。那种在意没有故意说满，却能从停顿和靠近里看出来，像是想把这场见面继续稳稳往前推。';
+  }else{
+    base = clean
+      ? '他看着我刚说完的话，先安静了一下，像是把那点情绪认真接住了。随后他靠近半步，语气放轻下来，顺着我的意思回了一句，没让这阵气氛掉下去。视线落在我脸上的时候，他还是带着一点藏不住的在意，像想继续把这场见面慢慢往下接。'
+      : '他没有把这阵气氛晾住，只是顺着当下的距离和眼神，接了一句更轻一点的话。那种在意没有故意说满，却能从停顿和靠近里看出来，像是想把这场见面继续稳稳往前推。';
+  }
+  return {
+    text: base,
+    asides: buildOfflineAsideFallback(),
+    heart: '♥',
+    bubbles: ['看着我','继续说吧']
+  };
+}
 function normalizeOfflineAsides(raw){
   var list = [];
   if(Array.isArray(raw)) list = raw;
@@ -1197,7 +1221,7 @@ async function generateOpeningIfNeeded(){
     ].filter(Boolean).join('\n\n');
     for(var attempt = 0; attempt < 2; attempt += 1){
       try{
-        var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 18000);
+        var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 32000);
         var parsedOpening = parseOfflineReply(raw);
         openingText = String(parsedOpening && parsedOpening.text || '').trim();
         openingAsides = normalizeOfflineAsides(parsedOpening && parsedOpening.asides);
@@ -1215,7 +1239,8 @@ async function generateOpeningIfNeeded(){
       openingText = '';
     }
     if(!String(openingText || '').trim()){
-      throw new Error('首幕正文生成失败');
+      openingText = buildOfflineOpeningFallback();
+      openingAsides = buildOfflineAsideFallback();
     }
     var labels = nowLabels();
     session.entries.push({
@@ -1243,7 +1268,18 @@ async function generateOpeningIfNeeded(){
       });
       toast('首幕正文部分生成，已先显示');
     }else{
-      toast('首幕正文生成失败，请重试');
+      var fallback = nowLabels();
+      var fallbackText = buildOfflineOpeningFallback();
+      session.entries.push({
+        role:'assistant',
+        text:fallbackText,
+        asides: buildOfflineAsideFallback(),
+        heart:'♥',
+        bubbles:['终于见到你','过来一点'],
+        timeLabel:fallback.timeLabel,
+        meta:fallback.meta
+      });
+      toast('首幕生成超时，先用保底正文顶上');
     }
     session.pendingOpening = false;
     saveSession();
@@ -1283,13 +1319,13 @@ async function requestOfflineReply(options){
         session && session.invite ? ('邀约背景：' + JSON.stringify(session.invite)) : '',
         '最近线下记录：\n' + (formatOfflineHistory(10) || '无'),
         '用户此刻没有说新话，请角色自己顺着当前氛围，自然接一句或接一小段。'
-      ].filter(Boolean).join('\n\n'), 16000);
+      ].filter(Boolean).join('\n\n'), 28000);
       parsed = parseOfflineReply(raw);
       if(parsed && parsed.text && !violatesOfflinePerspective(parsed.text, prefs.perspective)) break;
       parsed = null;
     }
     if(!parsed){
-      throw new Error('线下回复生成失败');
+      parsed = buildOfflineReplyFallback((session.entries && session.entries.length ? session.entries[session.entries.length - 1].text : '') || '');
     }
     var nextLabels = nowLabels();
     session.entries.push({
@@ -1305,7 +1341,21 @@ async function requestOfflineReply(options){
     renderStory();
     keepOfflineComposerVisible();
   }catch(e){
-    toast('线下回复生成失败，请重试');
+    var fallbackParsed = buildOfflineReplyFallback((session.entries && session.entries.length ? session.entries[session.entries.length - 1].text : '') || '');
+    var fallbackLabels = nowLabels();
+    session.entries.push({
+      role:'assistant',
+      text:String(fallbackParsed.text || '').trim(),
+      asides: normalizeOfflineAsides(fallbackParsed.asides),
+      heart:String(fallbackParsed.heart || '♥').trim() || '♥',
+      bubbles:Array.isArray(fallbackParsed.bubbles) ? fallbackParsed.bubbles.slice(0,3) : [],
+      timeLabel:fallbackLabels.timeLabel,
+      meta:fallbackLabels.meta
+    });
+    saveSession();
+    renderStory();
+    keepOfflineComposerVisible();
+    toast('线下回复超时，先用保底回复顶上');
   }finally{
     setOfflineComposerBusy(false);
   }
