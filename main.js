@@ -2831,7 +2831,6 @@ function restoreState(){
   }
   renderHomePages(true);
   setupAiBgScheduler();
-  setTimeout(function(){ bootHostedUpdateCheck(); }, 900);
   try{
     if(sessionStorage.getItem(REFRESH_RECALC_FLAG_KEY) === '1'){
       sessionStorage.removeItem(REFRESH_RECALC_FLAG_KEY);
