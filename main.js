@@ -353,20 +353,26 @@ async function checkForHostedUpdate(){
   try{
     var cachedRemoteFingerprint = '';
     try{ cachedRemoteFingerprint = String(localStorage.getItem(REMOTE_APP_FINGERPRINT_KEY) || '').trim(); }catch(e){}
-    if(cachedRemoteFingerprint && cachedRemoteFingerprint !== APP_BUILD_ID){
-      pendingRemoteAppFingerprint = cachedRemoteFingerprint;
-      showHostedUpdateCard();
-    }
     var remoteFingerprint = await buildRemoteAppFingerprint();
-    if(!remoteFingerprint) return;
-    try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, remoteFingerprint); }catch(e){}
-    if(remoteFingerprint !== APP_BUILD_ID){
+    if(remoteFingerprint){
+      try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, remoteFingerprint); }catch(e){}
+    }
+    if(remoteFingerprint && remoteFingerprint !== APP_BUILD_ID){
       pendingRemoteAppFingerprint = remoteFingerprint;
       showHostedUpdateCard();
       return;
     }
-    try{ localStorage.removeItem(REMOTE_APP_FINGERPRINT_KEY); }catch(e){}
-    hideHostedUpdateCard();
+    if(remoteFingerprint && remoteFingerprint === APP_BUILD_ID){
+      try{ localStorage.removeItem(REMOTE_APP_FINGERPRINT_KEY); }catch(e){}
+      pendingRemoteAppFingerprint = '';
+      hideHostedUpdateCard();
+      return;
+    }
+    if(cachedRemoteFingerprint && cachedRemoteFingerprint !== APP_BUILD_ID){
+      pendingRemoteAppFingerprint = cachedRemoteFingerprint;
+      showHostedUpdateCard();
+      return;
+    }
   }catch(err){
     console.warn('[update-check] skipped', err);
   }
