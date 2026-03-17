@@ -2092,9 +2092,9 @@ function applyIframeSafeAreaOverrides(){
     var style = doc.createElement('style');
     style.id = 'codex-safearea-reset';
     style.textContent = [
-      ':root{--safe-top:0px !important;--safe-bottom:0px !important;--vv-top-offset:0px !important;--vv-bottom-offset:0px !important;--keyboard-inset:0px !important;}',
-      'html,body{padding-bottom:0 !important;margin-bottom:0 !important;scroll-padding-bottom:0 !important;}',
-      '.save-bar,.composer,.qq-bottom-nav{padding-bottom:0 !important;}'
+      ':root{--vv-top-offset:0px !important;--vv-bottom-offset:0px !important;--keyboard-inset:0px !important;}',
+      'html,body{margin-bottom:0 !important;scroll-padding-bottom:0 !important;}',
+      '.composer,.qq-bottom-nav{padding-bottom:0 !important;}'
     ].join('');
     (doc.head || doc.documentElement).appendChild(style);
   }catch(err){
