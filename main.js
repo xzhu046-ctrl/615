@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T18:20:00Z';
+const APP_BUILD_ID = '2026-03-17T18:31:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2330,9 +2330,14 @@ function applyIframeSafeAreaOverrides(){
     style.id = 'codex-safearea-reset';
     style.textContent = [
       ':root{--vv-top-offset:0px !important;--vv-bottom-offset:0px !important;--keyboard-inset:0px !important;}',
-      'html,body{margin-bottom:0 !important;scroll-padding-bottom:0 !important;}'
+      'html,body{margin-bottom:0 !important;scroll-padding-bottom:0 !important;}',
+      '#chatBottomUnderlay,.chat-bottom-underlay{display:none !important;visibility:hidden !important;opacity:0 !important;pointer-events:none !important;}'
     ].join('');
     (doc.head || doc.documentElement).appendChild(style);
+    var staleUnderlays = doc.querySelectorAll('#chatBottomUnderlay, .chat-bottom-underlay');
+    staleUnderlays.forEach(function(node){
+      try{ node.remove(); }catch(err){}
+    });
   }catch(err){
     console.warn('safe area override skipped', err);
   }
