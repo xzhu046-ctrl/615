@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-17T18:56:00Z';
+const CACHE_VERSION = '2026-03-17T19:08:00Z';
 const CACHE_NAME = 'phone-shell';
 const CORE_URLS = [
   './',
@@ -31,9 +31,17 @@ self.addEventListener('install', (event)=>{
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(async (cache)=>{
-        const existing = await cache.keys();
-        if(existing && existing.length) return null;
-        return cache.addAll(CORE_URLS);
+        for(const path of CORE_URLS){
+          try{
+            const requestUrl = new URL(path, self.location.href);
+            requestUrl.searchParams.set('swBuild', CACHE_VERSION);
+            const response = await fetch(requestUrl.toString(), { cache:'reload' });
+            if(response && response.ok){
+              await cache.put(new Request(path, { method:'GET' }), response.clone());
+            }
+          }catch(err){}
+        }
+        return null;
       })
       .catch(()=>null)
   );
