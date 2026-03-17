@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&display=swap" rel="stylesheet">
 <script src="../assetStore.js"></script>
@@ -13,9 +13,13 @@
 :root{
   --b:#0a0a0a;--w:#fff;--off:#f4f4f1;--g:#6f6f6f;--bd:2px solid #0a0a0a;--sh:2px 2px 0 #0a0a0a;
   --font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif;--fontc:'Caveat',cursive;
+  --offline-safe-bottom:max(env(safe-area-inset-bottom),0px);
+  --offline-app-height:100dvh;
+  --offline-keyboard-inset:0px;
+  --offline-composer-height:64px;
 }
 html,body{width:100%;height:100%;overflow:hidden}
-body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative}
+body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative;height:var(--offline-app-height);min-height:var(--offline-app-height)}
 .paper-bg,.paper-bg::before,.paper-bg::after{position:absolute;inset:0;pointer-events:none}
 .paper-bg{background:#f5f1e8}
 .paper-bg::before{display:none}
@@ -24,7 +28,7 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 .topbar{display:none}
 .top-pill{display:none}
 .top-heart{display:none}
-.story-wrap{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:calc(68px + env(safe-area-inset-top)) 14px calc(132px + env(safe-area-inset-bottom)) 14px;display:flex;flex-direction:column;gap:6px;scrollbar-width:none;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
+.story-wrap{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:calc(68px + env(safe-area-inset-top)) 14px calc(var(--offline-composer-height) + 10px) 14px;display:flex;flex-direction:column;gap:6px;scrollbar-width:none;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
 .story-wrap::-webkit-scrollbar{display:none}
 .story-card{position:relative;min-height:320px;border:var(--bd);border-radius:34px;background:rgba(255,255,255,.82);box-shadow:3px 4px 0 #0a0a0a;padding:22px 18px 20px;overflow:hidden}
 .story-card::before{content:'';position:absolute;inset:18px;border:1.5px solid rgba(10,10,10,.48);border-radius:26px;pointer-events:none}
@@ -97,8 +101,8 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 .thought-clouds{position:fixed;left:18px;right:18px;top:84px;z-index:35;display:none;flex-wrap:wrap;gap:10px;justify-content:center}
 .thought-clouds.show{display:flex}
 .thought-pill{padding:10px 14px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);font-size:12px;font-weight:900;max-width:220px}
-.composer{position:fixed;left:14px;right:14px;bottom:calc(14px + env(safe-area-inset-bottom));z-index:25;display:flex;gap:8px;align-items:center}
-.composer-box{flex:1;height:34px;border:var(--bd);border-radius:16px;background:rgba(255,255,255,.95);box-shadow:var(--sh);padding:0 10px;display:flex;align-items:center}
+.composer{position:fixed;left:14px;right:14px;bottom:var(--offline-keyboard-inset);z-index:25;display:flex;gap:8px;align-items:center;padding-bottom:max(8px,var(--offline-safe-bottom))}
+.composer-box{flex:1;min-height:34px;border:var(--bd);border-radius:16px;background:rgba(255,255,255,.95);box-shadow:var(--sh);padding:6px 10px;display:flex;align-items:center}
 .composer-box textarea{width:100%;border:none;outline:none;background:transparent;height:20px;min-height:20px;max-height:20px;resize:none;font-family:var(--font);font-size:13px;font-weight:600;line-height:20px;color:var(--b);overflow:hidden}
 .composer-actions{display:flex;gap:8px;align-items:center}
 .composer-btn{width:34px;height:34px;border-radius:50%;border:var(--bd);background:#fff;color:#0a0a0a;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:var(--sh);transition:transform .12s,box-shadow .12s}
@@ -552,6 +556,31 @@ function setOfflineComposerBusy(flag){
   if(replyBtn) replyBtn.disabled = !!flag;
   if(rerollBtn) rerollBtn.disabled = !!flag;
   if(input) input.disabled = !!flag;
+}
+function syncOfflineComposerMetrics(){
+  var composer = document.querySelector('.composer');
+  var nextHeight = composer ? Math.round(composer.getBoundingClientRect().height || 0) : 0;
+  document.documentElement.style.setProperty('--offline-composer-height', (nextHeight > 0 ? nextHeight : 64) + 'px');
+}
+function syncOfflineViewport(){
+  var vv = window.visualViewport;
+  var activeEl = document.activeElement;
+  var inputFocused = !!(activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT'));
+  var rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
+  var keyboardInset = inputFocused && rawBottomOffset > 80 ? rawBottomOffset : 0;
+  var appHeight = vv ? Math.round(vv.height) : window.innerHeight;
+  document.documentElement.style.setProperty('--offline-app-height', appHeight + 'px');
+  document.documentElement.style.setProperty('--offline-keyboard-inset', keyboardInset + 'px');
+  syncOfflineComposerMetrics();
+}
+function keepOfflineComposerVisible(){
+  var list = document.getElementById('storyList');
+  if(list){
+    requestAnimationFrame(function(){
+      list.scrollTop = list.scrollHeight;
+    });
+  }
+  syncOfflineComposerMetrics();
 }
 function nowLabels(){
   var d = new Date();
@@ -1137,9 +1166,9 @@ async function generateOpeningIfNeeded(){
       '最近线上聊天：' + (session.chatHistory || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
-    for(var attempt = 0; attempt < 3; attempt += 1){
+    for(var attempt = 0; attempt < 2; attempt += 1){
       try{
-        var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 45000);
+        var raw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingPrompt, 18000);
         var parsedOpening = parseOfflineReply(raw);
         openingText = String(parsedOpening && parsedOpening.text || '').trim();
         openingAsides = normalizeOfflineAsides(parsedOpening && parsedOpening.asides);
@@ -1207,23 +1236,25 @@ async function sendOfflineTurn(){
   if(input) input.value = '';
   saveSession();
   renderStory();
-  setOfflineComposerBusy(false);
+  keepOfflineComposerVisible();
+  await requestOfflineReply({ preserveBusy:true });
 }
-async function requestOfflineReply(){
-  if(sending) return;
+async function requestOfflineReply(options){
+  options = options || {};
+  if(sending && !options.preserveBusy) return;
   if(!session) return;
-  setOfflineComposerBusy(true);
+  if(!options.preserveBusy) setOfflineComposerBusy(true);
   closeThoughtBubbles();
   try{
     var prefs = getOfflineStoryPrefs();
     var parsed = null;
-    for(var attempt = 0; attempt < 3; attempt += 1){
-      var raw = await callAI(buildOfflineSystemPrompt(), [
+    for(var attempt = 0; attempt < 2; attempt += 1){
+      var raw = await callAIWithTimeout(buildOfflineSystemPrompt(), [
         '这是一次已经开始的线下见面，请顺着当前氛围继续。',
         session && session.invite ? ('邀约背景：' + JSON.stringify(session.invite)) : '',
         '最近线下记录：\n' + (formatOfflineHistory(10) || '无'),
         '用户此刻没有说新话，请角色自己顺着当前氛围，自然接一句或接一小段。'
-      ].filter(Boolean).join('\n\n'));
+      ].filter(Boolean).join('\n\n'), 16000);
       parsed = parseOfflineReply(raw);
       if(parsed && parsed.text && !violatesOfflinePerspective(parsed.text, prefs.perspective)) break;
       parsed = null;
@@ -1243,6 +1274,7 @@ async function requestOfflineReply(){
     });
     saveSession();
     renderStory();
+    keepOfflineComposerVisible();
   }catch(e){
     toast('线下回复生成失败，请重试');
   }finally{
@@ -1292,16 +1324,13 @@ async function exitOfflineMeet(){
     window.parent.postMessage({ type:'OPEN_APP', payload:'chat' }, '*');
     return;
   }
-  session.active = false;
-  session.minimized = false;
-  saveSession();
+  var finishedSession = JSON.parse(JSON.stringify(session || {}));
   localStorage.setItem(pendingOfflineNoticeKey(character.id), JSON.stringify({
     text: '[系统提示：这次线下见面结束了，你们回到了线上聊天。]',
     createdAt: Date.now()
   }));
-  try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
-  window.parent.postMessage({ type:'OPEN_APP', payload:'chat' }, '*');
   try{
+    session = finishedSession;
     var memoryText = await summarizeOfflineMemory();
     if(memoryText){
       localStorage.setItem(pendingOfflineMemoryKey(character.id), JSON.stringify({
@@ -1310,6 +1339,10 @@ async function exitOfflineMeet(){
       }));
     }
   }catch(e){}
+  try{ localStorage.removeItem(offlineSessionKey(character.id)); }catch(e){}
+  session = { active:false, entries:[], minimized:false };
+  try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
+  window.parent.postMessage({ type:'OPEN_APP', payload:'chat' }, '*');
 }
 function openExitMenu(){
   document.getElementById('exitMenu')?.classList.add('open');
@@ -1386,6 +1419,7 @@ async function init(){
   showFlightIfNeeded();
   await generateOpeningIfNeeded();
   renderStory();
+  syncOfflineViewport();
   var input = document.getElementById('offlineInput');
   if(input && !input.dataset.boundEnter){
     input.dataset.boundEnter = '1';
@@ -1395,6 +1429,7 @@ async function init(){
         sendOfflineTurn();
       }
     });
+    input.addEventListener('input', keepOfflineComposerVisible);
   }
 }
 document.addEventListener('click', function(e){
@@ -1405,6 +1440,21 @@ document.addEventListener('click', function(e){
   }
   if(!avatar) closeThoughtBubbles();
 });
+window.addEventListener('resize', syncOfflineViewport);
+window.addEventListener('orientationchange', syncOfflineViewport);
+window.addEventListener('focusin', function(e){
+  if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')){
+    keepOfflineComposerVisible();
+  }
+});
+window.addEventListener('load', syncOfflineViewport);
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', function(){
+    syncOfflineViewport();
+    keepOfflineComposerVisible();
+  });
+  window.visualViewport.addEventListener('scroll', syncOfflineViewport);
+}
 init();
 </script>
 </body>
