@@ -26,19 +26,21 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T10:48:00Z';
+const APP_BUILD_ID = '2026-03-17T11:20:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
 const GITHUB_UPDATE_REPO = '615';
 const GITHUB_UPDATE_BRANCH = 'main';
+const SERVICE_WORKER_PATH = 'sw.js';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
 let pendingRemoteAppFingerprint = '';
 let lastHostedUpdateCheckAt = 0;
 let hostedUpdateLockedOpen = false;
 let hostedUpdateRetryTimer = 0;
+let swControllerRefreshPending = false;
 
 function offlineMinimizedStorageKey(){
   return mainScopedKey(OFFLINE_MINIMIZED_CHAR_KEY);
@@ -324,6 +326,12 @@ async function fetchJsonWithTimeout(url, timeoutMs){
 async function buildRemoteAppFingerprint(){
   var stamp = Date.now();
   var remoteTasks = [
+    function(){
+      if(!/^https?:$/.test(window.location.protocol)) return Promise.resolve('');
+      return fetchJsonWithTimeout(new URL('version.json?updateCheck=' + stamp, window.location.href).toString(), 15000).then(function(data){
+        return String(data && data.buildId || '').trim();
+      });
+    },
     function(){ return fetchJsonWithTimeout('https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 15000).then(function(data){ return String(data && data.buildId || '').trim(); }); },
     function(){ return fetchJsonWithTimeout('https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 15000).then(function(data){ return String(data && data.buildId || '').trim(); }); },
     function(){ return fetchJsonWithTimeout('https://api.github.com/repos/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/commits/' + GITHUB_UPDATE_BRANCH + '?t=' + stamp, 15000).then(function(data){ return String(data && data.sha || '').trim(); }); }
@@ -356,10 +364,85 @@ async function buildRemoteAppFingerprint(){
   return simpleStringFingerprint(texts.join('\n<!-- split -->\n'));
 }
 
+function getServiceWorkerUrl(){
+  return SERVICE_WORKER_PATH + '?build=' + encodeURIComponent(APP_BUILD_ID);
+}
+
+async function primeLatestCoreFiles(){
+  if(!/^https?:$/.test(window.location.protocol)) return;
+  var stamp = Date.now();
+  var targets = [
+    '',
+    'index.html',
+    'style.css',
+    'main.js',
+    'assetStore.js',
+    'chatStorage.js',
+    'avatar-frames.js',
+    'manifest.webmanifest',
+    'version.json',
+    'apps/qq.html',
+    'apps/chat.html',
+    'apps/offline_mode.html'
+  ];
+  await Promise.all(targets.map(function(path){
+    var url = new URL(path || './', window.location.href);
+    url.searchParams.set('refreshBuild', String(stamp));
+    return fetch(url.toString(), { cache:'no-store' }).catch(function(){ return null; });
+  }));
+}
+
+function bindHostedServiceWorker(){
+  if(!('serviceWorker' in navigator)) return;
+  if(!window.isSecureContext) return;
+  navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if(!pendingRemoteAppFingerprint && !hostedUpdateLockedOpen) return;
+    if(swControllerRefreshPending) return;
+    swControllerRefreshPending = true;
+    try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
+    window.location.reload();
+  });
+  navigator.serviceWorker.register(getServiceWorkerUrl()).then(function(reg){
+    function notifyWaitingWorker(){
+      if(reg.waiting){
+        pendingRemoteAppFingerprint = 'sw:' + APP_BUILD_ID;
+        showHostedUpdateCard();
+      }
+    }
+    notifyWaitingWorker();
+    reg.addEventListener('updatefound', function(){
+      var worker = reg.installing;
+      if(!worker) return;
+      worker.addEventListener('statechange', function(){
+        if(worker.state === 'installed' && navigator.serviceWorker.controller){
+          notifyWaitingWorker();
+        }
+      });
+    });
+    setTimeout(function(){
+      reg.update().catch(function(){});
+    }, 1200);
+  }).catch(function(err){
+    console.warn('[sw] register failed', err);
+  });
+}
+
 async function checkForHostedUpdate(){
   try{
     var cachedRemoteFingerprint = '';
     try{ cachedRemoteFingerprint = String(localStorage.getItem(REMOTE_APP_FINGERPRINT_KEY) || '').trim(); }catch(e){}
+    if('serviceWorker' in navigator){
+      try{
+        var registration = await navigator.serviceWorker.getRegistration();
+        if(registration && registration.waiting){
+          pendingRemoteAppFingerprint = 'sw:' + APP_BUILD_ID;
+          showHostedUpdateCard();
+          return;
+        }
+      }catch(swErr){
+        console.warn('[update-check] waiting sw probe failed', swErr);
+      }
+    }
     var remoteFingerprint = await buildRemoteAppFingerprint();
     if(remoteFingerprint){
       try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, remoteFingerprint); }catch(e){}
@@ -408,13 +491,39 @@ function kickOffHostedUpdateRetries(){
 }
 
 function refreshInstalledApp(){
-  if(pendingRemoteAppFingerprint){
-    try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, pendingRemoteAppFingerprint); }catch(e){}
-  }
-  hostedUpdateLockedOpen = false;
-  try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
-  hideHostedUpdateCard();
-  window.location.reload();
+  var finishReload = function(){
+    if(pendingRemoteAppFingerprint){
+      try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, pendingRemoteAppFingerprint); }catch(e){}
+    }
+    hostedUpdateLockedOpen = false;
+    try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
+    hideHostedUpdateCard();
+    window.location.reload();
+  };
+  Promise.resolve()
+    .then(function(){ return primeLatestCoreFiles(); })
+    .then(function(){
+      if(!('serviceWorker' in navigator)) return null;
+      return navigator.serviceWorker.getRegistration().then(function(reg){
+        if(!reg) return null;
+        if(reg.waiting){
+          reg.waiting.postMessage({ type:'SKIP_WAITING' });
+          setTimeout(function(){
+            if(!swControllerRefreshPending) finishReload();
+          }, 1200);
+          return 'waiting';
+        }
+        return reg.update().then(function(){ return 'updated'; }).catch(function(){ return null; });
+      });
+    })
+    .then(function(result){
+      if(result === 'waiting') return;
+      finishReload();
+    })
+    .catch(function(err){
+      console.warn('[update-check] refresh fallback', err);
+      finishReload();
+    });
 }
 
 function bindTextNormalization(){
@@ -2696,8 +2805,9 @@ function restoreState(){
   if(safeAreaCover) safeAreaCover.remove();
   compactCharKey('activeCharacter');
   compactCharKey('pendingChatChar');
-bindTextNormalization();
-renderOfflineMiniLauncher();
+  bindTextNormalization();
+  renderOfflineMiniLauncher();
+  bindHostedServiceWorker();
   syncAppHeight();
   applyPhoneFrameVisibility(getPhoneFrameVisibility(), false);
   bindHomePager();
