@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T15:25:00Z';
+const APP_BUILD_ID = '2026-03-17T15:40:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
@@ -213,7 +213,7 @@ function syncAppHeight(){
   const rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
   const keyboardLikelyOpen = rawBottomOffset > 120;
   const vvBottomOffset = keyboardLikelyOpen ? 0 : rawBottomOffset;
-  const viewportHeight = Math.round(window.innerHeight);
+  const viewportHeight = Math.round((keyboardLikelyOpen && vv) ? (vv.height + rawBottomOffset + vvTopOffset) : window.innerHeight);
   document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', vvBottomOffset + 'px');
@@ -2896,6 +2896,10 @@ window.addEventListener('orientationchange', ()=>{
 
 if(window.visualViewport){
   window.visualViewport.addEventListener('resize', ()=>{
+    var vv = window.visualViewport;
+    var rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
+    var keyboardLikelyOpen = rawBottomOffset > 120;
+    if(keyboardLikelyOpen) return;
     syncAppHeight();
     renderHomePages(true);
   });
