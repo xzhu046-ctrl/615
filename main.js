@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-16T20:48:00Z';
+const APP_BUILD_ID = '2026-03-16T21:02:00Z';
 const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
@@ -293,7 +293,7 @@ function removeAppFromStack(appId){
 }
 
 async function fetchTextWithTimeout(url, timeoutMs){
-  var ms = Math.max(3000, Number(timeoutMs) || 8000);
+  var ms = Math.max(6000, Number(timeoutMs) || 15000);
   var controller = typeof AbortController === 'function' ? new AbortController() : null;
   var timer = null;
   if(controller){
@@ -321,7 +321,7 @@ async function buildRemoteAppFingerprint(){
   ];
   for(var i = 0; i < versionUrls.length; i += 1){
     try{
-      var versionData = await fetchJsonWithTimeout(versionUrls[i], 7000);
+      var versionData = await fetchJsonWithTimeout(versionUrls[i], 15000);
       var buildId = String(versionData && versionData.buildId || '').trim();
       if(buildId) return buildId;
     }catch(err){
@@ -333,7 +333,7 @@ async function buildRemoteAppFingerprint(){
     'https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?commitFallback=' + stamp
   ];
   try{
-    var commit = await fetchJsonWithTimeout(apiUrls[0], 7000);
+    var commit = await fetchJsonWithTimeout(apiUrls[0], 15000);
     var sha = String(commit && commit.sha || '').trim();
     if(sha) return sha;
   }catch(err){
@@ -344,7 +344,7 @@ async function buildRemoteAppFingerprint(){
   var texts = await Promise.all(targets.map(function(path){
     var url = new URL(path, window.location.href);
     url.searchParams.set('updateCheck', String(stamp));
-    return fetchTextWithTimeout(url.toString(), 7000);
+    return fetchTextWithTimeout(url.toString(), 15000);
   }));
   return simpleStringFingerprint(texts.join('\n<!-- split -->\n'));
 }
