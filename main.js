@@ -26,8 +26,10 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
+const REMOTE_APP_FINGERPRINT_KEY = 'remote_app_fingerprint_v1';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
+let pendingRemoteAppFingerprint = '';
 
 function offlineMinimizedStorageKey(){
   return mainScopedKey(OFFLINE_MINIMIZED_CHAR_KEY);
@@ -254,6 +256,67 @@ function removeStoredAsset(key){
 
 function normalizeHeartText(value){
   return typeof value === 'string' ? value.replace(/\u2665(\uFE0E|\uFE0F)?/g, '\u2665\uFE0E') : value;
+}
+
+function simpleStringFingerprint(text){
+  var hash = 2166136261;
+  var str = String(text || '');
+  for(var i = 0; i < str.length; i += 1){
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+function showHostedUpdateCard(){
+  var card = document.getElementById('update-toast-card');
+  if(card) card.hidden = false;
+}
+
+function hideHostedUpdateCard(){
+  var card = document.getElementById('update-toast-card');
+  if(card) card.hidden = true;
+}
+
+async function buildRemoteAppFingerprint(){
+  if(!/^https?:$/.test(window.location.protocol)) return '';
+  var stamp = Date.now();
+  var targets = ['index.html', 'main.js', 'style.css', 'manifest.webmanifest'];
+  var texts = await Promise.all(targets.map(function(path){
+    return fetch(path + '?updateCheck=' + stamp, { cache:'no-store' }).then(function(res){
+      if(!res.ok) throw new Error('fetch failed: ' + path);
+      return res.text();
+    });
+  }));
+  return simpleStringFingerprint(texts.join('\n<!-- split -->\n'));
+}
+
+async function checkForHostedUpdate(){
+  if(!/^https?:$/.test(window.location.protocol)) return;
+  try{
+    var fingerprint = await buildRemoteAppFingerprint();
+    if(!fingerprint) return;
+    var known = localStorage.getItem(REMOTE_APP_FINGERPRINT_KEY) || '';
+    if(!known){
+      localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, fingerprint);
+      return;
+    }
+    if(known !== fingerprint){
+      pendingRemoteAppFingerprint = fingerprint;
+      showHostedUpdateCard();
+    }
+  }catch(err){
+    console.warn('[update-check] skipped', err);
+  }
+}
+
+function refreshInstalledApp(){
+  if(pendingRemoteAppFingerprint){
+    try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, pendingRemoteAppFingerprint); }catch(e){}
+  }
+  hideHostedUpdateCard();
+  var next = window.location.pathname + '?refresh=' + Date.now() + window.location.hash;
+  window.location.replace(next);
 }
 
 function bindTextNormalization(){
@@ -2556,6 +2619,7 @@ renderOfflineMiniLauncher();
   }
   renderHomePages(true);
   setupAiBgScheduler();
+  setTimeout(function(){ checkForHostedUpdate(); }, 900);
 }
 
 window.addEventListener('resize', ()=>{
