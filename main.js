@@ -513,7 +513,11 @@ function kickOffHostedUpdateRetries(){
   });
 }
 
-function refreshInstalledApp(){
+function refreshInstalledApp(evt){
+  if(evt){
+    try{ evt.preventDefault(); }catch(e){}
+    try{ evt.stopPropagation(); }catch(e){}
+  }
   var finishReload = function(){
     if(pendingRemoteAppFingerprint){
       try{ localStorage.setItem(REMOTE_APP_FINGERPRINT_KEY, pendingRemoteAppFingerprint); }catch(e){}
