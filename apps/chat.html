@@ -7504,25 +7504,27 @@ function getChatViewportMetrics(){
   var vv = window.visualViewport;
   var vvTopOffset = Math.round(vv ? Math.max(0, vv.offsetTop || 0) : 0);
   var currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+  var visibleHeight = Math.round(vv ? Math.max(0, (vv.height || 0) + vvTopOffset) : currentHeight) || currentHeight;
   var rawBottomOffset = Math.round(vv ? Math.max(0, currentHeight - (vv.height + (vv.offsetTop || 0))) : 0);
-  var keyboardLikelyOpen = rawBottomOffset > 120;
   return {
     vvTopOffset: vvTopOffset,
     currentHeight: currentHeight,
-    rawBottomOffset: rawBottomOffset,
-    keyboardLikelyOpen: keyboardLikelyOpen
+    visibleHeight: visibleHeight,
+    rawBottomOffset: rawBottomOffset
   };
 }
 function syncChatViewport(){
   var metrics = getChatViewportMetrics();
   var vvTopOffset = metrics.vvTopOffset;
-  var keyboardInset = metrics.keyboardLikelyOpen ? metrics.rawBottomOffset : 0;
   if(!stableChatAppHeight){
     stableChatAppHeight = metrics.currentHeight || 0;
   }
   if(metrics.currentHeight > stableChatAppHeight){
     stableChatAppHeight = metrics.currentHeight;
   }
+  var inferredInset = Math.max(0, stableChatAppHeight - metrics.visibleHeight);
+  var keyboardInset = Math.max(metrics.rawBottomOffset, inferredInset);
+  if(keyboardInset < 120) keyboardInset = 0;
   var vh = stableChatAppHeight || metrics.currentHeight;
   document.documentElement.style.setProperty('--chat-app-height', vh + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
