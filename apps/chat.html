@@ -7697,6 +7697,93 @@ function refreshUserAvatars(){
   });
 }
 
+function refreshCharAvatars(){
+  var html = getCharAvatarHTML();
+  document.querySelectorAll('.msg.ai .msg-avatar, #typing-ind .msg-avatar').forEach(function(el){
+    el.innerHTML = html;
+  });
+}
+
+function parseAvatarBackedPayload(raw){
+  var text = String(raw || '').trim();
+  if(!text || text.charAt(0) !== '{') return null;
+  try{
+    var parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  }catch(e){
+    return null;
+  }
+}
+
+async function syncHistoricalChatAvatars(){
+  if(!character || !Array.isArray(chatLog) || !chatLog.length) return false;
+  var charId = String(character.id || '');
+  var nextCharAvatar = currentCharAvatarForFamily(charId);
+  if(!(nextCharAvatar && nextCharAvatar.startsWith('data:'))){
+    nextCharAvatar = await loadStoredAsset('char_avatar_' + charId).catch(function(){ return ''; });
+  }
+  nextCharAvatar = String(nextCharAvatar || '').trim();
+  var nextUserAvatar = await resolveChatUserAvatarAsync(charId).catch(function(){ return ''; });
+  nextUserAvatar = String(nextUserAvatar || '').trim();
+  var changed = false;
+  chatLog = chatLog.map(function(entry){
+    if(!entry) return entry;
+    var type = normalizeMessageType(entry.type || 'text');
+    if(type !== 'familycard' && type !== 'moneypacket') return entry;
+    var payload = parseAvatarBackedPayload(entry.content);
+    if(!payload) return entry;
+    if(payload.charId && String(payload.charId) !== charId) return entry;
+    var payloadChanged = false;
+    if(nextCharAvatar && payload.charAvatar !== nextCharAvatar){
+      payload.charAvatar = nextCharAvatar;
+      payloadChanged = true;
+    }
+    if(nextUserAvatar && payload.userAvatar !== nextUserAvatar){
+      payload.userAvatar = nextUserAvatar;
+      payloadChanged = true;
+    }
+    if(!payloadChanged) return entry;
+    changed = true;
+    return Object.assign({}, entry, { content: JSON.stringify(payload) });
+  });
+  var familyQueue = loadPendingFamilyQueue();
+  var familyQueueChanged = false;
+  familyQueue = familyQueue.map(function(item){
+    if(!item || String((item && item.charId) || '') !== charId) return item;
+    var nextItem = Object.assign({}, item);
+    if(nextCharAvatar && nextItem.charAvatar !== nextCharAvatar){
+      nextItem.charAvatar = nextCharAvatar;
+      familyQueueChanged = true;
+    }
+    if(nextUserAvatar && nextItem.userAvatar !== nextUserAvatar){
+      nextItem.userAvatar = nextUserAvatar;
+      familyQueueChanged = true;
+    }
+    return nextItem;
+  });
+  if(familyQueueChanged) savePendingFamilyQueue(familyQueue);
+  var activeCards = loadActiveFamilyCards();
+  var activeCardsChanged = false;
+  activeCards = activeCards.map(function(item){
+    if(!item || String((item && item.charId) || '') !== charId) return item;
+    var nextItem = Object.assign({}, item);
+    if(nextCharAvatar && nextItem.charAvatar !== nextCharAvatar){
+      nextItem.charAvatar = nextCharAvatar;
+      activeCardsChanged = true;
+    }
+    return nextItem;
+  });
+  if(activeCardsChanged) saveActiveFamilyCards(activeCards);
+  if(changed){
+    renderChatLog(true);
+    await saveChat(true);
+  }else{
+    refreshCharAvatars();
+    refreshUserAvatars();
+  }
+  return changed || familyQueueChanged || activeCardsChanged;
+}
+
 function showError(msg) {
   var el = document.getElementById('errNotice');
   document.getElementById('errText').textContent = msg;
@@ -9002,11 +9089,16 @@ function toggleWbBook(idx) {
 function onCharImg(file) {
   if (!file) return;
   var r = new FileReader();
-  r.onload = function(e) {
+  r.onload = async function(e) {
     var d = e.target.result;
     var av = document.getElementById('csCharAvatar');
     av.innerHTML = '<img src="' + d + '"><div class="avatar-pick-hint">换头像</div>';
-    if (character) { saveStoredAsset('char_avatar_' + character.id, d); updateHeader(); }
+    if (character) {
+      saveStoredAsset('char_avatar_' + character.id, d);
+      updateHeader();
+      refreshCharAvatars();
+      await syncHistoricalChatAvatars();
+    }
   };
   r.readAsDataURL(file);
 }
@@ -9014,13 +9106,14 @@ function onCharImg(file) {
 function onUserImg(file) {
   if (!file) return;
   var r = new FileReader();
-  r.onload = function(e) {
+  r.onload = async function(e) {
     var d = e.target.result;
     var av = document.getElementById('csUserAvatar');
     av.innerHTML = '<img src="' + d + '"><div class="avatar-pick-hint">换头像</div>';
     saveStoredAsset(userKey('user_avatar'), d);
     if(character && character.id) saveStoredAsset('user_avatar_' + character.id, d);
     refreshUserAvatars();
+    await syncHistoricalChatAvatars();
   };
   r.readAsDataURL(file);
 }
