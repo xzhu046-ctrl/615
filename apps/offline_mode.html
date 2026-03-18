@@ -98,9 +98,20 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 .meta-row{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 58px}
 .meta-label{font-family:var(--fontd);font-size:12px;font-weight:900;color:var(--g);letter-spacing:.08em;text-transform:uppercase}
 .meta-heart{font-size:14px;font-weight:900;max-width:58%;text-align:right}
-.thought-clouds{position:fixed;left:18px;right:18px;top:84px;z-index:35;display:none;flex-wrap:wrap;gap:10px;justify-content:center}
-.thought-clouds.show{display:flex}
-.thought-pill{padding:10px 14px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);font-size:12px;font-weight:900;max-width:220px}
+.mem-empty{font-size:12px;color:var(--g);line-height:1.6}
+.inner-voice-overlay{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(255,255,255,.4);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.inner-voice-overlay.open{display:flex}
+.inner-voice-card{width:min(380px,100%);max-height:min(82vh,700px);background:var(--w);border:var(--bd);border-radius:18px;box-shadow:var(--sh);overflow:hidden;display:flex;flex-direction:column}
+.inner-voice-head{padding:12px 12px 10px;border-bottom:var(--bd);display:flex;align-items:center;justify-content:space-between;gap:10px;background:linear-gradient(180deg,#fff 0%,#f4f4f4 100%)}
+.inner-voice-head-left{display:flex;align-items:center;gap:6px;min-width:32px}
+.inner-voice-title{font-family:var(--fontd);font-size:16px;font-weight:900;text-align:center;flex:1}
+.inner-voice-mini{width:32px;height:32px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);font-family:var(--fontd);font-size:14px;font-weight:900;cursor:pointer}
+.inner-voice-mini:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
+.inner-voice-body{padding:12px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+.inner-voice-box{border:var(--bd);border-radius:12px;padding:10px 12px;font-size:12px;font-weight:700;line-height:1.7;white-space:pre-wrap}
+.inner-voice-box.normal{background:#fff;color:var(--b)}
+.inner-voice-box.desire{background:#505050;color:#fff;border-color:#2f2f2f}
+.inner-voice-meta{font-size:11px;color:var(--g);font-weight:800}
 .composer{position:fixed;left:14px;right:14px;bottom:calc(var(--offline-keyboard-inset) + 12px);z-index:25;display:flex;gap:8px;align-items:center;padding-bottom:max(2px,var(--offline-safe-bottom))}
 .composer-box{flex:1;min-height:34px;border:var(--bd);border-radius:16px;background:rgba(255,255,255,.95);box-shadow:var(--sh);padding:6px 10px;display:flex;align-items:center}
 .composer-box textarea{width:100%;border:none;outline:none;background:transparent;height:20px;min-height:20px;max-height:20px;resize:none;font-family:var(--font);font-size:13px;font-weight:600;line-height:20px;color:var(--b);overflow:hidden}
@@ -139,7 +150,6 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 <body>
 <div class="paper-bg" aria-hidden="true"></div>
 <div class="shell">
-  <div class="thought-clouds" id="thoughtClouds"></div>
   <div class="story-wrap" id="storyList"></div>
   <div class="composer">
     <button class="composer-btn reply" id="offlineRerollBtn" type="button" onclick="rerollOfflineTurn()">↻</button>
@@ -167,6 +177,16 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 
 <div class="toast" id="toast"></div>
 <button class="offline-mini-launcher" id="offlineMiniLauncher" type="button" onclick="restoreOfflineMeet()"><img src="assets/线下模式图标.png" alt="线下模式"></button>
+<div class="inner-voice-overlay" id="offlineThoughtOverlay">
+  <div class="inner-voice-card">
+    <div class="inner-voice-head">
+      <div class="inner-voice-head-left"></div>
+      <div class="inner-voice-title">心声</div>
+      <button class="inner-voice-mini" type="button" onclick="closeThoughtBubbles()">×</button>
+    </div>
+    <div class="inner-voice-body" id="offlineThoughtBody"></div>
+  </div>
+</div>
 <div class="exit-menu" id="exitMenu">
   <div class="exit-menu-card">
     <div class="exit-menu-title">要先离开一下吗</div>
@@ -674,29 +694,33 @@ function cardVisualHeight(sheetHeight, isChar){
   return Math.max(364, sheetHeight + 166, paperBottom + 28, flowerBottom + 24);
 }
 function toggleThoughtBubbles(index){
-  var clouds = document.getElementById('thoughtClouds');
-  if(!clouds) return;
+  var overlay = document.getElementById('offlineThoughtOverlay');
+  var body = document.getElementById('offlineThoughtBody');
+  if(!overlay || !body) return;
   var entry = (session && session.entries && session.entries[index]) || null;
   var list = entry && Array.isArray(entry.bubbles) ? entry.bubbles.filter(Boolean) : [];
   if(!list.length){
-    clouds.classList.remove('show');
+    closeThoughtBubbles();
     return;
   }
-  var same = clouds.dataset.entryIndex === String(index) && clouds.classList.contains('show');
+  var same = overlay.dataset.entryIndex === String(index) && overlay.classList.contains('open');
   if(same){
-    clouds.classList.remove('show');
-    clouds.dataset.entryIndex = '';
+    closeThoughtBubbles();
     return;
   }
-  clouds.innerHTML = list.map(function(text){ return '<div class="thought-pill">' + esc(text) + '</div>'; }).join('');
-  clouds.dataset.entryIndex = String(index);
-  clouds.classList.add('show');
+  body.innerHTML = list.map(function(text, idx){
+    return '<div class="inner-voice-box ' + (idx % 2 === 0 ? 'normal' : 'desire') + '">' + esc(text) + '</div>';
+  }).join('') + '<div class="inner-voice-meta">点头像时会看到角色这一刻藏着的小心声。</div>';
+  overlay.dataset.entryIndex = String(index);
+  overlay.classList.add('open');
 }
 function closeThoughtBubbles(){
-  var clouds = document.getElementById('thoughtClouds');
-  if(!clouds) return;
-  clouds.classList.remove('show');
-  clouds.dataset.entryIndex = '';
+  var overlay = document.getElementById('offlineThoughtOverlay');
+  if(!overlay) return;
+  overlay.classList.remove('open');
+  overlay.dataset.entryIndex = '';
+  var body = document.getElementById('offlineThoughtBody');
+  if(body) body.innerHTML = '';
 }
 function setOfflineComposerBusy(flag){
   sending = !!flag;
@@ -1731,8 +1755,12 @@ async function init(){
 document.addEventListener('click', function(e){
   var avatar = e.target && e.target.closest ? e.target.closest('.avatar,.char-polaroid-frame') : null;
   var exitCard = e.target && e.target.closest ? e.target.closest('.exit-menu-card') : null;
+  var thoughtCard = e.target && e.target.closest ? e.target.closest('.inner-voice-card') : null;
   if(e.target === document.getElementById('exitMenu') && !exitCard){
     closeExitMenu();
+  }
+  if(e.target === document.getElementById('offlineThoughtOverlay') && !thoughtCard){
+    closeThoughtBubbles();
   }
   if(!avatar) closeThoughtBubbles();
 });
