@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover">
+<title>档案馆</title>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<script src="../accountManager.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--b:#0a0a0a;--w:#fff;--off:#f6f6f3;--g:#6b6b6b;--bd:2px solid #0a0a0a;--sh:2px 2px 0 #0a0a0a;--font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif}
+html,body{width:100%;height:100%;overflow:hidden}
+body{font-family:var(--font);background:
+  linear-gradient(180deg,rgba(255,255,255,.94),rgba(245,245,242,.98)),
+  repeating-linear-gradient(0deg,transparent 0 29px,rgba(10,10,10,.035) 29px 30px);
+  color:var(--b)}
+.shell{height:100%;display:flex;flex-direction:column;min-height:0}
+.hero{padding:14px 14px 10px;display:flex;align-items:flex-start;gap:10px}
+.hero-icon{width:48px;height:48px;border:var(--bd);border-radius:14px;background:#fff;box-shadow:var(--sh);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.hero-icon img{width:28px;height:28px;object-fit:contain;filter:grayscale(1) contrast(1.18)}
+.hero-copy{min-width:0}
+.hero-title{font-family:var(--fontd);font-size:18px;font-weight:900}
+.hero-sub{margin-top:4px;font-size:12px;line-height:1.55;color:var(--g)}
+.folder-list{flex:1;min-height:0;overflow:auto;padding:2px 14px 18px;display:flex;flex-direction:column;gap:14px}
+.folder-card{position:relative;width:100%;padding:0;border:none;background:transparent;text-align:left;cursor:pointer}
+.folder-tab{position:absolute;left:14px;top:0;min-width:92px;max-width:52%;padding:7px 12px 6px;border:var(--bd);border-bottom:none;border-radius:14px 14px 0 0;background:#fff;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:var(--sh)}
+.folder-body{position:relative;margin-top:22px;border:var(--bd);border-radius:18px;background:linear-gradient(180deg,#fff 0%,#f2f2ef 100%);box-shadow:4px 4px 0 #0a0a0a;padding:16px 16px 14px;min-height:112px}
+.folder-body::before{content:'';position:absolute;left:12px;right:12px;top:12px;bottom:12px;border:1.5px dashed rgba(10,10,10,.18);border-radius:12px;pointer-events:none}
+.folder-head{position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.folder-name{font-family:var(--fontd);font-size:15px;font-weight:900;line-height:1.2}
+.folder-time{font-size:11px;font-weight:700;color:var(--g);flex-shrink:0}
+.folder-preview{position:relative;font-size:12px;line-height:1.65;color:#242424;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;padding-right:8px;min-height:40px}
+.folder-meta{position:relative;margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.folder-count{font-size:11px;font-weight:800;color:var(--g)}
+.status-chip{display:inline-flex;align-items:center;justify-content:center;padding:5px 10px;border:var(--bd);border-radius:999px;background:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.04em}
+.status-chip.pending{background:#0a0a0a;color:#fff}
+.empty{margin-top:18px;border:var(--bd);border-radius:22px;background:#fff;box-shadow:var(--sh);padding:26px 18px;text-align:center}
+.empty h3{font-family:var(--fontd);font-size:17px;font-weight:900}
+.empty p{margin-top:6px;font-size:12px;line-height:1.7;color:var(--g)}
+.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(255,255,255,.34);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:20}
+.modal.open{display:flex}
+.modal-backdrop{position:absolute;inset:0}
+.modal-card{position:relative;width:min(100%,380px);max-height:min(88vh,760px);border:var(--bd);border-radius:24px;background:#fff;box-shadow:4px 4px 0 #0a0a0a;display:flex;flex-direction:column;overflow:hidden}
+.modal-head{padding:16px 16px 12px;border-bottom:var(--bd);background:linear-gradient(180deg,#fff 0%,#f4f4f1 100%)}
+.modal-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.modal-title{font-family:var(--fontd);font-size:16px;font-weight:900;line-height:1.25}
+.close-btn{width:34px;height:34px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);font-family:var(--fontd);font-size:18px;font-weight:900;cursor:pointer}
+.modal-sub{margin-top:8px;font-size:12px;line-height:1.6;color:var(--g)}
+.modal-body{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px;background:repeating-linear-gradient(0deg,#fafaf8 0 30px,#f2f2ef 30px 31px)}
+.entry-card{border:var(--bd);border-radius:18px;background:#fff;box-shadow:var(--sh);padding:12px 12px 10px}
+.entry-role{display:inline-flex;align-items:center;justify-content:center;padding:4px 10px;border:var(--bd);border-radius:999px;background:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.05em}
+.entry-role.user{background:#0a0a0a;color:#fff}
+.entry-text{margin-top:10px;font-size:13px;line-height:1.8;white-space:pre-wrap;word-break:break-word}
+.entry-meta{margin-top:8px;font-size:11px;font-weight:700;color:var(--g)}
+.modal-actions{padding:14px;border-top:var(--bd);display:flex;gap:10px;background:#fff}
+.action-btn{flex:1;padding:12px 14px;border:var(--bd);border-radius:16px;background:#fff;color:#0a0a0a;box-shadow:var(--sh);font-family:var(--fontd);font-size:13px;font-weight:900;cursor:pointer}
+.action-btn:active,.close-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
+.action-btn.primary{background:#0a0a0a;color:#fff}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="hero">
+    <div class="hero-icon"><img src="assets/Chat-Bubble-Heart--Streamline-Sharp.png" alt=""></div>
+    <div class="hero-copy">
+      <div class="hero-title">线下档案馆</div>
+      <div class="hero-sub">每一次约会都会被收进这里。认真说过再见的会归档，来不及说完的会挂上待续。</div>
+    </div>
+  </div>
+  <div class="folder-list" id="folderList"></div>
+</div>
+
+<div class="modal" id="archiveModal">
+  <div class="modal-backdrop" onclick="closeArchiveModal()"></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <div class="modal-top">
+        <div class="modal-title" id="modalTitle">约会档案</div>
+        <button class="close-btn" type="button" onclick="closeArchiveModal()">×</button>
+      </div>
+      <div class="modal-sub" id="modalSub"></div>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-actions" id="modalActions"></div>
+  </div>
+</div>
+
+<script>
+var archives = [];
+var activeArchiveId = '';
+
+function activeAccountId(){
+  try{ return window.AccountManager && window.AccountManager.getActive ? ((window.AccountManager.getActive() || {}).id || '') : ''; }catch(e){ return ''; }
+}
+function scopedKey(base){
+  var accountId = activeAccountId();
+  return accountId ? (base + '__acct_' + accountId) : base;
+}
+function activeCharacterKey(){
+  return scopedKey('activeCharacter');
+}
+function offlineSessionKey(charId){
+  return scopedKey('offline_meet_session_' + String(charId || ''));
+}
+function pendingOfflineMemoryKey(charId){
+  return scopedKey('offline_memory_pending_' + String(charId || ''));
+}
+function pendingOfflineNoticeKey(charId){
+  return scopedKey('offline_notice_pending_' + String(charId || ''));
+}
+function offlineArchiveListKey(){
+  return scopedKey('offline_meet_archives');
+}
+function esc(text){
+  return String(text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function formatTime(ts){
+  var value = Number(ts || 0) || 0;
+  if(!value) return '时间未知';
+  var d = new Date(value);
+  return d.getFullYear() + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + String(d.getDate()).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function loadArchives(){
+  try{
+    var parsed = JSON.parse(localStorage.getItem(offlineArchiveListKey()) || '[]');
+    archives = Array.isArray(parsed) ? parsed : [];
+  }catch(e){
+    archives = [];
+  }
+}
+function saveArchives(){
+  try{ localStorage.setItem(offlineArchiveListKey(), JSON.stringify(archives)); }catch(e){}
+}
+function summarizeOfflineMemoryLocally(snapshot){
+  var list = Array.isArray(snapshot && snapshot.entries) ? snapshot.entries : [];
+  if(!list.length) return '';
+  var lastUser = '';
+  var lastAssistant = '';
+  for(var i = list.length - 1; i >= 0; i -= 1){
+    var entry = list[i];
+    if(!entry) continue;
+    var text = String(entry.text || '').replace(/\s+/g, ' ').trim();
+    if(!text) continue;
+    if(!lastAssistant && entry.role === 'assistant') lastAssistant = text;
+    if(!lastUser && entry.role === 'user') lastUser = text;
+    if(lastUser && lastAssistant) break;
+  }
+  var parts = ['这次线下见面已经结束，两人的关系在这次见面里继续推进。'];
+  if(lastUser) parts.push('用户最后表达了：' + lastUser.slice(0, 60) + '。');
+  if(lastAssistant) parts.push('角色最后回应了：' + lastAssistant.slice(0, 60) + '。');
+  return parts.join('');
+}
+function getArchiveById(id){
+  return archives.find(function(item){ return item && item.id === id; }) || null;
+}
+function renderFolders(){
+  var list = document.getElementById('folderList');
+  if(!list) return;
+  if(!archives.length){
+    list.innerHTML = '<div class="empty"><h3>这里还没有封存好的约会</h3><p>等你们在一次线下见面里认真说了再见，或者中途离开后待续，它就会乖乖进来。</p></div>';
+    return;
+  }
+  list.innerHTML = archives.map(function(item, idx){
+    var statusClass = item.status === 'pending' ? 'status-chip pending' : 'status-chip';
+    var statusText = item.status === 'pending' ? '待续' : '已归档';
+    var tab = item.status === 'pending' ? '未完待续' : ('第' + String(archives.length - idx) + '份');
+    return (
+      '<button class="folder-card" type="button" onclick="openArchive(\'' + esc(item.id) + '\')">' +
+        '<div class="folder-tab">' + esc(tab) + '</div>' +
+        '<div class="folder-body">' +
+          '<div class="folder-head">' +
+            '<div class="folder-name">' + esc(item.charName || '未命名角色') + '</div>' +
+            '<div class="folder-time">' + esc(formatTime(item.updatedAt || item.createdAt)) + '</div>' +
+          '</div>' +
+          '<div class="folder-preview">' + esc(item.preview || '这次约会还没有写下太多内容。') + '</div>' +
+          '<div class="folder-meta">' +
+            '<div class="folder-count">' + esc(String(Number(item.entryCount || 0) || 0)) + ' 条线下记录</div>' +
+            '<div class="' + statusClass + '">' + esc(statusText) + '</div>' +
+          '</div>' +
+        '</div>' +
+      '</button>'
+    );
+  }).join('');
+}
+function renderArchiveBody(entry){
+  var body = document.getElementById('modalBody');
+  if(!body) return;
+  var items = Array.isArray(entry && entry.snapshot && entry.snapshot.entries) ? entry.snapshot.entries : [];
+  if(!items.length){
+    body.innerHTML = '<div class="entry-card"><div class="entry-text">这次约会还没来得及留下太多内容。</div></div>';
+    return;
+  }
+  body.innerHTML = items.map(function(item){
+    var role = item && item.role === 'user' ? '我' : (entry.charName || '角色');
+    var cls = item && item.role === 'user' ? 'entry-role user' : 'entry-role';
+    return (
+      '<div class="entry-card">' +
+        '<div class="' + cls + '">' + esc(role) + '</div>' +
+        '<div class="entry-text">' + esc(String(item && item.text || '').trim()) + '</div>' +
+        '<div class="entry-meta">' + esc(String(item && item.timeLabel || item && item.meta || '')) + '</div>' +
+      '</div>'
+    );
+  }).join('');
+}
+function renderArchiveActions(entry){
+  var actions = document.getElementById('modalActions');
+  if(!actions) return;
+  if(entry && entry.status === 'pending'){
+    actions.innerHTML =
+      '<button class="action-btn" type="button" onclick="endArchiveDate()">结束约会</button>' +
+      '<button class="action-btn primary" type="button" onclick="continueArchiveDate()">继续约会</button>';
+  }else{
+    actions.innerHTML = '<button class="action-btn primary" type="button" onclick="closeArchiveModal()">看完啦</button>';
+  }
+}
+function openArchive(id){
+  var entry = getArchiveById(id);
+  if(!entry) return;
+  activeArchiveId = id;
+  document.getElementById('modalTitle').textContent = (entry.charName || '未命名角色') + ' 的约会档案';
+  document.getElementById('modalSub').textContent = (entry.status === 'pending' ? '这次约会还没真正说完再见。你可以继续，也可以在这里好好结束。' : '这次约会已经被认真封存，可以随时翻阅。') + '  ·  ' + formatTime(entry.updatedAt || entry.createdAt);
+  renderArchiveBody(entry);
+  renderArchiveActions(entry);
+  document.getElementById('archiveModal').classList.add('open');
+}
+function closeArchiveModal(){
+  activeArchiveId = '';
+  document.getElementById('archiveModal').classList.remove('open');
+}
+function markArchiveEnded(entry){
+  if(!entry || !entry.charId) return;
+  try{
+    localStorage.setItem(pendingOfflineNoticeKey(entry.charId), JSON.stringify({
+      text: '[系统提示：这次线下见面结束了，你们回到了线上聊天。]',
+      createdAt: Date.now()
+    }));
+  }catch(e){}
+  try{
+    var memoryText = summarizeOfflineMemoryLocally(entry.snapshot || {});
+    if(memoryText){
+      localStorage.setItem(pendingOfflineMemoryKey(entry.charId), JSON.stringify({
+        text: memoryText,
+        createdAt: Date.now()
+      }));
+    }
+  }catch(e){}
+  try{ localStorage.removeItem(offlineSessionKey(entry.charId)); }catch(e){}
+  entry.status = 'ended';
+  entry.statusLabel = '已结束';
+  entry.reason = 'goodbye';
+  entry.updatedAt = Date.now();
+  entry.endedAt = entry.updatedAt;
+  if(entry.snapshot){
+    entry.snapshot.active = false;
+    entry.snapshot.minimized = false;
+    entry.snapshot.archiveId = entry.id;
+  }
+  saveArchives();
+}
+function continueArchiveDate(){
+  var entry = getArchiveById(activeArchiveId);
+  if(!entry || entry.status !== 'pending' || !entry.charId) return;
+  var charSnapshot = Object.assign({}, entry.characterSnapshot || {}, { id: entry.charId });
+  var sessionSnapshot = entry.snapshot ? JSON.parse(JSON.stringify(entry.snapshot)) : null;
+  if(!sessionSnapshot) return;
+  sessionSnapshot.active = true;
+  sessionSnapshot.minimized = false;
+  sessionSnapshot.archiveId = entry.id;
+  sessionSnapshot.updatedAt = Date.now();
+  try{ localStorage.setItem(activeCharacterKey(), JSON.stringify(charSnapshot)); }catch(e){}
+  try{ localStorage.setItem('activeCharacter', JSON.stringify(charSnapshot)); }catch(e){}
+  try{ localStorage.setItem(offlineSessionKey(entry.charId), JSON.stringify(sessionSnapshot)); }catch(e){}
+  entry.updatedAt = Date.now();
+  entry.snapshot = sessionSnapshot;
+  saveArchives();
+  try{ window.parent.postMessage({ type:'SET_ACTIVE_CHARACTER', payload: charSnapshot }, '*'); }catch(e){}
+  try{ window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'offline' }, '*'); }catch(e){}
+}
+function endArchiveDate(){
+  var entry = getArchiveById(activeArchiveId);
+  if(!entry) return;
+  markArchiveEnded(entry);
+  closeArchiveModal();
+  renderFolders();
+  try{ window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*'); }catch(e){}
+}
+window.addEventListener('message', function(e){
+  var data = e.data || {};
+  if(data.type === 'ACCOUNT_CHANGED' || data.type === 'CHARACTER_IMPORTED'){
+    loadArchives();
+    renderFolders();
+    closeArchiveModal();
+  }
+});
+loadArchives();
+renderFolders();
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-18T01:36:00Z';
+const CACHE_VERSION = '2026-03-18T03:28:00Z';
 const CACHE_NAME = 'phone-shell';
 const CORE_URLS = [
   './',
@@ -16,6 +16,7 @@ const CORE_URLS = [
   './apps/settings.html',
   './apps/customize.html',
   './apps/worldbook.html',
+  './apps/offline_archive.html',
   './apps/offline_mode.html'
 ];
 

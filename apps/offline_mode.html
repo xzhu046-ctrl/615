@@ -185,6 +185,8 @@ var session = null;
 var character = null;
 var sending = false;
 var exitingOfflineMeet = false;
+var archivingOfflineMeet = false;
+var offlineCloseIntent = '';
 var flightGameState = null;
 var runtimeUserAvatar = '';
 var runtimeCharAvatar = '';
@@ -207,6 +209,140 @@ function pendingOfflineMemoryKey(charId){
 }
 function pendingOfflineNoticeKey(charId){
   return scopedKey('offline_notice_pending_' + String(charId || ''));
+}
+function offlineArchiveListKey(){
+  return scopedKey('offline_meet_archives');
+}
+function loadOfflineArchives(){
+  try{
+    var parsed = JSON.parse(localStorage.getItem(offlineArchiveListKey()) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  }catch(e){
+    return [];
+  }
+}
+function saveOfflineArchives(list){
+  try{
+    localStorage.setItem(offlineArchiveListKey(), JSON.stringify(Array.isArray(list) ? list : []));
+  }catch(e){}
+}
+function snapshotOfflineSessionState(source){
+  var base = source || session || null;
+  if(!base) return null;
+  try{
+    return JSON.parse(JSON.stringify(base));
+  }catch(e){
+    return null;
+  }
+}
+function hasMeaningfulOfflineSession(snapshot){
+  if(!snapshot || typeof snapshot !== 'object') return false;
+  if(Array.isArray(snapshot.entries) && snapshot.entries.length) return true;
+  if(snapshot.pendingOpening || snapshot.pendingAnimation) return true;
+  if(snapshot.invite) return true;
+  return !!snapshot.active;
+}
+function buildOfflineArchivePreview(snapshot){
+  var list = Array.isArray(snapshot && snapshot.entries) ? snapshot.entries.slice().reverse() : [];
+  for(var i = 0; i < list.length; i += 1){
+    var entry = list[i];
+    var text = String(entry && entry.text || '').replace(/\s+/g, ' ').trim();
+    if(text) return text.slice(0, 72);
+  }
+  return '这次约会还没有写下太多内容。';
+}
+function upsertOfflineArchive(snapshot, options){
+  if(!snapshot || !character || !character.id) return '';
+  var opts = options || {};
+  var list = loadOfflineArchives();
+  var now = Date.now();
+  var archiveId = String(opts.archiveId || snapshot.archiveId || ('offline_archive_' + now + '_' + Math.random().toString(36).slice(2, 8)));
+  var existingIndex = list.findIndex(function(item){ return item && item.id === archiveId; });
+  var existing = existingIndex >= 0 ? list[existingIndex] : null;
+  var charSnapshot = Object.assign({}, existing && existing.characterSnapshot || {}, character || {});
+  var archiveSnapshot = snapshotOfflineSessionState(snapshot) || { active:false, entries:[] };
+  archiveSnapshot.archiveId = archiveId;
+  archiveSnapshot.minimized = false;
+  archiveSnapshot.active = opts.status === 'pending';
+  var entry = Object.assign({}, existing || {}, {
+    id: archiveId,
+    charId: String(character.id || ''),
+    charName: String((character.nickname || character.name || '未命名角色')).trim() || '未命名角色',
+    charAvatar: resolveCharAvatar() || charSnapshot.imageData || '',
+    userName: resolveUserName(),
+    status: opts.status === 'ended' ? 'ended' : 'pending',
+    statusLabel: opts.status === 'ended' ? '已结束' : '待续',
+    reason: String(opts.reason || '').trim(),
+    createdAt: Number(existing && existing.createdAt || archiveSnapshot.createdAt || archiveSnapshot.updatedAt || now) || now,
+    updatedAt: now,
+    preview: buildOfflineArchivePreview(archiveSnapshot),
+    entryCount: Array.isArray(archiveSnapshot.entries) ? archiveSnapshot.entries.length : 0,
+    characterSnapshot: charSnapshot,
+    snapshot: archiveSnapshot
+  });
+  if(opts.status === 'ended'){
+    entry.endedAt = now;
+  }else{
+    entry.endedAt = 0;
+  }
+  if(existingIndex >= 0) list.splice(existingIndex, 1);
+  list.unshift(entry);
+  saveOfflineArchives(list);
+  return archiveId;
+}
+function queueOfflineEndArtifacts(targetCharId, snapshot){
+  if(!targetCharId || !snapshot) return;
+  localStorage.setItem(pendingOfflineNoticeKey(targetCharId), JSON.stringify({
+    text: '[系统提示：这次线下见面结束了，你们回到了线上聊天。]',
+    createdAt: Date.now()
+  }));
+  try{
+    var memoryText = summarizeOfflineMemoryLocally(snapshot);
+    if(memoryText){
+      localStorage.setItem(pendingOfflineMemoryKey(targetCharId), JSON.stringify({
+        text: memoryText,
+        createdAt: Date.now()
+      }));
+    }
+  }catch(e){}
+}
+function clearLiveOfflineSession(targetCharId){
+  if(!targetCharId) return;
+  try{ localStorage.removeItem(offlineSessionKey(targetCharId)); }catch(e){}
+}
+function archiveCurrentOfflineMeet(status, reason){
+  if(archivingOfflineMeet) return '';
+  if(!session || !character || !character.id) return '';
+  var snapshot = snapshotOfflineSessionState(session);
+  if(!hasMeaningfulOfflineSession(snapshot)) return '';
+  archivingOfflineMeet = true;
+  try{
+    var archiveId = upsertOfflineArchive(snapshot, {
+      status: status,
+      reason: reason,
+      archiveId: snapshot && snapshot.archiveId
+    });
+    if(archiveId){
+      session.archiveId = archiveId;
+    }
+    if(status === 'ended'){
+      queueOfflineEndArtifacts(character.id, snapshot);
+      clearLiveOfflineSession(character.id);
+      session = { active:false, entries:[], minimized:false, archiveId:archiveId || '' };
+    }else{
+      clearLiveOfflineSession(character.id);
+      session = { active:false, entries:[], minimized:false, archiveId:archiveId || '' };
+    }
+    return archiveId;
+  }finally{
+    archivingOfflineMeet = false;
+  }
+}
+function autoArchiveOfflineMeetIfNeeded(reason){
+  if(offlineCloseIntent || exitingOfflineMeet || archivingOfflineMeet) return;
+  if(!session || !character || !character.id) return;
+  if(session.minimized) return;
+  archiveCurrentOfflineMeet('pending', reason || 'interrupted');
 }
 function loadStoredAsset(key){
   if(window.assetStore && typeof window.assetStore.load === 'function'){
@@ -1480,36 +1616,24 @@ function setExitMenuBusy(busy){
 async function exitOfflineMeet(){
   if(exitingOfflineMeet) return;
   exitingOfflineMeet = true;
+  offlineCloseIntent = 'ended';
   setExitMenuBusy(true);
   if(!session || !character || !character.id){
     try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
     window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*');
     setTimeout(function(){
       exitingOfflineMeet = false;
+      offlineCloseIntent = '';
       setExitMenuBusy(false);
     }, 120);
     return;
   }
-  var finishedSession = JSON.parse(JSON.stringify(session || {}));
-  localStorage.setItem(pendingOfflineNoticeKey(character.id), JSON.stringify({
-    text: '[系统提示：这次线下见面结束了，你们回到了线上聊天。]',
-    createdAt: Date.now()
-  }));
-  try{
-    var memoryText = summarizeOfflineMemoryLocally(finishedSession);
-    if(memoryText){
-      localStorage.setItem(pendingOfflineMemoryKey(character.id), JSON.stringify({
-        text: memoryText,
-        createdAt: Date.now()
-      }));
-    }
-  }catch(e){}
-  try{ localStorage.removeItem(offlineSessionKey(character.id)); }catch(e){}
-  session = { active:false, entries:[], minimized:false };
+  archiveCurrentOfflineMeet('ended', 'goodbye');
   try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
   window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*');
   setTimeout(function(){
     exitingOfflineMeet = false;
+    offlineCloseIntent = '';
     setExitMenuBusy(false);
   }, 120);
 }
@@ -1521,6 +1645,7 @@ function closeExitMenu(){
 }
 function minimizeOfflineMeet(){
   closeExitMenu();
+  offlineCloseIntent = 'minimize';
   if(session){
     session.minimized = true;
     saveSession();
@@ -1531,6 +1656,7 @@ function minimizeOfflineMeet(){
   window.parent.postMessage({ type:'OPEN_APP', payload:'chat' }, '*');
 }
 function restoreOfflineMeet(){
+  offlineCloseIntent = '';
   if(session){
     session.minimized = false;
     saveSession();
@@ -1609,6 +1735,18 @@ document.addEventListener('click', function(e){
     closeExitMenu();
   }
   if(!avatar) closeThoughtBubbles();
+});
+window.addEventListener('message', function(e){
+  var data = e.data || {};
+  if(data.type === 'APP_CLOSING'){
+    autoArchiveOfflineMeetIfNeeded('app_closing');
+  }
+});
+window.addEventListener('pagehide', function(){
+  autoArchiveOfflineMeetIfNeeded('pagehide');
+});
+window.addEventListener('beforeunload', function(){
+  autoArchiveOfflineMeetIfNeeded('beforeunload');
 });
 window.addEventListener('resize', syncOfflineViewport);
 window.addEventListener('orientationchange', syncOfflineViewport);
