@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T20:48:00Z';
+const APP_BUILD_ID = '2026-03-17T21:18:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -46,6 +46,29 @@ let swControllerRefreshPending = false;
 let shownHostedUpdateFingerprint = '';
 let hostedUpdateBootstrapped = false;
 let hostedUpdateModalShown = false;
+let chatInputFocusActive = false;
+let chatReportedKeyboardShift = 0;
+
+function getTopLevelChatKeyboardShift(){
+  var vv = window.visualViewport;
+  if(!vv) return 0;
+  var viewportHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+  var visibleBottom = Math.round((vv.height || 0) + (vv.offsetTop || 0));
+  var inset = Math.max(0, viewportHeight - visibleBottom);
+  return inset >= 80 ? Math.min(420, inset) : 0;
+}
+
+function syncChatKeyboardShift(){
+  if(currentApp !== 'chat'){
+    setChatKeyboardShift(0);
+    return;
+  }
+  var next = Math.max(
+    chatInputFocusActive ? getTopLevelChatKeyboardShift() : 0,
+    Number(chatReportedKeyboardShift) || 0
+  );
+  setChatKeyboardShift(next);
+}
 
 function offlineMinimizedStorageKey(){
   return mainScopedKey(OFFLINE_MINIMIZED_CHAR_KEY);
@@ -2333,6 +2356,8 @@ async function performCloseApp(){
     container.classList.remove('open');
     container.style.removeProperty('--chat-keyboard-shift');
   }
+  chatInputFocusActive = false;
+  chatReportedKeyboardShift = 0;
   document.getElementById('home-screen').classList.remove('hidden');
   try{
     const c = getActiveCharacterData();
@@ -2366,6 +2391,8 @@ function renderApp(id){
     container.dataset.appId = id;
     if(id !== 'chat'){
       container.style.removeProperty('--chat-keyboard-shift');
+      chatInputFocusActive = false;
+      chatReportedKeyboardShift = 0;
     }
   }
   document.getElementById('app-iframe').src=a.src;
@@ -2576,7 +2603,21 @@ window.addEventListener('message',(e)=>{
     setChatShellBackground(payload);
   }
   if(type==='SET_CHAT_KEYBOARD_SHIFT'){
-    setChatKeyboardShift(payload);
+    chatReportedKeyboardShift = Math.max(0, Math.min(420, Number(payload) || 0));
+    syncChatKeyboardShift();
+  }
+  if(type==='CHAT_INPUT_FOCUS'){
+    chatInputFocusActive = true;
+    syncChatKeyboardShift();
+    [80, 180, 320, 480].forEach(function(delay){
+      setTimeout(syncChatKeyboardShift, delay);
+    });
+  }
+  if(type==='CHAT_INPUT_BLUR'){
+    chatInputFocusActive = false;
+    chatReportedKeyboardShift = 0;
+    setTimeout(syncChatKeyboardShift, 60);
+    setTimeout(syncChatKeyboardShift, 220);
   }
   if(type==='SET_APP_ICON'){
     const app = payload && payload.app;
@@ -3071,10 +3112,12 @@ if(window.visualViewport){
     var vv = window.visualViewport;
     var rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
     var keyboardLikelyOpen = rawBottomOffset > 120;
+    syncChatKeyboardShift();
     if(keyboardLikelyOpen) return;
     syncAppHeight();
     renderHomePages(true);
   });
+  window.visualViewport.addEventListener('scroll', syncChatKeyboardShift);
 }
 
 restoreState();
@@ -3089,6 +3132,7 @@ document.addEventListener('visibilitychange', ()=>{
   }
 });
 window.addEventListener('resize', ()=>renderHomePages(true));
+window.addEventListener('resize', syncChatKeyboardShift);
 setInterval(()=>{
   renderHomeDockBadges();
   refreshQqUnreadCountCache();
