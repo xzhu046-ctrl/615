@@ -5497,42 +5497,6 @@ async function submitUserReAddRequest(){
   }
 }
 
-function maybeAutoBlockByChar(aiText){
-  if(!character) return;
-  var state = loadBlockState();
-  if(state.charBlocked || state.userBlocked) return;
-  var lastUser = '';
-  for(var i = chatLog.length - 1; i >= 0; i--){
-    if(chatLog[i] && chatLog[i].role === 'user'){ lastUser = String(chatLog[i].content || ''); break; }
-  }
-  var softTone = /(小废物|小笨蛋|笨蛋啦|笨蛋呀|坏蛋|讨厌啦|讨厌呀|哼|呜呜|宝宝|撒娇|要被你.*养成|养成小废物|ovo|^\s*废物啦\s*$)/.test(lastUser);
-  var directAskBlock = /(拉黑我|把我拉黑|你可以拉黑我|你拉黑一下我|黑名单我|block me)/i.test(lastUser);
-  var severeHitUser = /(去死|杀了你|弄死你|你该死|滚远点|别再来|永远别烦我)/.test(lastUser);
-  var hitUser = !softTone && /(滚|傻|闭嘴|恶心|烦死|你有病|垃圾|废物|蠢|弱智|神经病)/.test(lastUser);
-  var hitAi = /(别再联系|到此为止|拉黑|不想再理你|受够了|别来烦我|别联系我)/.test(String(aiText || ''));
-  if(directAskBlock){
-    state.abuseCount = (parseInt(state.abuseCount || '0', 10) || 0) + 1;
-  }else if(severeHitUser){
-    state.abuseCount = (parseInt(state.abuseCount || '0', 10) || 0) + 3;
-  }else if(hitUser){
-    state.abuseCount = (parseInt(state.abuseCount || '0', 10) || 0) + 1;
-  }else{
-    state.abuseCount = Math.max(0, (parseInt(state.abuseCount || '0', 10) || 0) - 1);
-  }
-  var shouldBlock = severeHitUser || (state.abuseCount >= 6) || (state.abuseCount >= 5 && hitAi) || (directAskBlock && state.abuseCount >= 5 && hitAi);
-  if(!shouldBlock) {
-    saveBlockState(state);
-    return;
-  }
-  state.charBlocked = true;
-  state.charBlockedAt = Date.now();
-  state.lastUserReAddAt = 0;
-  saveBlockState(state);
-  blockedWallMinimized = false;
-  updateBlockedUi();
-  toast('对方已拉黑你');
-}
-
 function toggleBlockFromSettings(){
   if(!character) return;
   var state = loadBlockState();
@@ -9601,7 +9565,6 @@ async function deliverAiReply(text, limitOverride){
       sentTexts.push(seedLine);
     }
     sentCount++;
-    maybeAutoBlockByChar(p.text);
     maybeRunAiMomentsFromChat(p.text, t).catch(function(err){
       console.error('moments side effect failed', err);
     });
