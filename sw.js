@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-18T04:02:00Z';
+const CACHE_VERSION = '2026-03-18T04:08:00Z';
 const CACHE_NAME = 'phone-shell';
 const CORE_URLS = [
   './',
@@ -23,6 +23,17 @@ const CORE_URLS = [
 function isSameOrigin(requestUrl){
   try{
     return new URL(requestUrl, self.location.href).origin === self.location.origin;
+  }catch(err){
+    return false;
+  }
+}
+
+function shouldBypassDocumentCache(url){
+  try{
+    return url.searchParams.has('refreshBuild')
+      || url.searchParams.has('swBuild')
+      || url.searchParams.has('__appBuild')
+      || url.searchParams.has('__ts');
   }catch(err){
     return false;
   }
@@ -72,8 +83,17 @@ self.addEventListener('fetch', (event)=>{
 
   if(isNavigate || isDocument){
     event.respondWith(
-      caches.match(event.request, { ignoreSearch: true })
-        .then((cached)=>{
+      Promise.resolve().then(()=>{
+        if(shouldBypassDocumentCache(url)){
+          return fetch(event.request, { cache:'reload' }).then((response)=>{
+            if(response && response.ok){
+              const copy = response.clone();
+              caches.open(CACHE_NAME).then((cache)=>cache.put(new Request(url.pathname, { method:'GET' }), copy)).catch(()=>null);
+            }
+            return response;
+          });
+        }
+        return caches.match(event.request, { ignoreSearch: true }).then((cached)=>{
           if(cached) return cached;
           return fetch(event.request, { cache:'no-store' }).then((response)=>{
             if(response && response.ok){
@@ -82,7 +102,8 @@ self.addEventListener('fetch', (event)=>{
             }
             return response;
           });
-        })
+        });
+      })
         .catch(()=>caches.match('./index.html', { ignoreSearch: true }))
     );
     return;
