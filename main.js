@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T23:49:00Z';
+const APP_BUILD_ID = '2026-03-17T23:56:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2382,6 +2382,8 @@ function renderApp(id){
   currentApp=id;
   const outer = document.querySelector('.phone-outer');
   const container = document.getElementById('app-container');
+  const frame = document.getElementById('app-iframe');
+  const topbar = document.querySelector('.app-topbar');
   if(outer){
     outer.classList.add('app-open');
     outer.classList.toggle('chat-shell-open', id === 'chat');
@@ -2393,6 +2395,15 @@ function renderApp(id){
   document.documentElement.classList.add('app-open-mode');
   document.body.classList.add('app-open-mode');
   document.body.classList.toggle('chat-shell-open', id === 'chat');
+  if(topbar){
+    topbar.style.display = '';
+  }
+  if(frame){
+    frame.style.marginTop = '';
+    if(frame.dataset){
+      frame.dataset.csPrevMarginTop = '';
+    }
+  }
   document.getElementById('app-title-label').textContent=a.title;
   if(container){
     container.classList.toggle('no-topbar', !!a.hideTopbar);
