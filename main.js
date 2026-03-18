@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T19:44:00Z';
+const APP_BUILD_ID = '2026-03-17T19:50:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -208,6 +208,8 @@ function isStandaloneMode(){
   return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
 }
 
+let stableShellAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+
 function syncAppHeight(){
   const vv = window.visualViewport;
   const isStandalone = isStandaloneMode();
@@ -216,7 +218,14 @@ function syncAppHeight(){
   const rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
   const keyboardLikelyOpen = rawBottomOffset > 120;
   const vvBottomOffset = keyboardLikelyOpen ? 0 : rawBottomOffset;
-  const viewportHeight = Math.round((keyboardLikelyOpen && vv) ? (vv.height + rawBottomOffset + vvTopOffset) : window.innerHeight);
+  const currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+  if(!stableShellAppHeight){
+    stableShellAppHeight = currentHeight;
+  }
+  if(!keyboardLikelyOpen && currentHeight > stableShellAppHeight){
+    stableShellAppHeight = currentHeight;
+  }
+  const viewportHeight = stableShellAppHeight || currentHeight;
   document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', vvBottomOffset + 'px');
@@ -3000,6 +3009,7 @@ window.addEventListener('pageshow', ()=>{
 
 window.addEventListener('orientationchange', ()=>{
   setTimeout(function(){
+    stableShellAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || stableShellAppHeight;
     syncAppHeight();
     renderHomePages(true);
   }, 120);
