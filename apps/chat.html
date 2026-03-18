@@ -333,6 +333,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg.user .msg-bubble.voice{align-items:stretch}
 .msg.ai .msg-bubble.voice{width:100%;align-items:stretch}
 .msg.ai   .msg-bubble{background:var(--w);border:var(--bd);color:var(--b);border-bottom-left-radius:4px;border-top-left-radius:6px;border-top-right-radius:16px;border-bottom-right-radius:16px;box-shadow:var(--sh)}
+.msg.user .msg-bubble.moneypacket-shell,
+.msg.ai .msg-bubble.moneypacket-shell{background:transparent !important;border:none !important;box-shadow:none !important;padding:0 !important;min-height:0;overflow:visible}
 .msg-avatar{width:40px;height:40px;border-radius:12px;border:var(--bd);background:var(--pale);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;overflow:visible;align-self:flex-start;box-shadow:var(--sh);position:relative}
 .msg-avatar img{width:100%;height:100%;object-fit:cover;border-radius:10px}
 .msg-avatar.heart-bounce{animation:ivAvatarBounce .42s cubic-bezier(.2,.75,.25,1)}
@@ -6970,7 +6972,14 @@ function handleMoneyCoverUpload(file){
     if(!dataUrl) return;
     var id = 'money_cover_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
     var assetKey = accountScopedKey('money_cover_asset_' + id);
-    saveStoredAsset(assetKey, dataUrl).then(function(){
+    shrinkDataUrl(dataUrl, 720).then(function(compactDataUrl){
+      return saveStoredAsset(assetKey, compactDataUrl || dataUrl);
+    }).then(function(saved){
+      if(!saved){
+        pendingMoneyCoverName = '';
+        toast('红包封面保存失败，换张小一点的图试试');
+        return;
+      }
       var covers = loadMoneyCovers();
       covers.unshift({ id: id, name: pendingMoneyCoverName, assetKey: assetKey, createdAt: Date.now() });
       saveMoneyCovers(covers);
@@ -6978,6 +6987,7 @@ function handleMoneyCoverUpload(file){
       selectedMoneyCoverId = id;
       renderMoneyCoverLibrary();
       updateMoneyCoverButtonLabel();
+      toast('红包封面已保存');
     });
   };
   reader.readAsDataURL(file);
