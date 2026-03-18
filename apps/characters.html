@@ -1145,9 +1145,28 @@ function autoImportWorldBook(card, charBook) {
     try { allWbs = JSON.parse(localStorage.getItem('worldbooks')||'{}'); } catch(e){}
     if (!allWbs[card.id]) allWbs[card.id] = [];
 
-    // Don't re-import if already exists
+    function normalizeWbIdentity(value){
+      return String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+    }
+
+    function cardWorldbookIdentity(cardData, bookData){
+      var cardName = normalizeWbIdentity(cardData && (cardData.nickname || cardData.name || ''));
+      var bookName = normalizeWbIdentity(bookData && bookData.name);
+      return [cardName, bookName].filter(Boolean).join('::') || cardName || bookName || String(cardData && cardData.id || '');
+    }
+
     var wbId = 'wb_card_' + card.id;
-    if (allWbs[card.id].some(function(w){ return w.id === wbId; })) return;
+    var latestIdentity = cardWorldbookIdentity(card, charBook);
+
+    Object.keys(allWbs).forEach(function(bucketKey){
+      var list = Array.isArray(allWbs[bucketKey]) ? allWbs[bucketKey] : [];
+      allWbs[bucketKey] = list.filter(function(wb){
+        if(!wb || !wb._autoImportedFromCard) return true;
+        if(String(wb.id || '') === wbId) return false;
+        return String(wb._cardIdentity || '') !== latestIdentity;
+      });
+    });
+    if (!allWbs[card.id]) allWbs[card.id] = [];
 
     var rawEntries = charBook.entries || charBook;
     var entries = [];
@@ -1179,6 +1198,8 @@ function autoImportWorldBook(card, charBook) {
       allWbs[card.id].unshift({
         id: wbId,
         name: (charBook.name || card.name) + ' 世界书',
+        _autoImportedFromCard: true,
+        _cardIdentity: latestIdentity,
         global: false,
         entries: trimmed
       });
