@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T20:41:00Z';
+const APP_BUILD_ID = '2026-03-17T20:48:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2328,7 +2328,11 @@ async function performCloseApp(){
   document.documentElement.classList.remove('app-open-mode');
   document.body.classList.remove('app-open-mode');
   document.body.classList.remove('chat-shell-open');
-  document.getElementById('app-container').classList.remove('open');
+  var container = document.getElementById('app-container');
+  if(container){
+    container.classList.remove('open');
+    container.style.removeProperty('--chat-keyboard-shift');
+  }
   document.getElementById('home-screen').classList.remove('hidden');
   try{
     const c = getActiveCharacterData();
@@ -2360,6 +2364,9 @@ function renderApp(id){
   if(container){
     container.classList.toggle('no-topbar', !!a.hideTopbar);
     container.dataset.appId = id;
+    if(id !== 'chat'){
+      container.style.removeProperty('--chat-keyboard-shift');
+    }
   }
   document.getElementById('app-iframe').src=a.src;
   document.getElementById('app-container').classList.add('open');
@@ -2376,6 +2383,17 @@ function setChatShellBackground(src){
   }else{
     outer.style.removeProperty('--chat-shell-bg-image');
     outer.style.removeProperty('--chat-shell-bg-color');
+  }
+}
+
+function setChatKeyboardShift(value){
+  var container = document.getElementById('app-container');
+  if(!container) return;
+  var shift = Math.max(0, Math.min(420, Number(value) || 0));
+  if(shift){
+    container.style.setProperty('--chat-keyboard-shift', shift + 'px');
+  }else{
+    container.style.removeProperty('--chat-keyboard-shift');
   }
 }
 
@@ -2556,6 +2574,9 @@ window.addEventListener('message',(e)=>{
   if(type==='OPEN_APP_REPLACE'){ replaceApp(payload); }
   if(type==='SET_CHAT_SHELL_BACKGROUND'){
     setChatShellBackground(payload);
+  }
+  if(type==='SET_CHAT_KEYBOARD_SHIFT'){
+    setChatKeyboardShift(payload);
   }
   if(type==='SET_APP_ICON'){
     const app = payload && payload.app;
