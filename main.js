@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T04:18:00Z';
+const APP_BUILD_ID = '2026-03-18T04:21:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2481,7 +2481,7 @@ function applyIframeSafeAreaOverrides(){
     });
     if(currentApp === 'offline_archive'){
       var heroSub = doc.querySelector('.hero-sub');
-      if(heroSub) heroSub.textContent = '每次约会都会收进这里。说完再见的存好，没说完的就先待续。';
+      if(heroSub) heroSub.textContent = '每次约会都会收进这里。说完再见就存好，没说完就先待续。';
       var emptyTitle = doc.querySelector('.empty h3');
       if(emptyTitle) emptyTitle.textContent = '这里还空空的';
       var emptyDesc = doc.querySelector('.empty p');
