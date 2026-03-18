@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T20:07:00Z';
+const APP_BUILD_ID = '2026-03-17T20:16:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2322,6 +2322,8 @@ async function performCloseApp(){
   if(outer){
     outer.classList.remove('app-open');
     outer.classList.remove('chat-shell-open');
+    outer.style.removeProperty('--chat-shell-bg-image');
+    outer.style.removeProperty('--chat-shell-bg-color');
   }
   document.documentElement.classList.remove('app-open-mode');
   document.body.classList.remove('app-open-mode');
@@ -2346,6 +2348,10 @@ function renderApp(id){
   if(outer){
     outer.classList.add('app-open');
     outer.classList.toggle('chat-shell-open', id === 'chat');
+    if(id !== 'chat'){
+      outer.style.removeProperty('--chat-shell-bg-image');
+      outer.style.removeProperty('--chat-shell-bg-color');
+    }
   }
   document.documentElement.classList.add('app-open-mode');
   document.body.classList.add('app-open-mode');
@@ -2358,6 +2364,19 @@ function renderApp(id){
   document.getElementById('app-iframe').src=a.src;
   document.getElementById('app-container').classList.add('open');
   document.getElementById('home-screen').classList.add('hidden');
+}
+
+function setChatShellBackground(src){
+  var outer = document.querySelector('.phone-outer');
+  if(!outer) return;
+  var clean = String(src || '').trim();
+  if(clean){
+    outer.style.setProperty('--chat-shell-bg-image', 'url("' + clean.replace(/"/g, '\\"') + '")');
+    outer.style.setProperty('--chat-shell-bg-color', '#f7f7f7');
+  }else{
+    outer.style.removeProperty('--chat-shell-bg-image');
+    outer.style.removeProperty('--chat-shell-bg-color');
+  }
 }
 
 function applyIframeSafeAreaOverrides(){
@@ -2535,6 +2554,9 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='OPEN_APP'){ openApp(payload); }
   if(type==='OPEN_APP_REPLACE'){ replaceApp(payload); }
+  if(type==='SET_CHAT_SHELL_BACKGROUND'){
+    setChatShellBackground(payload);
+  }
   if(type==='SET_APP_ICON'){
     const app = payload && payload.app;
     if(app) renderHomeAppIcon(app, payload.icon);
