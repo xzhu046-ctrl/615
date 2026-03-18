@@ -7500,6 +7500,7 @@ function closeImageViewer(){
 }
 
 var stableChatAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+var parentComposerShift = 0;
 function getChatViewportMetrics(){
   var vv = window.visualViewport;
   var vvTopOffset = Math.round(vv ? Math.max(0, vv.offsetTop || 0) : 0);
@@ -7548,6 +7549,13 @@ function syncComposerMetrics(){
 function applyComposerPlacement(metrics, keyboardInset){
   var composer = document.querySelector('.chat-input-area');
   if(!composer) return;
+  var parentShift = Math.max(0, Number(parentComposerShift) || 0);
+  if(parentShift > 0){
+    document.documentElement.style.setProperty('--composer-shift', parentShift + 'px');
+    composer.style.top = '';
+    composer.style.bottom = 'var(--composer-bottom)';
+    return;
+  }
   var vv = window.visualViewport;
   var inset = Math.max(0, Number(keyboardInset) || 0);
   if(vv && inset > 0){
@@ -9610,6 +9618,11 @@ async function deliverAiReply(text, limitOverride){
 // ════════════════════════════════════════════
 window.addEventListener('message', async function(e) {
   var d = e.data || {};
+  if(d.type === 'PARENT_CHAT_COMPOSER_SHIFT'){
+    parentComposerShift = Math.max(0, Number(d.payload) || 0);
+    syncChatViewport();
+    return;
+  }
   if (d.type === 'BACKGROUND_AI_MESSAGE') {
     var payload = d.payload || {};
     if(!character || !payload || payload.charId !== character.id) return;
