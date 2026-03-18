@@ -23,7 +23,6 @@
   --vv-bottom-offset:0px;
   --keyboard-inset:0px;
   --composer-bottom:12px;
-  --composer-shift:0px;
   --composer-height:132px
 }
 html,body{width:100%;max-width:100vw;height:100%;overflow:hidden;overscroll-behavior:none;background:transparent}
@@ -362,7 +361,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .err-notice a{font-weight:800;cursor:pointer;text-decoration:underline;color:#c00}
 
 /* ── Input area ── */
-.chat-input-area{background:transparent;border:none;padding:0;display:flex;gap:8px;align-items:flex-end;flex-shrink:0;z-index:35;position:fixed;left:14px;right:14px;bottom:var(--composer-bottom);transform:translateY(calc(-1 * var(--composer-shift)));will-change:transform}
+.chat-input-area{background:transparent;border:none;padding:0;display:flex;gap:8px;align-items:flex-end;flex-shrink:0;z-index:35;position:fixed;left:14px;right:14px;bottom:var(--composer-bottom)}
 .input-wrap{flex:1;background:rgba(255,255,255,.95);border:var(--bd);border-radius:16px;padding:7px 12px;display:flex;flex-direction:column;align-items:stretch;gap:6px;transition:none;box-shadow:var(--sh)}
 .input-wrap:focus-within{box-shadow:none}
 #msg-input{flex:1;border:none;background:transparent;font-family:var(--font);font-size:13px;font-weight:600;color:var(--b);outline:none;resize:none;max-height:90px;line-height:1.5;-webkit-text-fill-color:currentColor;font-variant-emoji:text}
@@ -7531,8 +7530,8 @@ function syncChatViewport(){
   document.documentElement.style.setProperty('--vv-bottom-offset', '0px');
   document.documentElement.style.setProperty('--keyboard-inset', keyboardInset + 'px');
   document.documentElement.style.setProperty('--composer-bottom', '12px');
-  document.documentElement.style.setProperty('--composer-shift', keyboardInset + 'px');
   syncComposerMetrics();
+  applyComposerPlacement(metrics, keyboardInset);
 }
 
 function syncComposerMetrics(){
@@ -7540,6 +7539,32 @@ function syncComposerMetrics(){
   if(!composer) return;
   var h = Math.round(composer.getBoundingClientRect().height || 0);
   document.documentElement.style.setProperty('--composer-height', (h > 0 ? h : 132) + 'px');
+}
+
+function applyComposerPlacement(metrics, keyboardInset){
+  var composer = document.querySelector('.chat-input-area');
+  if(!composer) return;
+  var vv = window.visualViewport;
+  var inset = Math.max(0, Number(keyboardInset) || 0);
+  if(vv && inset > 0){
+    var composerHeight = Math.round(composer.getBoundingClientRect().height || 0) || 132;
+    var visibleBottom = Math.round((vv.offsetTop || 0) + (vv.height || 0));
+    var top = Math.max(8, visibleBottom - composerHeight - 12);
+    composer.style.top = top + 'px';
+    composer.style.bottom = 'auto';
+    return;
+  }
+  composer.style.top = '';
+  composer.style.bottom = 'var(--composer-bottom)';
+}
+
+function scheduleComposerPlacementSync(){
+  [0, 80, 180, 320].forEach(function(delay){
+    setTimeout(function(){
+      syncChatViewport();
+      keepComposerVisible();
+    }, delay);
+  });
 }
 
 function keepComposerVisible(){
@@ -9693,7 +9718,7 @@ window.addEventListener('orientationchange', function(){
   syncChatViewport();
 });
 window.addEventListener('focusin', function(e){
-  if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')) keepComposerVisible();
+  if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')) scheduleComposerPlacementSync();
 });
 window.addEventListener('pageshow', function(){
   stableChatAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || stableChatAppHeight;
