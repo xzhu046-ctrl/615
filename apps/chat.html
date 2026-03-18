@@ -3222,6 +3222,77 @@ function summarizeNames(list, maxN){
   return head.join('、');
 }
 
+function escapeMomentRelationRegExp(text){
+  return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function findCharacterByMomentActorName(name){
+  var target = String(name || '').trim();
+  if(!target) return null;
+  try{
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    if(!Array.isArray(list)) return null;
+    for(var i = 0; i < list.length; i++){
+      var item = list[i];
+      if(!item) continue;
+      var names = [
+        String(item.name || '').trim(),
+        String(item.nickname || '').trim()
+      ].filter(Boolean);
+      if(names.indexOf(target) !== -1) return item;
+    }
+  }catch(e){}
+  return null;
+}
+
+function hasKnownMomentRelationship(actorName){
+  var target = String(actorName || '').trim();
+  if(!target) return false;
+  var userName = String(getMomentsUserName() || '').trim();
+  if(userName && target === userName) return true;
+  if(!character) return false;
+  var actorChar = findCharacterByMomentActorName(target);
+  if(!actorChar) return false;
+  var currentNames = [
+    String((character && character.name) || '').trim(),
+    String((character && character.nickname) || '').trim()
+  ].filter(Boolean);
+  var actorNames = [
+    String(actorChar.name || '').trim(),
+    String(actorChar.nickname || '').trim()
+  ].filter(Boolean);
+  var relationWords = '(?:朋友|好友|发小|青梅竹马|室友|同学|同桌|校友|同事|搭档|队友|闺蜜|兄弟|姐妹|家人|亲人|恋人|前任|旧识|熟人|认识|邻居|师生|伙伴|friend|friends|bestie|roommate|classmate|schoolmate|coworker|teammate|partner|lover|ex|family|know each other|knew each other)';
+  var sources = [
+    String((character && (character.personality || character.description || character.scenario || character.system_prompt)) || ''),
+    String((actorChar && (actorChar.personality || actorChar.description || actorChar.scenario || actorChar.system_prompt)) || '')
+  ];
+  try{
+    sources = sources.concat(getStrictPromptWorldbookEntries().map(function(entry){
+      return String((entry && entry.content) || '');
+    }));
+  }catch(e){}
+  return sources.some(function(chunk){
+    var text = String(chunk || '');
+    if(!text) return false;
+    for(var i = 0; i < actorNames.length; i++){
+      var actor = actorNames[i];
+      if(!actor) continue;
+      var actorRe = escapeMomentRelationRegExp(actor);
+      if(new RegExp(actorRe + '.{0,36}' + relationWords, 'i').test(text)) return true;
+      if(new RegExp(relationWords + '.{0,36}' + actorRe, 'i').test(text)) return true;
+      for(var j = 0; j < currentNames.length; j++){
+        var selfName = currentNames[j];
+        if(!selfName) continue;
+        var selfRe = escapeMomentRelationRegExp(selfName);
+        if(new RegExp(selfRe + '.{0,30}' + actorRe + '.{0,30}' + relationWords, 'i').test(text)) return true;
+        if(new RegExp(actorRe + '.{0,30}' + selfRe + '.{0,30}' + relationWords, 'i').test(text)) return true;
+        if(new RegExp(relationWords + '.{0,30}' + selfRe + '.{0,30}' + actorRe, 'i').test(text)) return true;
+      }
+    }
+    return false;
+  });
+}
+
 function processMomentsInteractionsOnTrigger(){
   if(!character || !character.id) return '';
   var aiName = getMomentsAiName();
@@ -3242,6 +3313,7 @@ function processMomentsInteractionsOnTrigger(){
       if(!c) return;
       var actor = String(c.name || '').trim();
       if(!actor || actor === aiName) return;
+      if(!hasKnownMomentRelationship(actor)) return;
       var cid = String(c.id || ('idx_' + idx + '_' + (c.at || '0')));
       var key = 'c:' + pid + ':' + cid;
       if(seenComment.has(key)) return;
@@ -3251,6 +3323,7 @@ function processMomentsInteractionsOnTrigger(){
     likes.forEach(function(name){
       var actor = String(name || '').trim();
       if(!actor || actor === aiName) return;
+      if(!hasKnownMomentRelationship(actor)) return;
       var key = 'l:' + pid + ':' + actor;
       if(seenLike.has(key)) return;
       freshLikes.push({ key: key, post: post, actor: actor });
