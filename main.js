@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T04:25:00Z';
+const APP_BUILD_ID = '2026-03-18T04:31:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2480,8 +2480,22 @@ function applyIframeSafeAreaOverrides(){
       try{ node.remove(); }catch(err){}
     });
     if(currentApp === 'offline_archive'){
+      var archiveCopy = '每次约会收进这里。说完再见就存好，没说完就先待续。';
       var heroSub = doc.querySelector('.hero-sub');
-      if(heroSub) heroSub.textContent = '每次约会收进这里。说完再见就存好，没说完就先待续。';
+      if(heroSub) heroSub.textContent = archiveCopy;
+      var archiveTextNodes = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      while(archiveTextNodes.nextNode()){
+        var textNode = archiveTextNodes.currentNode;
+        var text = String(textNode.nodeValue || '').trim();
+        if(!text) continue;
+        if(
+          text.indexOf('每次约会都会收进这里') !== -1 ||
+          text.indexOf('每次约会都收进这里') !== -1 ||
+          text.indexOf('每次约会收进这里') !== -1
+        ){
+          textNode.nodeValue = archiveCopy;
+        }
+      }
       var emptyTitle = doc.querySelector('.empty h3');
       if(emptyTitle) emptyTitle.textContent = '这里还空空的';
       var emptyDesc = doc.querySelector('.empty p');
