@@ -290,6 +290,20 @@ function getPosts(){
 
 function savePosts(posts){
   lsSet(STORAGE_POSTS, JSON.stringify(posts));
+  if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
+    window.PhoneStorage.putJson(scopedKey(STORAGE_POSTS), Array.isArray(posts) ? posts : []).catch(()=>{});
+  }
+}
+
+async function hydratePostsFromLargeStore(){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function')) return;
+  try{
+    const stored = await window.PhoneStorage.getJson(scopedKey(STORAGE_POSTS));
+    const posts = Array.isArray(stored) ? stored : [];
+    if(posts.length){
+      lsSet(STORAGE_POSTS, JSON.stringify(posts));
+    }
+  }catch(e){}
 }
 
 function fmtTime(ts){
@@ -936,7 +950,7 @@ hideParentTopbar();
 window.addEventListener('beforeunload', restoreParentTopbar);
 window.addEventListener('pagehide', restoreParentTopbar);
 renderHero();
-renderFeed();
+hydratePostsFromLargeStore().finally(renderFeed);
 </script>
 </body>
 </html>
