@@ -23,9 +23,13 @@ body{font-family:var(--font);background:
 .hero-sub{margin-top:4px;font-size:12px;line-height:1.55;color:var(--g)}
 .folder-list{flex:1;min-height:0;overflow:auto;padding:2px 14px 18px;display:flex;flex-direction:column;gap:14px}
 .folder-card{position:relative;width:100%;padding:0;border:none;background:transparent;text-align:left;cursor:pointer}
+.folder-card.select-mode{max-width:100%;cursor:pointer}
+.folder-card.selected .folder-check{background:#0a0a0a;color:#fff}
 .folder-tab{position:absolute;left:14px;top:0;min-width:92px;max-width:52%;padding:7px 12px 6px;border:var(--bd);border-bottom:none;border-radius:14px 14px 0 0;background:#fff;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:var(--sh)}
 .folder-body{position:relative;margin-top:22px;border:var(--bd);border-radius:18px;background:linear-gradient(180deg,#fff 0%,#f2f2ef 100%);box-shadow:4px 4px 0 #0a0a0a;padding:16px 16px 14px;min-height:112px}
 .folder-body::before{content:'';position:absolute;left:12px;right:12px;top:12px;bottom:12px;border:1.5px dashed rgba(10,10,10,.18);border-radius:12px;pointer-events:none}
+.folder-check{display:none;position:absolute;right:12px;top:16px;width:24px;height:24px;border-radius:999px;border:var(--bd);background:#fff;color:transparent;font-family:var(--fontd);font-size:12px;font-weight:900;align-items:center;justify-content:center;box-shadow:var(--sh);z-index:2}
+.folder-card.select-mode .folder-check{display:flex}
 .folder-head{position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
 .folder-name{font-family:var(--fontd);font-size:15px;font-weight:900;line-height:1.2}
 .folder-time{font-size:11px;font-weight:700;color:var(--g);flex-shrink:0}
@@ -56,6 +60,18 @@ body{font-family:var(--font);background:
 .action-btn{flex:1;padding:12px 14px;border:var(--bd);border-radius:16px;background:#fff;color:#0a0a0a;box-shadow:var(--sh);font-family:var(--fontd);font-size:13px;font-weight:900;cursor:pointer}
 .action-btn:active,.close-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
 .action-btn.primary{background:#0a0a0a;color:#fff}
+.multi-cancel-btn,.multi-trash-btn{position:fixed;z-index:40;display:none;width:44px;height:44px;border-radius:999px;border:var(--bd);background:#fff;color:#0a0a0a;box-shadow:var(--sh);font-family:var(--fontd);font-size:20px;font-weight:900;align-items:center;justify-content:center;cursor:pointer}
+.multi-cancel-btn.show,.multi-trash-btn.show{display:flex}
+.multi-cancel-btn{left:18px;top:calc(env(safe-area-inset-top) + 14px)}
+.multi-trash-btn{right:18px;top:calc(env(safe-area-inset-top) + 14px);font-size:17px}
+.delete-confirm-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.36);z-index:50}
+.delete-confirm-overlay.open{display:flex}
+.delete-confirm-card{width:min(300px,100%);background:#111;color:#fff;border:2px solid #fff;border-radius:18px;box-shadow:0 16px 34px rgba(0,0,0,.28),4px 4px 0 #000;padding:16px;display:flex;flex-direction:column;gap:12px}
+.delete-confirm-title{font-family:var(--fontd);font-size:16px;font-weight:900}
+.delete-confirm-desc{font-size:12px;line-height:1.65;color:rgba(255,255,255,.88)}
+.delete-confirm-actions{display:flex;gap:8px}
+.delete-confirm-btn{flex:1;padding:11px 12px;border:var(--bd);border-radius:12px;background:#fff;color:#0a0a0a;box-shadow:var(--sh);font-family:var(--fontd);font-size:12px;font-weight:900;cursor:pointer}
+.delete-confirm-btn.primary{background:#fff;color:#0a0a0a}
 </style>
 </head>
 <body>
@@ -69,6 +85,9 @@ body{font-family:var(--font);background:
   </div>
   <div class="folder-list" id="folderList"></div>
 </div>
+
+<button class="multi-cancel-btn" id="archiveMultiCancelBtn" type="button" onclick="exitArchiveSelectMode()">×</button>
+<button class="multi-trash-btn" id="archiveMultiTrashBtn" type="button" onclick="openArchiveDeleteConfirm()">删除</button>
 
 <div class="modal" id="archiveModal">
   <div class="modal-backdrop" onclick="closeArchiveModal()"></div>
@@ -85,9 +104,23 @@ body{font-family:var(--font);background:
   </div>
 </div>
 
+<div class="delete-confirm-overlay" id="archiveDeleteConfirm">
+  <div class="delete-confirm-card">
+    <div class="delete-confirm-title">删除档案？</div>
+    <div class="delete-confirm-desc" id="archiveDeleteText">确定删除这些档案吗？</div>
+    <div class="delete-confirm-actions">
+      <button class="delete-confirm-btn" type="button" onclick="closeArchiveDeleteConfirm()">取消</button>
+      <button class="delete-confirm-btn primary" type="button" onclick="confirmArchiveDelete()">确认</button>
+    </div>
+  </div>
+</div>
+
 <script>
 var archives = [];
 var activeArchiveId = '';
+var archiveSelectMode = false;
+var selectedArchiveIds = [];
+var archiveLongPressTimer = null;
 
 function activeAccountId(){
   try{ return window.AccountManager && window.AccountManager.getActive ? ((window.AccountManager.getActive() || {}).id || '') : ''; }catch(e){ return ''; }
@@ -153,21 +186,30 @@ function summarizeOfflineMemoryLocally(snapshot){
 function getArchiveById(id){
   return archives.find(function(item){ return item && item.id === id; }) || null;
 }
+function updateSelectionUi(){
+  var cancel = document.getElementById('archiveMultiCancelBtn');
+  var trash = document.getElementById('archiveMultiTrashBtn');
+  if(cancel) cancel.classList.toggle('show', archiveSelectMode);
+  if(trash) trash.classList.toggle('show', archiveSelectMode);
+}
 function renderFolders(){
   var list = document.getElementById('folderList');
   if(!list) return;
   if(!archives.length){
     list.innerHTML = '<div class="empty"><h3>这里还没有封存好的约会</h3><p>等你们在一次线下见面里认真说了再见，或者中途离开后待续，它就会乖乖进来。</p></div>';
+    updateSelectionUi();
     return;
   }
   list.innerHTML = archives.map(function(item, idx){
     var statusClass = item.status === 'pending' ? 'status-chip pending' : 'status-chip';
     var statusText = item.status === 'pending' ? '待续' : '已归档';
     var tab = item.status === 'pending' ? '未完待续' : ('第' + String(archives.length - idx) + '份');
+    var selected = selectedArchiveIds.indexOf(item.id) >= 0;
     return (
-      '<button class="folder-card" type="button" onclick="openArchive(\'' + esc(item.id) + '\')">' +
+      '<button class="folder-card' + (archiveSelectMode ? ' select-mode' : '') + (selected ? ' selected' : '') + '" type="button" data-archive-id="' + esc(item.id) + '" onclick="' + (archiveSelectMode ? ('toggleArchiveSelection(\'' + esc(item.id) + '\')') : ('openArchive(\'' + esc(item.id) + '\')')) + '">' +
         '<div class="folder-tab">' + esc(tab) + '</div>' +
         '<div class="folder-body">' +
+          '<div class="folder-check">✓</div>' +
           '<div class="folder-head">' +
             '<div class="folder-name">' + esc(item.charName || '未命名角色') + '</div>' +
             '<div class="folder-time">' + esc(formatTime(item.updatedAt || item.createdAt)) + '</div>' +
@@ -181,6 +223,8 @@ function renderFolders(){
       '</button>'
     );
   }).join('');
+  Array.prototype.forEach.call(list.querySelectorAll('.folder-card[data-archive-id]'), bindFolderLongPress);
+  updateSelectionUi();
 }
 function renderArchiveBody(entry){
   var body = document.getElementById('modalBody');
@@ -226,6 +270,67 @@ function openArchive(id){
 function closeArchiveModal(){
   activeArchiveId = '';
   document.getElementById('archiveModal').classList.remove('open');
+}
+function bindFolderLongPress(el){
+  if(!el) return;
+  var id = el.getAttribute('data-archive-id') || '';
+  var clearTimer = function(){
+    if(archiveLongPressTimer){
+      clearTimeout(archiveLongPressTimer);
+      archiveLongPressTimer = null;
+    }
+  };
+  var start = function(){
+    clearTimer();
+    archiveLongPressTimer = setTimeout(function(){
+      enterArchiveSelectMode(id);
+    }, 420);
+  };
+  el.addEventListener('touchstart', start, { passive:true });
+  el.addEventListener('mousedown', start);
+  ['touchend','touchcancel','mouseleave','mouseup'].forEach(function(type){
+    el.addEventListener(type, clearTimer, { passive:true });
+  });
+}
+function enterArchiveSelectMode(id){
+  archiveSelectMode = true;
+  selectedArchiveIds = id ? [String(id)] : [];
+  closeArchiveModal();
+  renderFolders();
+}
+function exitArchiveSelectMode(){
+  archiveSelectMode = false;
+  selectedArchiveIds = [];
+  closeArchiveDeleteConfirm();
+  renderFolders();
+}
+function toggleArchiveSelection(id){
+  if(!archiveSelectMode) return;
+  var safeId = String(id || '');
+  var idx = selectedArchiveIds.indexOf(safeId);
+  if(idx >= 0) selectedArchiveIds.splice(idx, 1);
+  else selectedArchiveIds.push(safeId);
+  renderFolders();
+}
+function openArchiveDeleteConfirm(){
+  if(!selectedArchiveIds.length) return;
+  var text = document.getElementById('archiveDeleteText');
+  if(text) text.textContent = '确定删除 ' + selectedArchiveIds.length + ' 份档案吗？';
+  document.getElementById('archiveDeleteConfirm').classList.add('open');
+}
+function closeArchiveDeleteConfirm(){
+  document.getElementById('archiveDeleteConfirm').classList.remove('open');
+}
+function confirmArchiveDelete(){
+  if(!selectedArchiveIds.length) return;
+  var removeSet = new Set(selectedArchiveIds.slice());
+  archives = archives.filter(function(item){ return item && !removeSet.has(String(item.id || '')); });
+  saveArchives();
+  selectedArchiveIds = [];
+  archiveSelectMode = false;
+  closeArchiveDeleteConfirm();
+  closeArchiveModal();
+  renderFolders();
 }
 function markArchiveEnded(entry){
   if(!entry || !entry.charId) return;
@@ -290,6 +395,15 @@ window.addEventListener('message', function(e){
     loadArchives();
     renderFolders();
     closeArchiveModal();
+  }
+});
+document.addEventListener('click', function(e){
+  if(archiveSelectMode){
+    var card = e.target && e.target.closest ? e.target.closest('.folder-card') : null;
+    var controls = e.target && e.target.closest ? e.target.closest('.multi-cancel-btn,.multi-trash-btn,.delete-confirm-card') : null;
+    if(!card && !controls && e.target !== document.getElementById('archiveDeleteConfirm')){
+      exitArchiveSelectMode();
+    }
   }
 });
 loadArchives();

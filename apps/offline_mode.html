@@ -698,8 +698,14 @@ function toggleThoughtBubbles(index){
   var body = document.getElementById('offlineThoughtBody');
   if(!overlay || !body) return;
   var entry = (session && session.entries && session.entries[index]) || null;
-  var list = entry && Array.isArray(entry.bubbles) ? entry.bubbles.filter(Boolean) : [];
-  if(!list.length){
+  var thoughts = normalizeOfflineThoughtPair(entry && entry.thoughts ? entry.thoughts : null);
+  if(!thoughts.normal && !thoughts.desire){
+    thoughts = normalizeOfflineThoughtPair({
+      normal: entry && Array.isArray(entry.bubbles) && entry.bubbles[0] ? entry.bubbles[0] : '',
+      desire: entry && Array.isArray(entry.bubbles) ? entry.bubbles.slice(1).filter(Boolean).join(' / ') : ''
+    });
+  }
+  if(!thoughts.normal && !thoughts.desire){
     closeThoughtBubbles();
     return;
   }
@@ -708,9 +714,10 @@ function toggleThoughtBubbles(index){
     closeThoughtBubbles();
     return;
   }
-  body.innerHTML = list.map(function(text, idx){
-    return '<div class="inner-voice-box ' + (idx % 2 === 0 ? 'normal' : 'desire') + '">' + esc(text) + '</div>';
-  }).join('') + '<div class="inner-voice-meta">点头像时会看到角色这一刻藏着的小心声。</div>';
+  body.innerHTML =
+    '<div class="inner-voice-box normal">' + esc(thoughts.normal || '（空）') + '</div>' +
+    '<div class="inner-voice-box desire">' + esc(thoughts.desire || '（空）') + '</div>' +
+    '<div class="inner-voice-meta">点头像时会看到角色这一刻的心声和欲望。</div>';
   overlay.dataset.entryIndex = String(index);
   overlay.classList.add('open');
 }
@@ -954,7 +961,7 @@ function buildOfflineSystemPrompt(options){
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"text":"...","asides":["...","..."],"heart":"...","bubbles":["...","..."]}',
+    '只返回 JSON：{"text":"...","asides":["...","..."],"heart":"..."}',
     'text 写成长一点的线下面对面段落，细节感更强，但不要写成小说章节标题。',
     '在线下模式正文里，text 的长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
@@ -966,7 +973,6 @@ function buildOfflineSystemPrompt(options){
     'text 至少写成 3 个自然段，每一段都用完整句子收尾。',
     'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
     'heart 是右上角爱心里的短心声，2-10 个字。',
-    'bubbles 是点击头像后弹出的 1-3 条小气泡，每条 4-12 个字。',
     '下笔前必须先读并吸收这些信息，再决定怎么回复：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、最近线下记录、scenario、system prompt。',
     '角色 persona 决定 char 的语气、习惯、亲密方式和反应逻辑；用户 persona 决定 char 对 user 的理解、称呼、照顾方式和互动边界。',
     '最近线上聊天、记忆总结、世界书、人设、scenario、system prompt 优先级很高，必须先读懂再写；不要驴唇不对马嘴，不要脱离当下话题乱写，不要 OOC。',
@@ -1119,6 +1125,59 @@ function parseOfflineReply(raw){
     }
   }catch(e){}
   return { text: clean || '他靠近了一点，眼神里带着藏不住的柔软。', asides:[], heart:'♥', bubbles:['别躲开我'] };
+}
+function normalizeOfflineThoughtPair(raw){
+  var source = raw && typeof raw === 'object' ? raw : {};
+  return {
+    normal: String(source.normal || source.thought || '').trim(),
+    desire: String(source.desire || source.dark || '').trim()
+  };
+}
+function fallbackOfflineThoughtPair(seedText){
+  var clean = String(seedText || '').replace(/\s+/g, ' ').trim() || '终于真的见到你了。';
+  return {
+    normal: '我现在满脑子都是：' + clean.slice(0, 28),
+    desire: '我想把这场见面再留久一点，也想让你更靠近我。'
+  };
+}
+async function generateOfflineThoughtPair(seedText){
+  if(!character) return fallbackOfflineThoughtPair(seedText);
+  var policyBundle = (promptManager && typeof promptManager.chatPolicyBundle === 'function')
+    ? promptManager.chatPolicyBundle()
+    : {};
+  var baseSys = policyBundle.innerVoiceSystem || [
+    '你是角色本人的“内心独白生成器”。',
+    '仅返回 JSON：{"normal":"...","desire":"..."}，不要 markdown，不要解释。',
+    'normal：写角色当下正常内心想法，简短自然。',
+    'desire：写角色不受道德约束的隐秘欲望，允许大胆直白，但仍需与当前关系和对话相关。',
+    '不要复读用户原句，不要输出空字符串。'
+  ].join('\n');
+  var shortHistory = formatOfflineHistory(8) || '';
+  var innerWb = clipOfflinePromptText(getOfflineWorldbookSnippet(), isMobileOfflineRuntime() ? 1200 : 1800);
+  var userPrompt = (promptManager && typeof promptManager.innerVoiceUserPrompt === 'function')
+    ? promptManager.innerVoiceUserPrompt({
+      name: character.nickname || character.name || '角色',
+      persona: character.personality || character.description || '',
+      worldBook: innerWb,
+      history: shortHistory,
+      latestReply: seedText || ''
+    })
+    : [
+      '角色名：' + (character.nickname || character.name || '角色'),
+      '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
+      innerWb ? ('已启用世界书：\n' + innerWb) : '已启用世界书：无',
+      shortHistory ? ('最近对话：\n' + shortHistory) : '最近对话：无',
+      seedText ? ('本轮角色回复：' + seedText) : ''
+    ].join('\n\n');
+  try{
+    var strictPrompt = userPrompt + '\n\n只允许输出 JSON 对象，键名必须是 normal 与 desire。';
+    var raw = await callAIWithTimeout(baseSys, strictPrompt, isMobileOfflineRuntime() ? 26000 : 18000);
+    var clean = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+    var parsed = JSON.parse(clean);
+    var pair = normalizeOfflineThoughtPair(parsed);
+    if(pair.normal && pair.desire) return pair;
+  }catch(e){}
+  return fallbackOfflineThoughtPair(seedText);
 }
 async function callAIWithTimeout(systemPrompt, userPrompt, timeoutMs){
   var ms = Math.max(5000, Number(timeoutMs) || 30000);
@@ -1497,11 +1556,13 @@ async function generateOpeningIfNeeded(){
       throw new Error(lastError ? (summarizeOfflineError(lastError) + '，当前字数 ' + currentLen + '/' + minChars) : ('首幕未达到目标字数（' + currentLen + '/' + minChars + '）'));
     }
     var labels = nowLabels();
+    var openingThoughts = await generateOfflineThoughtPair(openingText);
     session.entries.push({
       role:'assistant',
       text:String(openingText || '').trim(),
       asides: openingAsides.length ? openingAsides : [],
       heart:'♥',
+      thoughts: openingThoughts,
       bubbles:['终于见到你','过来一点'],
       timeLabel:labels.timeLabel,
       meta:labels.meta
@@ -1557,11 +1618,13 @@ async function requestOfflineReply(options){
       throw new Error('回复生成失败或未通过规则校验');
     }
     var nextLabels = nowLabels();
+    var replyThoughts = await generateOfflineThoughtPair(parsed.text);
     session.entries.push({
       role:'assistant',
       text:String(parsed.text || '').trim(),
       asides: normalizeOfflineAsides(parsed.asides),
       heart:String(parsed.heart || '♥').trim() || '♥',
+      thoughts: replyThoughts,
       bubbles:Array.isArray(parsed.bubbles) ? parsed.bubbles.slice(0,3) : [],
       timeLabel:nextLabels.timeLabel,
       meta:nextLabels.meta
