@@ -26,7 +26,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-17T21:18:00Z';
+const APP_BUILD_ID = '2026-03-17T21:31:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -58,15 +58,25 @@ function getTopLevelChatKeyboardShift(){
   return inset >= 80 ? Math.min(420, inset) : 0;
 }
 
+function getFallbackChatKeyboardShift(){
+  try{
+    var isTouch = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    if(!isTouch) return 0;
+  }catch(err){
+    return 0;
+  }
+  return 300;
+}
+
 function syncChatKeyboardShift(){
   if(currentApp !== 'chat'){
     setChatKeyboardShift(0);
     return;
   }
-  var next = Math.max(
-    chatInputFocusActive ? getTopLevelChatKeyboardShift() : 0,
-    Number(chatReportedKeyboardShift) || 0
-  );
+  var viewportShift = chatInputFocusActive ? getTopLevelChatKeyboardShift() : 0;
+  var reportedShift = Number(chatReportedKeyboardShift) || 0;
+  var fallbackShift = chatInputFocusActive ? getFallbackChatKeyboardShift() : 0;
+  var next = Math.max(viewportShift, reportedShift, fallbackShift);
   setChatKeyboardShift(next);
 }
 
