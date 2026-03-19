@@ -84,6 +84,13 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
 .g-text.expanded{-webkit-line-clamp:unset;max-height:none;white-space:pre-wrap}
 .g-expand{background:none;border:var(--bd);border-radius:8px;padding:2px 6px;font-size:11px;font-weight:900;cursor:pointer;align-self:flex-start;flex-shrink:0;box-shadow:1px 1px 0 var(--b);line-height:1}
 .g-item.sel .g-expand{background:var(--w);color:var(--b);box-shadow:none}
+.export-card-preview{background:linear-gradient(180deg,#fff 0%,#f4f4f4 100%);border:var(--border);border-radius:18px;padding:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px}
+.export-card-preview .preview-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.export-card-preview .preview-title{font-family:var(--font-d);font-size:14px;font-weight:900}
+.export-card-preview .preview-sub{font-size:11px;color:var(--g);font-weight:700;line-height:1.5}
+.export-card-preview .preview-badge{border:var(--border);border-radius:999px;padding:4px 10px;background:#fff;font-size:10px;font-weight:900;box-shadow:1px 1px 0 var(--black)}
+.export-card-preview .preview-actions{display:flex;gap:8px}
+.export-card-preview .preview-actions .btn{flex:1}
 /* Import log */
 .import-log{position:fixed;bottom:0;left:0;right:0;background:var(--b);color:var(--w);padding:10px 16px;font-size:12px;font-weight:700;text-align:center;transform:translateY(100%);transition:transform .3s;z-index:999}
 .import-log.show{transform:translateY(0)}
@@ -99,6 +106,17 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
 .modal .btn.primary{background:var(--b);color:var(--w)}
 .modal .avatar-box{width:80px;height:80px;border-radius:16px;border:var(--bd);background:var(--pale);display:flex;align-items:center;justify-content:center;font-size:28px;cursor:pointer;overflow:hidden;box-shadow:var(--sh);margin-bottom:10px}
 .modal .avatar-box img{width:100%;height:100%;object-fit:cover}
+.export-mask{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:340;padding:18px}
+.export-shell{width:min(380px,100%);max-height:92vh;background:var(--white);border:var(--border);border-radius:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden}
+.export-top{padding:14px 16px;border-bottom:var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}
+.export-top h3{font-family:var(--font-d);font-size:16px;font-weight:900}
+.export-close{background:none;border:none;font-size:28px;line-height:1;color:var(--black);cursor:pointer}
+.export-body{padding:14px;display:flex;flex-direction:column;gap:12px;overflow:auto}
+.export-note{font-size:11px;line-height:1.6;color:var(--g);font-weight:700}
+.export-preview-wrap{background:var(--off);border:var(--border);border-radius:18px;padding:10px;box-shadow:var(--shadow)}
+.export-preview-wrap img{display:block;width:100%;border-radius:12px;border:var(--border);background:#fff}
+.export-actions{padding:14px;border-top:var(--border);display:flex;gap:10px;background:var(--off)}
+.export-actions .btn{flex:1}
 </style>
 <script src="../assetStore.js"></script>
 <script src="../accountManager.js"></script>
@@ -198,6 +216,25 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
   </div>
 </div>
 
+<div class="export-mask" id="exportMask">
+  <div class="export-shell">
+    <div class="export-top">
+      <h3>导出角色卡</h3>
+      <button class="export-close" type="button" onclick="closeExportPreview()">×</button>
+    </div>
+    <div class="export-body">
+      <div class="export-note" id="exportMetaText">会把角色设定、persona、开场白、世界书一起装进 PNG 卡里。</div>
+      <div class="export-preview-wrap">
+        <img id="exportPreviewImg" alt="角色卡预览">
+      </div>
+    </div>
+    <div class="export-actions">
+      <button class="btn" type="button" onclick="closeExportPreview()">取消</button>
+      <button class="btn primary" type="button" id="exportConfirmBtn" onclick="confirmExportCharacterCard()">确认导出</button>
+    </div>
+  </div>
+</div>
+
 <script>
 var chars = [];
 var curChar = null;
@@ -237,6 +274,7 @@ var avatarAssetCache = {};
 var pendingFriendCharId = '';
 var pendingFriendResolve = null;
 var pendingFriendReject = null;
+var exportPreviewState = null;
 
 function normalizeNameLite(v){
   return String(v || '').toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g,'');
@@ -576,7 +614,21 @@ function openDetail(c) {
       '</div>' +
     '</div>' +
     mkSec('开场白 ('+all.length+'条)', greetHtml, false) +
-    mkSec('世界书', '<div style="font-size:12px;line-height:1.6">'+esc(wbHtml)+'</div>', false);
+    mkSec('世界书', '<div style="font-size:12px;line-height:1.6">'+esc(wbHtml)+'</div>', false) +
+    mkSec('导出', '' +
+      '<div class="export-card-preview">' +
+        '<div class="preview-head">' +
+          '<div>' +
+            '<div class="preview-title">酒馆卡 PNG</div>' +
+            '<div class="preview-sub">会把 persona、开场白、世界书、系统提示词一起装进卡里。</div>' +
+          '</div>' +
+          '<div class="preview-badge">PNG</div>' +
+        '</div>' +
+        '<div class="preview-actions">' +
+          '<button class="btn btn-white" type="button" onclick="openExportCardPreview()">预览</button>' +
+          '<button class="btn btn-black" type="button" onclick="openExportCardPreview()">导出</button>' +
+        '</div>' +
+      '</div>', false);
 
   document.getElementById('dp').classList.add('open');
 }
@@ -866,6 +918,357 @@ function deleteChar() {
   chars = chars.filter(function(c){ return c.id !== curChar.id; });
   save(); updateCount(); renderList(); closeDetail();
   log('已删除 '+curChar.name);
+}
+
+function getCharacterWorldbookExport(charId, charName) {
+  var list = [];
+  var seen = {};
+  try{
+    var buckets = JSON.parse(localStorage.getItem('worldbooks') || '{}') || {};
+    Object.keys(buckets).forEach(function(bucketKey){
+      var bucket = Array.isArray(buckets[bucketKey]) ? buckets[bucketKey] : [];
+      bucket.forEach(function(wb){
+        if(!wb || !Array.isArray(wb.entries) || !wb.entries.length) return;
+        var isRelevant = bucketKey === charId || !!wb.global;
+        if(!isRelevant) return;
+        wb.entries.forEach(function(entry, idx){
+          if(!entry || entry.enabled === false) return;
+          var content = String(entry.content || '').trim();
+          if(!content) return;
+          var keys = String(entry.keywords || '').split(',').map(function(k){ return k.trim(); }).filter(Boolean);
+          var dedupeKey = [String(entry.title || ''), content, keys.join('|')].join('::');
+          if(seen[dedupeKey]) return;
+          seen[dedupeKey] = true;
+          list.push({
+            keys: keys,
+            content: content,
+            enabled: true,
+            insertion_order: Number(entry.order || idx) || idx,
+            position: entry.position === 'before' ? 'before_char' : (entry.position === 'mid' ? 'author_note' : 'after_char'),
+            comment: String(entry.title || '世界书条目')
+          });
+        });
+      });
+    });
+  }catch(e){}
+  if(!list.length) return null;
+  return {
+    name: (charName || '角色') + ' 世界书',
+    entries: list
+  };
+}
+
+function buildCharacterExportPayload(c) {
+  var book = getCharacterWorldbookExport(c.id, c.name);
+  var data = {
+    name: c.name || '',
+    description: c.description || '',
+    personality: c.personality || c.description || '',
+    scenario: c.scenario || '',
+    first_mes: c.first_mes || '',
+    mes_example: c.mes_example || '',
+    system_prompt: c.system_prompt || '',
+    post_history_instructions: c.post_history_instructions || '',
+    alternate_greetings: Array.isArray(c.alternate_greetings) ? c.alternate_greetings.slice() : [],
+    tags: Array.isArray(c.tags) ? c.tags.slice() : [],
+    creator: c.creator || '',
+    character_version: c.character_version || '',
+    spec: 'chara_card_v2',
+    spec_version: '2.0'
+  };
+  if(book) data.character_book = book;
+  return {
+    spec: 'chara_card_v2',
+    spec_version: '2.0',
+    data: data
+  };
+}
+
+function summarizeExportMeta(c, payload) {
+  var greetCount = (c.first_mes ? 1 : 0) + ((payload.data.alternate_greetings || []).length);
+  var wbCount = payload.data.character_book && Array.isArray(payload.data.character_book.entries)
+    ? payload.data.character_book.entries.length
+    : 0;
+  return '会一起带走 persona、开场白 ' + greetCount + ' 条、世界书 ' + wbCount + ' 条，还有系统提示词。';
+}
+
+function utf8ToB64(str){
+  var bytes = new TextEncoder().encode(String(str || ''));
+  var bin = '';
+  for(var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+var crc32Table = null;
+function getCrc32Table(){
+  if(crc32Table) return crc32Table;
+  crc32Table = [];
+  for(var n = 0; n < 256; n++){
+    var c = n;
+    for(var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    crc32Table[n] = c >>> 0;
+  }
+  return crc32Table;
+}
+
+function crc32(bytes){
+  var table = getCrc32Table();
+  var crc = 0 ^ (-1);
+  for(var i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ table[(crc ^ bytes[i]) & 0xFF];
+  return (crc ^ (-1)) >>> 0;
+}
+
+function makePngChunk(type, data){
+  var typeBytes = new TextEncoder().encode(type);
+  var len = data.length >>> 0;
+  var out = new Uint8Array(12 + len);
+  out[0] = (len >>> 24) & 255;
+  out[1] = (len >>> 16) & 255;
+  out[2] = (len >>> 8) & 255;
+  out[3] = len & 255;
+  out.set(typeBytes, 4);
+  out.set(data, 8);
+  var crcBytes = new Uint8Array(typeBytes.length + data.length);
+  crcBytes.set(typeBytes, 0);
+  crcBytes.set(data, typeBytes.length);
+  var crc = crc32(crcBytes);
+  var base = 8 + len;
+  out[base] = (crc >>> 24) & 255;
+  out[base + 1] = (crc >>> 16) & 255;
+  out[base + 2] = (crc >>> 8) & 255;
+  out[base + 3] = crc & 255;
+  return out;
+}
+
+function embedCharaChunkIntoPng(buffer, jsonText){
+  var src = new Uint8Array(buffer);
+  if(src.length < 12) throw new Error('PNG 数据无效');
+  var insertAt = src.length;
+  var pos = 8;
+  while(pos + 12 <= src.length){
+    var len = ((src[pos] << 24) | (src[pos + 1] << 16) | (src[pos + 2] << 8) | src[pos + 3]) >>> 0;
+    var type = String.fromCharCode(src[pos + 4], src[pos + 5], src[pos + 6], src[pos + 7]);
+    if(type === 'IEND'){
+      insertAt = pos;
+      break;
+    }
+    pos += 12 + len;
+  }
+  var textData = new TextEncoder().encode('chara\0' + utf8ToB64(jsonText));
+  var chunk = makePngChunk('tEXt', textData);
+  var out = new Uint8Array(src.length + chunk.length);
+  out.set(src.slice(0, insertAt), 0);
+  out.set(chunk, insertAt);
+  out.set(src.slice(insertAt), insertAt + chunk.length);
+  return out;
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines){
+  var words = String(text || '').split(/\s+/);
+  var line = '';
+  var lines = [];
+  words.forEach(function(word){
+    var test = line ? (line + ' ' + word) : word;
+    if(ctx.measureText(test).width > maxWidth && line){
+      lines.push(line);
+      line = word;
+    }else{
+      line = test;
+    }
+  });
+  if(line) lines.push(line);
+  if(!lines.length) lines = [''];
+  var visible = typeof maxLines === 'number' ? lines.slice(0, maxLines) : lines;
+  if(maxLines && lines.length > maxLines){
+    var last = visible[visible.length - 1];
+    while(last && ctx.measureText(last + '…').width > maxWidth) last = last.slice(0, -1);
+    visible[visible.length - 1] = (last || '').trim() + '…';
+  }
+  visible.forEach(function(item, idx){
+    ctx.fillText(item, x, y + idx * lineHeight);
+  });
+  return visible.length;
+}
+
+function loadImageElement(src){
+  return new Promise(function(resolve){
+    if(!src){ resolve(null); return; }
+    var img = new Image();
+    img.onload = function(){ resolve(img); };
+    img.onerror = function(){ resolve(null); };
+    img.src = src;
+  });
+}
+
+async function buildCharacterPreviewPng(c){
+  var payload = buildCharacterExportPayload(c);
+  var cardJson = JSON.stringify(payload);
+  var canvas = document.createElement('canvas');
+  canvas.width = 1080;
+  canvas.height = 1520;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#f7f7f7';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ffffff';
+  ctx.strokeStyle = '#0a0a0a';
+  ctx.lineWidth = 10;
+  ctx.fillRect(44, 44, canvas.width - 88, canvas.height - 88);
+  ctx.strokeRect(44, 44, canvas.width - 88, canvas.height - 88);
+
+  ctx.fillStyle = '#0a0a0a';
+  ctx.font = '900 58px Nunito';
+  ctx.fillText(c.name || '角色', 88, 132);
+  ctx.font = '700 26px Quicksand';
+  ctx.fillText('Ephone Character Card', 88, 178);
+
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(88, 208);
+  ctx.lineTo(canvas.width - 88, 208);
+  ctx.stroke();
+
+  var avatar = await loadImageElement(getAvatarSrc(c));
+  var avatarX = 88;
+  var avatarY = 246;
+  var avatarSize = 248;
+  ctx.fillStyle = '#f0f0f0';
+  ctx.fillRect(avatarX, avatarY, avatarSize, avatarSize);
+  ctx.strokeRect(avatarX, avatarY, avatarSize, avatarSize);
+  if(avatar){
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(avatarX, avatarY, avatarSize, avatarSize);
+    ctx.clip();
+    ctx.drawImage(avatar, avatarX, avatarY, avatarSize, avatarSize);
+    ctx.restore();
+  }else{
+    ctx.font = '900 108px Nunito';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillText((c.avatar || 'C').slice(0,2), avatarX + avatarSize/2, avatarY + avatarSize/2);
+    ctx.textAlign = 'start';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  var infoX = 372;
+  ctx.fillStyle = '#0a0a0a';
+  ctx.font = '800 24px Quicksand';
+  ctx.fillText('Persona', infoX, 286);
+  ctx.font = '600 26px Quicksand';
+  wrapCanvasText(ctx, c.personality || c.description || '暂无 persona', infoX, 326, 620, 36, 4);
+
+  ctx.font = '800 24px Quicksand';
+  ctx.fillText('Scenario', infoX, 458);
+  ctx.font = '600 26px Quicksand';
+  wrapCanvasText(ctx, c.scenario || '暂无 scenario', infoX, 498, 620, 36, 4);
+
+  var chipY = 580;
+  var chips = [
+    '开场白 ' + (((c.first_mes ? 1 : 0) + ((c.alternate_greetings || []).length)) || 0) + ' 条',
+    '世界书 ' + ((payload.data.character_book && payload.data.character_book.entries && payload.data.character_book.entries.length) || 0) + ' 条',
+    '系统提示词 ' + (payload.data.system_prompt ? '已收录' : '空')
+  ];
+  ctx.font = '800 22px Quicksand';
+  var chipX = infoX;
+  chips.forEach(function(chip){
+    var w = ctx.measureText(chip).width + 34;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(chipX, chipY, w, 46);
+    ctx.strokeRect(chipX, chipY, w, 46);
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillText(chip, chipX + 16, chipY + 30);
+    chipX += w + 12;
+  });
+
+  function drawSection(title, text, top, maxLines){
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(88, top, canvas.width - 176, 200);
+    ctx.strokeRect(88, top, canvas.width - 176, 200);
+    ctx.fillStyle = '#0a0a0a';
+    ctx.font = '900 28px Nunito';
+    ctx.fillText(title, 112, top + 42);
+    ctx.font = '600 24px Quicksand';
+    wrapCanvasText(ctx, text || '暂无', 112, top + 84, canvas.width - 224, 34, maxLines);
+  }
+
+  drawSection('First Message', c.first_mes || '暂无开场白', 676, 3);
+  drawSection('Examples', c.mes_example || '暂无示例对话', 900, 3);
+  drawSection('Worldbook', payload.data.character_book && payload.data.character_book.entries && payload.data.character_book.entries.length
+    ? payload.data.character_book.entries.slice(0,3).map(function(entry){ return (entry.comment || '条目') + '：' + entry.content; }).join('  ')
+    : '暂无世界书', 1124, 3);
+
+  ctx.font = '700 22px Quicksand';
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fillText('PNG Tavern Card · exported by Ephone', 88, 1468);
+
+  var pngBlob = await new Promise(function(resolve){ canvas.toBlob(resolve, 'image/png'); });
+  var baseBuffer = await pngBlob.arrayBuffer();
+  var finalBytes = embedCharaChunkIntoPng(baseBuffer, cardJson);
+  var finalBlob = new Blob([finalBytes], { type:'image/png' });
+  return {
+    payload: payload,
+    cardJson: cardJson,
+    previewUrl: URL.createObjectURL(finalBlob),
+    blob: finalBlob
+  };
+}
+
+async function openExportCardPreview(){
+  if(!curChar) return;
+  var btn = document.getElementById('exportConfirmBtn');
+  var meta = document.getElementById('exportMetaText');
+  var img = document.getElementById('exportPreviewImg');
+  if(btn) btn.textContent = '生成中...';
+  if(meta) meta.textContent = '正在把 persona、开场白、世界书装进 PNG 卡里...';
+  document.getElementById('exportMask').style.display = 'flex';
+  try{
+    if(exportPreviewState && exportPreviewState.url){
+      try{ URL.revokeObjectURL(exportPreviewState.url); }catch(e){}
+    }
+    var built = await buildCharacterPreviewPng(curChar);
+    exportPreviewState = {
+      charId: curChar.id,
+      name: curChar.name || 'character',
+      url: built.previewUrl,
+      blob: built.blob
+    };
+    if(img) img.src = built.previewUrl;
+    if(meta) meta.textContent = summarizeExportMeta(curChar, built.payload);
+    if(btn) btn.textContent = '确认导出';
+  }catch(e){
+    if(meta) meta.textContent = '导出失败：' + (e.message || e);
+    if(btn) btn.textContent = '确认导出';
+    log('导出失败：' + (e.message || e));
+  }
+}
+
+function closeExportPreview(){
+  document.getElementById('exportMask').style.display = 'none';
+}
+
+async function confirmExportCharacterCard(){
+  if(!exportPreviewState || !exportPreviewState.blob) return;
+  var filename = (exportPreviewState.name || 'character').replace(/[\\/:*?"<>|]+/g, '_') + '.png';
+  var file = new File([exportPreviewState.blob], filename, { type:'image/png' });
+  try{
+    if(navigator.share && navigator.canShare && navigator.canShare({ files:[file] })){
+      await navigator.share({ files:[file], title: filename });
+      log('已打开导出面板');
+      return;
+    }
+  }catch(e){}
+  var url = URL.createObjectURL(exportPreviewState.blob);
+  var link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(function(){
+    try{ URL.revokeObjectURL(url); }catch(e){}
+    if(link.parentNode) link.parentNode.removeChild(link);
+  }, 1000);
+  log('已导出角色卡');
 }
 
 // ════════════════════════════════════════════
