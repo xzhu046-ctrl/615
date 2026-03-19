@@ -27,11 +27,12 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T05:31:00Z';
+const APP_BUILD_ID = '2026-03-18T05:36:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
 const HOSTED_UPDATE_ACCEPTED_BUILD_KEY = 'hosted_update_accepted_build_v1';
+const HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY = 'hosted_update_last_seen_remote_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
 const GITHUB_UPDATE_REPO = '615';
@@ -361,6 +362,22 @@ function setAcceptedHostedUpdateBuild(fingerprint){
   }catch(e){}
 }
 
+function getLastSeenHostedRemoteBuild(){
+  try{
+    return String(localStorage.getItem(HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY) || '').trim();
+  }catch(e){
+    return '';
+  }
+}
+
+function setLastSeenHostedRemoteBuild(fingerprint){
+  var value = String(fingerprint || '').trim();
+  if(!value) return;
+  try{
+    localStorage.setItem(HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY, value);
+  }catch(e){}
+}
+
 function clearAcceptedHostedUpdateBuildIfCurrent(){
   var accepted = getAcceptedHostedUpdateBuild();
   if(!accepted || accepted !== APP_BUILD_ID) return;
@@ -554,11 +571,13 @@ async function checkForHostedUpdate(){
     }
     var remoteFingerprint = await buildRemoteAppFingerprint();
     if(remoteFingerprint && remoteFingerprint !== APP_BUILD_ID){
+      setLastSeenHostedRemoteBuild(remoteFingerprint);
       pendingRemoteAppFingerprint = remoteFingerprint;
       announceHostedUpdate(remoteFingerprint);
       return;
     }
     if(remoteFingerprint && remoteFingerprint === APP_BUILD_ID){
+      setLastSeenHostedRemoteBuild(remoteFingerprint);
       clearAcceptedHostedUpdateBuildIfCurrent();
       if(hostedUpdateLockedOpen && shownHostedUpdateFingerprint){
         return;
@@ -596,6 +615,11 @@ function kickOffHostedUpdateRetries(){
 function bootHostedUpdateCheck(){
   if(hostedUpdateBootstrapped) return;
   hostedUpdateBootstrapped = true;
+  var cachedRemoteFingerprint = getLastSeenHostedRemoteBuild();
+  if(cachedRemoteFingerprint && cachedRemoteFingerprint !== APP_BUILD_ID){
+    pendingRemoteAppFingerprint = cachedRemoteFingerprint;
+    announceHostedUpdate(cachedRemoteFingerprint);
+  }
   kickOffHostedUpdateRetries();
   [1800, 4200].forEach(function(delay){
     setTimeout(function(){
