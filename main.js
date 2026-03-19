@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T07:18:00Z';
+const APP_BUILD_ID = '2026-03-18T07:24:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1808,6 +1808,61 @@ function hashAvatarFrameSeed(input){
   return Math.abs(hash || 1);
 }
 
+function buildAvatarFrameFallbackMarkup(url, className, styleText){
+  var safeUrl = String(url || '').trim();
+  if(!safeUrl) return '';
+  var seed = hashAvatarFrameSeed(safeUrl);
+  var motifs = ['heart', 'star', 'flower', 'ribbon'];
+  var paletteSets = [
+    { stroke:'#111111', fill:'#ffd6e7', accent:'#ff6fa7' },
+    { stroke:'#111111', fill:'#d7efff', accent:'#5aa8ff' },
+    { stroke:'#111111', fill:'#fff0c7', accent:'#ffbf3c' },
+    { stroke:'#111111', fill:'#e2f4d8', accent:'#6fbe58' },
+    { stroke:'#111111', fill:'#f0ddff', accent:'#b16dff' }
+  ];
+  var motif = motifs[seed % motifs.length];
+  var palette = paletteSets[seed % paletteSets.length];
+  var dots = '';
+  for(var i = 0; i < 12; i += 1){
+    var angle = (Math.PI * 2 * i) / 12;
+    var cx = 60 + Math.cos(angle) * 46;
+    var cy = 60 + Math.sin(angle) * 46;
+    dots += '<circle cx="' + cx.toFixed(2) + '" cy="' + cy.toFixed(2) + '" r="2.8" fill="' + palette.accent + '" opacity="0.92"/>';
+  }
+  var ornament = '';
+  if(motif === 'heart'){
+    ornament = '<path d="M60 26 C56 18 42 18 42 31 C42 42 52 48 60 56 C68 48 78 42 78 31 C78 18 64 18 60 26 Z" fill="' + palette.accent + '" stroke="' + palette.stroke + '" stroke-width="2.4"/>';
+  }else if(motif === 'star'){
+    ornament = '<path d="M60 22 L65.3 35.5 L80 36.2 L68.6 45.5 L72.5 59.4 L60 51.5 L47.5 59.4 L51.4 45.5 L40 36.2 L54.7 35.5 Z" fill="' + palette.accent + '" stroke="' + palette.stroke + '" stroke-width="2.2" stroke-linejoin="round"/>';
+  }else if(motif === 'flower'){
+    ornament = '<circle cx="60" cy="40" r="7" fill="#fff7b8" stroke="' + palette.stroke + '" stroke-width="2.2"/>' +
+      '<circle cx="49" cy="40" r="7.8" fill="' + palette.accent + '" opacity="0.95" stroke="' + palette.stroke + '" stroke-width="1.8"/>' +
+      '<circle cx="71" cy="40" r="7.8" fill="' + palette.accent + '" opacity="0.95" stroke="' + palette.stroke + '" stroke-width="1.8"/>' +
+      '<circle cx="60" cy="29" r="7.8" fill="' + palette.accent + '" opacity="0.95" stroke="' + palette.stroke + '" stroke-width="1.8"/>' +
+      '<circle cx="60" cy="51" r="7.8" fill="' + palette.accent + '" opacity="0.95" stroke="' + palette.stroke + '" stroke-width="1.8"/>';
+  }else{
+    ornament = '<path d="M33 25 C44 22 52 26 56 33 C50 33 43 37 39 45 C34 39 32 31 33 25 Z" fill="' + palette.accent + '" stroke="' + palette.stroke + '" stroke-width="2"/>' +
+      '<path d="M87 25 C76 22 68 26 64 33 C70 33 77 37 81 45 C86 39 88 31 87 25 Z" fill="' + palette.accent + '" stroke="' + palette.stroke + '" stroke-width="2"/>' +
+      '<rect x="53" y="24" width="14" height="8" rx="3.6" fill="' + palette.fill + '" stroke="' + palette.stroke + '" stroke-width="2"/>';
+  }
+  var attrs = [
+    'viewBox="0 0 120 120"',
+    'aria-hidden="true"',
+    'focusable="false"',
+    'xmlns="http://www.w3.org/2000/svg"',
+    'class="' + (className ? (className + ' ') : '') + 'avatar-frame-inline' + '"',
+    styleText ? 'style="' + styleText + '"' : ''
+  ].filter(Boolean).join(' ');
+  return ''
+    + '<svg ' + attrs + '>'
+    + '<circle cx="60" cy="60" r="57" fill="none" stroke="' + palette.stroke + '" stroke-width="5.2"/>'
+    + '<circle cx="60" cy="60" r="52.5" fill="none" stroke="' + palette.fill + '" stroke-width="9.5"/>'
+    + '<circle cx="60" cy="60" r="46.8" fill="none" stroke="' + palette.stroke + '" stroke-width="2.2" stroke-dasharray="2.6 7.2" opacity="0.7"/>'
+    + dots
+    + ornament
+    + '</svg>';
+}
+
 function buildAvatarFrameFallbackDataUrl(url){
   var safeUrl = String(url || '').trim();
   if(!safeUrl) return '';
@@ -1867,6 +1922,9 @@ function getAvatarFrameRenderSrc(url){
 function buildAvatarFrameImg(className, url, styleText){
   const safeUrl = String(url || '').trim();
   if(!safeUrl) return '';
+  if(/^https?:\/\/i\.postimg\.cc\//i.test(safeUrl)){
+    return buildAvatarFrameFallbackMarkup(safeUrl, className, styleText);
+  }
   const renderSrc = getAvatarFrameRenderSrc(safeUrl);
   const attrs = [
     className ? 'class="' + className + '"' : '',
