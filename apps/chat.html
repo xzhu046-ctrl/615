@@ -9443,24 +9443,10 @@ async function openChatExportCardPreview(){
   chatExportState = null;
   if(btn){
     btn.textContent = '确认';
-    btn.disabled = true;
+    btn.disabled = false;
   }
-  try{
-    if(prevState && prevState.url){
-      try{ URL.revokeObjectURL(prevState.url); }catch(e){}
-    }
-    var built = await buildChatExportPreview();
-    chatExportState = { url: built.url, blob: built.blob, name: (character && character.name) || 'character' };
-    if(btn){
-      btn.textContent = '确认';
-      btn.disabled = false;
-    }
-  }catch(e){
-    if(btn){
-      btn.textContent = '确认';
-      btn.disabled = false;
-    }
-    toast('导出失败');
+  if(prevState && prevState.url){
+    try{ URL.revokeObjectURL(prevState.url); }catch(e){}
   }
 }
 
@@ -9476,8 +9462,20 @@ function closeChatExportPreview(){
 }
 
 async function confirmChatExportCard(){
-  if(!chatExportState || !chatExportState.blob){
-    toast('还在生成中');
+  var btn = document.getElementById('chatExportConfirmBtn');
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = '生成中';
+  }
+  try{
+    var built = await buildChatExportPreview();
+    chatExportState = { url: built.url, blob: built.blob, name: (character && character.name) || 'character' };
+  }catch(e){
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = '确认';
+    }
+    toast('导出失败');
     return;
   }
   var filename = (chatExportState.name || 'character').replace(/[\\/:*?"<>|]+/g, '_') + '.png';
@@ -9485,6 +9483,10 @@ async function confirmChatExportCard(){
   try{
     if(navigator.share && navigator.canShare && navigator.canShare({ files:[file] })){
       await navigator.share({ files:[file], title: filename });
+      if(btn){
+        btn.disabled = false;
+        btn.textContent = '确认';
+      }
       toast('已打开导出面板');
       return;
     }
@@ -9499,6 +9501,10 @@ async function confirmChatExportCard(){
     try{ URL.revokeObjectURL(url); }catch(e){}
     if(link.parentNode) link.parentNode.removeChild(link);
   }, 1000);
+  if(btn){
+    btn.disabled = false;
+    btn.textContent = '确认';
+  }
   toast('已导出角色卡');
 }
 
