@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T05:42:00Z';
+const APP_BUILD_ID = '2026-03-18T05:51:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1724,6 +1724,22 @@ function getTopFrameVisual(url){
   return cfg;
 }
 
+function buildAvatarFrameImg(className, url, styleText){
+  const safeUrl = String(url || '').trim();
+  if(!safeUrl) return '';
+  const attrs = [
+    className ? 'class="' + className + '"' : '',
+    styleText ? 'style="' + styleText + '"' : '',
+    'src="' + safeUrl + '"',
+    'alt=""',
+    'referrerpolicy="no-referrer"',
+    'crossorigin="anonymous"',
+    'loading="eager"',
+    'decoding="async"',
+  ].filter(Boolean).join(' ');
+  return '<img ' + attrs + '>';
+}
+
 function getActiveTopFrameUrl(){
   if(isTopFrameEditorOpen) return topFrameDraftUrl || '';
   return getTopAvatarFrameUrl();
@@ -2018,7 +2034,7 @@ function renderBondWidget(character){
       if(frameUrl){
         const frameVisual = getTopFrameVisual(frameUrl);
         const frameStyle = '--frame-scale:' + frameVisual.scale + ';--frame-offset-x:' + frameVisual.offsetX + 'px;--frame-offset-y:' + frameVisual.offsetY + 'px;';
-        charAvatar.innerHTML = baseHtml + '<img class="bond-avatar-frame" style="' + frameStyle + '" src="' + frameUrl + '" alt="">';
+        charAvatar.innerHTML = baseHtml + buildAvatarFrameImg('bond-avatar-frame', frameUrl, frameStyle);
       } else {
         charAvatar.innerHTML = baseHtml;
       }
@@ -2035,7 +2051,7 @@ function renderBondWidget(character){
       if(frameUrl){
         const frameVisual = getTopFrameVisual(frameUrl);
         const frameStyle = '--frame-scale:' + frameVisual.scale + ';--frame-offset-x:' + frameVisual.offsetX + 'px;--frame-offset-y:' + frameVisual.offsetY + 'px;';
-        userAvatar.innerHTML = baseHtml + '<img class="bond-avatar-frame" style="' + frameStyle + '" src="' + frameUrl + '" alt="">';
+        userAvatar.innerHTML = baseHtml + buildAvatarFrameImg('bond-avatar-frame', frameUrl, frameStyle);
       } else {
         userAvatar.innerHTML = baseHtml;
       }
@@ -2069,7 +2085,7 @@ function applyBondWidgetPreview(payload){
       if(frameUrl){
         var frameVisual = getTopFrameVisual(frameUrl);
         var frameStyle = '--frame-scale:' + frameVisual.scale + ';--frame-offset-x:' + frameVisual.offsetX + 'px;--frame-offset-y:' + frameVisual.offsetY + 'px;';
-        userAvatarEl.innerHTML = baseHtml + '<img class="bond-avatar-frame" style="' + frameStyle + '" src="' + frameUrl + '" alt="">';
+        userAvatarEl.innerHTML = baseHtml + buildAvatarFrameImg('bond-avatar-frame', frameUrl, frameStyle);
       } else {
         userAvatarEl.innerHTML = baseHtml;
       }
@@ -2180,7 +2196,7 @@ function renderTopFrameChoices(){
     if(!it.url){
       return '<button class="frame-chip' + (active ? ' active' : '') + '" type="button" onclick="pickTopFrame(\'\')">无</button>';
     }
-    return '<button class="frame-chip' + (active ? ' active' : '') + '" type="button" onclick="pickTopFrame(\'' + it.url.replace(/'/g, "\\'") + '\')"><img src="' + it.url + '" alt=""></button>';
+    return '<button class="frame-chip' + (active ? ' active' : '') + '" type="button" onclick="pickTopFrame(\'' + it.url.replace(/'/g, "\\'") + '\')">' + buildAvatarFrameImg('', it.url, '') + '</button>';
   }).join('');
 }
 
@@ -2266,7 +2282,7 @@ function renderHomeSlot(slotId, dataUrl){
       if(frameUrl){
         const frameVisual = getTopFrameVisual(frameUrl);
         const frameStyle = '--frame-scale:' + frameVisual.scale + ';--frame-offset-x:' + frameVisual.offsetX + 'px;--frame-offset-y:' + frameVisual.offsetY + 'px;';
-        el.innerHTML = baseHtml + '<img class="slot-frame" style="' + frameStyle + '" src="' + frameUrl + '" alt="">';
+        el.innerHTML = baseHtml + buildAvatarFrameImg('slot-frame', frameUrl, frameStyle);
       }else{
         el.innerHTML = baseHtml;
       }
