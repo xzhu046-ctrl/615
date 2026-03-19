@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T05:36:00Z';
+const APP_BUILD_ID = '2026-03-18T05:42:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -463,6 +463,15 @@ function decodeGithubContentsBuildId(payload){
   }
 }
 
+function readBuildIdFromMainJsText(text){
+  try{
+    var match = String(text || '').match(/APP_BUILD_ID\s*=\s*['"]([^'"]+)['"]/);
+    return String(match && match[1] || '').trim();
+  }catch(err){
+    return '';
+  }
+}
+
 async function buildRemoteAppFingerprint(){
   var stamp = Date.now();
   var remoteTasks = [
@@ -477,6 +486,14 @@ async function buildRemoteAppFingerprint(){
     function(){
       return fetchJsonWithTimeout('https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 12000)
         .then(function(data){ return readBuildIdFromVersionPayload(data); });
+    },
+    function(){
+      return fetchTextWithTimeout('https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/main.js?t=' + stamp, 12000)
+        .then(function(text){ return readBuildIdFromMainJsText(text); });
+    },
+    function(){
+      return fetchTextWithTimeout('https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/main.js?t=' + stamp, 12000)
+        .then(function(text){ return readBuildIdFromMainJsText(text); });
     }
   ];
   var remoteFingerprint = await new Promise(function(resolve){
@@ -512,6 +529,14 @@ async function buildRemoteAppFingerprint(){
       if(sameOriginFingerprint) return sameOriginFingerprint;
     }catch(errSameOrigin){
       console.warn('[update-check] same-origin fallback skipped', errSameOrigin);
+    }
+    try{
+      var sameOriginMainFingerprint = await fetchTextWithTimeout(new URL('main.js?updateCheck=' + stamp, window.location.href).toString(), 15000).then(function(text){
+        return readBuildIdFromMainJsText(text);
+      });
+      if(sameOriginMainFingerprint) return sameOriginMainFingerprint;
+    }catch(errSameOriginMain){
+      console.warn('[update-check] same-origin main fallback skipped', errSameOriginMain);
     }
   }
   return '';
