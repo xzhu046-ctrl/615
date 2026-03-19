@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T07:33:00Z';
+const APP_BUILD_ID = '2026-03-18T07:39:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1753,33 +1753,11 @@ function bindBondLinkInputs(){
 }
 
 function getTopAvatarFrameUrl(){
-  const saved = localStorage.getItem('home_top_frame_url') || '';
-  if(saved) return saved;
-  try{
-    if(typeof avatarFrames !== 'undefined' && Array.isArray(avatarFrames)){
-      const first = avatarFrames.find((f)=>f && typeof f.url === 'string' && f.url.trim());
-      if(first && first.url){
-        localStorage.setItem('home_top_frame_url', first.url);
-        return first.url;
-      }
-    }
-  }catch(e){}
   return '';
 }
 
 function getTopFrameChoices(){
-  const out = [{ id: 'none', url: '', name: '无' }];
-  try{
-    if(typeof avatarFrames !== 'undefined' && Array.isArray(avatarFrames)){
-      avatarFrames.forEach((f, idx)=>{
-        if(!f || typeof f.url !== 'string') return;
-        const url = f.url.trim();
-        if(!url) return;
-        out.push({ id: f.id || ('f_' + idx), url, name: f.name || String(idx + 1) });
-      });
-    }
-  }catch(e){}
-  return out;
+  return [{ id: 'none', url: '', name: '无' }];
 }
 
 function getTopFrameVisual(url){
@@ -1908,31 +1886,7 @@ function getAvatarFrameRenderSrc(url){
 }
 
 function buildAvatarFrameImg(className, url, styleText){
-  const safeUrl = String(url || '').trim();
-  if(!safeUrl) return '';
-  if(/^https?:\/\/i\.postimg\.cc\//i.test(safeUrl)){
-    const imgAttrs = [
-      'class="' + (className ? (className + ' ') : '') + 'avatar-frame-inline avatar-frame-remote"',
-      styleText ? 'style="' + styleText + '"' : '',
-      'src="' + safeUrl + '"',
-      'alt=""',
-      'loading="lazy"',
-      'onerror="this.style.display=\'none\';var fb=this.nextElementSibling;if(fb) fb.style.display=\'block\';"'
-    ].filter(Boolean).join(' ');
-    return ''
-      + '<span class="avatar-frame-stack">'
-      + '<img ' + imgAttrs + '>'
-      + '<span class="avatar-frame-fallback-wrap" style="display:none">' + buildAvatarFrameFallbackMarkup(safeUrl, className, styleText) + '</span>'
-      + '</span>';
-  }
-  const renderSrc = getAvatarFrameRenderSrc(safeUrl);
-  const attrs = [
-    className ? 'class="' + className + '"' : '',
-    styleText ? 'style="' + styleText + '"' : '',
-    'src="' + renderSrc + '"',
-    'alt=""',
-  ].filter(Boolean).join(' ');
-  return '<img ' + attrs + '>';
+  return '';
 }
 
 function getActiveTopFrameUrl(){
@@ -1945,7 +1899,7 @@ function getBondAvatarFrameStorageKey(role){
 }
 
 function getBondAvatarFrameUrl(role){
-  return localStorage.getItem(getBondAvatarFrameStorageKey(role)) || '';
+  return '';
 }
 
 function getActiveBondAvatarFrameUrl(role){
@@ -2347,13 +2301,7 @@ function bindTopSlotPressBehavior(){
 }
 
 function openBondAvatarFrameEditor(role){
-  activeHomeSlot = 'bond-frame-' + role;
-  isTopFrameEditorOpen = true;
-  topFrameDraftUrl = getBondAvatarFrameUrl(role);
-  const editor = document.getElementById('top-frame-editor');
-  if(editor) editor.classList.add('open');
-  renderTopFrameChoices();
-  renderBondWidget();
+  return;
 }
 
 function bindBondAvatarPressBehavior(){
@@ -2385,30 +2333,11 @@ function bindBondAvatarPressBehavior(){
 function renderTopFrameChoices(){
   const host = document.getElementById('top-frame-grid');
   if(!host) return;
-  const list = getTopFrameChoices();
-  host.innerHTML = list.map((it)=>{
-    const active = (it.url || '') === (topFrameDraftUrl || '');
-    if(!it.url){
-      return '<button class="frame-chip' + (active ? ' active' : '') + '" type="button" onclick="pickTopFrame(\'\')">无</button>';
-    }
-    return '<button class="frame-chip' + (active ? ' active' : '') + '" type="button" onclick="pickTopFrame(\'' + it.url.replace(/'/g, "\\'") + '\')">' + buildAvatarFrameImg('', it.url, '') + '</button>';
-  }).join('');
+  host.innerHTML = '<div class="sub" style="text-align:center;color:#111;">头像框已移除</div>';
 }
 
 function openTopFrameEditor(){
-  loadStoredAsset('home_slot_top').then((topImage)=>{
-    if(!topImage){
-      showHomeToast('先上传圆形图片');
-      return;
-    }
-    activeHomeSlot = 'top';
-    isTopFrameEditorOpen = true;
-    topFrameDraftUrl = localStorage.getItem('home_top_frame_url') || '';
-    const editor = document.getElementById('top-frame-editor');
-    if(editor) editor.classList.add('open');
-    renderTopFrameChoices();
-    renderHomeSlot('top', topImage);
-  });
+  return;
 }
 
 function closeTopFrameEditor(){
@@ -2425,37 +2354,14 @@ function closeTopFrameEditor(){
 }
 
 function pickTopFrame(url){
-  topFrameDraftUrl = url || '';
-  renderTopFrameChoices();
-  if(activeHomeSlot === 'top'){
-    loadStoredAsset('home_slot_top').then((data)=>renderHomeSlot('top', data));
-  } else if(activeHomeSlot === 'bond-frame-char' || activeHomeSlot === 'bond-frame-user'){
-    renderBondWidget();
-  }
+  return;
 }
 
 function saveTopFrame(){
-  const url = topFrameDraftUrl || '';
-  if(activeHomeSlot === 'top'){
-    if(url) localStorage.setItem('home_top_frame_url', url);
-    else localStorage.removeItem('home_top_frame_url');
-  } else if(activeHomeSlot === 'bond-frame-char' || activeHomeSlot === 'bond-frame-user'){
-    const role = activeHomeSlot === 'bond-frame-user' ? 'user' : 'char';
-    const key = getBondAvatarFrameStorageKey(role);
-    if(url) localStorage.setItem(key, url);
-    else localStorage.removeItem(key);
-  }
-  isTopFrameEditorOpen = false;
-  topFrameDraftUrl = null;
-  const editor = document.getElementById('top-frame-editor');
-  if(editor) editor.classList.remove('open');
-  if(activeHomeSlot === 'top'){
-    loadStoredAsset('home_slot_top').then((data)=>renderHomeSlot('top', data));
-  } else if(activeHomeSlot === 'bond-frame-char' || activeHomeSlot === 'bond-frame-user'){
-    renderBondWidget();
-  }
-  activeHomeSlot = null;
-  showHomeToast('保存成功');
+  try{ localStorage.removeItem('home_top_frame_url'); }catch(e){}
+  try{ localStorage.removeItem('bond_char_frame_url'); }catch(e){}
+  try{ localStorage.removeItem('bond_user_frame_url'); }catch(e){}
+  closeTopFrameEditor();
 }
 
 function bindTopFrameEditor(){
