@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T05:16:00Z';
+const APP_BUILD_ID = '2026-03-18T05:21:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -49,6 +49,7 @@ let hostedUpdateBootstrapped = false;
 let hostedUpdateModalShown = false;
 let hostedUpdatePromptDedupeFingerprint = '';
 let hostedUpdatePromptDedupeAt = 0;
+let hostedUpdateCardPending = false;
 let chatInputFocusActive = false;
 let chatReportedKeyboardShift = 0;
 
@@ -370,7 +371,12 @@ function showHostedUpdateCard(){
   if(hostedUpdateModalShown) return;
   if(shouldSuppressHostedUpdatePrompt()) return;
   var card = document.getElementById('update-toast-card');
-  if(card) card.hidden = false;
+  if(!card){
+    hostedUpdateCardPending = true;
+    return;
+  }
+  card.hidden = false;
+  hostedUpdateCardPending = false;
   hostedUpdateModalShown = true;
   hostedUpdateLockedOpen = true;
   markHostedUpdatePromptShown();
@@ -394,6 +400,7 @@ function hideHostedUpdateCard(){
   if(hostedUpdateLockedOpen) return;
   var card = document.getElementById('update-toast-card');
   if(card) card.hidden = true;
+  hostedUpdateCardPending = false;
 }
 
 function removeAppFromStack(appId){
@@ -3138,6 +3145,9 @@ window.addEventListener('load', ()=>{
   syncAppHeight();
   renderHomePages(true);
   bootHostedUpdateCheck();
+  if(hostedUpdateCardPending && pendingRemoteAppFingerprint){
+    showHostedUpdateCard();
+  }
   var frame = document.getElementById('app-iframe');
   if(frame){
     frame.addEventListener('load', function(){
