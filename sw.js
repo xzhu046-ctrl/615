@@ -1,5 +1,5 @@
-const CACHE_VERSION = '2026-03-19T14:26:02Z';
-const CACHE_NAME = 'phone-shell';
+const CACHE_VERSION = '2026-03-19T14:30:35Z';
+const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
   './index.html',
@@ -68,11 +68,16 @@ self.addEventListener('install', (event)=>{
       })
       .catch(()=>null)
   );
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event)=>{
   event.waitUntil(
-    self.clients.claim()
+    caches.keys()
+      .then((names)=>Promise.all(names
+        .filter((name)=>String(name || '').indexOf('phone-shell') === 0 && name !== CACHE_NAME)
+        .map((name)=>caches.delete(name).catch(()=>null))))
+      .then(()=>self.clients.claim())
   );
 });
 
