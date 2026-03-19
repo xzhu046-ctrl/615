@@ -3,7 +3,7 @@ const APP_MAP = {
   qq:         { title: 'QQ',             src: 'apps/qq.html' },
   chat:       { title: 'Chat',           src: 'apps/chat.html' },
   characters: { title: 'Contacts',       src: 'apps/characters.html' },
-  settings:   { title: '设置',           src: 'apps/settings.html', hideTopbar: true },
+  settings:   { title: '设置',           src: 'apps/settings.html' },
   customize:  { title: '外观',           src: 'apps/customize.html' },
   worldbook:  { title: '世界书',         src: 'apps/worldbook.html' },
   offline_archive: { title: '档案馆',    src: 'apps/offline_archive.html' },
@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T08:05:00Z';
+const APP_BUILD_ID = '2026-03-18T08:11:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
