@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T06:19:00Z';
+const APP_BUILD_ID = '2026-03-18T06:27:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -53,6 +53,7 @@ let hostedUpdateModalShown = false;
 let hostedUpdatePromptDedupeFingerprint = '';
 let hostedUpdatePromptDedupeAt = 0;
 let hostedUpdateCardPending = false;
+let lastHostedUpdateCheckStatus = '';
 let chatInputFocusActive = false;
 let chatReportedKeyboardShift = 0;
 
@@ -415,11 +416,28 @@ function showHostedUpdateCard(){
     hostedUpdateCardPending = true;
     return;
   }
+  updateHostedUpdateMeta();
   card.hidden = false;
   hostedUpdateCardPending = false;
   hostedUpdateModalShown = true;
   hostedUpdateLockedOpen = true;
   markHostedUpdatePromptShown();
+}
+
+function updateHostedUpdateMeta(remoteFingerprint){
+  var meta = document.getElementById('update-toast-meta');
+  if(!meta) return;
+  var remote = String(remoteFingerprint || pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
+  var lines = [
+    '当前版本：' + APP_BUILD_ID,
+    '远端版本：' + (remote || '未读到')
+  ];
+  if(lastHostedUpdateCheckStatus){
+    lines.push('检查状态：' + lastHostedUpdateCheckStatus);
+  }
+  meta.innerHTML = lines.map(function(line){
+    return line.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  }).join('<br>');
 }
 
 function announceHostedUpdate(fingerprint){
@@ -619,15 +637,19 @@ async function checkForHostedUpdate(){
     }
     var remoteFingerprint = await buildRemoteAppFingerprint();
     if(remoteFingerprint && remoteFingerprint !== APP_BUILD_ID){
+      lastHostedUpdateCheckStatus = '检测到新版本';
       setLastSeenHostedRemoteBuild(remoteFingerprint);
       if(isAcceptedHostedRemoteBuild(remoteFingerprint)){
+        updateHostedUpdateMeta(remoteFingerprint);
         return;
       }
       pendingRemoteAppFingerprint = remoteFingerprint;
+      updateHostedUpdateMeta(remoteFingerprint);
       announceHostedUpdate(remoteFingerprint);
       return;
     }
     if(remoteFingerprint && remoteFingerprint === APP_BUILD_ID){
+      lastHostedUpdateCheckStatus = '已是最新';
       setLastSeenHostedRemoteBuild(remoteFingerprint);
       clearAcceptedHostedUpdateBuildIfCurrent();
       if(hostedUpdateLockedOpen && shownHostedUpdateFingerprint){
@@ -640,7 +662,11 @@ async function checkForHostedUpdate(){
       hideHostedUpdateCard();
       return;
     }
+    lastHostedUpdateCheckStatus = '未读到远端版本';
+    updateHostedUpdateMeta(remoteFingerprint);
   }catch(err){
+    lastHostedUpdateCheckStatus = '检查失败';
+    updateHostedUpdateMeta('');
     console.warn('[update-check] skipped', err);
   }
 }
