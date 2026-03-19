@@ -27,12 +27,14 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T06:00:00Z';
+const APP_BUILD_ID = '2026-03-18T06:15:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
 const HOSTED_UPDATE_ACCEPTED_BUILD_KEY = 'hosted_update_accepted_build_v1';
+const HOSTED_UPDATE_ACCEPTED_AT_KEY = 'hosted_update_accepted_at_v1';
 const HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY = 'hosted_update_last_seen_remote_v1';
+const HOSTED_UPDATE_ACCEPTED_TTL_MS = 2 * 60 * 1000;
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
 const GITHUB_UPDATE_REPO = '615';
@@ -359,6 +361,7 @@ function setAcceptedHostedUpdateBuild(fingerprint){
   if(!value) return;
   try{
     localStorage.setItem(HOSTED_UPDATE_ACCEPTED_BUILD_KEY, value);
+    localStorage.setItem(HOSTED_UPDATE_ACCEPTED_AT_KEY, String(Date.now()));
   }catch(e){}
 }
 
@@ -381,13 +384,27 @@ function setLastSeenHostedRemoteBuild(fingerprint){
 function clearAcceptedHostedUpdateBuildIfCurrent(){
   var accepted = getAcceptedHostedUpdateBuild();
   if(!accepted || accepted !== APP_BUILD_ID) return;
-  try{ localStorage.removeItem(HOSTED_UPDATE_ACCEPTED_BUILD_KEY); }catch(e){}
+  try{
+    localStorage.removeItem(HOSTED_UPDATE_ACCEPTED_BUILD_KEY);
+    localStorage.removeItem(HOSTED_UPDATE_ACCEPTED_AT_KEY);
+  }catch(e){}
 }
 
 function isAcceptedHostedRemoteBuild(fingerprint){
   var value = String(fingerprint || '').trim();
   if(!value) return false;
-  return value === getAcceptedHostedUpdateBuild();
+  if(value !== getAcceptedHostedUpdateBuild()) return false;
+  var acceptedAt = 0;
+  try{ acceptedAt = Number(localStorage.getItem(HOSTED_UPDATE_ACCEPTED_AT_KEY) || 0) || 0; }catch(e){}
+  if(!acceptedAt) return false;
+  if(Date.now() - acceptedAt > HOSTED_UPDATE_ACCEPTED_TTL_MS){
+    try{
+      localStorage.removeItem(HOSTED_UPDATE_ACCEPTED_BUILD_KEY);
+      localStorage.removeItem(HOSTED_UPDATE_ACCEPTED_AT_KEY);
+    }catch(e){}
+    return false;
+  }
+  return true;
 }
 
 function showHostedUpdateCard(){

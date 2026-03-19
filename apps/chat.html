@@ -94,7 +94,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg.select-mode{max-width:100%;cursor:pointer}
 .msg.selected .msg-bubble{outline:2px solid var(--b);outline-offset:2px}
 .msg.selected .offline-invite-shell{outline:2px solid var(--b);outline-offset:2px}
-.msg-bubble{padding:10px 12px;border-radius:16px;font-size:13px;line-height:1.5;font-weight:600;max-width:100%;white-space:pre-wrap;word-break:break-word;min-height:40px;display:flex;align-items:center;transition:transform .08s linear}
+.msg-bubble{padding:10px 12px;border-radius:16px;font-size:13px;line-height:1.5;font-weight:600;max-width:100%;white-space:pre-wrap;word-break:break-word;min-height:40px;display:flex;align-items:center;transition:transform .08s linear;touch-action:pan-y}
 .msg-bubble.has-reply{flex-direction:column;align-items:flex-start}
 .msg-bubble.voice{flex-direction:column;align-items:flex-start;gap:6px;width:100%}
 .msg-bubble.image-card{padding:0;background:transparent;border:none;box-shadow:none;overflow:visible}
@@ -4060,7 +4060,7 @@ function isWeakReplyHint(hint){
   var s = String(hint || '').replace(/\s+/g, '').trim();
   if(!s) return true;
   if(s === 'last_user' || s === 'last_ai' || s === 'last_assistant') return false;
-  if(s.length <= 4) return true;
+  if(s.length <= 2) return true;
   return /^(吃了吗|几点了|在吗|睡了吗|干嘛呢|干嘛呀|在干嘛|怎么了|忙吗|到家了吗|好吗|好嘛)$/i.test(s);
 }
 function shouldHonorReplyHint(replyTo, msgType){
@@ -4070,7 +4070,7 @@ function shouldHonorReplyHint(replyTo, msgType){
   if(normalizeMessageType(msgType || 'text') === 'image') return true;
   if(hint === 'last_user' || hint === 'last_ai' || hint === 'last_assistant') return true;
   if(isWeakReplyHint(hint)) return false;
-  return String(hint).trim().length >= 8;
+  return String(hint).trim().length >= 4;
 }
 function resolveReplyTargetId(replyTo, replyRole){
   var hint = normalizeReplyHint(replyTo);
@@ -4387,8 +4387,8 @@ function bindMessageLongPress(el, msgId){
   var startY = 0;
   var dragging = false;
   var swipeDir = el.classList.contains('user') ? -1 : 1;
-  var swipeThreshold = 52;
-  var swipeMax = 72;
+  var swipeThreshold = 34;
+  var swipeMax = 88;
   var clear = function(){
     if(longPressTimer){
       clearTimeout(longPressTimer);
@@ -4414,11 +4414,12 @@ function bindMessageLongPress(el, msgId){
     var dx = evt.clientX - startX;
     var dy = evt.clientY - startY;
     if(Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
-    if(Math.abs(dx) > Math.abs(dy)){
+    if(Math.abs(dx) > Math.abs(dy) * 0.8){
       clear();
       var projected = dx * swipeDir;
       if(projected > 0){
         dragging = true;
+        try{ evt.preventDefault(); }catch(e){}
         var offset = Math.min(swipeMax, projected);
         bubble.style.transform = 'translateX(' + (offset * swipeDir) + 'px)';
       }else{
@@ -4778,13 +4779,24 @@ function bindChatBackgroundUrlInput(){
 
 function loadMoneyCovers(){
   var state = normalizeMoneyStateCache(moneyStateCache || defaultMoneyStateCache());
-  return cloneJsonSafe(state.moneyCovers || [], []);
+  var covers = cloneJsonSafe(state.moneyCovers || [], []);
+  if(covers.length) return covers;
+  try{
+    var legacy = JSON.parse(localStorage.getItem(moneyCoverListKey()) || '[]');
+    return Array.isArray(legacy) ? legacy.filter(function(item){
+      return item && typeof item === 'object' && item.id && item.assetKey;
+    }) : [];
+  }catch(e){
+    return [];
+  }
 }
 
 function saveMoneyCovers(list){
+  var nextList = Array.isArray(list) ? list : [];
   moneyStateCache = normalizeMoneyStateCache(Object.assign({}, moneyStateCache || defaultMoneyStateCache(), {
-    moneyCovers: Array.isArray(list) ? list : []
+    moneyCovers: nextList
   }));
+  try{ localStorage.setItem(moneyCoverListKey(), JSON.stringify(nextList)); }catch(e){}
   persistMoneyStateCache();
 }
 
@@ -7061,6 +7073,9 @@ function handleMoneyCoverUpload(file){
       renderMoneyCoverLibrary();
       updateMoneyCoverButtonLabel();
       toast('红包封面已保存');
+    }).catch(function(){
+      pendingMoneyCoverName = '';
+      toast('红包封面保存失败，换张小一点的图试试');
     });
   };
   reader.readAsDataURL(file);
