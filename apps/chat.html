@@ -9179,6 +9179,16 @@ function setAvatarNodeFromSource(targetEl, src, fallbackText, includeHint){
   }
 }
 
+function getAvatarSrcFromSelectors(selectors){
+  var list = Array.isArray(selectors) ? selectors : [];
+  for(var i = 0; i < list.length; i++){
+    var node = document.querySelector(list[i]);
+    var src = String((node && node.getAttribute && node.getAttribute('src')) || (node && node.src) || '').trim();
+    if(isRenderableAvatarSrc(src)) return src;
+  }
+  return '';
+}
+
 function syncSettingsCharAvatarPreview(){
   var av = document.getElementById('csCharAvatar');
   if(!av || !character) return Promise.resolve('');
@@ -9240,6 +9250,7 @@ function fillIdentityCardFields(options){
   var avatarEl = options.avatarEl;
   var codeText = options.codeText || getIdentityCode();
   var avatarResolver = typeof options.avatarResolver === 'function' ? options.avatarResolver : resolveCharAvatarDataUrl;
+  var liveAvatarSrc = getAvatarSrcFromSelectors(options.preferredAvatarSelectors);
   if(nameEl) nameEl.textContent = (character.name || 'CHAR').trim() || 'CHAR';
   if(codeEl) codeEl.textContent = codeText;
   if(linesEl){
@@ -9248,19 +9259,12 @@ function fillIdentityCardFields(options){
     }).join('');
   }
   if(avatarEl){
-    avatarEl.textContent = (character.avatar || 'AI').slice(0,2);
+    setAvatarNodeFromSource(avatarEl, liveAvatarSrc, character.avatar || 'AI', false);
     return Promise.resolve().then(function(){
+      if(liveAvatarSrc) return liveAvatarSrc;
       return avatarResolver();
     }).then(function(src){
-      if(src){
-        avatarEl.innerHTML = '<img src="' + src + '" alt="char">';
-        return;
-      }
-      if(character.imageData){
-        avatarEl.innerHTML = '<img src="' + character.imageData + '" alt="char">';
-        return;
-      }
-      avatarEl.textContent = (character.avatar || 'AI').slice(0,2);
+      setAvatarNodeFromSource(avatarEl, src || character.imageData || '', character.avatar || 'AI', false);
     });
   }
   return Promise.resolve();
@@ -9306,10 +9310,16 @@ function renderChatIdentityCardBlob(cardEl){
   return new Promise(function(resolve, reject){
     if(!cardEl) { reject(new Error('missing identity card')); return; }
     var clone = cloneNodeWithInlineStyles(cardEl);
+    var rect = cardEl.getBoundingClientRect ? cardEl.getBoundingClientRect() : null;
+    var pad = 64;
+    var width = Math.max(360, Math.ceil((rect && rect.width) || cardEl.offsetWidth || 360));
+    var height = Math.max(260, Math.ceil((rect && rect.height) || cardEl.offsetHeight || 260));
+    var svgWidth = width + pad * 2;
+    var svgHeight = height + pad * 2;
     var svg = ''
-      + '<svg xmlns="http://www.w3.org/2000/svg" width="560" height="430" viewBox="0 0 560 430">'
+      + '<svg xmlns="http://www.w3.org/2000/svg" width="' + svgWidth + '" height="' + svgHeight + '" viewBox="0 0 ' + svgWidth + ' ' + svgHeight + '">'
       + '<foreignObject width="100%" height="100%">'
-      + '<div xmlns="http://www.w3.org/1999/xhtml" style="width:560px;height:430px;display:flex;align-items:center;justify-content:center;background:transparent;overflow:visible;">'
+      + '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + svgWidth + 'px;height:' + svgHeight + 'px;display:flex;align-items:center;justify-content:center;background:transparent;overflow:visible;padding:' + pad + 'px;">'
       + clone.outerHTML
       + '</div>'
       + '</foreignObject>'
@@ -9317,8 +9327,8 @@ function renderChatIdentityCardBlob(cardEl){
     var img = new Image();
     img.onload = function(){
       var canvas = document.createElement('canvas');
-      canvas.width = 1120;
-      canvas.height = 860;
+      canvas.width = svgWidth * 2;
+      canvas.height = svgHeight * 2;
       var ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -9614,7 +9624,8 @@ function fillChatExportIdentityCard(){
     linesEl: document.getElementById('chatExportIdcLines'),
     avatarEl: document.getElementById('chatExportIdcAvatar'),
     codeText: getIdentityCode(),
-    avatarResolver: resolveBestCharAvatarSource
+    avatarResolver: resolveBestCharAvatarSource,
+    preferredAvatarSelectors: ['#csCharAvatar img', '#hdrAvatar img', '#idcAvatar img']
   });
 }
 
