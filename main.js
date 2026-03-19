@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T05:21:00Z';
+const APP_BUILD_ID = '2026-03-18T05:26:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -462,14 +462,31 @@ async function buildRemoteAppFingerprint(){
         .then(function(data){ return readBuildIdFromVersionPayload(data); });
     }
   ];
-  for(var i = 0; i < remoteTasks.length; i += 1){
-    try{
-      var nextFingerprint = await remoteTasks[i]();
-      if(nextFingerprint) return nextFingerprint;
-    }catch(err){
-      console.warn('[update-check] source skipped', err);
-    }
-  }
+  var remoteFingerprint = await new Promise(function(resolve){
+    var settled = false;
+    var pending = remoteTasks.length;
+    remoteTasks.forEach(function(task){
+      Promise.resolve()
+        .then(task)
+        .then(function(value){
+          var next = String(value || '').trim();
+          if(settled || !next) return;
+          settled = true;
+          resolve(next);
+        })
+        .catch(function(err){
+          console.warn('[update-check] source skipped', err);
+        })
+        .finally(function(){
+          pending -= 1;
+          if(!settled && pending <= 0){
+            settled = true;
+            resolve('');
+          }
+        });
+    });
+  });
+  if(remoteFingerprint) return remoteFingerprint;
   if(/^https?:$/.test(window.location.protocol)){
     try{
       var sameOriginFingerprint = await fetchJsonWithTimeout(new URL('version.json?updateCheck=' + stamp, window.location.href).toString(), 15000).then(function(data){
