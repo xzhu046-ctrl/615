@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T05:03:00Z';
+const APP_BUILD_ID = '2026-03-18T05:08:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -47,6 +47,8 @@ let swControllerRefreshPending = false;
 let shownHostedUpdateFingerprint = '';
 let hostedUpdateBootstrapped = false;
 let hostedUpdateModalShown = false;
+let hostedUpdatePromptDedupeFingerprint = '';
+let hostedUpdatePromptDedupeAt = 0;
 let chatInputFocusActive = false;
 let chatReportedKeyboardShift = 0;
 
@@ -330,27 +332,16 @@ function simpleStringFingerprint(text){
 function markHostedUpdatePromptShown(fingerprint){
   var value = String(fingerprint || pendingRemoteAppFingerprint || '').trim();
   if(!value) return;
-  try{
-    sessionStorage.setItem(UPDATE_PROMPT_DEDUPE_KEY, JSON.stringify({
-      fingerprint: value,
-      at: Date.now()
-    }));
-  }catch(e){}
+  hostedUpdatePromptDedupeFingerprint = value;
+  hostedUpdatePromptDedupeAt = Date.now();
 }
 
 function shouldSuppressHostedUpdatePrompt(fingerprint){
   var value = String(fingerprint || pendingRemoteAppFingerprint || '').trim();
   if(!value) return false;
-  try{
-    var raw = sessionStorage.getItem(UPDATE_PROMPT_DEDUPE_KEY);
-    if(!raw) return false;
-    var parsed = JSON.parse(raw);
-    if(!parsed || String(parsed.fingerprint || '').trim() !== value) return false;
-    var age = Date.now() - (Number(parsed.at || 0) || 0);
-    return age >= 0 && age < UPDATE_PROMPT_DEDUPE_MS;
-  }catch(e){
-    return false;
-  }
+  if(hostedUpdatePromptDedupeFingerprint !== value) return false;
+  var age = Date.now() - (Number(hostedUpdatePromptDedupeAt || 0) || 0);
+  return age >= 0 && age < UPDATE_PROMPT_DEDUPE_MS;
 }
 
 function getAcceptedHostedUpdateBuild(){
