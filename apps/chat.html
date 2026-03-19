@@ -618,8 +618,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .export-preview-card{width:min(360px,100%);background:transparent;border:none;box-shadow:none;padding:0;display:flex;flex-direction:column;align-items:center;gap:14px}
 .export-preview-meta{display:none}
 .export-preview-shell{display:flex;align-items:center;justify-content:center;padding:0;background:none;border:none;box-shadow:none}
-.export-preview-shell img{display:none;width:360px;max-width:100%;height:auto}
-.chat-export-idcard{display:block}
+.export-preview-shell img{display:block;width:360px;max-width:100%;height:auto}
+.chat-export-idcard{display:none}
 .export-preview-card .voice-card-title{display:none}
 .export-preview-card .voice-card-actions{width:100%;justify-content:center;gap:12px}
 .export-preview-card .voice-btn{flex:0 0 118px;max-width:calc(50% - 6px);border-radius:999px;background:#fff;color:#0a0a0a;box-shadow:0 10px 22px rgba(0,0,0,.12)}
@@ -8986,7 +8986,9 @@ async function renderChatIdentityCardCanvasFallback(cardEl){
   var lines = Array.prototype.map.call(cardEl.querySelectorAll('.idcard-line'), function(node){
     return String(node.textContent || '').trim();
   }).filter(Boolean);
-  var avatarSrc = currentVisibleCharAvatarSrc() || String((cardEl.querySelector('.idcard-avatar img') || {}).src || '').trim();
+  var avatarSrc = getAvatarSrcFromSelectors(['#csCharAvatar img', '#hdrAvatar img', '#idcAvatar img', '#chatExportIdcAvatar img'])
+    || currentVisibleCharAvatarSrc()
+    || String((cardEl.querySelector('.idcard-avatar img') || {}).src || '').trim();
   var stampSrc = String((cardEl.querySelector('.idcard-stamp img') || {}).src || 'assets/red stamp.png').trim();
   var avatarImg = await loadChatExportImage(avatarSrc);
   var stampImg = await loadChatExportImage(stampSrc);
@@ -9082,7 +9084,7 @@ async function renderChatIdentityCardCanvasFallback(cardEl){
     ctx.stroke();
   });
 
-  roundedChatExportRect(ctx, 150, 228, 180, 58, 14);
+  roundedChatExportRect(ctx, 150, 224, 180, 72, 14);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
   ctx.strokeStyle = '#0a0a0a';
@@ -9090,14 +9092,14 @@ async function renderChatIdentityCardCanvasFallback(cardEl){
 
   for(var x = 160; x < 320; x += 15){
     ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(x, 238, 2, 28);
-    ctx.fillRect(x + 5, 238, 4, 28);
+    ctx.fillRect(x, 236, 2, 28);
+    ctx.fillRect(x + 5, 236, 4, 28);
   }
   ctx.fillStyle = '#0a0a0a';
   ctx.font = '900 16px Nunito';
   ctx.textAlign = 'center';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText(code, 240, 290);
+  ctx.textBaseline = 'middle';
+  ctx.fillText(code, 240, 280);
   ctx.textAlign = 'start';
 
   if(stampImg){
@@ -9348,13 +9350,7 @@ async function buildChatExportPreview(){
   await fillChatExportIdentityCard();
   var cardEl = document.querySelector('#chatExportOverlay .chat-export-idcard .idcard-card');
   await waitForNodeImages(cardEl);
-  var pngBlob = null;
-  try{
-    pngBlob = await renderChatIdentityCardBlob(cardEl);
-    if(!pngBlob || !pngBlob.size) throw new Error('empty render');
-  }catch(err){
-    pngBlob = await renderChatIdentityCardCanvasFallback(cardEl);
-  }
+  var pngBlob = await renderChatIdentityCardCanvasFallback(cardEl);
   var baseBuffer = await pngBlob.arrayBuffer();
   var finalBytes = embedChatExportPng(baseBuffer, cardJson);
   var finalBlob = new Blob([finalBytes], { type:'image/png' });
@@ -9365,6 +9361,7 @@ async function openChatExportCardPreview(){
   if(!character) return;
   var overlay = document.getElementById('chatExportOverlay');
   var btn = document.getElementById('chatExportConfirmBtn');
+  var img = document.getElementById('chatExportPreviewImg');
   var prevState = chatExportState;
   await fillChatExportIdentityCard();
   overlay.style.display = 'flex';
@@ -9379,6 +9376,7 @@ async function openChatExportCardPreview(){
     }
     var built = await buildChatExportPreview();
     chatExportState = { url: built.url, blob: built.blob, name: (character && character.name) || 'character' };
+    if(img) img.src = built.url;
     if(btn){
       btn.textContent = '确认';
       btn.disabled = false;
