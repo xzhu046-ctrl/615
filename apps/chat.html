@@ -9167,6 +9167,37 @@ function getChatAvatarCandidates(){
   });
 }
 
+function setAvatarNodeFromSource(targetEl, src, fallbackText, includeHint){
+  if(!targetEl) return;
+  var hint = includeHint ? '<div class="avatar-pick-hint">换头像</div>' : '';
+  var safeText = String(fallbackText || 'AI').slice(0, 2);
+  var text = String(src || '').trim();
+  if(isRenderableAvatarSrc(text)){
+    targetEl.innerHTML = '<img src="' + text + '" alt="char">' + hint;
+  }else{
+    targetEl.innerHTML = includeHint ? getAvatarPlaceholderHtml('char', safeText) : esc(safeText);
+  }
+}
+
+function syncSettingsCharAvatarPreview(){
+  var av = document.getElementById('csCharAvatar');
+  if(!av || !character) return Promise.resolve('');
+  var hdrImg = document.querySelector('#hdrAvatar img');
+  var hdrSrc = String((hdrImg && hdrImg.getAttribute('src')) || (hdrImg && hdrImg.src) || '').trim();
+  if(isRenderableAvatarSrc(hdrSrc)){
+    setAvatarNodeFromSource(av, hdrSrc, character.avatar || 'AI', true);
+    return Promise.resolve(hdrSrc);
+  }
+  return getChatAvatarCandidates().then(function(list){
+    var src = list[0] || '';
+    setAvatarNodeFromSource(av, src, character.avatar || 'AI', true);
+    return src;
+  }).catch(function(){
+    setAvatarNodeFromSource(av, '', character.avatar || 'AI', true);
+    return '';
+  });
+}
+
 function fitChatExportText(ctx, text, maxWidth, startSize, minSize, weight, family){
   var size = startSize;
   var safeText = String(text || '');
@@ -9307,7 +9338,13 @@ async function buildChatExportPreview(){
   await fillChatExportIdentityCard();
   var cardEl = document.querySelector('#chatExportOverlay .chat-export-idcard .idcard-card');
   await waitForNodeImages(cardEl);
-  var pngBlob = await renderChatIdentityCardCanvasFallback(cardEl);
+  var pngBlob = null;
+  try{
+    pngBlob = await renderChatIdentityCardBlob(cardEl);
+    if(!pngBlob || !pngBlob.size) throw new Error('empty render');
+  }catch(err){
+    pngBlob = await renderChatIdentityCardCanvasFallback(cardEl);
+  }
   var baseBuffer = await pngBlob.arrayBuffer();
   var finalBytes = embedChatExportPng(baseBuffer, cardJson);
   var finalBlob = new Blob([finalBytes], { type:'image/png' });
@@ -9640,14 +9677,7 @@ function openChatSettings() {
     bindChatBackgroundUrlInput();
     var isDefault = isDefaultAccountContext();
     if (character) {
-      var av = document.getElementById('csCharAvatar');
-      av.innerHTML = getAvatarPlaceholderHtml('char', character.avatar || '');
-      resolveBestCharAvatarSource().then(function(src){
-        if (isRenderableAvatarSrc(src)) { av.innerHTML = '<img src="' + src + '"><div class="avatar-pick-hint">换头像</div>'; }
-      }).catch(function(){});
-      loadStoredAsset('char_avatar_' + character.id).then(function(ovr){
-        if (isRenderableAvatarSrc(ovr)) { av.innerHTML = '<img src="' + ovr + '"><div class="avatar-pick-hint">换头像</div>'; }
-      });
+      syncSettingsCharAvatarPreview();
       document.getElementById('csCharName').value = character.name || '';
       document.getElementById('csCharNick').value = character.nickname || '';
       document.getElementById('csCharPersona').value = character.personality || character.description || character.name || '暂无人设';
@@ -9850,7 +9880,7 @@ function onCharImg(file) {
   r.onload = async function(e) {
     var d = e.target.result;
     var av = document.getElementById('csCharAvatar');
-    av.innerHTML = '<img src="' + d + '"><div class="avatar-pick-hint">换头像</div>';
+    setAvatarNodeFromSource(av, d, character && character.avatar || 'AI', true);
     if (character) {
       character.imageData = d;
       persistCharacter();
