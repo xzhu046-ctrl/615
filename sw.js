@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-18T05:26:00Z';
+const CACHE_VERSION = '2026-03-18T05:31:00Z';
 const CACHE_NAME = 'phone-shell';
 const CORE_URLS = [
   './',
@@ -34,6 +34,18 @@ function shouldBypassDocumentCache(url){
       || url.searchParams.has('swBuild')
       || url.searchParams.has('__appBuild')
       || url.searchParams.has('__ts');
+  }catch(err){
+    return false;
+  }
+}
+
+function shouldBypassShellAssetCache(url){
+  try{
+    return url.searchParams.has('refreshBuild')
+      || url.searchParams.has('swBuild')
+      || url.searchParams.has('__appBuild')
+      || url.searchParams.has('__ts')
+      || url.searchParams.has('updateCheck');
   }catch(err){
     return false;
   }
@@ -111,16 +123,27 @@ self.addEventListener('fetch', (event)=>{
 
   if(isShellAsset){
     event.respondWith(
-      caches.match(event.request, { ignoreSearch: true }).then((cached)=>{
-        if(cached) return cached;
-        return fetch(event.request, { cache:'no-store' })
-          .then((response)=>{
+      Promise.resolve().then(()=>{
+        if(shouldBypassShellAssetCache(url)){
+          return fetch(event.request, { cache:'reload' }).then((response)=>{
             if(response && response.ok){
               const copy = response.clone();
-              caches.open(CACHE_NAME).then((cache)=>cache.put(event.request, copy)).catch(()=>null);
+              caches.open(CACHE_NAME).then((cache)=>cache.put(new Request(url.pathname, { method:'GET' }), copy)).catch(()=>null);
             }
             return response;
           });
+        }
+        return caches.match(event.request, { ignoreSearch: true }).then((cached)=>{
+          if(cached) return cached;
+          return fetch(event.request, { cache:'no-store' })
+            .then((response)=>{
+              if(response && response.ok){
+                const copy = response.clone();
+                caches.open(CACHE_NAME).then((cache)=>cache.put(event.request, copy)).catch(()=>null);
+              }
+              return response;
+            });
+        });
       }).catch(()=>fetch(event.request, { cache:'no-store' }))
     );
     return;
