@@ -9351,18 +9351,49 @@ function renderChatIdentityCardBlob(cardEl){
   });
 }
 
+function mountExportIdentityCardClone(){
+  var sourceCard = document.querySelector('#identityCardOverlay .idcard-card');
+  if(!sourceCard) return null;
+  var host = document.createElement('div');
+  host.style.position = 'fixed';
+  host.style.left = '-9999px';
+  host.style.top = '0';
+  host.style.width = '420px';
+  host.style.padding = '48px';
+  host.style.visibility = 'hidden';
+  host.style.pointerEvents = 'none';
+  host.style.zIndex = '-1';
+  host.style.background = 'transparent';
+  var clone = sourceCard.cloneNode(true);
+  host.appendChild(clone);
+  document.body.appendChild(host);
+  return { host: host, card: clone };
+}
+
 async function buildChatExportPreview(){
   var payload = buildChatExportPayload();
   var cardJson = JSON.stringify(payload);
-  await fillChatExportIdentityCard();
-  var cardEl = document.querySelector('#chatExportOverlay .chat-export-idcard .idcard-card');
-  await waitForNodeImages(cardEl);
+  await fillIdentityCardFields({
+    nameEl: document.getElementById('idcName'),
+    codeEl: document.getElementById('idcCode'),
+    linesEl: document.getElementById('idcLines'),
+    avatarEl: document.getElementById('idcAvatar'),
+    codeText: getIdentityCode(),
+    avatarResolver: resolveBestCharAvatarSource,
+    preferredAvatarSelectors: ['#csCharAvatar img', '#hdrAvatar img']
+  });
+  var mounted = mountExportIdentityCardClone();
+  if(!mounted || !mounted.card) throw new Error('missing source identity card');
   var pngBlob = null;
   try{
-    pngBlob = await renderChatIdentityCardBlob(cardEl);
+    await waitForNodeImages(mounted.card);
+    pngBlob = await renderChatIdentityCardBlob(mounted.card);
     if(!pngBlob || !pngBlob.size) throw new Error('empty render');
   }catch(err){
-    pngBlob = await renderChatIdentityCardCanvasFallback(cardEl);
+    await waitForNodeImages(mounted.card);
+    pngBlob = await renderChatIdentityCardCanvasFallback(mounted.card);
+  }finally{
+    if(mounted.host && mounted.host.parentNode) mounted.host.parentNode.removeChild(mounted.host);
   }
   var baseBuffer = await pngBlob.arrayBuffer();
   var finalBytes = embedChatExportPng(baseBuffer, cardJson);
