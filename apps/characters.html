@@ -1331,183 +1331,71 @@ function fillExportIdentityCard(c){
   }
 }
 
+var ID_CARD_CAPTURE_CSS = [
+  '.capture-root{width:560px;height:430px;display:flex;align-items:center;justify-content:center;background:transparent;overflow:visible}',
+  '.idcard-card{width:360px;background:radial-gradient(140% 85% at 8% 0%,#fff 0%,#f8f8f8 44%,#ededed 100%);border:2px solid #0a0a0a;border-radius:26px;box-shadow:2px 2px 0 #000,0 16px 30px rgba(0,0,0,.18),inset 0 0 0 1px #fff,inset 0 -8px 16px rgba(0,0,0,.05);padding:0;overflow:visible;position:relative;transform:rotate(-1.6deg)}',
+  '.idcard-shell{border-radius:inherit;overflow:hidden;position:relative;background:inherit}',
+  '.idcard-clip{position:absolute;left:50%;top:-18px;transform:translateX(-50%);width:94px;height:30px;border:2px solid #0a0a0a;border-bottom-width:3px;border-radius:8px 8px 12px 12px;background:linear-gradient(180deg,#fefefe 0%,#dcdcdc 100%);box-shadow:1px 1px 0 #000,0 8px 12px rgba(0,0,0,.14);z-index:9}',
+  '.idcard-clip::before{content:"";position:absolute;left:11px;right:11px;top:4px;height:9px;border-radius:6px;background:linear-gradient(180deg,#ffffff 0%,#c8c8c8 100%);border:1px solid #9a9a9a}',
+  '.idcard-head{height:56px;border-bottom:2px solid #0a0a0a;display:flex;align-items:center;justify-content:flex-start;background:#0a0a0a;color:#ffffff;letter-spacing:.08em;font-family:"Times New Roman",Times,serif;font-size:22px;font-weight:800;position:relative;padding:6px 0 0 18px;margin:-1px -1px 0;border-top-left-radius:24px;border-top-right-radius:24px;overflow:hidden}',
+  '.idcard-head::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:#0a0a0a}',
+  '.idcard-inner{border:none;border-radius:20px;background:transparent;padding:14px;display:grid;grid-template-columns:132px 1fr;gap:12px}',
+  '.idcard-left{display:flex;flex-direction:column;align-items:center;gap:0}',
+  '.idcard-avatar{width:120px;height:148px;border:2px solid #0a0a0a;border-radius:26px;background:linear-gradient(180deg,#f2f2f2 0%,#e8e8e8 100%);box-shadow:1px 1px 0 #000,0 8px 18px rgba(0,0,0,.08),inset 0 0 0 1px #fff;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:50px;font-family:"Nunito",sans-serif;font-weight:900}',
+  '.idcard-avatar img{width:100%;height:100%;object-fit:cover;display:block}',
+  '.idcard-name{min-width:96px;max-width:120px;border:2px solid #0a0a0a;border-radius:999px;background:linear-gradient(180deg,#fff 0%,#f0f0f0 100%);box-shadow:1px 1px 0 #0a0a0a,inset 0 0 0 1px #fff;padding:5px 10px;text-align:center;font-family:"Nunito",sans-serif;font-size:13px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;margin-top:-11px;z-index:2}',
+  '.idcard-right{display:flex;flex-direction:column;gap:10px}',
+  '.idcard-lines{display:flex;flex-direction:column;gap:8px;min-height:88px;padding-top:2px}',
+  '.idcard-line{border-bottom:2px solid #1d1d1d;padding-bottom:4px;font-size:12px;line-height:1.4;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#0a0a0a}',
+  '.idcard-line.muted{color:#777;font-weight:600}',
+  '.idcard-bar-wrap{margin-top:0;border:2px solid #0a0a0a;border-radius:14px;background:#fff;padding:8px 9px 6px;box-shadow:1px 1px 0 #0a0a0a,inset 0 0 0 1px #fff;transform:translateY(-3px)}',
+  '.idcard-bar{height:28px;border-radius:6px;background:repeating-linear-gradient(90deg,#0a0a0a 0 2px,#ffffff 2px 5px,#0a0a0a 5px 9px,#ffffff 9px 12px,#0a0a0a 12px 13px,#ffffff 13px 15px)}',
+  '.idcard-code{margin-top:6px;text-align:center;font-family:"Nunito",sans-serif;font-size:16px;font-weight:900;letter-spacing:.08em;color:#0a0a0a}',
+  '.idcard-stamp{position:absolute;right:-70px;top:-62px;width:188px;height:188px;display:flex;align-items:center;justify-content:center;transform:rotate(-18deg);pointer-events:none;z-index:6;mix-blend-mode:normal}',
+  '.idcard-stamp img{width:100%;height:100%;object-fit:contain;display:block;opacity:1;filter:saturate(150%) contrast(130%);position:relative;z-index:1;mix-blend-mode:multiply}'
+].join('');
+
+function renderIdentityCardBlob(cardEl){
+  return new Promise(function(resolve, reject){
+    if(!cardEl) { reject(new Error('missing identity card')); return; }
+    var clone = cardEl.cloneNode(true);
+    Array.prototype.forEach.call(clone.querySelectorAll('img'), function(img){
+      var src = String(img.getAttribute('src') || img.src || '').trim();
+      if(src) img.setAttribute('src', new URL(src, window.location.href).toString());
+    });
+    var svg = ''
+      + '<svg xmlns="http://www.w3.org/2000/svg" width="560" height="430" viewBox="0 0 560 430">'
+      + '<foreignObject width="100%" height="100%">'
+      + '<div xmlns="http://www.w3.org/1999/xhtml" class="capture-root">'
+      + '<style>' + ID_CARD_CAPTURE_CSS + '</style>'
+      + clone.outerHTML
+      + '</div>'
+      + '</foreignObject>'
+      + '</svg>';
+    var img = new Image();
+    img.onload = function(){
+      var canvas = document.createElement('canvas');
+      canvas.width = 1120;
+      canvas.height = 860;
+      var ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(function(blob){
+        if(blob) resolve(blob);
+        else reject(new Error('render failed'));
+      }, 'image/png');
+    };
+    img.onerror = function(){ reject(new Error('svg render failed')); };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  });
+}
+
 async function buildCharacterPreviewPng(c){
   var payload = buildCharacterExportPayload(c);
   var cardJson = JSON.stringify(payload);
-  var personaText = [
-    c && c.personality ? c.personality : '',
-    c && c.description ? c.description : '',
-    c && c.scenario ? c.scenario : '',
-    c && c.system_prompt ? c.system_prompt : ''
-  ].filter(Boolean).join('\n');
-  var infoLines = extractCharacterPersonaBasicInfo(personaText);
-  if(infoLines.every(function(line){ return /未设置$/.test(line); })){
-    try{ infoLines = extractCharacterPersonaBasicInfo(JSON.stringify(c || {})); }catch(e){}
-  }
-  var identityCode = getCharacterIdentityCode(c);
-  var canvas = document.createElement('canvas');
-  canvas.width = 980;
-  canvas.height = 860;
-  var ctx = canvas.getContext('2d');
-  ctx.save();
-  ctx.translate(80, 140);
-  ctx.rotate(-0.028);
-  var cardX = 0;
-  var cardY = 0;
-  var cardW = 860;
-  var cardH = 676;
-  var shellGrad = ctx.createRadialGradient(cardW * .14, 0, 30, cardW * .24, cardH * .52, cardW * .95);
-  shellGrad.addColorStop(0, '#ffffff');
-  shellGrad.addColorStop(.45, '#f8f8f8');
-  shellGrad.addColorStop(1, '#ededed');
-  ctx.shadowColor = 'rgba(0,0,0,.18)';
-  ctx.shadowBlur = 36;
-  ctx.shadowOffsetY = 18;
-  roundedRect(ctx, cardX, cardY, cardW, cardH, 78);
-  ctx.fillStyle = shellGrad;
-  ctx.fill();
-  ctx.shadowColor = 'transparent';
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = '#0a0a0a';
-  ctx.stroke();
-  ctx.save();
-  roundedRect(ctx, cardX, cardY, cardW, cardH, 78);
-  ctx.clip();
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fillRect(0, 0, cardW, 168);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = '800 66px Times New Roman';
-  ctx.fillText('IDENTITY CARD', 52, 104);
-  ctx.restore();
-
-  var clipX = cardW / 2 - 141;
-  var clipY = -34;
-  var clipGrad = ctx.createLinearGradient(0, clipY, 0, clipY + 90);
-  clipGrad.addColorStop(0, '#fefefe');
-  clipGrad.addColorStop(1, '#d8d8d8');
-  roundedRect(ctx, clipX, clipY, 282, 90, 22);
-  ctx.fillStyle = clipGrad;
-  ctx.fill();
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = '#0a0a0a';
-  ctx.stroke();
-  roundedRect(ctx, clipX + 33, clipY + 14, 216, 28, 12);
-  ctx.fillStyle = '#dcdcdc';
-  ctx.fill();
-  ctx.strokeStyle = '#9a9a9a';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-
-  var avatar = await loadImageElement(getAvatarSrc(c));
-  var innerPad = 42;
-  var avatarX = innerPad;
-  var avatarY = 210;
-  var avatarW = 286;
-  var avatarH = 354;
-  var avatarGrad = ctx.createLinearGradient(0, avatarY, 0, avatarY + avatarH);
-  avatarGrad.addColorStop(0, '#f2f2f2');
-  avatarGrad.addColorStop(1, '#e7e7e7');
-  roundedRect(ctx, avatarX, avatarY, avatarW, avatarH, 62);
-  ctx.fillStyle = avatarGrad;
-  ctx.fill();
-  ctx.lineWidth = 6;
-  ctx.strokeStyle = '#0a0a0a';
-  ctx.stroke();
-  if(avatar){
-    ctx.save();
-    roundedRect(ctx, avatarX, avatarY, avatarW, avatarH, 62);
-    ctx.clip();
-    ctx.drawImage(avatar, avatarX, avatarY, avatarW, avatarH);
-    ctx.restore();
-  }else{
-    ctx.fillStyle = '#0a0a0a';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = '900 116px Nunito';
-    ctx.fillText((c.avatar || 'C').slice(0, 2), avatarX + avatarW / 2, avatarY + avatarH / 2);
-    ctx.textAlign = 'start';
-    ctx.textBaseline = 'alphabetic';
-  }
-
-  var namePillX = 68;
-  var namePillY = 535;
-  var namePillW = 240;
-  var namePillH = 70;
-  var namePillGrad = ctx.createLinearGradient(0, namePillY, 0, namePillY + namePillH);
-  namePillGrad.addColorStop(0, '#ffffff');
-  namePillGrad.addColorStop(1, '#f0f0f0');
-  roundedRect(ctx, namePillX, namePillY, namePillW, namePillH, 35);
-  ctx.fillStyle = namePillGrad;
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = '#0a0a0a';
-  ctx.stroke();
-  ctx.fillStyle = '#0a0a0a';
-  ctx.textAlign = 'center';
-  fitCanvasText(ctx, c.name || 'CHAR', namePillW - 26, 28, 18, '900', 'Nunito');
-  ctx.fillText(c.name || 'CHAR', namePillX + namePillW / 2, namePillY + 44);
-  ctx.textAlign = 'start';
-
-  var infoX = 374;
-  var linesY = 260;
-  ctx.fillStyle = '#0a0a0a';
-  ctx.font = '700 28px Quicksand';
-  infoLines.forEach(function(line, idx){
-    var lineY = linesY + idx * 78;
-    ctx.fillText(line, infoX, lineY);
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = '#1d1d1d';
-    ctx.beginPath();
-    ctx.moveTo(infoX, lineY + 18);
-    ctx.lineTo(796, lineY + 18);
-    ctx.stroke();
-  });
-
-  var barWrapX = infoX;
-  var barWrapY = 434;
-  var barWrapW = 394;
-  var barWrapH = 120;
-  roundedRect(ctx, barWrapX, barWrapY, barWrapW, barWrapH, 22);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = '#0a0a0a';
-  ctx.stroke();
-  var barX = barWrapX + 24;
-  var barY = barWrapY + 20;
-  var barW = barWrapW - 48;
-  var barH = 34;
-  roundedRect(ctx, barX, barY, barW, barH, 8);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-  ctx.save();
-  roundedRect(ctx, barX, barY, barW, barH, 8);
-  ctx.clip();
-  for(var stripeX = 0; stripeX < barW + 30; stripeX += 18){
-    ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(barX + stripeX, barY, 7, barH);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(barX + stripeX + 7, barY, 11, barH);
-  }
-  ctx.restore();
-  ctx.fillStyle = '#0a0a0a';
-  ctx.textAlign = 'center';
-  ctx.font = '900 32px Nunito';
-  ctx.fillText(identityCode, barWrapX + barWrapW / 2, barWrapY + 90);
-  ctx.textAlign = 'start';
-
-  var stamp = await loadImageElement('assets/red stamp.png');
-  if(stamp){
-    ctx.save();
-    ctx.translate(804, 66);
-    ctx.rotate(-0.31);
-    ctx.globalAlpha = .92;
-    ctx.drawImage(stamp, -154, -154, 308, 308);
-    ctx.restore();
-  }
-  ctx.restore();
-
-  var pngBlob = await new Promise(function(resolve){ canvas.toBlob(resolve, 'image/png'); });
+  fillExportIdentityCard(c);
+  var cardEl = document.querySelector('#exportMask .idcard-card');
+  var pngBlob = await renderIdentityCardBlob(cardEl);
   var baseBuffer = await pngBlob.arrayBuffer();
   var finalBytes = embedCharaChunkIntoPng(baseBuffer, cardJson);
   var finalBlob = new Blob([finalBytes], { type:'image/png' });
@@ -1522,11 +1410,9 @@ async function buildCharacterPreviewPng(c){
 async function openExportCardPreview(){
   if(!curChar) return;
   var btn = document.getElementById('exportConfirmBtn');
-  var meta = document.getElementById('exportMetaText');
   var img = document.getElementById('exportPreviewImg');
   fillExportIdentityCard(curChar);
   if(btn) btn.textContent = '确认';
-  if(meta) meta.textContent = '正在把 persona、开场白、世界书装进 PNG 卡里...';
   document.getElementById('exportMask').style.display = 'flex';
   try{
     if(exportPreviewState && exportPreviewState.url){
@@ -1540,10 +1426,8 @@ async function openExportCardPreview(){
       blob: built.blob
     };
     if(img) img.src = built.previewUrl;
-    if(meta) meta.textContent = summarizeExportMeta(curChar, built.payload);
     if(btn) btn.textContent = '确认';
   }catch(e){
-    if(meta) meta.textContent = '导出失败：' + (e.message || e);
     if(btn) btn.textContent = '确认';
     log('导出失败：' + (e.message || e));
   }
