@@ -27,14 +27,14 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T06:40:00Z';
+const APP_BUILD_ID = '2026-03-18T06:46:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
 const HOSTED_UPDATE_ACCEPTED_BUILD_KEY = 'hosted_update_accepted_build_v1';
 const HOSTED_UPDATE_ACCEPTED_AT_KEY = 'hosted_update_accepted_at_v1';
 const HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY = 'hosted_update_last_seen_remote_v1';
-const HOSTED_UPDATE_ACCEPTED_TTL_MS = 2 * 60 * 1000;
+const HOSTED_UPDATE_ACCEPTED_TTL_MS = 20 * 1000;
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
 const GITHUB_UPDATE_REPO = '615';
@@ -711,6 +711,7 @@ function bootHostedUpdateCheck(){
   if(hostedUpdateBootstrapped) return;
   hostedUpdateBootstrapped = true;
   var cachedRemoteFingerprint = getLastSeenHostedRemoteBuild();
+  updateHostedUpdateMeta(cachedRemoteFingerprint);
   if(cachedRemoteFingerprint && compareHostedBuildIds(cachedRemoteFingerprint, APP_BUILD_ID) > 0 && !isAcceptedHostedRemoteBuild(cachedRemoteFingerprint)){
     pendingRemoteAppFingerprint = cachedRemoteFingerprint;
     announceHostedUpdate(cachedRemoteFingerprint);
@@ -718,7 +719,7 @@ function bootHostedUpdateCheck(){
     try{ localStorage.removeItem(HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY); }catch(e){}
   }
   kickOffHostedUpdateRetries();
-  [1800, 4200].forEach(function(delay){
+  [1200, 3200, 6500, 11000, 18000].forEach(function(delay){
     setTimeout(function(){
       scheduleHostedUpdateCheck(true);
     }, delay);
@@ -3306,6 +3307,20 @@ window.addEventListener('load', ()=>{
       setTimeout(applyIframeSafeAreaOverrides, 120);
     });
   }
+});
+
+window.addEventListener('online', function(){
+  scheduleHostedUpdateCheck(true);
+});
+
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible'){
+    scheduleHostedUpdateCheck(true);
+  }
+});
+
+window.addEventListener('pageshow', function(){
+  scheduleHostedUpdateCheck(true);
 });
 
 window.addEventListener('pageshow', ()=>{
