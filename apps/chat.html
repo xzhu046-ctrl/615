@@ -618,8 +618,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .export-preview-card{width:min(360px,100%);background:transparent;border:none;box-shadow:none;padding:0;display:flex;flex-direction:column;align-items:center;gap:14px}
 .export-preview-meta{display:none}
 .export-preview-shell{display:flex;align-items:center;justify-content:center;padding:0;background:none;border:none;box-shadow:none}
-.export-preview-shell img{display:block;width:360px;max-width:100%;height:auto}
-.chat-export-idcard{display:none}
+.export-preview-shell img{display:none;width:360px;max-width:100%;height:auto}
+.chat-export-idcard{display:block}
 .export-preview-card .voice-card-title{display:none}
 .export-preview-card .voice-card-actions{width:100%;justify-content:center;gap:12px}
 .export-preview-card .voice-btn{flex:0 0 118px;max-width:calc(50% - 6px);border-radius:999px;background:#fff;color:#0a0a0a;box-shadow:0 10px 22px rgba(0,0,0,.12)}
@@ -9026,8 +9026,9 @@ function roundedChatExportRect(ctx, x, y, w, h, r){
   ctx.closePath();
 }
 
-function fillChatExportIdentityCard(){
-  if(!character) return;
+function fillIdentityCardFields(options){
+  if(!character) return Promise.resolve();
+  options = options || {};
   var persona = [
     character && character.personality ? character.personality : '',
     character && character.description ? character.description : '',
@@ -9038,12 +9039,14 @@ function fillChatExportIdentityCard(){
   if(lines.every(function(line){ return /未设置$/.test(line); })){
     try{ lines = extractPersonaBasicInfo(JSON.stringify(character || {})); }catch(e){}
   }
-  var nameEl = document.getElementById('chatExportIdcName');
-  var codeEl = document.getElementById('chatExportIdcCode');
-  var linesEl = document.getElementById('chatExportIdcLines');
-  var avatarEl = document.getElementById('chatExportIdcAvatar');
+  var nameEl = options.nameEl;
+  var codeEl = options.codeEl;
+  var linesEl = options.linesEl;
+  var avatarEl = options.avatarEl;
+  var codeText = options.codeText || getIdentityCode();
+  var avatarResolver = typeof options.avatarResolver === 'function' ? options.avatarResolver : resolveCharAvatarDataUrl;
   if(nameEl) nameEl.textContent = (character.name || 'CHAR').trim() || 'CHAR';
-  if(codeEl) codeEl.textContent = getIdentityCode();
+  if(codeEl) codeEl.textContent = codeText;
   if(linesEl){
     linesEl.innerHTML = lines.map(function(line){
       return '<div class="idcard-line">' + esc(line) + '</div>';
@@ -9051,7 +9054,9 @@ function fillChatExportIdentityCard(){
   }
   if(avatarEl){
     avatarEl.textContent = (character.avatar || 'AI').slice(0,2);
-    resolveBestCharAvatarSource().then(function(src){
+    return Promise.resolve().then(function(){
+      return avatarResolver();
+    }).then(function(src){
       if(src){
         avatarEl.innerHTML = '<img src="' + src + '" alt="char">';
         return;
@@ -9063,45 +9068,53 @@ function fillChatExportIdentityCard(){
       avatarEl.textContent = (character.avatar || 'AI').slice(0,2);
     });
   }
+  return Promise.resolve();
 }
 
-var CHAT_ID_CARD_CAPTURE_CSS = [
-  '.capture-root{width:560px;height:430px;display:flex;align-items:center;justify-content:center;background:transparent;overflow:visible}',
-  '.idcard-card{width:360px;background:radial-gradient(140% 85% at 8% 0%,#fff 0%,#f8f8f8 44%,#ededed 100%);border:2px solid #0a0a0a;border-radius:26px;box-shadow:2px 2px 0 #000,0 16px 30px rgba(0,0,0,.18),inset 0 0 0 1px #fff,inset 0 -8px 16px rgba(0,0,0,.05);padding:0;overflow:visible;position:relative;transform:rotate(-1.6deg)}',
-  '.idcard-shell{border-radius:inherit;overflow:hidden;position:relative;background:inherit}',
-  '.idcard-clip{position:absolute;left:50%;top:-18px;transform:translateX(-50%);width:94px;height:30px;border:2px solid #0a0a0a;border-bottom-width:3px;border-radius:8px 8px 12px 12px;background:linear-gradient(180deg,#fefefe 0%,#dcdcdc 100%);box-shadow:1px 1px 0 #000,0 8px 12px rgba(0,0,0,.14);z-index:9}',
-  '.idcard-clip::before{content:"";position:absolute;left:11px;right:11px;top:4px;height:9px;border-radius:6px;background:linear-gradient(180deg,#ffffff 0%,#c8c8c8 100%);border:1px solid #9a9a9a}',
-  '.idcard-head{height:56px;border-bottom:2px solid #0a0a0a;display:flex;align-items:center;justify-content:flex-start;background:#0a0a0a;color:#ffffff;letter-spacing:.08em;font-family:"Times New Roman",Times,serif;font-size:22px;font-weight:800;position:relative;padding:6px 0 0 18px;margin:-1px -1px 0;border-top-left-radius:24px;border-top-right-radius:24px;overflow:hidden}',
-  '.idcard-head::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;background:#0a0a0a}',
-  '.idcard-inner{border:none;border-radius:20px;background:transparent;padding:14px;display:grid;grid-template-columns:132px 1fr;gap:12px}',
-  '.idcard-left{display:flex;flex-direction:column;align-items:center;gap:0}',
-  '.idcard-avatar{width:120px;height:148px;border:2px solid #0a0a0a;border-radius:26px;background:linear-gradient(180deg,#f2f2f2 0%,#e8e8e8 100%);box-shadow:1px 1px 0 #000,0 8px 18px rgba(0,0,0,.08),inset 0 0 0 1px #fff;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:50px;font-family:"Nunito",sans-serif;font-weight:900}',
-  '.idcard-avatar img{width:100%;height:100%;object-fit:cover;display:block}',
-  '.idcard-name{min-width:96px;max-width:120px;border:2px solid #0a0a0a;border-radius:999px;background:linear-gradient(180deg,#fff 0%,#f0f0f0 100%);box-shadow:1px 1px 0 #0a0a0a,inset 0 0 0 1px #fff;padding:5px 10px;text-align:center;font-family:"Nunito",sans-serif;font-size:13px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;margin-top:-11px;z-index:2}',
-  '.idcard-right{display:flex;flex-direction:column;gap:10px}',
-  '.idcard-lines{display:flex;flex-direction:column;gap:8px;min-height:88px;padding-top:2px}',
-  '.idcard-line{border-bottom:2px solid #1d1d1d;padding-bottom:4px;font-size:12px;line-height:1.4;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#0a0a0a}',
-  '.idcard-line.muted{color:#777;font-weight:600}',
-  '.idcard-bar-wrap{margin-top:0;border:2px solid #0a0a0a;border-radius:14px;background:#fff;padding:8px 9px 6px;box-shadow:1px 1px 0 #0a0a0a,inset 0 0 0 1px #fff;transform:translateY(-3px)}',
-  '.idcard-bar{height:28px;border-radius:6px;background:repeating-linear-gradient(90deg,#0a0a0a 0 2px,#ffffff 2px 5px,#0a0a0a 5px 9px,#ffffff 9px 12px,#0a0a0a 12px 13px,#ffffff 13px 15px)}',
-  '.idcard-code{margin-top:6px;text-align:center;font-family:"Nunito",sans-serif;font-size:16px;font-weight:900;letter-spacing:.08em;color:#0a0a0a}',
-  '.idcard-stamp{position:absolute;right:-70px;top:-62px;width:188px;height:188px;display:flex;align-items:center;justify-content:center;transform:rotate(-18deg);pointer-events:none;z-index:6;mix-blend-mode:normal}',
-  '.idcard-stamp img{width:100%;height:100%;object-fit:contain;display:block;opacity:1;filter:saturate(150%) contrast(130%);position:relative;z-index:1;mix-blend-mode:multiply}'
-].join('');
+function cloneNodeWithInlineStyles(sourceNode){
+  if(!sourceNode) return null;
+  if(sourceNode.nodeType === Node.TEXT_NODE) return document.createTextNode(sourceNode.textContent || '');
+  if(sourceNode.nodeType !== Node.ELEMENT_NODE) return sourceNode.cloneNode(false);
+  var clone = sourceNode.cloneNode(false);
+  var computed = window.getComputedStyle(sourceNode);
+  var styleText = '';
+  for(var i = 0; i < computed.length; i++){
+    var prop = computed[i];
+    styleText += prop + ':' + computed.getPropertyValue(prop) + ';';
+  }
+  clone.setAttribute('style', styleText);
+  if(clone instanceof HTMLImageElement){
+    var src = String(sourceNode.getAttribute('src') || sourceNode.src || '').trim();
+    if(src) clone.setAttribute('src', new URL(src, window.location.href).toString());
+  }
+  Array.prototype.forEach.call(sourceNode.childNodes, function(child){
+    clone.appendChild(cloneNodeWithInlineStyles(child));
+  });
+  return clone;
+}
+
+function waitForNodeImages(node){
+  var imgs = Array.prototype.filter.call((node && node.querySelectorAll) ? node.querySelectorAll('img') : [], function(img){
+    return !!String(img.getAttribute('src') || img.src || '').trim();
+  });
+  if(!imgs.length) return Promise.resolve();
+  return Promise.all(imgs.map(function(img){
+    if(img.complete && img.naturalWidth > 0) return Promise.resolve();
+    return new Promise(function(resolve){
+      img.addEventListener('load', resolve, { once:true });
+      img.addEventListener('error', resolve, { once:true });
+    });
+  }));
+}
 
 function renderChatIdentityCardBlob(cardEl){
   return new Promise(function(resolve, reject){
     if(!cardEl) { reject(new Error('missing identity card')); return; }
-    var clone = cardEl.cloneNode(true);
-    Array.prototype.forEach.call(clone.querySelectorAll('img'), function(img){
-      var src = String(img.getAttribute('src') || img.src || '').trim();
-      if(src) img.setAttribute('src', new URL(src, window.location.href).toString());
-    });
+    var clone = cloneNodeWithInlineStyles(cardEl);
     var svg = ''
       + '<svg xmlns="http://www.w3.org/2000/svg" width="560" height="430" viewBox="0 0 560 430">'
       + '<foreignObject width="100%" height="100%">'
-      + '<div xmlns="http://www.w3.org/1999/xhtml" class="capture-root">'
-      + '<style>' + CHAT_ID_CARD_CAPTURE_CSS + '</style>'
+      + '<div xmlns="http://www.w3.org/1999/xhtml" style="width:560px;height:430px;display:flex;align-items:center;justify-content:center;background:transparent;overflow:visible;">'
       + clone.outerHTML
       + '</div>'
       + '</foreignObject>'
@@ -9127,8 +9140,9 @@ function renderChatIdentityCardBlob(cardEl){
 async function buildChatExportPreview(){
   var payload = buildChatExportPayload();
   var cardJson = JSON.stringify(payload);
-  fillChatExportIdentityCard();
-  var cardEl = document.querySelector('#chatExportOverlay .idcard-card');
+  await fillChatExportIdentityCard();
+  var cardEl = document.querySelector('#chatExportOverlay .chat-export-idcard .idcard-card');
+  await waitForNodeImages(cardEl);
   var pngBlob = await renderChatIdentityCardBlob(cardEl);
   var baseBuffer = await pngBlob.arrayBuffer();
   var finalBytes = embedChatExportPng(baseBuffer, cardJson);
@@ -9139,21 +9153,30 @@ async function buildChatExportPreview(){
 async function openChatExportCardPreview(){
   if(!character) return;
   var overlay = document.getElementById('chatExportOverlay');
-  var img = document.getElementById('chatExportPreviewImg');
   var btn = document.getElementById('chatExportConfirmBtn');
-  fillChatExportIdentityCard();
+  var prevState = chatExportState;
+  await fillChatExportIdentityCard();
   overlay.style.display = 'flex';
-  if(btn) btn.textContent = '确认';
+  chatExportState = null;
+  if(btn){
+    btn.textContent = '确认';
+    btn.disabled = true;
+  }
   try{
-    if(chatExportState && chatExportState.url){
-      try{ URL.revokeObjectURL(chatExportState.url); }catch(e){}
+    if(prevState && prevState.url){
+      try{ URL.revokeObjectURL(prevState.url); }catch(e){}
     }
     var built = await buildChatExportPreview();
     chatExportState = { url: built.url, blob: built.blob, name: (character && character.name) || 'character' };
-    if(img) img.src = built.url;
-    if(btn) btn.textContent = '确认';
+    if(btn){
+      btn.textContent = '确认';
+      btn.disabled = false;
+    }
   }catch(e){
-    if(btn) btn.textContent = '确认';
+    if(btn){
+      btn.textContent = '确认';
+      btn.disabled = false;
+    }
     toast('导出失败');
   }
 }
@@ -9163,7 +9186,10 @@ function closeChatExportPreview(){
 }
 
 async function confirmChatExportCard(){
-  if(!chatExportState || !chatExportState.blob) return;
+  if(!chatExportState || !chatExportState.blob){
+    toast('还在生成中');
+    return;
+  }
   var filename = (chatExportState.name || 'character').replace(/[\\/:*?"<>|]+/g, '_') + '.png';
   var file = new File([chatExportState.blob], filename, { type:'image/png' });
   try{
@@ -9357,37 +9383,13 @@ function openIdentityCard(){
   if(!overlay) return;
   var stampEl = overlay.querySelector('.idcard-stamp');
   var cardEl = overlay.querySelector('.idcard-card');
-  var name = (character.name || 'CHAR').trim() || 'CHAR';
-  var persona = [
-    character && character.personality ? character.personality : '',
-    character && character.description ? character.description : '',
-    character && character.scenario ? character.scenario : '',
-    character && character.system_prompt ? character.system_prompt : ''
-  ].filter(Boolean).join('\n');
-  document.getElementById('idcName').textContent = name;
-  document.getElementById('idcCode').textContent = getIdentityCode();
-  var lines = extractPersonaBasicInfo(persona);
-  var unresolved = lines.every(function(line){ return /未设置$/.test(line); });
-  if(unresolved){
-    try{
-      lines = extractPersonaBasicInfo(JSON.stringify(character || {}));
-    }catch(e){}
-  }
-  document.getElementById('idcLines').innerHTML = lines.map(function(line){
-    return '<div class="idcard-line">' + esc(line) + '</div>';
-  }).join('');
-  var avatarEl = document.getElementById('idcAvatar');
-  avatarEl.textContent = (character.avatar || 'AI').slice(0,2);
-  resolveCharAvatarDataUrl().then(function(src){
-    if(src){
-      avatarEl.innerHTML = '<img src="' + src + '" alt="char">';
-      return;
-    }
-    if(character.imageData){
-      avatarEl.innerHTML = '<img src="' + character.imageData + '" alt="char">';
-      return;
-    }
-    avatarEl.textContent = (character.avatar || 'AI').slice(0,2);
+  fillIdentityCardFields({
+    nameEl: document.getElementById('idcName'),
+    codeEl: document.getElementById('idcCode'),
+    linesEl: document.getElementById('idcLines'),
+    avatarEl: document.getElementById('idcAvatar'),
+    codeText: getIdentityCode(),
+    avatarResolver: resolveCharAvatarDataUrl
   });
   if(stampEl){
     stampEl.classList.remove('stamp-hit');
@@ -9404,6 +9406,17 @@ function openIdentityCard(){
   if(stampEl){
     setTimeout(function(){ stampEl.classList.add('stamp-hit'); }, 35);
   }
+}
+
+function fillChatExportIdentityCard(){
+  return fillIdentityCardFields({
+    nameEl: document.getElementById('chatExportIdcName'),
+    codeEl: document.getElementById('chatExportIdcCode'),
+    linesEl: document.getElementById('chatExportIdcLines'),
+    avatarEl: document.getElementById('chatExportIdcAvatar'),
+    codeText: getIdentityCode(),
+    avatarResolver: resolveBestCharAvatarSource
+  });
 }
 
 function closeIdentityCard(){
