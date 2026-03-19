@@ -8971,6 +8971,152 @@ function loadChatExportImage(src){
   });
 }
 
+async function renderChatIdentityCardCanvasFallback(cardEl){
+  if(!cardEl) throw new Error('missing identity card');
+  var canvas = document.createElement('canvas');
+  canvas.width = 1120;
+  canvas.height = 860;
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.scale(2, 2);
+  ctx.translate(280, 215);
+  ctx.rotate(-1.6 * Math.PI / 180);
+  ctx.translate(-180, -180);
+
+  var lines = Array.prototype.map.call(cardEl.querySelectorAll('.idcard-line'), function(node){
+    return String(node.textContent || '').trim();
+  }).filter(Boolean);
+  var avatarSrc = currentVisibleCharAvatarSrc() || String((cardEl.querySelector('.idcard-avatar img') || {}).src || '').trim();
+  var stampSrc = String((cardEl.querySelector('.idcard-stamp img') || {}).src || 'assets/red stamp.png').trim();
+  var avatarImg = await loadChatExportImage(avatarSrc);
+  var stampImg = await loadChatExportImage(stampSrc);
+  var name = String((cardEl.querySelector('.idcard-name') || {}).textContent || 'CHAR').trim() || 'CHAR';
+  var code = String((cardEl.querySelector('.idcard-code') || {}).textContent || 'CHAR000').trim() || 'CHAR000';
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.18)';
+  ctx.shadowBlur = 30;
+  ctx.shadowOffsetY = 16;
+  ctx.fillStyle = '#f4f4f4';
+  roundedChatExportRect(ctx, 0, 0, 360, 360, 26);
+  ctx.fill();
+  ctx.restore();
+
+  var bodyGrad = ctx.createRadialGradient(28, 0, 10, 180, 190, 330);
+  bodyGrad.addColorStop(0, '#ffffff');
+  bodyGrad.addColorStop(0.44, '#f8f8f8');
+  bodyGrad.addColorStop(1, '#ededed');
+  ctx.fillStyle = bodyGrad;
+  roundedChatExportRect(ctx, 0, 0, 360, 360, 26);
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#0a0a0a';
+  ctx.stroke();
+
+  roundedChatExportRect(ctx, 133, -18, 94, 30, 8);
+  var clipGrad = ctx.createLinearGradient(0, -18, 0, 12);
+  clipGrad.addColorStop(0, '#fefefe');
+  clipGrad.addColorStop(1, '#dcdcdc');
+  ctx.fillStyle = clipGrad;
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath();
+  roundedChatExportRect(ctx, 0, 0, 360, 56, 24);
+  ctx.fill();
+  ctx.fillRect(0, 28, 360, 28);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '800 22px Times New Roman';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('IDENTITY CARD', 18, 30);
+
+  roundedChatExportRect(ctx, 20, 84, 120, 148, 26);
+  var avGrad = ctx.createLinearGradient(20, 84, 20, 232);
+  avGrad.addColorStop(0, '#f2f2f2');
+  avGrad.addColorStop(1, '#e8e8e8');
+  ctx.fillStyle = avGrad;
+  ctx.fill();
+  ctx.stroke();
+  if(avatarImg){
+    ctx.save();
+    roundedChatExportRect(ctx, 20, 84, 120, 148, 26);
+    ctx.clip();
+    ctx.drawImage(avatarImg, 20, 84, 120, 148);
+    ctx.restore();
+  }else{
+    ctx.fillStyle = '#0a0a0a';
+    ctx.font = '900 50px Nunito';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText((character && character.avatar || 'AI').slice(0,2), 80, 158);
+    ctx.textAlign = 'start';
+  }
+
+  roundedChatExportRect(ctx, 32, 221, 96, 28, 14);
+  var pillGrad = ctx.createLinearGradient(32, 221, 32, 249);
+  pillGrad.addColorStop(0, '#ffffff');
+  pillGrad.addColorStop(1, '#f0f0f0');
+  ctx.fillStyle = pillGrad;
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#0a0a0a';
+  fitChatExportText(ctx, name, 84, 13, 10, '900', 'Nunito');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(name, 80, 235);
+  ctx.textAlign = 'start';
+
+  ctx.font = '700 12px Nunito';
+  ctx.textBaseline = 'alphabetic';
+  lines.slice(0, 3).forEach(function(line, idx){
+    var y = 114 + idx * 38;
+    ctx.fillStyle = '#0a0a0a';
+    wrapChatExportText(ctx, line, 160, y, 166, 16, 1);
+    ctx.strokeStyle = '#1d1d1d';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(160, y + 8);
+    ctx.lineTo(326, y + 8);
+    ctx.stroke();
+  });
+
+  roundedChatExportRect(ctx, 150, 228, 180, 58, 14);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.strokeStyle = '#0a0a0a';
+  ctx.stroke();
+
+  for(var x = 160; x < 320; x += 15){
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(x, 238, 2, 28);
+    ctx.fillRect(x + 5, 238, 4, 28);
+  }
+  ctx.fillStyle = '#0a0a0a';
+  ctx.font = '900 16px Nunito';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(code, 240, 290);
+  ctx.textAlign = 'start';
+
+  if(stampImg){
+    ctx.save();
+    ctx.globalAlpha = 0.95;
+    ctx.translate(312, 26);
+    ctx.rotate(-18 * Math.PI / 180);
+    ctx.drawImage(stampImg, -82, -42, 188, 188);
+    ctx.restore();
+  }
+
+  return new Promise(function(resolve, reject){
+    canvas.toBlob(function(blob){
+      if(blob) resolve(blob);
+      else reject(new Error('fallback render failed'));
+    }, 'image/png');
+  });
+}
+
 function currentVisibleCharAvatarSrc(){
   var selectors = ['#chatExportIdcAvatar img', '#idcAvatar img', '#csCharAvatar img', '#hdrAvatar img'];
   for(var i = 0; i < selectors.length; i++){
@@ -9143,7 +9289,12 @@ async function buildChatExportPreview(){
   await fillChatExportIdentityCard();
   var cardEl = document.querySelector('#chatExportOverlay .chat-export-idcard .idcard-card');
   await waitForNodeImages(cardEl);
-  var pngBlob = await renderChatIdentityCardBlob(cardEl);
+  var pngBlob = null;
+  try{
+    pngBlob = await renderChatIdentityCardBlob(cardEl);
+  }catch(err){
+    pngBlob = await renderChatIdentityCardCanvasFallback(cardEl);
+  }
   var baseBuffer = await pngBlob.arrayBuffer();
   var finalBytes = embedChatExportPng(baseBuffer, cardJson);
   var finalBlob = new Blob([finalBytes], { type:'image/png' });
@@ -9479,8 +9630,10 @@ function openChatSettings() {
     var isDefault = isDefaultAccountContext();
     if (character) {
       var av = document.getElementById('csCharAvatar');
-      if (character.imageData) { av.innerHTML = '<img src="' + character.imageData + '"><div class="avatar-pick-hint">换头像</div>'; }
-      else { av.innerHTML = getAvatarPlaceholderHtml('char', character.avatar || ''); }
+      av.innerHTML = getAvatarPlaceholderHtml('char', character.avatar || '');
+      resolveBestCharAvatarSource().then(function(src){
+        if (isRenderableAvatarSrc(src)) { av.innerHTML = '<img src="' + src + '"><div class="avatar-pick-hint">换头像</div>'; }
+      }).catch(function(){});
       loadStoredAsset('char_avatar_' + character.id).then(function(ovr){
         if (isRenderableAvatarSrc(ovr)) { av.innerHTML = '<img src="' + ovr + '"><div class="avatar-pick-hint">换头像</div>'; }
       });
