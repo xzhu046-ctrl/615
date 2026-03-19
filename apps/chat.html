@@ -9373,27 +9373,33 @@ function mountExportIdentityCardClone(){
 async function buildChatExportPreview(){
   var payload = buildChatExportPayload();
   var cardJson = JSON.stringify(payload);
-  await fillIdentityCardFields({
-    nameEl: document.getElementById('idcName'),
-    codeEl: document.getElementById('idcCode'),
-    linesEl: document.getElementById('idcLines'),
-    avatarEl: document.getElementById('idcAvatar'),
-    codeText: getIdentityCode(),
-    avatarResolver: resolveBestCharAvatarSource,
-    preferredAvatarSelectors: ['#csCharAvatar img', '#hdrAvatar img']
-  });
-  var mounted = mountExportIdentityCardClone();
-  if(!mounted || !mounted.card) throw new Error('missing source identity card');
+  var liveCardWrap = document.querySelector('#chatExportOverlay .chat-export-idcard');
+  var cardEl = liveCardWrap ? liveCardWrap.querySelector('.idcard-card') : null;
+  var mounted = null;
+  if(!cardEl){
+    await fillIdentityCardFields({
+      nameEl: document.getElementById('idcName'),
+      codeEl: document.getElementById('idcCode'),
+      linesEl: document.getElementById('idcLines'),
+      avatarEl: document.getElementById('idcAvatar'),
+      codeText: getIdentityCode(),
+      avatarResolver: resolveBestCharAvatarSource,
+      preferredAvatarSelectors: ['#csCharAvatar img', '#hdrAvatar img']
+    });
+    mounted = mountExportIdentityCardClone();
+    cardEl = mounted && mounted.card ? mounted.card : null;
+  }
+  if(!cardEl) throw new Error('missing source identity card');
   var pngBlob = null;
   try{
-    await waitForNodeImages(mounted.card);
-    pngBlob = await renderChatIdentityCardBlob(mounted.card);
+    await waitForNodeImages(cardEl);
+    pngBlob = await renderChatIdentityCardBlob(cardEl);
     if(!pngBlob || !pngBlob.size) throw new Error('empty render');
   }catch(err){
-    await waitForNodeImages(mounted.card);
-    pngBlob = await renderChatIdentityCardCanvasFallback(mounted.card);
+    await waitForNodeImages(cardEl);
+    pngBlob = await renderChatIdentityCardCanvasFallback(cardEl);
   }finally{
-    if(mounted.host && mounted.host.parentNode) mounted.host.parentNode.removeChild(mounted.host);
+    if(mounted && mounted.host && mounted.host.parentNode) mounted.host.parentNode.removeChild(mounted.host);
   }
   var baseBuffer = await pngBlob.arrayBuffer();
   var finalBytes = embedChatExportPng(baseBuffer, cardJson);
@@ -9427,6 +9433,9 @@ async function openChatExportCardPreview(){
     liveCard.innerHTML = '';
     var previewMounted = mountExportIdentityCardClone();
     if(previewMounted && previewMounted.card){
+      var forcedAvatarSrc = getAvatarSrcFromSelectors(['#csCharAvatar img', '#hdrAvatar img']) || '';
+      var cloneAvatar = previewMounted.card.querySelector('.idcard-avatar');
+      if(cloneAvatar) setAvatarNodeFromSource(cloneAvatar, forcedAvatarSrc, character && character.avatar || 'AI', false);
       liveCard.appendChild(previewMounted.card);
       if(previewMounted.host && previewMounted.host.parentNode) previewMounted.host.parentNode.removeChild(previewMounted.host);
     }
