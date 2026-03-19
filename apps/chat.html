@@ -4821,6 +4821,10 @@ function getMoneyCoverById(id){
   return null;
 }
 
+function getMoneyCoverPreviewSource(cover){
+  return String(cover && cover.previewData || '').trim();
+}
+
 function getMoneyCoverDisplayName(payload){
   var data = parseMoneyPacketPayload(payload) || {};
   var cover = getMoneyCoverById(data.coverId);
@@ -4847,6 +4851,7 @@ function buildMoneyPacketPayload(mode, amount, note, cover){
     coverId: cover && cover.id ? String(cover.id) : '',
     coverName: cover && cover.name ? String(cover.name) : '',
     coverAssetKey: cover && cover.assetKey ? String(cover.assetKey) : '',
+    coverPreviewData: getMoneyCoverPreviewSource(cover),
     type: 'money_packet'
   };
 }
@@ -6344,6 +6349,12 @@ function resolveMoneyPacketCoverAssetKey(payload){
   return String((cover && cover.assetKey) || '').trim();
 }
 
+function resolveMoneyPacketCoverPreviewSource(payload){
+  var data = parseMoneyPacketPayload(payload) || {};
+  if(data.coverPreviewData) return String(data.coverPreviewData || '').trim();
+  return getMoneyCoverPreviewSource(getMoneyCoverById(data.coverId));
+}
+
 function renderMoneyPacketBubble(bubble, raw){
   var data = parseMoneyPacketPayload(raw) || {};
   var mode = String(data.mode || 'red_packet');
@@ -6352,13 +6363,14 @@ function renderMoneyPacketBubble(bubble, raw){
   var amount = Number(data.amount || 0);
   var note = String(data.note || '').trim();
   var title = String(data.summary || '').trim();
+  var previewSource = resolveMoneyPacketCoverPreviewSource(data);
   var kicker = isTransfer ? '转账待领取' : '红包待领取';
   if(status === 'accepted') kicker = isTransfer ? '转账已收下' : '红包已收下';
   else if(status === 'refunded' || status === 'rejected') kicker = isTransfer ? '转账已退还' : '红包已退还';
   else if(status === 'opened') kicker = isTransfer ? '转账已发出' : '红包已发出';
   var actText = isTransfer ? '收' : '开';
   bubble.innerHTML = '<div class="money-packet' + (isTransfer ? ' transfer' : '') + '">'
-    + '<div class="money-packet-cover' + (resolveMoneyPacketCoverAssetKey(data) ? ' has-image' : '') + '"></div>'
+    + '<div class="money-packet-cover' + ((previewSource || resolveMoneyPacketCoverAssetKey(data)) ? ' has-image' : '') + '"></div>'
     + '<div class="money-packet-body">'
     + '<div class="money-packet-kind">' + esc(kicker) + '</div>'
     + '<div class="money-packet-open">' + esc(actText) + '</div>'
@@ -6368,6 +6380,9 @@ function renderMoneyPacketBubble(bubble, raw){
     + '</div></div>';
   var coverEl = bubble.querySelector('.money-packet-cover');
   var assetKey = resolveMoneyPacketCoverAssetKey(data);
+  if(coverEl && previewSource){
+    coverEl.style.backgroundImage = 'url(' + JSON.stringify(previewSource) + ')';
+  }
   if(coverEl && assetKey){
     loadStoredAsset(assetKey).then(function(src){
       src = String(src || '').trim();
@@ -7011,8 +7026,10 @@ function renderMoneyCoverLibrary(){
   });
   host.innerHTML = html.join('');
   covers.forEach(function(item){
+    var node = host.querySelector('[data-cover-preview-id="' + String(item.id || '') + '"]');
+    var previewSource = getMoneyCoverPreviewSource(item);
+    if(node && previewSource) node.style.backgroundImage = 'url(' + JSON.stringify(previewSource) + ')';
     loadStoredAsset(item.assetKey).then(function(src){
-      var node = host.querySelector('[data-cover-preview-id="' + String(item.id || '') + '"]');
       if(node && src) node.style.backgroundImage = 'url(' + JSON.stringify(src) + ')';
     }).catch(function(){});
   });
@@ -7058,15 +7075,20 @@ function handleMoneyCoverUpload(file){
     var id = 'money_cover_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
     var assetKey = accountScopedKey('money_cover_asset_' + id);
     shrinkDataUrl(dataUrl, 720).then(function(compactDataUrl){
-      return saveStoredAsset(assetKey, compactDataUrl || dataUrl);
-    }).then(function(saved){
+      var finalDataUrl = compactDataUrl || dataUrl;
+      return saveStoredAsset(assetKey, finalDataUrl).then(function(saved){
+        return { saved: saved, finalDataUrl: finalDataUrl };
+      });
+    }).then(function(result){
+      var saved = !!(result && result.saved);
+      var finalDataUrl = String(result && result.finalDataUrl || '').trim();
       if(!saved){
         pendingMoneyCoverName = '';
         toast('红包封面保存失败，换张小一点的图试试');
         return;
       }
       var covers = loadMoneyCovers();
-      covers.unshift({ id: id, name: pendingMoneyCoverName, assetKey: assetKey, createdAt: Date.now() });
+      covers.unshift({ id: id, name: pendingMoneyCoverName, assetKey: assetKey, previewData: finalDataUrl, createdAt: Date.now() });
       saveMoneyCovers(covers);
       pendingMoneyCoverName = '';
       selectedMoneyCoverId = id;
