@@ -1417,6 +1417,9 @@ function contextWindowKey(){
 function moneyCoverListKey(){
   return accountScopedKey('money_cover_library');
 }
+function moneyCoverGlobalListKey(){
+  return 'money_cover_library_global_v1';
+}
 function memorySummaryKey(){
   return character && character.id ? accountScopedKey('memory_summaries_' + character.id) : '';
 }
@@ -4781,10 +4784,23 @@ function loadMoneyCovers(){
   var covers = cloneJsonSafe(state.moneyCovers || [], []);
   if(covers.length) return covers;
   try{
-    var legacy = JSON.parse(localStorage.getItem(moneyCoverListKey()) || '[]');
-    return Array.isArray(legacy) ? legacy.filter(function(item){
+    var scoped = JSON.parse(localStorage.getItem(moneyCoverListKey()) || '[]');
+    var fallback = JSON.parse(localStorage.getItem(moneyCoverGlobalListKey()) || '[]');
+    var merged = []
+      .concat(Array.isArray(scoped) ? scoped : [])
+      .concat(Array.isArray(fallback) ? fallback : []);
+    var seen = {};
+    return merged.filter(function(item){
+      if(!(item && typeof item === 'object' && item.id && item.assetKey)) return false;
+      var key = String(item.id || '');
+      if(seen[key]) return false;
+      seen[key] = true;
+      return true;
+    }).sort(function(a, b){
+      return (Number(b && b.createdAt || 0) || 0) - (Number(a && a.createdAt || 0) || 0);
+    }).filter(function(item){
       return item && typeof item === 'object' && item.id && item.assetKey;
-    }) : [];
+    });
   }catch(e){
     return [];
   }
@@ -4796,6 +4812,7 @@ function saveMoneyCovers(list){
     moneyCovers: nextList
   }));
   try{ localStorage.setItem(moneyCoverListKey(), JSON.stringify(nextList)); }catch(e){}
+  try{ localStorage.setItem(moneyCoverGlobalListKey(), JSON.stringify(nextList)); }catch(e){}
   persistMoneyStateCache();
 }
 
