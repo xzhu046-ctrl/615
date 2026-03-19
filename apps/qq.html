@@ -186,6 +186,34 @@ function slimChar(c){
     tags:c.tags, character_version:c.character_version, spec:c.spec, creator:c.creator
   };
 }
+
+async function hasChatRecordForChar(charId){
+  if(!charId) return false;
+  var scoped = accountScopedKey('chat_' + charId);
+  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+    try{
+      var record = await window.PhoneStorage.get('chats', scoped);
+      var history = record && Array.isArray(record.history) ? record.history : [];
+      if(history.length) return true;
+    }catch(e){}
+  }
+  try{
+    var keys = [scoped, 'chat_' + charId];
+    for(var i = 0; i < localStorage.length; i++){
+      var key = localStorage.key(i) || '';
+      if(key.indexOf('chat_' + charId + '__acct_') === 0) keys.push(key);
+    }
+    for(var j = 0; j < keys.length; j++){
+      var raw = localStorage.getItem(keys[j]);
+      if(!raw) continue;
+      var parsed = JSON.parse(raw);
+      var list = parsed && (parsed.history || parsed.messages);
+      if(Array.isArray(list) && list.length) return true;
+    }
+  }catch(e){}
+  return false;
+}
+
 async function refreshChatCaches(){
   var next = {};
   if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
@@ -257,7 +285,13 @@ async function loadChars(){
     }
     if(acct && !acct.isDefault){
       var friendSet = new Set(Array.isArray(acct.friends) ? acct.friends : []);
-      chars = chars.filter(function(c){ return friendSet.has(c.id); });
+      var visibility = await Promise.all(chars.map(async function(c){
+        return {
+          char: c,
+          keep: !!(c && friendSet.has(c.id)) || await hasChatRecordForChar(c && c.id)
+        };
+      }));
+      chars = visibility.filter(function(item){ return item.keep; }).map(function(item){ return item.char; });
     }
   }
   await refreshChatCaches();
