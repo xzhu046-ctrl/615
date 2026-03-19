@@ -543,6 +543,237 @@ function restoreStorageFromObject(storage, values){
   });
 }
 
+function safeJsonParse(raw, fallback){
+  if(typeof raw !== 'string' || !raw) return fallback;
+  try{
+    var parsed = JSON.parse(raw);
+    return typeof parsed === 'undefined' ? fallback : parsed;
+  }catch(err){
+    return fallback;
+  }
+}
+
+function uniqueStrings(list){
+  var seen = Object.create(null);
+  var out = [];
+  (Array.isArray(list) ? list : []).forEach(function(item){
+    var key = String(item || '').trim();
+    if(!key || seen[key]) return;
+    seen[key] = true;
+    out.push(key);
+  });
+  return out;
+}
+
+function looksLikeStoredAssetValue(value){
+  return typeof value === 'string' && (!!value && (
+    value === (window.assetStore && window.assetStore.marker ? window.assetStore.marker : '__asset__')
+    || /^data:/i.test(value)
+    || /^https?:/i.test(value)
+  ));
+}
+
+function accountScopedBackupKey(base, accountId){
+  return String(base || '') + '__acct_' + String(accountId || '').trim();
+}
+
+function collectExplicitUserLocalStorageKeys(allStorage){
+  var source = allStorage && typeof allStorage === 'object' ? allStorage : {};
+  var keys = [];
+  var fixed = [
+    'characters',
+    'worldbooks',
+    'activeCharacter',
+    'wallpaper',
+    'wallpaper_custom',
+    'qq_accounts_v1',
+    'qq_active_account_id_v1',
+    'qq_default_account_id_v1',
+    'qq_profile_avatar_asset',
+    'qq_moments_posts',
+    'qq_moments_hero_bg',
+    'qq_moments_hero_avatar',
+    'qq_moments_signature',
+    'qq_moments_bubble_name',
+    'money_cover_library_global_v1',
+    'user_avatar',
+    'user_persona',
+    'offline_minimized_char'
+  ];
+  keys = keys.concat(fixed);
+  Object.keys(source).forEach(function(key){
+    if(
+      /^char_avatar_/i.test(key)
+      || /^user_avatar/i.test(key)
+      || /^user_persona/i.test(key)
+      || /^chat_bg_asset_/i.test(key)
+      || /^qq_profile_avatar_asset/i.test(key)
+      || /^qq_moments_/i.test(key)
+      || /^money_cover_library/i.test(key)
+      || /^offline_/i.test(key)
+      || /^wb_(?:enabled|book_states)_/i.test(key)
+      || /^greeting_idx_/i.test(key)
+      || /^char_moments_freq_/i.test(key)
+      || /^pendingFamilyAutoTrigger_/i.test(key)
+      || /^pendingChatChar$/i.test(key)
+    ){
+      keys.push(key);
+    }
+  });
+  return uniqueStrings(keys);
+}
+
+function collectExplicitAssetKeys(allStorage, allAssets){
+  var storage = allStorage && typeof allStorage === 'object' ? allStorage : {};
+  var assetMap = allAssets && typeof allAssets === 'object' ? allAssets : {};
+  var keys = [];
+  var accounts = safeJsonParse(storage.qq_accounts_v1 || '[]', []);
+  var characters = safeJsonParse(storage.characters || '[]', []);
+
+  Object.keys(storage).forEach(function(key){
+    var value = storage[key];
+    if(
+      looksLikeStoredAssetValue(value)
+      || /^char_avatar_/i.test(key)
+      || /^user_avatar/i.test(key)
+      || /^chat_bg_asset_/i.test(key)
+      || /^qq_profile_avatar_asset/i.test(key)
+      || /^wallpaper_custom$/i.test(key)
+      || /^qq_moments_hero_(?:bg|avatar)_asset$/i.test(key)
+      || /^offline_char_extra_photo_/i.test(key)
+    ){
+      keys.push(key);
+    }
+  });
+
+  if(Array.isArray(accounts)){
+    accounts.forEach(function(account){
+      var accountId = String(account && account.id || '').trim();
+      if(!accountId) return;
+      keys.push(accountScopedBackupKey('qq_profile_avatar_asset', accountId));
+      keys.push(accountScopedBackupKey('user_avatar', accountId));
+      keys.push(accountScopedBackupKey('qq_moments_hero_bg_asset', accountId));
+      keys.push(accountScopedBackupKey('qq_moments_hero_avatar_asset', accountId));
+      if(Array.isArray(characters)){
+        characters.forEach(function(character){
+          var charId = String(character && character.id || '').trim();
+          if(!charId) return;
+          keys.push(accountScopedBackupKey('user_avatar_' + charId, accountId));
+          keys.push(accountScopedBackupKey('chat_bg_asset_' + charId, accountId));
+          keys.push(accountScopedBackupKey('offline_char_extra_photo_' + charId, accountId));
+        });
+      }
+    });
+  }
+
+  if(Array.isArray(characters)){
+    characters.forEach(function(character){
+      var charId = String(character && character.id || '').trim();
+      if(!charId) return;
+      keys.push('char_avatar_' + charId);
+      keys.push('user_avatar_' + charId);
+      keys.push('chat_bg_asset_' + charId);
+      keys.push('offline_char_extra_photo_' + charId);
+    });
+  }
+
+  Object.keys(assetMap).forEach(function(key){
+    keys.push(key);
+  });
+
+  return uniqueStrings(keys);
+}
+
+async function exportExplicitAssets(assetKeys, allStorage, allAssets){
+  var storage = allStorage && typeof allStorage === 'object' ? allStorage : {};
+  var assetMap = allAssets && typeof allAssets === 'object' ? allAssets : {};
+  var out = {};
+  var keys = uniqueStrings(assetKeys);
+  for(var i = 0; i < keys.length; i += 1){
+    var key = keys[i];
+    var value = '';
+    if(Object.prototype.hasOwnProperty.call(assetMap, key)){
+      value = assetMap[key];
+    }else if(window.assetStore && typeof window.assetStore.load === 'function'){
+      value = await window.assetStore.load(key).catch(function(){ return ''; });
+    }
+    if(!value) value = storage[key] || '';
+    if(value && value !== '__asset__'){
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+async function buildExplicitUserSnapshot(allStorage, allAssets, phoneStorageData){
+  var storage = allStorage && typeof allStorage === 'object' ? allStorage : {};
+  var explicitLocalStorageKeys = collectExplicitUserLocalStorageKeys(storage);
+  var explicitLocalStorage = {};
+  explicitLocalStorageKeys.forEach(function(key){
+    if(Object.prototype.hasOwnProperty.call(storage, key)){
+      explicitLocalStorage[key] = storage[key];
+    }
+  });
+  var explicitAssetKeys = collectExplicitAssetKeys(storage, allAssets);
+  return {
+    accounts: safeJsonParse(storage.qq_accounts_v1 || '[]', []),
+    activeAccountId: String(storage.qq_active_account_id_v1 || ''),
+    defaultAccountId: String(storage.qq_default_account_id_v1 || ''),
+    characters: safeJsonParse(storage.characters || '[]', []),
+    activeCharacter: safeJsonParse(storage.activeCharacter || 'null', null),
+    worldbooks: safeJsonParse(storage.worldbooks || '{}', {}),
+    wallpaper: {
+      mode: String(storage.wallpaper || ''),
+      customAssetKey: 'wallpaper_custom'
+    },
+    explicitLocalStorage: explicitLocalStorage,
+    explicitAssets: await exportExplicitAssets(explicitAssetKeys, storage, allAssets),
+    phoneStorage: phoneStorageData && typeof phoneStorageData === 'object' ? phoneStorageData : {}
+  };
+}
+
+async function restoreExplicitUserSnapshot(snapshot){
+  if(!snapshot || typeof snapshot !== 'object') return;
+
+  if(Array.isArray(snapshot.accounts)){
+    try{ localStorage.setItem('qq_accounts_v1', JSON.stringify(snapshot.accounts)); }catch(err){}
+  }
+  if(typeof snapshot.activeAccountId === 'string' && snapshot.activeAccountId){
+    try{ localStorage.setItem('qq_active_account_id_v1', snapshot.activeAccountId); }catch(err){}
+  }
+  if(typeof snapshot.defaultAccountId === 'string' && snapshot.defaultAccountId){
+    try{ localStorage.setItem('qq_default_account_id_v1', snapshot.defaultAccountId); }catch(err){}
+  }
+  if(Array.isArray(snapshot.characters)){
+    try{ localStorage.setItem('characters', JSON.stringify(snapshot.characters)); }catch(err){}
+  }
+  if(snapshot.activeCharacter){
+    try{ localStorage.setItem('activeCharacter', JSON.stringify(snapshot.activeCharacter)); }catch(err){}
+  }
+  if(snapshot.worldbooks && typeof snapshot.worldbooks === 'object'){
+    try{ localStorage.setItem('worldbooks', JSON.stringify(snapshot.worldbooks)); }catch(err){}
+  }
+  if(snapshot.wallpaper && typeof snapshot.wallpaper === 'object' && snapshot.wallpaper.mode){
+    try{ localStorage.setItem('wallpaper', String(snapshot.wallpaper.mode)); }catch(err){}
+  }
+
+  restoreStorageFromObject(window.localStorage, snapshot.explicitLocalStorage);
+
+  var assetKeys = snapshot.explicitAssets && typeof snapshot.explicitAssets === 'object'
+    ? Object.keys(snapshot.explicitAssets)
+    : [];
+  for(var i = 0; i < assetKeys.length; i += 1){
+    var assetKey = assetKeys[i];
+    var assetValue = snapshot.explicitAssets[assetKey];
+    if(assetValue === null || typeof assetValue === 'undefined' || assetValue === '') continue;
+    if(window.assetStore && typeof window.assetStore.set === 'function'){
+      await window.assetStore.set(assetKey, assetValue).catch(function(){});
+    }else{
+      try{ localStorage.setItem(assetKey, String(assetValue)); }catch(err){}
+    }
+  }
+}
+
 async function exportAllData(){
   try{
     var stores = getPhoneStorageStoreNames();
@@ -556,13 +787,16 @@ async function exportAllData(){
     if(window.assetStore && typeof window.assetStore.listAll === 'function'){
       assets = await window.assetStore.listAll().catch(function(){ return {}; });
     }
+    var localStorageData = storageToObject(window.localStorage);
+    var sessionStorageData = storageToObject(window.sessionStorage);
     var payload = {
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
-      localStorage: storageToObject(window.localStorage),
-      sessionStorage: storageToObject(window.sessionStorage),
+      localStorage: localStorageData,
+      sessionStorage: sessionStorageData,
       assets: assets,
-      phoneStorage: phoneStorageData
+      phoneStorage: phoneStorageData,
+      userData: await buildExplicitUserSnapshot(localStorageData, assets, phoneStorageData)
     };
     var stamp = new Date().toISOString().replace(/[:T]/g, '-').replace(/\..+$/, '');
     var blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
@@ -635,6 +869,8 @@ async function onImportAllData(event){
         }
       }
     }
+
+    await restoreExplicitUserSnapshot(payload.userData);
 
     showToast('已导入，正在重启…');
     setTimeout(function(){
