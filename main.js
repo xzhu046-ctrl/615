@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T07:29:00Z';
+const APP_BUILD_ID = '2026-03-18T07:33:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1842,6 +1842,15 @@ function buildAvatarFrameFallbackMarkup(url, className, styleText){
     + '</span>';
 }
 
+function escapeHtmlAttr(value){
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function buildAvatarFrameFallbackDataUrl(url){
   var safeUrl = String(url || '').trim();
   if(!safeUrl) return '';
@@ -1902,7 +1911,19 @@ function buildAvatarFrameImg(className, url, styleText){
   const safeUrl = String(url || '').trim();
   if(!safeUrl) return '';
   if(/^https?:\/\/i\.postimg\.cc\//i.test(safeUrl)){
-    return buildAvatarFrameFallbackMarkup(safeUrl, className, styleText);
+    const imgAttrs = [
+      'class="' + (className ? (className + ' ') : '') + 'avatar-frame-inline avatar-frame-remote"',
+      styleText ? 'style="' + styleText + '"' : '',
+      'src="' + safeUrl + '"',
+      'alt=""',
+      'loading="lazy"',
+      'onerror="this.style.display=\'none\';var fb=this.nextElementSibling;if(fb) fb.style.display=\'block\';"'
+    ].filter(Boolean).join(' ');
+    return ''
+      + '<span class="avatar-frame-stack">'
+      + '<img ' + imgAttrs + '>'
+      + '<span class="avatar-frame-fallback-wrap" style="display:none">' + buildAvatarFrameFallbackMarkup(safeUrl, className, styleText) + '</span>'
+      + '</span>';
   }
   const renderSrc = getAvatarFrameRenderSrc(safeUrl);
   const attrs = [
