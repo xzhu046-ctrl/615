@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-18T07:11:00Z';
+const CACHE_VERSION = '2026-03-18T07:18:00Z';
 const CACHE_NAME = 'phone-shell';
 const CORE_URLS = [
   './',
