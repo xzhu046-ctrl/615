@@ -4957,7 +4957,7 @@ function updateHeader() {
   if (character.imageData) { av.innerHTML = '<img src="' + character.imageData + '">'; }
   else av.textContent = character.avatar || '🌸';
   loadStoredAsset('char_avatar_' + character.id).then(function(ovr){
-    if (ovr && ovr.startsWith('data:')) { av.innerHTML = '<img src="' + ovr + '">'; }
+    if (isRenderableAvatarSrc(ovr)) { av.innerHTML = '<img src="' + ovr + '">'; }
   });
 }
 
@@ -8981,6 +8981,11 @@ function currentVisibleCharAvatarSrc(){
   return '';
 }
 
+function isRenderableAvatarSrc(src){
+  var text = String(src || '').trim();
+  return !!(text && (text.startsWith('data:') || text.startsWith('http') || text.startsWith('blob:') || text.startsWith('/')));
+}
+
 function resolveBestCharAvatarSource(){
   var liveSrc = currentVisibleCharAvatarSrc();
   if(liveSrc) return Promise.resolve(liveSrc);
@@ -9441,9 +9446,9 @@ function extractPersonaBasicInfo(persona){
 
 function resolveCharAvatarDataUrl(){
   if(!character) return Promise.resolve('');
-  var fallback = (character.imageData && String(character.imageData).startsWith('data:')) ? character.imageData : '';
+  var fallback = isRenderableAvatarSrc(character && character.imageData) ? String(character.imageData) : '';
   return loadStoredAsset('char_avatar_' + character.id).then(function(ovr){
-    if(ovr && String(ovr).startsWith('data:')) return ovr;
+    if(isRenderableAvatarSrc(ovr)) return String(ovr);
     return fallback;
   }).catch(function(){ return fallback; });
 }
@@ -9566,7 +9571,7 @@ function openChatSettings() {
       if (character.imageData) { av.innerHTML = '<img src="' + character.imageData + '"><div class="avatar-pick-hint">换头像</div>'; }
       else { av.innerHTML = getAvatarPlaceholderHtml('char', character.avatar || ''); }
       loadStoredAsset('char_avatar_' + character.id).then(function(ovr){
-        if (ovr && ovr.startsWith('data:')) { av.innerHTML = '<img src="' + ovr + '"><div class="avatar-pick-hint">换头像</div>'; }
+        if (isRenderableAvatarSrc(ovr)) { av.innerHTML = '<img src="' + ovr + '"><div class="avatar-pick-hint">换头像</div>'; }
       });
       document.getElementById('csCharName').value = character.name || '';
       document.getElementById('csCharNick').value = character.nickname || '';
@@ -9591,7 +9596,7 @@ function openChatSettings() {
     var userAvatarKey = isDefault ? userKey('user_avatar') : accountScopedKey('qq_profile_avatar_asset');
     loadStoredAsset(userAvatarKey).then(function(savedUav){
       savedUav = String(savedUav || '').trim() || getActiveAccountProfileAvatar();
-      if (savedUav && savedUav.startsWith('data:')) { uav.innerHTML = '<img src="' + savedUav + '"><div class="avatar-pick-hint">换头像</div>'; }
+      if (isRenderableAvatarSrc(savedUav)) { uav.innerHTML = '<img src="' + savedUav + '"><div class="avatar-pick-hint">换头像</div>'; }
     });
     document.getElementById('csUserName').value = isDefault ? (localStorage.getItem(userKey('user_name')) || '') : getActiveAccountProfileName();
     document.getElementById('csUserName').disabled = !isDefault;
