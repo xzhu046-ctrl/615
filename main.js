@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T05:51:00Z';
+const APP_BUILD_ID = '2026-03-18T06:00:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -384,6 +384,12 @@ function clearAcceptedHostedUpdateBuildIfCurrent(){
   try{ localStorage.removeItem(HOSTED_UPDATE_ACCEPTED_BUILD_KEY); }catch(e){}
 }
 
+function isAcceptedHostedRemoteBuild(fingerprint){
+  var value = String(fingerprint || '').trim();
+  if(!value) return false;
+  return value === getAcceptedHostedUpdateBuild();
+}
+
 function showHostedUpdateCard(){
   if(hostedUpdateModalShown) return;
   if(shouldSuppressHostedUpdatePrompt()) return;
@@ -597,6 +603,9 @@ async function checkForHostedUpdate(){
     var remoteFingerprint = await buildRemoteAppFingerprint();
     if(remoteFingerprint && remoteFingerprint !== APP_BUILD_ID){
       setLastSeenHostedRemoteBuild(remoteFingerprint);
+      if(isAcceptedHostedRemoteBuild(remoteFingerprint)){
+        return;
+      }
       pendingRemoteAppFingerprint = remoteFingerprint;
       announceHostedUpdate(remoteFingerprint);
       return;
@@ -641,7 +650,7 @@ function bootHostedUpdateCheck(){
   if(hostedUpdateBootstrapped) return;
   hostedUpdateBootstrapped = true;
   var cachedRemoteFingerprint = getLastSeenHostedRemoteBuild();
-  if(cachedRemoteFingerprint && cachedRemoteFingerprint !== APP_BUILD_ID){
+  if(cachedRemoteFingerprint && cachedRemoteFingerprint !== APP_BUILD_ID && !isAcceptedHostedRemoteBuild(cachedRemoteFingerprint)){
     pendingRemoteAppFingerprint = cachedRemoteFingerprint;
     announceHostedUpdate(cachedRemoteFingerprint);
   }
@@ -1733,9 +1742,6 @@ function buildAvatarFrameImg(className, url, styleText){
     'src="' + safeUrl + '"',
     'alt=""',
     'referrerpolicy="no-referrer"',
-    'crossorigin="anonymous"',
-    'loading="eager"',
-    'decoding="async"',
   ].filter(Boolean).join(' ');
   return '<img ' + attrs + '>';
 }
