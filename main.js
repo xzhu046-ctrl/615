@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T04:58:00Z';
+const APP_BUILD_ID = '2026-03-18T05:03:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -901,7 +901,7 @@ async function writeBackgroundMoments(accountId, posts){
   var key = scopedKeyForAccount(MOMENTS_POSTS_KEY, accountId);
   if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
     await saveLargeState(key, Array.isArray(posts) ? posts : []);
-    try{ localStorage.removeItem(key); }catch(ignoreErr){}
+    try{ localStorage.setItem(key, JSON.stringify(Array.isArray(posts) ? posts : [])); }catch(ignoreErr){}
     return;
   }
   try{ localStorage.setItem(key, JSON.stringify(Array.isArray(posts) ? posts : [])); }catch(e){}
