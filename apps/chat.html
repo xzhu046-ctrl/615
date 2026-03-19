@@ -9149,6 +9149,24 @@ function resolveBestCharAvatarSource(){
   });
 }
 
+function getChatAvatarCandidates(){
+  var out = [];
+  function push(src){
+    var text = String(src || '').trim();
+    if(!isRenderableAvatarSrc(text)) return;
+    if(out.indexOf(text) === -1) out.push(text);
+  }
+  push(currentVisibleCharAvatarSrc());
+  push(character && character.imageData);
+  try{ push(localStorage.getItem('char_avatar_' + (character && character.id || '')) || ''); }catch(e){}
+  return loadStoredAsset('char_avatar_' + (character && character.id || '')).then(function(assetSrc){
+    push(assetSrc);
+    return out;
+  }).catch(function(){
+    return out;
+  });
+}
+
 function fitChatExportText(ctx, text, maxWidth, startSize, minSize, weight, family){
   var size = startSize;
   var safeText = String(text || '');
@@ -9289,12 +9307,7 @@ async function buildChatExportPreview(){
   await fillChatExportIdentityCard();
   var cardEl = document.querySelector('#chatExportOverlay .chat-export-idcard .idcard-card');
   await waitForNodeImages(cardEl);
-  var pngBlob = null;
-  try{
-    pngBlob = await renderChatIdentityCardBlob(cardEl);
-  }catch(err){
-    pngBlob = await renderChatIdentityCardCanvasFallback(cardEl);
-  }
+  var pngBlob = await renderChatIdentityCardCanvasFallback(cardEl);
   var baseBuffer = await pngBlob.arrayBuffer();
   var finalBytes = embedChatExportPng(baseBuffer, cardJson);
   var finalBlob = new Blob([finalBytes], { type:'image/png' });
@@ -9521,11 +9534,9 @@ function extractPersonaBasicInfo(persona){
 
 function resolveCharAvatarDataUrl(){
   if(!character) return Promise.resolve('');
-  var fallback = isRenderableAvatarSrc(character && character.imageData) ? String(character.imageData) : '';
-  return loadStoredAsset('char_avatar_' + character.id).then(function(ovr){
-    if(isRenderableAvatarSrc(ovr)) return String(ovr);
-    return fallback;
-  }).catch(function(){ return fallback; });
+  return getChatAvatarCandidates().then(function(list){
+    return list[0] || '';
+  }).catch(function(){ return ''; });
 }
 
 function openIdentityCard(){
