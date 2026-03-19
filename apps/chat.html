@@ -618,8 +618,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .export-preview-card{width:min(360px,100%);background:transparent;border:none;box-shadow:none;padding:0;display:flex;flex-direction:column;align-items:center;gap:14px}
 .export-preview-meta{display:none}
 .export-preview-shell{display:flex;align-items:center;justify-content:center;padding:0;background:none;border:none;box-shadow:none}
-.export-preview-shell img{display:block;width:360px;max-width:100%;height:auto}
-.chat-export-idcard{display:none}
+.export-preview-shell img{display:none;width:360px;max-width:100%;height:auto}
+.chat-export-idcard{display:block}
 .export-preview-card .voice-card-title{display:none}
 .export-preview-card .voice-card-actions{width:100%;justify-content:center;gap:12px}
 .export-preview-card .voice-btn{flex:0 0 118px;max-width:calc(50% - 6px);border-radius:999px;background:#fff;color:#0a0a0a;box-shadow:0 10px 22px rgba(0,0,0,.12)}
@@ -9408,10 +9408,29 @@ async function openChatExportCardPreview(){
   var img = document.getElementById('chatExportPreviewImg');
   var liveCard = document.querySelector('#chatExportOverlay .chat-export-idcard');
   var prevState = chatExportState;
-  await fillChatExportIdentityCard();
+  await fillIdentityCardFields({
+    nameEl: document.getElementById('idcName'),
+    codeEl: document.getElementById('idcCode'),
+    linesEl: document.getElementById('idcLines'),
+    avatarEl: document.getElementById('idcAvatar'),
+    codeText: getIdentityCode(),
+    avatarResolver: resolveBestCharAvatarSource,
+    preferredAvatarSelectors: ['#csCharAvatar img', '#hdrAvatar img']
+  });
   overlay.style.display = 'flex';
-  if(liveCard) liveCard.style.display = 'none';
-  if(img) img.style.display = 'block';
+  if(img){
+    img.style.display = 'none';
+    img.src = '';
+  }
+  if(liveCard){
+    liveCard.style.display = 'block';
+    liveCard.innerHTML = '';
+    var previewMounted = mountExportIdentityCardClone();
+    if(previewMounted && previewMounted.card){
+      liveCard.appendChild(previewMounted.card);
+      if(previewMounted.host && previewMounted.host.parentNode) previewMounted.host.parentNode.removeChild(previewMounted.host);
+    }
+  }
   chatExportState = null;
   if(btn){
     btn.textContent = '确认';
@@ -9423,7 +9442,6 @@ async function openChatExportCardPreview(){
     }
     var built = await buildChatExportPreview();
     chatExportState = { url: built.url, blob: built.blob, name: (character && character.name) || 'character' };
-    if(img) img.src = built.url;
     if(btn){
       btn.textContent = '确认';
       btn.disabled = false;
@@ -9441,7 +9459,10 @@ function closeChatExportPreview(){
   var img = document.getElementById('chatExportPreviewImg');
   var liveCard = document.querySelector('#chatExportOverlay .chat-export-idcard');
   if(img) img.src = '';
-  if(liveCard) liveCard.style.display = 'none';
+  if(liveCard){
+    liveCard.innerHTML = '';
+    liveCard.style.display = 'block';
+  }
   document.getElementById('chatExportOverlay').style.display = 'none';
 }
 
