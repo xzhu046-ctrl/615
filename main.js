@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-18T06:31:00Z';
+const APP_BUILD_ID = '2026-03-18T06:36:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -440,6 +440,21 @@ function updateHostedUpdateMeta(remoteFingerprint){
   }).join('<br>');
 }
 
+function compareHostedBuildIds(a, b){
+  var left = String(a || '').trim();
+  var right = String(b || '').trim();
+  if(!left && !right) return 0;
+  if(!left) return -1;
+  if(!right) return 1;
+  var leftTime = Date.parse(left);
+  var rightTime = Date.parse(right);
+  if(Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime){
+    return leftTime > rightTime ? 1 : -1;
+  }
+  if(left === right) return 0;
+  return left > right ? 1 : -1;
+}
+
 function announceHostedUpdate(fingerprint){
   var nextFingerprint = String(fingerprint || pendingRemoteAppFingerprint || '').trim();
   if(nextFingerprint) pendingRemoteAppFingerprint = nextFingerprint;
@@ -636,7 +651,7 @@ async function checkForHostedUpdate(){
       return;
     }
     var remoteFingerprint = await buildRemoteAppFingerprint();
-    if(remoteFingerprint && remoteFingerprint !== APP_BUILD_ID){
+    if(remoteFingerprint && compareHostedBuildIds(remoteFingerprint, APP_BUILD_ID) > 0){
       lastHostedUpdateCheckStatus = '检测到新版本';
       setLastSeenHostedRemoteBuild(remoteFingerprint);
       if(isAcceptedHostedRemoteBuild(remoteFingerprint)){
@@ -648,10 +663,13 @@ async function checkForHostedUpdate(){
       announceHostedUpdate(remoteFingerprint);
       return;
     }
-    if(remoteFingerprint && remoteFingerprint === APP_BUILD_ID){
+    if(remoteFingerprint && compareHostedBuildIds(remoteFingerprint, APP_BUILD_ID) <= 0){
       lastHostedUpdateCheckStatus = '已是最新';
       setLastSeenHostedRemoteBuild(remoteFingerprint);
       clearAcceptedHostedUpdateBuildIfCurrent();
+      if(compareHostedBuildIds(remoteFingerprint, APP_BUILD_ID) < 0){
+        try{ localStorage.removeItem(HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY); }catch(e){}
+      }
       if(hostedUpdateLockedOpen && shownHostedUpdateFingerprint){
         return;
       }
@@ -693,9 +711,11 @@ function bootHostedUpdateCheck(){
   if(hostedUpdateBootstrapped) return;
   hostedUpdateBootstrapped = true;
   var cachedRemoteFingerprint = getLastSeenHostedRemoteBuild();
-  if(cachedRemoteFingerprint && cachedRemoteFingerprint !== APP_BUILD_ID && !isAcceptedHostedRemoteBuild(cachedRemoteFingerprint)){
+  if(cachedRemoteFingerprint && compareHostedBuildIds(cachedRemoteFingerprint, APP_BUILD_ID) > 0 && !isAcceptedHostedRemoteBuild(cachedRemoteFingerprint)){
     pendingRemoteAppFingerprint = cachedRemoteFingerprint;
     announceHostedUpdate(cachedRemoteFingerprint);
+  }else if(cachedRemoteFingerprint && compareHostedBuildIds(cachedRemoteFingerprint, APP_BUILD_ID) <= 0){
+    try{ localStorage.removeItem(HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY); }catch(e){}
   }
   kickOffHostedUpdateRetries();
   [1800, 4200].forEach(function(delay){
