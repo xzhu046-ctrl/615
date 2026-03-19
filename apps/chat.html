@@ -8971,6 +8971,33 @@ function loadChatExportImage(src){
   });
 }
 
+function currentVisibleCharAvatarSrc(){
+  var selectors = ['#chatExportIdcAvatar img', '#idcAvatar img', '#csCharAvatar img', '#hdrAvatar img'];
+  for(var i = 0; i < selectors.length; i++){
+    var node = document.querySelector(selectors[i]);
+    var src = String((node && node.getAttribute('src')) || (node && node.src) || '').trim();
+    if(src) return src;
+  }
+  return '';
+}
+
+function resolveBestCharAvatarSource(){
+  var liveSrc = currentVisibleCharAvatarSrc();
+  if(liveSrc) return Promise.resolve(liveSrc);
+  return resolveCharAvatarDataUrl().then(function(src){
+    if(src) return src;
+    if(character && character.imageData) return String(character.imageData).trim();
+    try{
+      var legacy = localStorage.getItem('char_avatar_' + (character && character.id || '')) || '';
+      if(legacy) return String(legacy).trim();
+    }catch(e){}
+    return '';
+  }).catch(function(){
+    if(character && character.imageData) return String(character.imageData).trim();
+    return '';
+  });
+}
+
 function fitChatExportText(ctx, text, maxWidth, startSize, minSize, weight, family){
   var size = startSize;
   var safeText = String(text || '');
@@ -9019,7 +9046,7 @@ function fillChatExportIdentityCard(){
   }
   if(avatarEl){
     avatarEl.textContent = (character.avatar || 'AI').slice(0,2);
-    resolveCharAvatarDataUrl().then(function(src){
+    resolveBestCharAvatarSource().then(function(src){
       if(src){
         avatarEl.innerHTML = '<img src="' + src + '" alt="char">';
         return;
@@ -9101,8 +9128,7 @@ async function buildChatExportPreview(){
   ctx.strokeStyle = '#9a9a9a';
   ctx.lineWidth = 3;
   ctx.stroke();
-  var avatarSrc = await resolveCharAvatarDataUrl().catch(function(){ return ''; });
-  if(!avatarSrc && character && character.imageData) avatarSrc = character.imageData;
+  var avatarSrc = await resolveBestCharAvatarSource().catch(function(){ return ''; });
   var avatar = await loadChatExportImage(avatarSrc);
   var avatarX = 42, avatarY = 210, avatarW = 286, avatarH = 354;
   var avatarGrad = ctx.createLinearGradient(0, avatarY, 0, avatarY + avatarH);
@@ -9606,6 +9632,19 @@ function openChatSettings() {
 function closeChatSettings() {
   document.getElementById('chatSettings').classList.remove('open');
   restoreParentTopbarForSettings();
+  parentComposerShift = 0;
+  try{
+    document.documentElement.style.setProperty('--composer-shift', '0px');
+  }catch(e){}
+  setTimeout(function(){
+    syncChatViewport();
+    syncComposerMetrics();
+    keepComposerVisible();
+  }, 0);
+  setTimeout(function(){
+    syncChatViewport();
+    keepComposerVisible();
+  }, 120);
   try{
     if(!chatSettingsSavedAtLeastOnce){
       pendingCharBgEnabled = null;
