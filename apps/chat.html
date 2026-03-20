@@ -618,8 +618,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .export-preview-card{width:min(360px,100%);background:transparent;border:none;box-shadow:none;padding:0;display:flex;flex-direction:column;align-items:center;gap:14px}
 .export-preview-meta{display:none}
 .export-preview-shell{display:flex;align-items:center;justify-content:center;padding:0;background:none;border:none;box-shadow:none}
-.export-preview-shell img{display:none;width:360px;max-width:100%;height:auto}
-.chat-export-idcard{display:block}
+.export-preview-shell img{display:block;width:360px;max-width:100%;height:auto}
+.chat-export-idcard{display:none}
 .export-preview-card .voice-card-title{display:none}
 .export-preview-card .voice-card-actions{width:100%;justify-content:center;gap:12px}
 .export-preview-card .voice-btn{flex:0 0 118px;max-width:calc(50% - 6px);border-radius:999px;background:#fff;color:#0a0a0a;box-shadow:0 10px 22px rgba(0,0,0,.12)}
@@ -9425,7 +9425,7 @@ async function openChatExportCardPreview(){
   });
   overlay.style.display = 'flex';
   if(img){
-    img.style.display = 'none';
+    img.style.display = 'block';
     img.src = '';
   }
   if(liveCard){
@@ -9442,11 +9442,27 @@ async function openChatExportCardPreview(){
   }
   chatExportState = null;
   if(btn){
-    btn.textContent = '确认';
-    btn.disabled = false;
+    btn.textContent = '生成中';
+    btn.disabled = true;
   }
   if(prevState && prevState.url){
     try{ URL.revokeObjectURL(prevState.url); }catch(e){}
+  }
+  try{
+    var built = await buildChatExportPreview();
+    chatExportState = { url: built.url, blob: built.blob, name: (character && character.name) || 'character' };
+    if(img) img.src = built.url;
+    if(liveCard) liveCard.style.display = 'none';
+    if(btn){
+      btn.textContent = '确认';
+      btn.disabled = false;
+    }
+  }catch(e){
+    if(btn){
+      btn.textContent = '确认';
+      btn.disabled = false;
+    }
+    toast('导出失败');
   }
 }
 
@@ -9463,19 +9479,8 @@ function closeChatExportPreview(){
 
 async function confirmChatExportCard(){
   var btn = document.getElementById('chatExportConfirmBtn');
-  if(btn){
-    btn.disabled = true;
-    btn.textContent = '生成中';
-  }
-  try{
-    var built = await buildChatExportPreview();
-    chatExportState = { url: built.url, blob: built.blob, name: (character && character.name) || 'character' };
-  }catch(e){
-    if(btn){
-      btn.disabled = false;
-      btn.textContent = '确认';
-    }
-    toast('导出失败');
+  if(!chatExportState || !chatExportState.blob){
+    toast('还在生成中');
     return;
   }
   var filename = (chatExportState.name || 'character').replace(/[\\/:*?"<>|]+/g, '_') + '.png';
@@ -9483,10 +9488,6 @@ async function confirmChatExportCard(){
   try{
     if(navigator.share && navigator.canShare && navigator.canShare({ files:[file] })){
       await navigator.share({ files:[file], title: filename });
-      if(btn){
-        btn.disabled = false;
-        btn.textContent = '确认';
-      }
       toast('已打开导出面板');
       return;
     }
@@ -9501,10 +9502,6 @@ async function confirmChatExportCard(){
     try{ URL.revokeObjectURL(url); }catch(e){}
     if(link.parentNode) link.parentNode.removeChild(link);
   }, 1000);
-  if(btn){
-    btn.disabled = false;
-    btn.textContent = '确认';
-  }
   toast('已导出角色卡');
 }
 
