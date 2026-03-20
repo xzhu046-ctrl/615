@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T01:43:58Z';
+const APP_BUILD_ID = '2026-03-20T01:53:12Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -319,6 +319,18 @@ function removeStoredAsset(key){
   }
   try{ localStorage.removeItem(key); }catch(e){}
   return Promise.resolve();
+}
+
+function isRenderableHomeSlotSource(value){
+  var text = String(value || '').trim();
+  return !!(text && (
+    text.startsWith('data:') ||
+    text.startsWith('http') ||
+    text.startsWith('blob:') ||
+    text.startsWith('assets/') ||
+    text.startsWith('./') ||
+    text.startsWith('/')
+  ));
 }
 
 function normalizeHeartText(value){
@@ -2412,7 +2424,7 @@ function renderHomeSlot(slotId, dataUrl){
 
 function setHomeSlotImage(slotId, dataUrl){
   const key = 'home_slot_' + slotId;
-  return saveStoredAsset(key, dataUrl && dataUrl.startsWith('data:') ? dataUrl : '').then((ok)=>{
+  return saveStoredAsset(key, isRenderableHomeSlotSource(dataUrl) ? String(dataUrl).trim() : '').then((ok)=>{
     if(ok) renderHomeSlot(slotId, dataUrl);
     return ok;
   });
