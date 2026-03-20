@@ -8963,11 +8963,16 @@ function wrapChatExportText(ctx, text, x, y, maxWidth, lineHeight, maxLines){
 
 function loadChatExportImage(src){
   return new Promise(function(resolve){
-    if(!src){ resolve(null); return; }
+    var text = String(src || '').trim();
+    if(!text){ resolve(null); return; }
     var img = new Image();
     img.onload = function(){ resolve(img); };
     img.onerror = function(){ resolve(null); };
-    img.src = src;
+    try{
+      img.src = new URL(text, window.location.href).toString();
+    }catch(e){
+      img.src = text;
+    }
   });
 }
 
@@ -9000,6 +9005,25 @@ async function renderChatIdentityCardCanvasFallback(cardEl){
   var stampImg = await loadChatExportImage(stampSrc);
   var name = String((cardEl.querySelector('.idcard-name') || {}).textContent || 'CHAR').trim() || 'CHAR';
   var code = String((cardEl.querySelector('.idcard-code') || {}).textContent || 'CHAR000').trim() || 'CHAR000';
+  var avatarX = 20;
+  var avatarY = 84;
+  var avatarW = 120;
+  var avatarH = 148;
+  var nameX = 32;
+  var nameY = 221;
+  var nameW = 96;
+  var nameH = 28;
+  var linesX = 158;
+  var linesWidth = cardWidth - linesX - 16;
+  var barX = linesX;
+  var barY = 170;
+  var barW = linesWidth;
+  var barH = 62;
+  var barCodeX = barX + 10;
+  var barCodeY = barY + 12;
+  var barCodeW = barW - 20;
+  var barCodeH = 26;
+  var codeY = barY + barH - 14;
 
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,.18)';
@@ -9040,8 +9064,8 @@ async function renderChatIdentityCardCanvasFallback(cardEl){
   ctx.textBaseline = 'middle';
   ctx.fillText('IDENTITY CARD', 18, 30);
 
-  roundedChatExportRect(ctx, 20, 84, 120, 148, 26);
-  var avGrad = ctx.createLinearGradient(20, 84, 20, 232);
+  roundedChatExportRect(ctx, avatarX, avatarY, avatarW, avatarH, 26);
+  var avGrad = ctx.createLinearGradient(avatarX, avatarY, avatarX, avatarY + avatarH);
   avGrad.addColorStop(0, '#f2f2f2');
   avGrad.addColorStop(1, '#e8e8e8');
   ctx.fillStyle = avGrad;
@@ -9049,21 +9073,21 @@ async function renderChatIdentityCardCanvasFallback(cardEl){
   ctx.stroke();
   if(avatarImg){
     ctx.save();
-    roundedChatExportRect(ctx, 20, 84, 120, 148, 26);
+    roundedChatExportRect(ctx, avatarX, avatarY, avatarW, avatarH, 26);
     ctx.clip();
-    ctx.drawImage(avatarImg, 20, 84, 120, 148);
+    ctx.drawImage(avatarImg, avatarX, avatarY, avatarW, avatarH);
     ctx.restore();
   }else{
     ctx.fillStyle = '#0a0a0a';
     ctx.font = '900 50px Nunito';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText((character && character.avatar || 'AI').slice(0,2), 80, 158);
+    ctx.fillText((character && character.avatar || 'AI').slice(0,2), avatarX + avatarW / 2, avatarY + avatarH / 2);
     ctx.textAlign = 'start';
   }
 
-  roundedChatExportRect(ctx, 32, 221, 96, 28, 14);
-  var pillGrad = ctx.createLinearGradient(32, 221, 32, 249);
+  roundedChatExportRect(ctx, nameX, nameY, nameW, nameH, 14);
+  var pillGrad = ctx.createLinearGradient(nameX, nameY, nameX, nameY + nameH);
   pillGrad.addColorStop(0, '#ffffff');
   pillGrad.addColorStop(1, '#f0f0f0');
   ctx.fillStyle = pillGrad;
@@ -9073,7 +9097,7 @@ async function renderChatIdentityCardCanvasFallback(cardEl){
   fitChatExportText(ctx, name, 84, 13, 10, '900', 'Nunito');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(name, 80, 235);
+  ctx.fillText(name, nameX + nameW / 2, nameY + nameH / 2);
   ctx.textAlign = 'start';
 
   ctx.font = '700 12px Nunito';
@@ -9081,37 +9105,37 @@ async function renderChatIdentityCardCanvasFallback(cardEl){
   lines.slice(0, 3).forEach(function(line, idx){
     var y = 114 + idx * 38;
     ctx.fillStyle = '#0a0a0a';
-    wrapChatExportText(ctx, line, 160, y, 166, 16, 1);
+    wrapChatExportText(ctx, line, linesX, y, linesWidth, 16, 1);
     ctx.strokeStyle = '#1d1d1d';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(160, y + 8);
-    ctx.lineTo(326, y + 8);
+    ctx.moveTo(linesX, y + 8);
+    ctx.lineTo(linesX + linesWidth, y + 8);
     ctx.stroke();
   });
 
-  roundedChatExportRect(ctx, cardWidth - 210, 224, 180, 72, 14);
+  roundedChatExportRect(ctx, barX, barY, barW, barH, 14);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
   ctx.strokeStyle = '#0a0a0a';
   ctx.stroke();
 
-  for(var x = cardWidth - 200; x < cardWidth - 40; x += 15){
+  for(var x = barCodeX; x < barCodeX + barCodeW - 10; x += 15){
     ctx.fillStyle = '#0a0a0a';
-    ctx.fillRect(x, 236, 2, 28);
-    ctx.fillRect(x + 5, 236, 4, 28);
+    ctx.fillRect(x, barCodeY, 2, barCodeH);
+    ctx.fillRect(x + 5, barCodeY, 4, barCodeH);
   }
   ctx.fillStyle = '#0a0a0a';
   ctx.font = '900 16px Nunito';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(code, cardWidth - 120, 280);
+  ctx.fillText(code, barX + barW / 2, codeY);
   ctx.textAlign = 'start';
 
   if(stampImg){
     ctx.save();
     ctx.globalAlpha = 0.95;
-    ctx.translate(312, 26);
+    ctx.translate(cardWidth - 24, 30);
     ctx.rotate(-18 * Math.PI / 180);
     ctx.drawImage(stampImg, -82, -42, 188, 188);
     ctx.restore();
