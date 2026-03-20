@@ -16,6 +16,7 @@ const HOME_ICON_DEFAULTS = {
   worldbook: '世界书',
 };
 const PHONE_FRAME_STORAGE_KEY = 'phone_frame_visible';
+const SHADOW_COLOR_STORAGE_KEY = 'appearance_shadow_color';
 const LIVE_DANMAKU_DEFAULTS = {
   '1': ['啊啊啊太可爱了','宝宝上线了','今天状态好好'],
   '2': ['蹲到你了','这张也太甜','晚安打卡'],
@@ -27,7 +28,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T01:10:08Z';
+const APP_BUILD_ID = '2026-03-20T01:22:44Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -38,6 +39,53 @@ const HOSTED_UPDATE_ACCEPTED_TTL_MS = 20 * 1000;
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
 const GITHUB_UPDATE_REPO = '615';
+
+function normalizeShadowColor(value){
+  var text = String(value || '').trim();
+  if(!text) return '#0a0a0a';
+  if(/^[0-9a-f]{3}$/i.test(text) || /^[0-9a-f]{6}$/i.test(text)) text = '#' + text;
+  var probe = document.createElement('span');
+  probe.style.color = '';
+  probe.style.color = text;
+  return probe.style.color ? text : '#0a0a0a';
+}
+
+function getStoredShadowColor(){
+  try{
+    return normalizeShadowColor(localStorage.getItem(SHADOW_COLOR_STORAGE_KEY) || '#0a0a0a');
+  }catch(e){
+    return '#0a0a0a';
+  }
+}
+
+function applyShadowColorToDocument(doc, color){
+  var next = normalizeShadowColor(color || getStoredShadowColor());
+  if(!doc || !doc.documentElement) return next;
+  var root = doc.documentElement;
+  root.style.setProperty('--shadow-color', next);
+  root.style.setProperty('--sh', '2px 2px 0 ' + next);
+  root.style.setProperty('--shadow', '2px 2px 0 ' + next);
+  root.style.setProperty('--shadow-card', '0 2px 0 ' + next);
+  var style = doc.getElementById('codex-shadow-color-vars');
+  if(!style){
+    style = doc.createElement('style');
+    style.id = 'codex-shadow-color-vars';
+    (doc.head || doc.documentElement).appendChild(style);
+  }
+  style.textContent = ':root{--shadow-color:' + next + ' !important;--sh:2px 2px 0 ' + next + ' !important;--shadow:2px 2px 0 ' + next + ' !important;--shadow-card:0 2px 0 ' + next + ' !important;}';
+  return next;
+}
+
+function applyStoredShadowColor(){
+  var next = getStoredShadowColor();
+  applyShadowColorToDocument(document, next);
+  try{
+    var frame = document.getElementById('app-iframe');
+    var doc = frame && (frame.contentDocument || (frame.contentWindow && frame.contentWindow.document));
+    if(doc) applyShadowColorToDocument(doc, next);
+  }catch(err){}
+  return next;
+}
 const GITHUB_UPDATE_BRANCH = 'main';
 const SERVICE_WORKER_PATH = 'sw.js';
 let persistentStorageRequestStarted = false;
@@ -2876,6 +2924,12 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='SHOW_HOME_TOAST'){ showHomeToast(payload); }
   if(type==='SET_WALLPAPER'){ setWallpaper(payload); }
+  if(type==='SET_SHADOW_COLOR'){
+    var nextShadowColor = normalizeShadowColor(payload || '#0a0a0a');
+    try{ localStorage.setItem(SHADOW_COLOR_STORAGE_KEY, nextShadowColor); }catch(e){}
+    applyStoredShadowColor();
+    showHomeToast('阴影颜色已保存');
+  }
   if(type==='CLOSE_APP'){ closeApp(); }
   if(type==='FORMAT_EPHONE'){ formatEphone(); }
   if(type==='SETTINGS_SAVED'){
@@ -3323,6 +3377,7 @@ if(document.readyState === 'loading'){
 }
 
 window.addEventListener('load', ()=>{
+  applyStoredShadowColor();
   clearHostedRefreshParams();
   syncAppHeight();
   renderHomePages(true);
@@ -3333,6 +3388,7 @@ window.addEventListener('load', ()=>{
   var frame = document.getElementById('app-iframe');
   if(frame){
     frame.addEventListener('load', function(){
+      applyStoredShadowColor();
       applyIframeSafeAreaOverrides();
       setTimeout(applyIframeSafeAreaOverrides, 120);
     });
