@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T21:40:18Z';
+const APP_BUILD_ID = '2026-03-20T21:52:07Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -44,6 +44,7 @@ const SERVICE_WORKER_PATH = 'sw.js';
 const HOME_MUSIC_STATE_KEY = 'home_music_state_v1';
 const HOME_MUSIC_TRACK_PREFIX = 'home_music_track_';
 const HOME_MUSIC_PROXY_BASE_KEY = 'home_music_proxy_base_v1';
+const HOME_MUSIC_PLAY_MODE_KEY = 'home_music_play_mode_v1';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
 let pendingRemoteAppFingerprint = '';
@@ -2778,6 +2779,29 @@ function applyHomeMusicEqualizerState(){
   eq.setAttribute('data-song', track ? String(track.name || '').trim() : '');
 }
 
+function getHomeMusicPlayMode(){
+  var mode = String(homeMusicState.playMode || '');
+  return mode === 'shuffle' || mode === 'repeat-one' ? mode : 'repeat-all';
+}
+
+function renderHomeMusicModeButton(){
+  var btn = document.getElementById('home-music-mode-btn');
+  if(!btn) return;
+  var mode = getHomeMusicPlayMode();
+  if(mode === 'shuffle'){
+    btn.innerHTML = '<span class="music-icon music-icon-shuffle"><span class="music-icon-shuffle-tail"></span></span>';
+    btn.setAttribute('aria-label', '随机播放');
+    return;
+  }
+  if(mode === 'repeat-one'){
+    btn.innerHTML = '<span class="music-icon music-icon-repeat-one"><i>1</i></span>';
+    btn.setAttribute('aria-label', '单曲循环');
+    return;
+  }
+  btn.innerHTML = '<span class="music-icon music-icon-repeat"></span>';
+  btn.setAttribute('aria-label', '列表循环');
+}
+
 function applyHomeMusicBubblePosition(){
   var floating = document.getElementById('home-music-floating');
   var screen = document.querySelector('.screen');
@@ -2794,25 +2818,6 @@ function applyHomeMusicBubblePosition(){
   floating.style.top = y + 'px';
   floating.style.right = 'auto';
   floating.style.bottom = 'auto';
-}
-
-function renderHomeMusicSearchResults(){
-  var wrap = document.getElementById('home-music-search-results');
-  if(!wrap) return;
-  var results = Array.isArray(homeMusicState.searchResults) ? homeMusicState.searchResults : [];
-  if(!results.length){
-    wrap.textContent = homeMusicState.proxyBase ? '还没有搜索结果' : '还没连接代理接口';
-    return;
-  }
-  wrap.innerHTML = results.map(function(item, idx){
-    return (
-      '<div class="home-music-search-item">' +
-        '<div><div class="home-music-track-name">' + escapeHtml(item.name || '未命名歌曲') + '</div>' +
-        '<div class="home-music-track-meta">' + escapeHtml(item.artist || '未知歌手') + '</div></div>' +
-        '<button class="home-music-track-btn" type="button" onclick="addProxyHomeMusicTrack(' + idx + ')">加入</button>' +
-      '</div>'
-    );
-  }).join('');
 }
 
 function renderHomeMusicPlaylist(){
@@ -2894,9 +2899,9 @@ function renderHomeMusic(){
   renderHomeMusicPlaybackUi();
   renderHomeMusicCover();
   renderHomeMusicPlaylist();
-  renderHomeMusicSearchResults();
   applyHomeMusicBubblePosition();
   syncHomeMusicLyricCardWidth();
+  renderHomeMusicModeButton();
 }
 
 function syncHomeMusicLyricCardWidth(){
@@ -3003,14 +3008,14 @@ function bindHomeMusicTrackSwipe(){
       if(!dragging || (pointerId !== null && evt.pointerId !== pointerId)) return;
       var moveX = evt.clientX - startX;
       var moveY = evt.clientY - startY;
-      if(Math.abs(moveY) > 16 && Math.abs(moveY) > Math.abs(moveX)){
+      if(Math.abs(moveY) > 10 && Math.abs(moveY) >= Math.abs(moveX)){
         dragging = false;
         pointerId = null;
         dx = 0;
         inner.style.transform = '';
         return;
       }
-      if(Math.abs(moveX) < 10 || Math.abs(moveX) <= Math.abs(moveY)) return;
+      if(moveX > 0 || Math.abs(moveX) < 18 || Math.abs(moveX) <= (Math.abs(moveY) + 8)) return;
       if(node.hasPointerCapture && !node.hasPointerCapture(evt.pointerId)){
         try{ node.setPointerCapture(evt.pointerId); }catch(err){}
       }
@@ -3164,60 +3169,37 @@ function playPrevHomeMusic(){
 function playNextHomeMusic(){
   var tracks = Array.isArray(homeMusicState.tracks) ? homeMusicState.tracks : [];
   if(!tracks.length) return;
+  if(getHomeMusicPlayMode() === 'shuffle' && tracks.length > 1){
+    var currentIndex = tracks.findIndex(function(track){ return track.id === homeMusicState.currentTrackId; });
+    var nextIndex = currentIndex;
+    while(nextIndex === currentIndex){
+      nextIndex = Math.floor(Math.random() * tracks.length);
+    }
+    setCurrentHomeMusicTrack(tracks[nextIndex].id, true);
+    return;
+  }
   var idx = tracks.findIndex(function(track){ return track.id === homeMusicState.currentTrackId; });
   if(idx < 0) idx = -1;
   idx = (idx + 1) % tracks.length;
   setCurrentHomeMusicTrack(tracks[idx].id, true);
 }
 
-async function saveHomeMusicProxy(){
-  var input = document.getElementById('home-music-proxy-input');
-  homeMusicState.proxyBase = input ? String(input.value || '').trim() : '';
-  persistHomeMusicState();
-  renderHomeMusicSearchResults();
-  showHomeToast(homeMusicState.proxyBase ? 'Proxy 已保存' : 'Proxy 已清空');
-}
-
-async function searchHomeMusicProxy(){
-  var input = document.getElementById('home-music-search-input');
-  var query = input ? String(input.value || '').trim() : '';
-  if(!query){
-    showHomeToast('输入歌名');
-    return;
-  }
-  try{
-    homeMusicState.searchResults = await getHomeMusicProvider().proxy.searchTracks(query);
-    renderHomeMusicSearchResults();
-  }catch(err){
-    console.error('[home-music] proxy search failed', err);
-    showHomeToast(err && err.message ? err.message : '搜索失败');
-  }
-}
-
-function addProxyHomeMusicTrack(index){
-  var item = Array.isArray(homeMusicState.searchResults) ? homeMusicState.searchResults[index] : null;
-  if(!item) return;
-  var track = {
-    id: createTrackId('proxy'),
-    source: 'proxy',
-    remoteId: item.remoteId || item.id || '',
-    name: item.name || '未命名歌曲',
-    artist: item.artist || '未知歌手',
-    cover: item.cover || '',
-    remoteUrl: item.remoteUrl || '',
-    lyricsText: item.lyricsText || ''
-  };
-  var exists = homeMusicState.tracks.find(function(row){ return row && row.remoteId === track.remoteId && row.source === track.source; });
-  var targetId = track.id;
-  if(!exists){
-    homeMusicState.tracks.push(track);
-  }else{
-    targetId = exists.id;
-  }
-  if(!homeMusicState.currentTrackId) homeMusicState.currentTrackId = targetId;
+function cycleHomeMusicPlayMode(){
+  var current = getHomeMusicPlayMode();
+  homeMusicState.playMode = current === 'repeat-all'
+    ? 'repeat-one'
+    : current === 'repeat-one'
+      ? 'shuffle'
+      : 'repeat-all';
   persistHomeMusicState();
   renderHomeMusic();
-  showHomeToast('已加入歌单');
+  showHomeToast(
+    homeMusicState.playMode === 'repeat-one'
+      ? '单曲循环'
+      : homeMusicState.playMode === 'shuffle'
+        ? '随机播放'
+        : '列表循环'
+  );
 }
 
 function bindHomeMusicSystem(){
@@ -3347,6 +3329,11 @@ function bindHomeMusicSystem(){
       renderHomeMusicPlaybackUi();
     });
     audio.addEventListener('ended', function(){
+      if(getHomeMusicPlayMode() === 'repeat-one'){
+        audio.currentTime = 0;
+        audio.play().catch(function(){});
+        return;
+      }
       playNextHomeMusic();
     });
   }
@@ -3376,14 +3363,12 @@ window.closeHomeMusicPanel = closeHomeMusicPanel;
 window.toggleHomeMusicPlayback = toggleHomeMusicPlayback;
 window.playPrevHomeMusic = playPrevHomeMusic;
 window.playNextHomeMusic = playNextHomeMusic;
+window.cycleHomeMusicPlayMode = cycleHomeMusicPlayMode;
 window.playHomeMusicTrackByIndex = playHomeMusicTrackByIndex;
 window.editHomeMusicTrackName = editHomeMusicTrackName;
 window.closeHomeMusicRenameEditor = closeHomeMusicRenameEditor;
 window.saveHomeMusicRename = saveHomeMusicRename;
 window.deleteHomeMusicTrack = deleteHomeMusicTrack;
-window.saveHomeMusicProxy = saveHomeMusicProxy;
-window.searchHomeMusicProxy = searchHomeMusicProxy;
-window.addProxyHomeMusicTrack = addProxyHomeMusicTrack;
 
 // Maintain a simple app navigation stack so Back can return to the previous app
 const appStack=[];
