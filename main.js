@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T22:16:41Z';
+const APP_BUILD_ID = '2026-03-20T22:22:53Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2830,19 +2830,22 @@ function renderHomeMusicPlaylist(){
   }
   listEl.innerHTML = tracks.map(function(track, idx){
     var active = track.id === homeMusicState.currentTrackId;
+    var sourceLabel = track.source === 'proxy' ? '代理接口' : '本地导入';
     return (
       '<div class="home-music-track' + (active ? ' is-active' : '') + '" data-track-index="' + idx + '">' +
         '<div class="home-music-track-swipe">' +
           '<button class="home-music-track-delete" type="button" onclick="deleteHomeMusicTrack(' + idx + ')">删除</button>' +
         '</div>' +
         '<div class="home-music-track-inner" onclick="playHomeMusicTrackByIndex(' + idx + ')">' +
-          '<div>' +
+          '<div class="home-music-track-topline">' +
             '<div class="home-music-track-name">' + escapeHtml(track.name || '未命名歌曲') + '</div>' +
-            '<div class="home-music-track-meta">' + escapeHtml(track.artist || (track.source === 'proxy' ? '代理接口' : '本地导入')) + '</div>' +
+            '<div class="home-music-track-meta">' + escapeHtml(sourceLabel) + '</div>' +
           '</div>' +
-          '<button class="home-music-track-btn home-music-track-edit" type="button" onclick="event.stopPropagation();editHomeMusicTrackName(' + idx + ')">改名</button>' +
-          '<button class="home-music-track-btn" type="button" onclick="event.stopPropagation();playHomeMusicTrackByIndex(' + idx + ')">' + (active ? '播放中' : '播放') + '</button>' +
-          '<button class="home-music-track-btn home-music-track-delete-inline" type="button" onclick="event.stopPropagation();deleteHomeMusicTrack(' + idx + ')">删</button>' +
+          '<div class="home-music-track-actions">' +
+            '<button class="home-music-track-btn home-music-track-edit" type="button" onclick="event.stopPropagation();editHomeMusicTrackName(' + idx + ')">改名</button>' +
+            '<button class="home-music-track-btn" type="button" onclick="event.stopPropagation();playHomeMusicTrackByIndex(' + idx + ')">' + (active ? '播放中' : '播放') + '</button>' +
+            '<button class="home-music-track-btn home-music-track-delete-inline" type="button" onclick="event.stopPropagation();deleteHomeMusicTrack(' + idx + ')">删</button>' +
+          '</div>' +
         '</div>' +
       '</div>'
     );
