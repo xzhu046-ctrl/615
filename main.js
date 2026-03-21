@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T21:13:22Z';
+const APP_BUILD_ID = '2026-03-20T21:28:44Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2708,18 +2708,21 @@ function getHomeMusicDisplayLyric(){
     .filter(Boolean)[0] || '';
 }
 
+function getHomeMusicFloatingLineText(){
+  var track = getCurrentHomeMusicTrack();
+  if(!track) return '';
+  var lyricText = getHomeMusicDisplayLyric();
+  if(lyricText) return lyricText;
+  return track.source === 'local' ? '\u{1F3B5}' : '';
+}
+
 function updateHomeMusicLyricByTime(currentTime){
   var parsed = Array.isArray(homeMusicState.parsedLyrics) ? homeMusicState.parsedLyrics : [];
   var lineEl = document.getElementById('home-music-lyric-line');
-  var subEl = document.getElementById('home-music-lyric-subline');
-  if(!lineEl || !subEl) return;
-  var track = getCurrentHomeMusicTrack();
-  var songName = track ? (track.name || '正在播放') : '';
+  if(!lineEl) return;
   var lyricText = '';
   if(!parsed.length){
-    lyricText = track && track.lyricsText ? getHomeMusicDisplayLyric() : '';
-    setHomeMusicTickerText(lineEl, songName);
-    setHomeMusicTickerText(subEl, lyricText);
+    setHomeMusicTickerText(lineEl, getHomeMusicFloatingLineText());
     return;
   }
   var nextIndex = -1;
@@ -2732,14 +2735,12 @@ function updateHomeMusicLyricByTime(currentTime){
   }
   homeMusicState.currentLyricIndex = nextIndex;
   if(nextIndex < 0){
-    lyricText = parsed[0] && parsed[0].text ? parsed[0].text : '';
-    setHomeMusicTickerText(lineEl, songName);
-    setHomeMusicTickerText(subEl, lyricText);
+    lyricText = parsed[0] && parsed[0].text ? parsed[0].text : getHomeMusicFloatingLineText();
+    setHomeMusicTickerText(lineEl, lyricText);
     return;
   }
   lyricText = parsed[nextIndex] && parsed[nextIndex].text ? parsed[nextIndex].text : '';
-  setHomeMusicTickerText(lineEl, songName);
-  setHomeMusicTickerText(subEl, lyricText);
+  setHomeMusicTickerText(lineEl, lyricText || getHomeMusicFloatingLineText());
 }
 
 function setHomeMusicTickerText(el, text){
@@ -2829,13 +2830,13 @@ function renderHomeMusicPlaylist(){
         '<div class="home-music-track-swipe">' +
           '<button class="home-music-track-delete" type="button" onclick="deleteHomeMusicTrack(' + idx + ')">删除</button>' +
         '</div>' +
-        '<div class="home-music-track-inner">' +
+        '<div class="home-music-track-inner" onclick="playHomeMusicTrackByIndex(' + idx + ')">' +
           '<div>' +
             '<div class="home-music-track-name">' + escapeHtml(track.name || '未命名歌曲') + '</div>' +
             '<div class="home-music-track-meta">' + escapeHtml(track.artist || (track.source === 'proxy' ? '代理接口' : '本地导入')) + '</div>' +
           '</div>' +
-          '<button class="home-music-track-btn home-music-track-edit" type="button" onclick="editHomeMusicTrackName(' + idx + ')">改名</button>' +
-          '<button class="home-music-track-btn" type="button" onclick="playHomeMusicTrackByIndex(' + idx + ')">' + (active ? '播放中' : '播放') + '</button>' +
+          '<button class="home-music-track-btn home-music-track-edit" type="button" onclick="event.stopPropagation();editHomeMusicTrackName(' + idx + ')">改名</button>' +
+          '<button class="home-music-track-btn" type="button" onclick="event.stopPropagation();playHomeMusicTrackByIndex(' + idx + ')">' + (active ? '播放中' : '播放') + '</button>' +
         '</div>' +
       '</div>'
     );
@@ -2867,7 +2868,9 @@ function renderHomeMusicPlaybackUi(){
   if(title) title.textContent = track ? (track.name || '未命名歌曲') : '还没有歌曲';
   if(subtitle) subtitle.textContent = track ? (track.artist || '本地导入') : '先导入本地歌曲，后面也能接你自己的代理接口';
   if(toggleBtn){
-    toggleBtn.innerHTML = homeMusicState.isPlaying ? '<span>Ⅱ</span>' : '<span>▶</span>';
+    toggleBtn.innerHTML = homeMusicState.isPlaying
+      ? '<span class="music-icon music-icon-pause"></span>'
+      : '<span class="music-icon music-icon-play"></span>';
   }
   if(currentTimeEl) currentTimeEl.textContent = formatHomeMusicTime(homeMusicState.currentTime);
   var duration = track ? Number(track.duration) || 0 : 0;
@@ -2899,13 +2902,9 @@ function renderHomeMusic(){
 function syncHomeMusicLyricCardWidth(){
   var card = document.getElementById('home-music-lyric-card');
   if(!card || homeMusicState.lyricHidden) return;
-  var track = getCurrentHomeMusicTrack();
-  var lyric = (track && track.lyricsText) ? getHomeMusicDisplayLyric() : '';
-  var longest = Math.max(
-    (track && String(track.name || '').trim().length) || 0,
-    String(lyric || '').trim().length
-  );
-  var width = Math.max(92, Math.min(240, 54 + longest * 10));
+  var text = getHomeMusicFloatingLineText();
+  var longest = String(text || '').trim().length;
+  var width = Math.max(44, Math.min(226, 32 + longest * 11));
   card.style.width = width + 'px';
 }
 
@@ -2938,36 +2937,6 @@ function saveHomeMusicRename(){
   persistHomeMusicState();
   renderHomeMusic();
   closeHomeMusicRenameEditor();
-}
-
-function openHomeMusicLyricsEditor(){
-  var track = getCurrentHomeMusicTrack();
-  if(!track){
-    showHomeToast('先选一首歌');
-    return;
-  }
-  var editor = document.getElementById('home-music-lyrics-editor');
-  var input = document.getElementById('home-music-lyrics-input');
-  if(input) input.value = track.lyricsText || '';
-  if(editor) editor.style.display = 'flex';
-  if(input) setTimeout(function(){ input.focus(); }, 30);
-}
-
-function closeHomeMusicLyricsEditor(){
-  var editor = document.getElementById('home-music-lyrics-editor');
-  if(editor) editor.style.display = 'none';
-}
-
-function saveHomeMusicLyricsInput(){
-  var track = getCurrentHomeMusicTrack();
-  var input = document.getElementById('home-music-lyrics-input');
-  if(!track || !input){
-    closeHomeMusicLyricsEditor();
-    return;
-  }
-  setHomeMusicLyricsForCurrentTrack(String(input.value || ''));
-  closeHomeMusicLyricsEditor();
-  showHomeToast('歌词已保存');
 }
 
 async function deleteHomeMusicTrack(index){
@@ -3115,154 +3084,6 @@ function openHomeMusicImport(){
   }
 }
 
-function openHomeMusicLrcImport(){
-  if(!getCurrentHomeMusicTrack()){
-    showHomeToast('先选一首歌');
-    return;
-  }
-  var input = document.getElementById('home-music-lrc-file');
-  if(input){
-    input.value = '';
-    input.click();
-  }
-}
-
-function readFileAsText(file) {
-  return new Promise(function(resolve, reject) {
-    var r = new FileReader();
-    r.onload = function(e) { resolve(String(e.target.result || '')); };
-    r.onerror = function() { reject(new Error('文件读取失败')); };
-    r.readAsText(file);
-  });
-}
-
-function readFileAsArrayBuffer(file) {
-  return new Promise(function(resolve, reject) {
-    var r = new FileReader();
-    r.onload = function(e) { resolve(e.target.result); };
-    r.onerror = function() { reject(new Error('文件读取失败')); };
-    r.readAsArrayBuffer(file);
-  });
-}
-
-function cleanupImportedDocumentText(text) {
-  return String(text || '')
-    .replace(/\u0000/g, ' ')
-    .replace(/[^\S\r\n]+/g, ' ')
-    .replace(/[\u0001-\u0008\u000B-\u001F\u007F]/g, ' ')
-    .replace(/\{\\[^{}]+\}/g, ' ')
-    .replace(/\\par[d]?/gi, '\n')
-    .replace(/\\'[0-9a-fA-F]{2}/g, ' ')
-    .replace(/\\[a-z]+\d* ?/gi, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-function tryDecodeTextBuffer(buffer, encodings) {
-  var bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer || 0);
-  var best = '';
-  var bestScore = -1;
-  (encodings || []).forEach(function(label) {
-    try{
-      var text = new TextDecoder(label, { fatal: false }).decode(bytes);
-      var cleaned = cleanupImportedDocumentText(text);
-      var score = cleaned ? cleaned.length : 0;
-      if (score > bestScore) {
-        best = cleaned;
-        bestScore = score;
-      }
-    }catch(e){}
-  });
-  return best;
-}
-
-async function readFileAsBestEffortText(file) {
-  var name = String((file && file.name) || '').toLowerCase();
-  var type = String((file && file.type) || '').toLowerCase();
-  if (type.indexOf('text/') === 0 || name.endsWith('.txt') || name.endsWith('.lrc') || name.endsWith('.md') || name.endsWith('.markdown')) {
-    return readFileAsText(file);
-  }
-  var buffer = await readFileAsArrayBuffer(file);
-  var decoded = tryDecodeTextBuffer(buffer, ['utf-8', 'gb18030', 'utf-16le', 'utf-16be', 'windows-1252']);
-  var cleaned = cleanupImportedDocumentText(decoded);
-  if (!cleaned) throw new Error('文件里没有可读取的文本内容');
-  return cleaned;
-}
-
-async function extractDocxText(buffer) {
-  var files = await unzipDocxEntries(buffer);
-  var xml = files['word/document.xml'];
-  if (!xml) throw new Error('无效的 docx 文件');
-  return parseWordDocumentXml(xml);
-}
-
-async function unzipDocxEntries(buffer) {
-  var view = new DataView(buffer);
-  var files = {};
-  var eocdOffset = findZipEocd(view);
-  if (eocdOffset < 0) throw new Error('无效的 docx 压缩包');
-  var centralDirSize = view.getUint32(eocdOffset + 12, true);
-  var centralDirOffset = view.getUint32(eocdOffset + 16, true);
-  var ptr = centralDirOffset;
-  var end = centralDirOffset + centralDirSize;
-  while (ptr < end) {
-    if (view.getUint32(ptr, true) !== 0x02014b50) break;
-    var compression = view.getUint16(ptr + 10, true);
-    var compressedSize = view.getUint32(ptr + 20, true);
-    var fileNameLength = view.getUint16(ptr + 28, true);
-    var extraLength = view.getUint16(ptr + 30, true);
-    var commentLength = view.getUint16(ptr + 32, true);
-    var localOffset = view.getUint32(ptr + 42, true);
-    var fileName = new TextDecoder('utf-8').decode(new Uint8Array(buffer, ptr + 46, fileNameLength));
-    var localNameLength = view.getUint16(localOffset + 26, true);
-    var localExtraLength = view.getUint16(localOffset + 28, true);
-    var dataStart = localOffset + 30 + localNameLength + localExtraLength;
-    var fileBytes = new Uint8Array(buffer, dataStart, compressedSize);
-    files[fileName] = await inflateZipEntry(fileBytes, compression);
-    ptr += 46 + fileNameLength + extraLength + commentLength;
-  }
-  return files;
-}
-
-function findZipEocd(view) {
-  for (var i = view.byteLength - 22; i >= Math.max(0, view.byteLength - 65557); i--) {
-    if (view.getUint32(i, true) === 0x06054b50) return i;
-  }
-  return -1;
-}
-
-async function inflateZipEntry(bytes, compression) {
-  if (compression === 0) return new TextDecoder('utf-8').decode(bytes);
-  if (compression !== 8) throw new Error('暂不支持这种 docx 压缩方式');
-  if (typeof DecompressionStream === 'undefined') throw new Error('当前浏览器不支持 docx 导入');
-  var ds = new DecompressionStream('deflate-raw');
-  var writer = ds.writable.getWriter();
-  await writer.write(bytes);
-  await writer.close();
-  var buffer = await new Response(ds.readable).arrayBuffer();
-  return new TextDecoder('utf-8').decode(new Uint8Array(buffer));
-}
-
-function parseWordDocumentXml(xmlText) {
-  var xml = new DOMParser().parseFromString(xmlText, 'application/xml');
-  var paragraphs = Array.from(xml.getElementsByTagName('w:p')).map(function(node) {
-    return Array.from(node.getElementsByTagName('w:t')).map(function(textNode) {
-      return textNode.textContent || '';
-    }).join('').trim();
-  }).filter(Boolean);
-  var text = paragraphs.join('\n\n').trim();
-  if (!text) throw new Error('docx 中没有可读取的文本内容');
-  return text;
-}
-
-async function readHomeMusicLyricsFile(file){
-  var lower = String((file && file.name) || '').toLowerCase();
-  if(lower.endsWith('.docx')){
-    return extractDocxText(await readFileAsArrayBuffer(file));
-  }
-  return readFileAsBestEffortText(file);
-}
-
 async function importHomeMusicFiles(files){
   var provider = getHomeMusicProvider().local;
   var tracks = await provider.importAudioFiles(files);
@@ -3399,7 +3220,6 @@ function bindHomeMusicSystem(){
   var floating = document.getElementById('home-music-floating');
   var panel = document.getElementById('home-music-panel');
   var fileInput = document.getElementById('home-music-file');
-  var lrcInput = document.getElementById('home-music-lrc-file');
   var audio = getHomeMusicAudio();
   var progress = document.getElementById('home-music-progress');
   if(floating){
@@ -3473,13 +3293,12 @@ function bindHomeMusicSystem(){
       if(evt.target === panel) closeHomeMusicPanel();
     });
   }
-  ['home-music-rename-editor','home-music-lyrics-editor'].forEach(function(id){
+  ['home-music-rename-editor'].forEach(function(id){
     var editor = document.getElementById(id);
     if(!editor) return;
     editor.addEventListener('click', function(evt){
       if(evt.target !== editor) return;
       if(id === 'home-music-rename-editor') closeHomeMusicRenameEditor();
-      if(id === 'home-music-lyrics-editor') closeHomeMusicLyricsEditor();
     });
   });
   if(fileInput){
@@ -3489,18 +3308,6 @@ function bindHomeMusicSystem(){
       importHomeMusicFiles(files).catch(function(err){
         console.error('[home-music] import failed', err);
         showHomeToast('歌曲导入失败');
-      });
-    });
-  }
-  if(lrcInput){
-    lrcInput.addEventListener('change', function(evt){
-      var file = evt.target && evt.target.files && evt.target.files[0];
-      if(!file) return;
-      readHomeMusicLyricsFile(file).then(function(text){
-        setHomeMusicLyricsForCurrentTrack(text);
-        showHomeToast('歌词已导入');
-      }).catch(function(){
-        showHomeToast('歌词导入失败');
       });
     });
   }
@@ -3554,10 +3361,6 @@ function bindHomeMusicSystem(){
 }
 
 window.openHomeMusicImport = openHomeMusicImport;
-window.openHomeMusicLrcImport = openHomeMusicLrcImport;
-window.openHomeMusicLyricsEditor = openHomeMusicLyricsEditor;
-window.closeHomeMusicLyricsEditor = closeHomeMusicLyricsEditor;
-window.saveHomeMusicLyricsInput = saveHomeMusicLyricsInput;
 window.closeHomeMusicPanel = closeHomeMusicPanel;
 window.toggleHomeMusicPlayback = toggleHomeMusicPlayback;
 window.playPrevHomeMusic = playPrevHomeMusic;
