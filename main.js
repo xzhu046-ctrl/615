@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T20:49:37Z';
+const APP_BUILD_ID = '2026-03-20T20:58:26Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2542,6 +2542,7 @@ var homeMusicBubbleMoved = false;
 var homeMusicAlbumCoverSrc = '';
 var homeMusicBubbleClickTimer = 0;
 var homeMusicBubbleLastTapAt = 0;
+var homeMusicRenameIndex = -1;
 
 function createTrackId(prefix){
   return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
@@ -2865,7 +2866,7 @@ function syncHomeMusicLyricCardWidth(){
   var card = document.getElementById('home-music-lyric-card');
   if(!card || homeMusicState.lyricHidden) return;
   var track = getCurrentHomeMusicTrack();
-  var lyric = getHomeMusicDisplayLyric();
+  var lyric = (track && track.lyricsText) ? getHomeMusicDisplayLyric() : '';
   var longest = Math.max(
     (track && String(track.name || '').trim().length) || 0,
     String(lyric || '').trim().length
@@ -2877,13 +2878,62 @@ function syncHomeMusicLyricCardWidth(){
 function editHomeMusicTrackName(index){
   var track = Array.isArray(homeMusicState.tracks) ? homeMusicState.tracks[index] : null;
   if(!track) return;
-  var next = window.prompt('编辑歌曲名字', track.name || '');
-  if(next === null) return;
-  next = String(next || '').trim();
-  if(!next) return;
+  var editor = document.getElementById('home-music-rename-editor');
+  var input = document.getElementById('home-music-rename-input');
+  homeMusicRenameIndex = index;
+  if(input) input.value = track.name || '';
+  if(editor) editor.style.display = 'flex';
+  if(input) setTimeout(function(){ input.focus(); input.select(); }, 30);
+}
+
+function closeHomeMusicRenameEditor(){
+  var editor = document.getElementById('home-music-rename-editor');
+  if(editor) editor.style.display = 'none';
+  homeMusicRenameIndex = -1;
+}
+
+function saveHomeMusicRename(){
+  var track = Array.isArray(homeMusicState.tracks) ? homeMusicState.tracks[homeMusicRenameIndex] : null;
+  var input = document.getElementById('home-music-rename-input');
+  var next = input ? String(input.value || '').trim() : '';
+  if(!track || !next){
+    closeHomeMusicRenameEditor();
+    return;
+  }
   track.name = next;
   persistHomeMusicState();
   renderHomeMusic();
+  closeHomeMusicRenameEditor();
+}
+
+function openHomeMusicLyricsEditor(){
+  var track = getCurrentHomeMusicTrack();
+  if(!track){
+    showHomeToast('先选一首歌');
+    return;
+  }
+  var editor = document.getElementById('home-music-lyrics-editor');
+  var input = document.getElementById('home-music-lyrics-input');
+  if(input) input.value = track.lyricsText || '';
+  if(editor) editor.style.display = 'flex';
+  if(input) setTimeout(function(){ input.focus(); }, 30);
+}
+
+function closeHomeMusicLyricsEditor(){
+  var editor = document.getElementById('home-music-lyrics-editor');
+  if(editor) editor.style.display = 'none';
+}
+
+function saveHomeMusicLyricsInput(){
+  var track = getCurrentHomeMusicTrack();
+  var input = document.getElementById('home-music-lyrics-input');
+  if(!track || !input){
+    closeHomeMusicLyricsEditor();
+    return;
+  }
+  setHomeMusicLyricsForCurrentTrack(String(input.value || ''));
+  closeHomeMusicLyricsEditor();
+  showHomeToast('歌词已保存');
 }
 
 async function deleteHomeMusicTrack(index){
@@ -3389,6 +3439,15 @@ function bindHomeMusicSystem(){
       if(evt.target === panel) closeHomeMusicPanel();
     });
   }
+  ['home-music-rename-editor','home-music-lyrics-editor'].forEach(function(id){
+    var editor = document.getElementById(id);
+    if(!editor) return;
+    editor.addEventListener('click', function(evt){
+      if(evt.target !== editor) return;
+      if(id === 'home-music-rename-editor') closeHomeMusicRenameEditor();
+      if(id === 'home-music-lyrics-editor') closeHomeMusicLyricsEditor();
+    });
+  });
   if(fileInput){
     fileInput.addEventListener('change', function(evt){
       var files = Array.prototype.slice.call((evt.target && evt.target.files) || []);
@@ -3462,11 +3521,18 @@ function bindHomeMusicSystem(){
 
 window.openHomeMusicImport = openHomeMusicImport;
 window.openHomeMusicLrcImport = openHomeMusicLrcImport;
+window.openHomeMusicLyricsEditor = openHomeMusicLyricsEditor;
+window.closeHomeMusicLyricsEditor = closeHomeMusicLyricsEditor;
+window.saveHomeMusicLyricsInput = saveHomeMusicLyricsInput;
 window.closeHomeMusicPanel = closeHomeMusicPanel;
 window.toggleHomeMusicPlayback = toggleHomeMusicPlayback;
 window.playPrevHomeMusic = playPrevHomeMusic;
 window.playNextHomeMusic = playNextHomeMusic;
 window.playHomeMusicTrackByIndex = playHomeMusicTrackByIndex;
+window.editHomeMusicTrackName = editHomeMusicTrackName;
+window.closeHomeMusicRenameEditor = closeHomeMusicRenameEditor;
+window.saveHomeMusicRename = saveHomeMusicRename;
+window.deleteHomeMusicTrack = deleteHomeMusicTrack;
 window.saveHomeMusicProxy = saveHomeMusicProxy;
 window.searchHomeMusicProxy = searchHomeMusicProxy;
 window.addProxyHomeMusicTrack = addProxyHomeMusicTrack;
