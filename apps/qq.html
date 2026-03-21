@@ -108,6 +108,7 @@ var toastTimer = null;
 var LONG_PRESS_MS = 420;
 var avatarAssetCache = {};
 var MOMENTS_POSTS_KEY = 'qq_moments_posts';
+var MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 var MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 var chatSummaryCache = {};
 var livePreviewCache = {};
@@ -243,18 +244,30 @@ async function refreshChatCaches(){
 
 async function refreshMomentsCache(){
   var key = accountScopedKey(MOMENTS_POSTS_KEY);
+  var altKey = accountScopedKey(MOMENTS_POSTS_ALT_KEY);
   if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
     try{
       var stored = await window.PhoneStorage.getJson(key);
+      if(!Array.isArray(stored) || !stored.length){
+        stored = await window.PhoneStorage.getJson(altKey);
+      }
       if(Array.isArray(stored)){
         momentsPostsCache = stored;
-        try{ localStorage.removeItem(key); }catch(ignoreErr){}
+        try{
+          localStorage.removeItem(key);
+          localStorage.setItem(key, JSON.stringify(stored));
+        }catch(ignoreErr){}
         return;
       }
     }catch(e){}
   }
   try{
     var parsed = JSON.parse(localStorage.getItem(key) || '[]');
+    if(Array.isArray(parsed) && parsed.length){
+      momentsPostsCache = parsed;
+      return;
+    }
+    parsed = JSON.parse(localStorage.getItem(altKey) || '[]');
     momentsPostsCache = Array.isArray(parsed) ? parsed : [];
   }catch(e){
     momentsPostsCache = [];
