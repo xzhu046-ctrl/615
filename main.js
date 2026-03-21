@@ -26,8 +26,10 @@ const AI_BG_ENABLED_KEY = 'ai_bg_activity_enabled';
 const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
+const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
+const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-21T07:25:23Z';
+const APP_BUILD_ID = '2026-03-21T08:40:49Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1204,6 +1206,17 @@ async function appendBackgroundAiMessage(character, accountId, content){
   };
   history.push(entry);
   await writeBackgroundChatHistory(character.id, accountId, history);
+  renderHomeDockBadges();
+  if(document.visibilityState === 'visible' && !isViewingCharacterChat(character && character.id)){
+    showHomeNotificationCard({
+      avatar: getCharacterAvatarForBg(character),
+      name: character && (character.nickname || character.name || 'Char'),
+      text: entry.content,
+      kindLabel: '新消息',
+      time: now,
+      payload: { kind:'message', char: character }
+    });
+  }
   try{
     var f = document.getElementById('app-iframe');
     if(f && f.contentWindow){
@@ -1230,6 +1243,17 @@ async function appendBackgroundMoment(character, accountId, action, content, ima
     authorAvatar: aiAvatar
   });
   await writeBackgroundMoments(accountId, posts);
+  renderHomeDockBadges();
+  if(document.visibilityState === 'visible'){
+    showHomeNotificationCard({
+      avatar: aiAvatar,
+      name: aiName,
+      text: text,
+      kindLabel: action === 'dynamic' ? '新动态' : '新说说',
+      time: now,
+      payload: { kind:'moment', char: character }
+    });
+  }
 }
 
 async function callAiForBackground(cfg, sysPrompt, userPrompt){
@@ -4383,6 +4407,8 @@ function normalizeUnreadBadgeCount(n){
 
 var qqUnreadCountCache = {};
 var qqUnreadRefreshToken = 0;
+var homeNotificationTimers = {};
+var homeNotificationSeq = 0;
 
 function getQqUnreadCountForActive(){
   var activeId = '';
@@ -4426,6 +4452,45 @@ function getQqUnreadCountForActive(){
   return total;
 }
 
+function getMomentsUnreadCountForActive(){
+  var activeId = getActiveAccountId();
+  var seenAt = 0;
+  try{
+    seenAt = parseInt(localStorage.getItem(scopedKeyForAccount(MOMENTS_LAST_SEEN_KEY, activeId)) || '0', 10);
+  }catch(e){
+    seenAt = 0;
+  }
+  if(Number.isNaN(seenAt)) seenAt = 0;
+  var posts = [];
+  try{
+    posts = JSON.parse(localStorage.getItem(scopedKeyForAccount(MOMENTS_POSTS_KEY, activeId)) || localStorage.getItem(scopedKeyForAccount(MOMENTS_POSTS_ALT_KEY, activeId)) || '[]');
+    if(!Array.isArray(posts)) posts = [];
+  }catch(e){
+    posts = [];
+  }
+  var myName = '';
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      myName = String((acct && acct.name) || '').trim();
+    }
+  }catch(e){}
+  var count = 0;
+  posts.forEach(function(post){
+    if(!post) return;
+    var createdAt = Number(post.createdAt || 0) || 0;
+    if(createdAt <= seenAt) return;
+    var author = String(post.authorName || '').trim();
+    if(myName && author && author === myName) return;
+    count += 1;
+  });
+  return count;
+}
+
+function getCombinedQqBadgeCount(){
+  return getQqUnreadCountForActive() + getMomentsUnreadCountForActive();
+}
+
 async function refreshQqUnreadCountCache(){
   if(!(window.PhoneStorage && typeof window.PhoneStorage.list === 'function')) return;
   var activeId = '';
@@ -4465,7 +4530,7 @@ function renderHomeDockBadges(){
     badge.className = 'home-app-badge';
     qqBtn.appendChild(badge);
   }
-  var count = getQqUnreadCountForActive();
+  var count = getCombinedQqBadgeCount();
   if(count > 0){
     badge.textContent = normalizeUnreadBadgeCount(count);
     badge.classList.add('show');
@@ -4473,6 +4538,103 @@ function renderHomeDockBadges(){
     badge.textContent = '';
     badge.classList.remove('show');
   }
+}
+
+function formatHomeNotificationTime(ts){
+  var date = new Date(Number(ts) || Date.now());
+  var hh = String(date.getHours()).padStart(2, '0');
+  var mm = String(date.getMinutes()).padStart(2, '0');
+  return hh + ':' + mm;
+}
+
+function isViewingCharacterChat(charId){
+  if(currentApp !== 'chat' || !charId) return false;
+  try{
+    var raw = localStorage.getItem(scopedKeyForAccount('activeCharacter', getActiveAccountId())) || localStorage.getItem('activeCharacter') || '';
+    if(!raw) return false;
+    var parsed = JSON.parse(raw);
+    return parsed && String(parsed.id || '') === String(charId || '');
+  }catch(e){
+    return false;
+  }
+}
+
+function triggerHomeNotificationVibration(){
+  try{
+    if(navigator && typeof navigator.vibrate === 'function'){
+      navigator.vibrate([36, 52, 34]);
+    }
+  }catch(e){}
+}
+
+function openHomeNotificationPayload(payload){
+  if(!payload || !payload.kind) return;
+  if(payload.kind === 'moment'){
+    openApp('qq');
+    return;
+  }
+  if(payload.char){
+    var slim = slimChar(payload.char);
+    try{
+      localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim));
+      localStorage.setItem('pendingChatChar', JSON.stringify(slim));
+    }catch(e){}
+    try{
+      var frame = document.getElementById('app-iframe');
+      if(frame && frame.contentWindow){
+        frame.contentWindow.postMessage({ type:'OPEN_CHAT_WITH', payload: slim }, '*');
+      }
+    }catch(e){}
+    openApp('chat');
+  }
+}
+
+function showHomeNotificationCard(options){
+  var stack = document.getElementById('home-shell-toast-stack');
+  if(!stack || !options) return;
+  var id = 'home_note_' + (++homeNotificationSeq);
+  var card = document.createElement('button');
+  card.type = 'button';
+  card.className = 'home-shell-notification';
+  card.dataset.notificationId = id;
+  var avatarSrc = String(options.avatar || '').trim();
+  var safeName = escapeHtml(String(options.name || options.charName || 'Char'));
+  var safeText = escapeHtml(String(options.text || '').trim() || '刚刚有新的动静');
+  var safeType = escapeHtml(String(options.kindLabel || '消息'));
+  card.innerHTML =
+    '<div class="home-shell-notification-avatar">'
+      + (avatarSrc ? ('<img src="' + escapeHtmlAttr(avatarSrc) + '" alt="">') : '<span>头像</span>')
+      + '<div class="home-shell-notification-char">' + safeName + '</div>'
+    + '</div>'
+    + '<div class="home-shell-notification-copy">'
+      + '<div class="home-shell-notification-line">' + safeText + '</div>'
+      + '<div class="home-shell-notification-meta"><span class="home-shell-notification-type">' + safeType + '</span></div>'
+    + '</div>'
+    + '<div class="home-shell-notification-time">' + formatHomeNotificationTime(options.time) + '</div>';
+  card.addEventListener('click', function(){
+    dismissHomeNotification(id, true);
+    openHomeNotificationPayload(options.payload || null);
+  });
+  stack.prepend(card);
+  triggerHomeNotificationVibration();
+  homeNotificationTimers[id] = setTimeout(function(){
+    dismissHomeNotification(id, false);
+  }, 4200);
+}
+
+function dismissHomeNotification(id){
+  var stack = document.getElementById('home-shell-toast-stack');
+  if(!stack) return;
+  var node = stack.querySelector('.home-shell-notification[data-notification-id="' + id + '"]');
+  if(!node) return;
+  if(homeNotificationTimers[id]){
+    clearTimeout(homeNotificationTimers[id]);
+    delete homeNotificationTimers[id];
+  }
+  node.classList.add('leaving');
+  setTimeout(function(){
+    if(node && node.parentNode) node.parentNode.removeChild(node);
+  }, 180);
 }
 
 let aiBgTickTimer = null;
