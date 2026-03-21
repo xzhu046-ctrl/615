@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T22:03:12Z';
+const APP_BUILD_ID = '2026-03-20T22:10:36Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2842,6 +2842,7 @@ function renderHomeMusicPlaylist(){
           '</div>' +
           '<button class="home-music-track-btn home-music-track-edit" type="button" onclick="event.stopPropagation();editHomeMusicTrackName(' + idx + ')">改名</button>' +
           '<button class="home-music-track-btn" type="button" onclick="event.stopPropagation();playHomeMusicTrackByIndex(' + idx + ')">' + (active ? '播放中' : '播放') + '</button>' +
+          '<button class="home-music-track-btn home-music-track-delete-inline" type="button" onclick="event.stopPropagation();deleteHomeMusicTrack(' + idx + ')">删</button>' +
         '</div>' +
       '</div>'
     );
@@ -2895,7 +2896,6 @@ function renderHomeMusic(){
   if(floating) floating.classList.toggle('lyric-hidden', !!homeMusicState.lyricHidden);
   if(panel) panel.hidden = !panel.dataset.open;
   renderHomeMusicPlaybackUi();
-  renderHomeMusicCover();
   renderHomeMusicPlaylist();
   applyHomeMusicBubblePosition();
   syncHomeMusicLyricCardWidth();
