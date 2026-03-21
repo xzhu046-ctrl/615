@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T20:33:18Z';
+const APP_BUILD_ID = '2026-03-20T20:43:52Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2534,11 +2534,13 @@ var homeMusicState = {
   currentLyricIndex: -1,
   objectUrl: '',
   isReady: false,
-  isPlaying: false
+  isPlaying: false,
+  lyricHidden: false
 };
 var homeMusicDragState = null;
 var homeMusicBubbleMoved = false;
 var homeMusicAlbumCoverSrc = '';
+var homeMusicBubbleClickTimer = 0;
 
 function createTrackId(prefix){
   return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
@@ -2562,7 +2564,8 @@ function serializeHomeMusicState(){
     currentTime: Math.max(0, Number(homeMusicState.currentTime) || 0),
     bubbleX: typeof homeMusicState.bubbleX === 'number' ? homeMusicState.bubbleX : null,
     bubbleY: typeof homeMusicState.bubbleY === 'number' ? homeMusicState.bubbleY : null,
-    proxyBase: String(homeMusicState.proxyBase || '')
+    proxyBase: String(homeMusicState.proxyBase || ''),
+    lyricHidden: !!homeMusicState.lyricHidden
   });
 }
 
@@ -2585,6 +2588,7 @@ function hydrateHomeMusicState(){
         homeMusicState.bubbleX = typeof parsed.bubbleX === 'number' ? parsed.bubbleX : null;
         homeMusicState.bubbleY = typeof parsed.bubbleY === 'number' ? parsed.bubbleY : null;
         homeMusicState.proxyBase = parsed.proxyBase || localStorage.getItem(HOME_MUSIC_PROXY_BASE_KEY) || '';
+        homeMusicState.lyricHidden = !!parsed.lyricHidden;
       }
     }else{
       homeMusicState.proxyBase = localStorage.getItem(HOME_MUSIC_PROXY_BASE_KEY) || '';
@@ -2685,6 +2689,23 @@ function setHomeMusicLyricsForCurrentTrack(text){
   renderHomeMusic();
 }
 
+function getHomeMusicDisplayLyric(){
+  var parsed = Array.isArray(homeMusicState.parsedLyrics) ? homeMusicState.parsedLyrics : [];
+  var idx = homeMusicState.currentLyricIndex;
+  if(parsed.length && idx >= 0 && parsed[idx] && parsed[idx].text){
+    return parsed[idx].text;
+  }
+  if(parsed.length && parsed[0] && parsed[0].text){
+    return parsed[0].text;
+  }
+  var track = getCurrentHomeMusicTrack();
+  if(!track || !track.lyricsText) return '';
+  return String(track.lyricsText)
+    .split(/\r?\n/)
+    .map(function(line){ return line.trim(); })
+    .filter(Boolean)[0] || '';
+}
+
 function updateHomeMusicLyricByTime(currentTime){
   var parsed = Array.isArray(homeMusicState.parsedLyrics) ? homeMusicState.parsedLyrics : [];
   var lineEl = document.getElementById('home-music-lyric-line');
@@ -2693,7 +2714,7 @@ function updateHomeMusicLyricByTime(currentTime){
   if(!parsed.length){
     var fallbackTrack = getCurrentHomeMusicTrack();
     lineEl.textContent = fallbackTrack ? (fallbackTrack.name || '正在播放') : '';
-    subEl.textContent = fallbackTrack ? (fallbackTrack.artist || '') : '';
+    subEl.textContent = fallbackTrack ? getHomeMusicDisplayLyric() : '';
     return;
   }
   var nextIndex = -1;
@@ -2718,6 +2739,8 @@ function applyHomeMusicEqualizerState(){
   var eq = document.getElementById('bond-music-eq');
   if(!eq) return;
   eq.classList.toggle('is-playing', !!homeMusicState.isPlaying);
+  var track = getCurrentHomeMusicTrack();
+  eq.setAttribute('data-song', track ? String(track.name || '').trim() : '');
 }
 
 function applyHomeMusicBubblePosition(){
@@ -2768,15 +2791,22 @@ function renderHomeMusicPlaylist(){
   listEl.innerHTML = tracks.map(function(track, idx){
     var active = track.id === homeMusicState.currentTrackId;
     return (
-      '<div class="home-music-track' + (active ? ' is-active' : '') + '">' +
-        '<div>' +
-          '<div class="home-music-track-name">' + escapeHtml(track.name || '未命名歌曲') + '</div>' +
-          '<div class="home-music-track-meta">' + escapeHtml(track.artist || (track.source === 'proxy' ? '代理接口' : '本地导入')) + '</div>' +
+      '<div class="home-music-track' + (active ? ' is-active' : '') + '" data-track-index="' + idx + '">' +
+        '<div class="home-music-track-swipe">' +
+          '<button class="home-music-track-delete" type="button" onclick="deleteHomeMusicTrack(' + idx + ')">删除</button>' +
         '</div>' +
-        '<button class="home-music-track-btn" type="button" onclick="playHomeMusicTrackByIndex(' + idx + ')">' + (active ? '播放中' : '播放') + '</button>' +
+        '<div class="home-music-track-inner">' +
+          '<div>' +
+            '<div class="home-music-track-name">' + escapeHtml(track.name || '未命名歌曲') + '</div>' +
+            '<div class="home-music-track-meta">' + escapeHtml(track.artist || (track.source === 'proxy' ? '代理接口' : '本地导入')) + '</div>' +
+          '</div>' +
+          '<button class="home-music-track-btn home-music-track-edit" type="button" onclick="editHomeMusicTrackName(' + idx + ')">改名</button>' +
+          '<button class="home-music-track-btn" type="button" onclick="playHomeMusicTrackByIndex(' + idx + ')">' + (active ? '播放中' : '播放') + '</button>' +
+        '</div>' +
       '</div>'
     );
   }).join('');
+  bindHomeMusicTrackSwipe();
 }
 
 function renderHomeMusicCover(){
@@ -2819,6 +2849,7 @@ function renderHomeMusic(){
   var panel = document.getElementById('home-music-panel');
   var proxyInput = document.getElementById('home-music-proxy-input');
   if(floating) floating.hidden = false;
+  if(floating) floating.classList.toggle('lyric-hidden', !!homeMusicState.lyricHidden);
   if(panel) panel.hidden = !panel.dataset.open;
   if(proxyInput && proxyInput !== document.activeElement) proxyInput.value = homeMusicState.proxyBase || '';
   renderHomeMusicPlaybackUi();
@@ -2826,6 +2857,114 @@ function renderHomeMusic(){
   renderHomeMusicPlaylist();
   renderHomeMusicSearchResults();
   applyHomeMusicBubblePosition();
+  syncHomeMusicLyricCardWidth();
+}
+
+function syncHomeMusicLyricCardWidth(){
+  var card = document.getElementById('home-music-lyric-card');
+  if(!card || homeMusicState.lyricHidden) return;
+  var track = getCurrentHomeMusicTrack();
+  var lyric = getHomeMusicDisplayLyric();
+  var longest = Math.max(
+    (track && String(track.name || '').trim().length) || 0,
+    String(lyric || '').trim().length
+  );
+  var width = Math.max(92, Math.min(240, 54 + longest * 10));
+  card.style.width = width + 'px';
+}
+
+function editHomeMusicTrackName(index){
+  var track = Array.isArray(homeMusicState.tracks) ? homeMusicState.tracks[index] : null;
+  if(!track) return;
+  var next = window.prompt('编辑歌曲名字', track.name || '');
+  if(next === null) return;
+  next = String(next || '').trim();
+  if(!next) return;
+  track.name = next;
+  persistHomeMusicState();
+  renderHomeMusic();
+}
+
+async function deleteHomeMusicTrack(index){
+  var tracks = Array.isArray(homeMusicState.tracks) ? homeMusicState.tracks : [];
+  var track = tracks[index];
+  if(!track) return;
+  tracks.splice(index, 1);
+  if(track.source === 'local'){
+    try{
+      if(window.assetStore && typeof window.assetStore.remove === 'function'){
+        await window.assetStore.remove(HOME_MUSIC_TRACK_PREFIX + track.id);
+      }else{
+        await saveStoredAsset(HOME_MUSIC_TRACK_PREFIX + track.id, '');
+      }
+    }catch(err){}
+  }
+  if(homeMusicState.currentTrackId === track.id){
+    homeMusicState.currentTrackId = tracks[0] ? tracks[0].id : '';
+    homeMusicState.currentTime = 0;
+    homeMusicState.parsedLyrics = [];
+    var audio = getHomeMusicAudio();
+    if(audio){
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
+    if(homeMusicState.currentTrackId){
+      ensureHomeMusicTrackLoaded(getCurrentHomeMusicTrack(), false);
+    }
+  }
+  persistHomeMusicState();
+  renderHomeMusic();
+  showHomeToast('已删除歌曲');
+}
+
+function bindHomeMusicTrackSwipe(){
+  var tracks = document.querySelectorAll('.home-music-track[data-track-index]');
+  tracks.forEach(function(node){
+    if(node.dataset.swipeBound === '1') return;
+    node.dataset.swipeBound = '1';
+    var inner = node.querySelector('.home-music-track-inner');
+    if(!inner) return;
+    var startX = 0;
+    var startY = 0;
+    var dx = 0;
+    var dragging = false;
+    var pointerId = null;
+    var reset = function(keepOpen){
+      inner.style.transform = keepOpen ? 'translateX(-76px)' : '';
+      dragging = false;
+      pointerId = null;
+      dx = keepOpen ? -76 : 0;
+    };
+    node.addEventListener('pointerdown', function(evt){
+      if(evt.pointerType === 'mouse' && evt.button !== 0) return;
+      if(evt.target.closest('button')) return;
+      pointerId = evt.pointerId;
+      startX = evt.clientX;
+      startY = evt.clientY;
+      dragging = true;
+      dx = 0;
+      try{ node.setPointerCapture(pointerId); }catch(err){}
+    });
+    node.addEventListener('pointermove', function(evt){
+      if(!dragging || (pointerId !== null && evt.pointerId !== pointerId)) return;
+      var moveX = evt.clientX - startX;
+      var moveY = evt.clientY - startY;
+      if(Math.abs(moveY) > 16 && Math.abs(moveY) > Math.abs(moveX)){
+        reset(false);
+        return;
+      }
+      dx = Math.min(0, Math.max(-76, moveX));
+      inner.style.transform = 'translateX(' + dx + 'px)';
+    });
+    ['pointerup','pointercancel','lostpointercapture'].forEach(function(name){
+      node.addEventListener(name, function(evt){
+        if(pointerId !== null && evt.pointerId !== undefined && evt.pointerId !== pointerId && name !== 'lostpointercapture') return;
+        var shouldOpen = dx <= -38;
+        reset(shouldOpen);
+      });
+    });
+  });
 }
 
 async function resolveHomeMusicTrackUrl(track){
@@ -2901,6 +3040,142 @@ function openHomeMusicLrcImport(){
     input.value = '';
     input.click();
   }
+}
+
+function readFileAsText(file) {
+  return new Promise(function(resolve, reject) {
+    var r = new FileReader();
+    r.onload = function(e) { resolve(String(e.target.result || '')); };
+    r.onerror = function() { reject(new Error('文件读取失败')); };
+    r.readAsText(file);
+  });
+}
+
+function readFileAsArrayBuffer(file) {
+  return new Promise(function(resolve, reject) {
+    var r = new FileReader();
+    r.onload = function(e) { resolve(e.target.result); };
+    r.onerror = function() { reject(new Error('文件读取失败')); };
+    r.readAsArrayBuffer(file);
+  });
+}
+
+function cleanupImportedDocumentText(text) {
+  return String(text || '')
+    .replace(/\u0000/g, ' ')
+    .replace(/[^\S\r\n]+/g, ' ')
+    .replace(/[\u0001-\u0008\u000B-\u001F\u007F]/g, ' ')
+    .replace(/\{\\[^{}]+\}/g, ' ')
+    .replace(/\\par[d]?/gi, '\n')
+    .replace(/\\'[0-9a-fA-F]{2}/g, ' ')
+    .replace(/\\[a-z]+\d* ?/gi, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function tryDecodeTextBuffer(buffer, encodings) {
+  var bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer || 0);
+  var best = '';
+  var bestScore = -1;
+  (encodings || []).forEach(function(label) {
+    try{
+      var text = new TextDecoder(label, { fatal: false }).decode(bytes);
+      var cleaned = cleanupImportedDocumentText(text);
+      var score = cleaned ? cleaned.length : 0;
+      if (score > bestScore) {
+        best = cleaned;
+        bestScore = score;
+      }
+    }catch(e){}
+  });
+  return best;
+}
+
+async function readFileAsBestEffortText(file) {
+  var name = String((file && file.name) || '').toLowerCase();
+  var type = String((file && file.type) || '').toLowerCase();
+  if (type.indexOf('text/') === 0 || name.endsWith('.txt') || name.endsWith('.lrc') || name.endsWith('.md') || name.endsWith('.markdown')) {
+    return readFileAsText(file);
+  }
+  var buffer = await readFileAsArrayBuffer(file);
+  var decoded = tryDecodeTextBuffer(buffer, ['utf-8', 'gb18030', 'utf-16le', 'utf-16be', 'windows-1252']);
+  var cleaned = cleanupImportedDocumentText(decoded);
+  if (!cleaned) throw new Error('文件里没有可读取的文本内容');
+  return cleaned;
+}
+
+async function extractDocxText(buffer) {
+  var files = await unzipDocxEntries(buffer);
+  var xml = files['word/document.xml'];
+  if (!xml) throw new Error('无效的 docx 文件');
+  return parseWordDocumentXml(xml);
+}
+
+async function unzipDocxEntries(buffer) {
+  var view = new DataView(buffer);
+  var files = {};
+  var eocdOffset = findZipEocd(view);
+  if (eocdOffset < 0) throw new Error('无效的 docx 压缩包');
+  var centralDirSize = view.getUint32(eocdOffset + 12, true);
+  var centralDirOffset = view.getUint32(eocdOffset + 16, true);
+  var ptr = centralDirOffset;
+  var end = centralDirOffset + centralDirSize;
+  while (ptr < end) {
+    if (view.getUint32(ptr, true) !== 0x02014b50) break;
+    var compression = view.getUint16(ptr + 10, true);
+    var compressedSize = view.getUint32(ptr + 20, true);
+    var fileNameLength = view.getUint16(ptr + 28, true);
+    var extraLength = view.getUint16(ptr + 30, true);
+    var commentLength = view.getUint16(ptr + 32, true);
+    var localOffset = view.getUint32(ptr + 42, true);
+    var fileName = new TextDecoder('utf-8').decode(new Uint8Array(buffer, ptr + 46, fileNameLength));
+    var localNameLength = view.getUint16(localOffset + 26, true);
+    var localExtraLength = view.getUint16(localOffset + 28, true);
+    var dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    var fileBytes = new Uint8Array(buffer, dataStart, compressedSize);
+    files[fileName] = await inflateZipEntry(fileBytes, compression);
+    ptr += 46 + fileNameLength + extraLength + commentLength;
+  }
+  return files;
+}
+
+function findZipEocd(view) {
+  for (var i = view.byteLength - 22; i >= Math.max(0, view.byteLength - 65557); i--) {
+    if (view.getUint32(i, true) === 0x06054b50) return i;
+  }
+  return -1;
+}
+
+async function inflateZipEntry(bytes, compression) {
+  if (compression === 0) return new TextDecoder('utf-8').decode(bytes);
+  if (compression !== 8) throw new Error('暂不支持这种 docx 压缩方式');
+  if (typeof DecompressionStream === 'undefined') throw new Error('当前浏览器不支持 docx 导入');
+  var ds = new DecompressionStream('deflate-raw');
+  var writer = ds.writable.getWriter();
+  await writer.write(bytes);
+  await writer.close();
+  var buffer = await new Response(ds.readable).arrayBuffer();
+  return new TextDecoder('utf-8').decode(new Uint8Array(buffer));
+}
+
+function parseWordDocumentXml(xmlText) {
+  var xml = new DOMParser().parseFromString(xmlText, 'application/xml');
+  var paragraphs = Array.from(xml.getElementsByTagName('w:p')).map(function(node) {
+    return Array.from(node.getElementsByTagName('w:t')).map(function(textNode) {
+      return textNode.textContent || '';
+    }).join('').trim();
+  }).filter(Boolean);
+  var text = paragraphs.join('\n\n').trim();
+  if (!text) throw new Error('docx 中没有可读取的文本内容');
+  return text;
+}
+
+async function readHomeMusicLyricsFile(file){
+  var lower = String((file && file.name) || '').toLowerCase();
+  if(lower.endsWith('.docx')){
+    return extractDocxText(await readFileAsArrayBuffer(file));
+  }
+  return readFileAsBestEffortText(file);
 }
 
 async function importHomeMusicFiles(files){
@@ -3080,11 +3355,28 @@ function bindHomeMusicSystem(){
         evt.preventDefault();
         return;
       }
-      if(panel && panel.dataset.open){
-        closeHomeMusicPanel();
-      }else{
-        openHomeMusicPanel();
+      if(homeMusicBubbleClickTimer){
+        clearTimeout(homeMusicBubbleClickTimer);
+        homeMusicBubbleClickTimer = 0;
       }
+      homeMusicBubbleClickTimer = setTimeout(function(){
+        homeMusicBubbleClickTimer = 0;
+        if(panel && panel.dataset.open){
+          closeHomeMusicPanel();
+        }else{
+          openHomeMusicPanel();
+        }
+      }, 180);
+    });
+    bubble.addEventListener('dblclick', function(evt){
+      evt.preventDefault();
+      if(homeMusicBubbleClickTimer){
+        clearTimeout(homeMusicBubbleClickTimer);
+        homeMusicBubbleClickTimer = 0;
+      }
+      homeMusicState.lyricHidden = !homeMusicState.lyricHidden;
+      persistHomeMusicState();
+      renderHomeMusic();
     });
   }
   if(panel){
@@ -3106,7 +3398,7 @@ function bindHomeMusicSystem(){
     lrcInput.addEventListener('change', function(evt){
       var file = evt.target && evt.target.files && evt.target.files[0];
       if(!file) return;
-      file.text().then(function(text){
+      readHomeMusicLyricsFile(file).then(function(text){
         setHomeMusicLyricsForCurrentTrack(text);
         showHomeToast('歌词已导入');
       }).catch(function(){
