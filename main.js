@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-21T05:47:13Z';
+const APP_BUILD_ID = '2026-03-21T05:52:06Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -3111,10 +3111,7 @@ function renderHomeMusic(){
 function syncHomeMusicLyricCardWidth(){
   var card = document.getElementById('home-music-lyric-card');
   if(!card || homeMusicState.lyricHidden) return;
-  var text = getHomeMusicFloatingLineText();
-  var safe = String(text || '').trim();
-  var width = Math.max(44, Math.min(260, 32 + safe.length * 14));
-  card.style.width = width + 'px';
+  card.style.width = '';
 }
 
 function editHomeMusicTrackName(index){
@@ -3272,7 +3269,7 @@ async function addHomeMusicSearchResult(index){
     track.id = createTrackId('search');
     await hydrateHomeMusicThirdPartyTrack(track);
     var wasPreviewingSame = !!(homeMusicState.previewTrack && String(homeMusicState.previewTrack.remoteId || '') === String(track.remoteId || ''));
-    homeMusicState.tracks = homeMusicState.tracks.concat([track]);
+    homeMusicState.tracks = [track].concat(homeMusicState.tracks);
     if(wasPreviewingSame){
       homeMusicState.previewTrack = null;
       homeMusicState.currentTrackId = track.id;
@@ -3476,7 +3473,7 @@ async function importHomeMusicFiles(files){
     showHomeToast('没有读到歌曲');
     return;
   }
-  homeMusicState.tracks = homeMusicState.tracks.concat(tracks);
+  homeMusicState.tracks = tracks.concat(homeMusicState.tracks);
   if(!homeMusicState.currentTrackId && tracks[0]) homeMusicState.currentTrackId = tracks[0].id;
   persistHomeMusicState();
   renderHomeMusic();
