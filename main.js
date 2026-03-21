@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T21:06:41Z';
+const APP_BUILD_ID = '2026-03-20T21:13:22Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2685,29 +2685,10 @@ function setHomeMusicLyricsForCurrentTrack(text){
   var track = getCurrentHomeMusicTrack();
   if(!track) return;
   track.lyricsText = String(text || '');
-  track.lyricsLang = detectLyricsLanguage(track.lyricsText);
   homeMusicState.parsedLyrics = parseHomeMusicLrc(track.lyricsText);
   homeMusicState.currentLyricIndex = -1;
   persistHomeMusicState();
   renderHomeMusic();
-}
-
-function detectLyricsLanguage(text){
-  var raw = String(text || '').trim();
-  if(!raw) return '';
-  var counts = {
-    zh: (raw.match(/[\u4E00-\u9FFF]/g) || []).length,
-    ja: (raw.match(/[\u3040-\u30FF]/g) || []).length,
-    ko: (raw.match(/[\uAC00-\uD7AF]/g) || []).length,
-    fr: (raw.match(/[àâçéèêëîïôûùüÿœæ]/gi) || []).length,
-    latin: (raw.match(/[A-Za-z]/g) || []).length
-  };
-  if(counts.ja > 0 && counts.ja >= counts.zh * 0.35) return '日语';
-  if(counts.ko > 0) return '韩语';
-  if(counts.zh > 0) return '中文';
-  if(counts.fr >= 2) return '法语';
-  if(counts.latin > 0) return '英语';
-  return '';
 }
 
 function getHomeMusicDisplayLyric(){
@@ -2732,10 +2713,13 @@ function updateHomeMusicLyricByTime(currentTime){
   var lineEl = document.getElementById('home-music-lyric-line');
   var subEl = document.getElementById('home-music-lyric-subline');
   if(!lineEl || !subEl) return;
+  var track = getCurrentHomeMusicTrack();
+  var songName = track ? (track.name || '正在播放') : '';
+  var lyricText = '';
   if(!parsed.length){
-    var fallbackTrack = getCurrentHomeMusicTrack();
-    lineEl.textContent = fallbackTrack ? (fallbackTrack.name || '正在播放') : '';
-    subEl.textContent = fallbackTrack && fallbackTrack.lyricsText ? getHomeMusicDisplayLyric() : '';
+    lyricText = track && track.lyricsText ? getHomeMusicDisplayLyric() : '';
+    setHomeMusicTickerText(lineEl, songName);
+    setHomeMusicTickerText(subEl, lyricText);
     return;
   }
   var nextIndex = -1;
@@ -2748,12 +2732,41 @@ function updateHomeMusicLyricByTime(currentTime){
   }
   homeMusicState.currentLyricIndex = nextIndex;
   if(nextIndex < 0){
-    lineEl.textContent = parsed[0].text;
-    subEl.textContent = '♪';
+    lyricText = parsed[0] && parsed[0].text ? parsed[0].text : '';
+    setHomeMusicTickerText(lineEl, songName);
+    setHomeMusicTickerText(subEl, lyricText);
     return;
   }
-  lineEl.textContent = parsed[nextIndex] && parsed[nextIndex].text ? parsed[nextIndex].text : '♪';
-  subEl.textContent = parsed[nextIndex + 1] && parsed[nextIndex + 1].text ? parsed[nextIndex + 1].text : '♪';
+  lyricText = parsed[nextIndex] && parsed[nextIndex].text ? parsed[nextIndex].text : '';
+  setHomeMusicTickerText(lineEl, songName);
+  setHomeMusicTickerText(subEl, lyricText);
+}
+
+function setHomeMusicTickerText(el, text){
+  if(!el) return;
+  var safeText = String(text || '').trim();
+  el.classList.remove('is-marquee');
+  el.style.removeProperty('--marquee-duration');
+  if(!safeText){
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = '<span class="home-music-lyric-text">' + escapeHtml(safeText) + '</span>';
+  requestAnimationFrame(function(){
+    if(!el.isConnected) return;
+    var span = el.firstElementChild;
+    if(!span) return;
+    if(span.scrollWidth > el.clientWidth + 6){
+      var duration = Math.max(6, Math.min(18, safeText.length * 0.42));
+      el.classList.add('is-marquee');
+      el.style.setProperty('--marquee-duration', duration + 's');
+      el.innerHTML =
+        '<span class="home-music-lyric-marquee">' +
+          '<span>' + escapeHtml(safeText) + '</span>' +
+          '<span aria-hidden="true">' + escapeHtml(safeText) + '</span>' +
+        '</span>';
+    }
+  });
 }
 
 function applyHomeMusicEqualizerState(){
@@ -2852,7 +2865,7 @@ function renderHomeMusicPlaybackUi(){
   var totalTimeEl = document.getElementById('home-music-total-time');
   var track = getCurrentHomeMusicTrack();
   if(title) title.textContent = track ? (track.name || '未命名歌曲') : '还没有歌曲';
-  if(subtitle) subtitle.textContent = track ? ((track.artist || '本地导入') + (track.lyricsLang ? ' · ' + track.lyricsLang : '')) : '先导入本地歌曲，后面也能接你自己的代理接口';
+  if(subtitle) subtitle.textContent = track ? (track.artist || '本地导入') : '先导入本地歌曲，后面也能接你自己的代理接口';
   if(toggleBtn){
     toggleBtn.innerHTML = homeMusicState.isPlaying ? '<span>Ⅱ</span>' : '<span>▶</span>';
   }
@@ -2954,7 +2967,7 @@ function saveHomeMusicLyricsInput(){
   }
   setHomeMusicLyricsForCurrentTrack(String(input.value || ''));
   closeHomeMusicLyricsEditor();
-  showHomeToast('歌词已保存' + (track.lyricsLang ? ' · 已识别' + track.lyricsLang : ''));
+  showHomeToast('歌词已保存');
 }
 
 async function deleteHomeMusicTrack(index){
@@ -3485,8 +3498,7 @@ function bindHomeMusicSystem(){
       if(!file) return;
       readHomeMusicLyricsFile(file).then(function(text){
         setHomeMusicLyricsForCurrentTrack(text);
-        var track = getCurrentHomeMusicTrack();
-        showHomeToast('歌词已导入' + (track && track.lyricsLang ? ' · 已识别' + track.lyricsLang : ''));
+        showHomeToast('歌词已导入');
       }).catch(function(){
         showHomeToast('歌词导入失败');
       });
