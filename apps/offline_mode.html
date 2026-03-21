@@ -210,6 +210,7 @@ var offlineCloseIntent = '';
 var flightGameState = null;
 var runtimeUserAvatar = '';
 var runtimeCharAvatar = '';
+var offlineMemorySnippetCache = '';
 
 function activeAccountId(){
   try{ return window.AccountManager && window.AccountManager.getActive ? ((window.AccountManager.getActive() || {}).id || '') : ''; }catch(e){ return ''; }
@@ -873,16 +874,39 @@ function memorySummaryStorageKey(charId){
   return scopedKey('memory_summaries_' + String(charId || '').trim());
 }
 function getOfflineMemorySnippet(){
+  if(offlineMemorySnippetCache) return offlineMemorySnippetCache;
   if(!character || !character.id) return '';
   try{
     var raw = localStorage.getItem(memorySummaryStorageKey(character.id)) || '';
     if(!raw) return '';
     var parsed = JSON.parse(raw);
     var items = Array.isArray(parsed && parsed.items) ? parsed.items : [];
-    return items.map(function(it){ return String((it && it.text) || '').trim(); }).filter(Boolean).slice(-4).join('\n');
+    offlineMemorySnippetCache = items.map(function(it){ return String((it && it.text) || '').trim(); }).filter(Boolean).slice(-4).join('\n');
+    return offlineMemorySnippetCache;
   }catch(e){
     return '';
   }
+}
+async function hydrateOfflineMemorySnippet(){
+  var localSnippet = getOfflineMemorySnippet();
+  if(localSnippet || !character || !character.id) return localSnippet;
+  var storeId = memorySummaryStorageKey(character.id);
+  var source = null;
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.get === 'function'){
+      source = await window.parent.PhoneStorage.get('memorySummaries', storeId);
+    }else if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+      source = await window.PhoneStorage.get('memorySummaries', storeId);
+    }
+  }catch(e){}
+  var items = Array.isArray(source && source.data && source.data.items) ? source.data.items : [];
+  offlineMemorySnippetCache = items.map(function(it){
+    return String((it && it.text) || '').trim();
+  }).filter(Boolean).slice(-4).join('\n');
+  return offlineMemorySnippetCache;
+}
+function getOfflineRecentOnlineSnippet(){
+  return clipOfflinePromptText(session && session.chatHistory ? session.chatHistory : '', isMobileOfflineRuntime() ? 1800 : 2800);
 }
 function getOfflineWorldbookSnippet(){
   if(!character || !character.id) return '';
@@ -954,10 +978,12 @@ function buildOfflineSystemPrompt(options){
   var storyPrefs = getOfflineStoryPrefs();
   var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), isMobileOfflineRuntime() ? 1500 : 2200);
   var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), isMobileOfflineRuntime() ? 1200 : 1800);
+  var onlineChatText = getOfflineRecentOnlineSnippet();
   var compactPersona = clipOfflinePromptText(persona, isMobileOfflineRuntime() ? 1400 : 2200);
   var compactUserPersona = clipOfflinePromptText(userPersona, isMobileOfflineRuntime() ? 900 : 1400);
   var compactScenario = clipOfflinePromptText(scenario, 500);
   var compactSystemPrompt = clipOfflinePromptText(systemPrompt, isMobileOfflineRuntime() ? 1000 : 1600);
+  var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), 500);
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
@@ -983,10 +1009,12 @@ function buildOfflineSystemPrompt(options){
     '用户名字：' + resolveUserName(),
     '用户 persona：' + (compactUserPersona || '未提供'),
     pendingFriendIntro ? ('用户附言/补充背景：' + pendingFriendIntro) : '用户附言/补充背景：无',
+    openingReference ? ('开场白 / 开场参考：' + openingReference) : '开场白 / 开场参考：无',
     compactScenario ? ('场景设定：' + compactScenario) : '场景设定：无',
     compactSystemPrompt ? ('角色补充规则：' + compactSystemPrompt) : '角色补充规则：无',
     worldBook ? ('世界书（已启用条目）：\n' + worldBook) : '世界书（已启用条目）：无',
-    memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无'
+    memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无',
+    onlineChatText ? ('最近线上聊天：\n' + onlineChatText) : '最近线上聊天：无'
   ];
   if(options.opening){
     lines.push('现在要写的是线下模式的第一幕正文。');
@@ -1005,10 +1033,12 @@ function buildOfflineOpeningChunkSystemPrompt(){
   var storyPrefs = getOfflineStoryPrefs();
   var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), isMobileOfflineRuntime() ? 1500 : 2200);
   var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), isMobileOfflineRuntime() ? 1200 : 1800);
+  var onlineChatText = getOfflineRecentOnlineSnippet();
   var compactPersona = clipOfflinePromptText(persona, isMobileOfflineRuntime() ? 1400 : 2200);
   var compactUserPersona = clipOfflinePromptText(userPersona, isMobileOfflineRuntime() ? 900 : 1400);
   var compactScenario = clipOfflinePromptText(scenario, 500);
   var compactSystemPrompt = clipOfflinePromptText(systemPrompt, isMobileOfflineRuntime() ? 1000 : 1600);
+  var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), 500);
   return [
     '你在生成“线下见面模式”的第一幕正文。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
@@ -1032,10 +1062,12 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '用户名字：' + resolveUserName(),
     '用户 persona：' + (compactUserPersona || '未提供'),
     pendingFriendIntro ? ('用户附言/补充背景：' + pendingFriendIntro) : '用户附言/补充背景：无',
+    openingReference ? ('开场白 / 开场参考：' + openingReference) : '开场白 / 开场参考：无',
     compactScenario ? ('场景设定：' + compactScenario) : '场景设定：无',
     compactSystemPrompt ? ('角色补充规则：' + compactSystemPrompt) : '角色补充规则：无',
     worldBook ? ('世界书（已启用条目）：\n' + worldBook) : '世界书（已启用条目）：无',
     memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无',
+    onlineChatText ? ('最近线上聊天：\n' + onlineChatText) : '最近线上聊天：无',
     offlineOpeningBanRules()
   ].join('\n');
 }
@@ -1601,12 +1633,14 @@ async function requestOfflineReply(options){
   setOfflineComposerBusy(true);
   closeThoughtBubbles();
   try{
+    await hydrateOfflineMemorySnippet();
     var prefs = getOfflineStoryPrefs();
     var parsed = null;
     for(var attempt = 0; attempt < 3; attempt += 1){
       var raw = await callAIWithTimeout(buildOfflineSystemPrompt(), [
         '这是一次已经开始的线下见面，请顺着当前氛围继续。',
         session && session.invite ? ('邀约背景：' + JSON.stringify(session.invite)) : '',
+        '最近线上聊天：\n' + (getOfflineRecentOnlineSnippet() || '无'),
         '最近线下记录：\n' + (clipOfflinePromptText(formatOfflineHistory(10) || '无', isMobileOfflineRuntime() ? 1600 : 2400) || '无'),
         '用户此刻没有说新话，请角色自己顺着当前氛围，自然接一句或接一小段。'
       ].filter(Boolean).join('\n\n'), getOfflineReplyTimeoutMs());
@@ -1777,6 +1811,7 @@ function hideFlightOverlay(){
 async function init(){
   character = loadCharacter();
   session = loadSession();
+  await hydrateOfflineMemorySnippet();
   refreshOfflineAvatarAssets();
   if((!character || !character.id) && session && session.invite){
     var fallbackRecord = findLatestOfflineSessionRecord();
