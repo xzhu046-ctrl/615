@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T20:43:52Z';
+const APP_BUILD_ID = '2026-03-20T20:49:37Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2541,6 +2541,7 @@ var homeMusicDragState = null;
 var homeMusicBubbleMoved = false;
 var homeMusicAlbumCoverSrc = '';
 var homeMusicBubbleClickTimer = 0;
+var homeMusicBubbleLastTapAt = 0;
 
 function createTrackId(prefix){
   return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
@@ -2714,7 +2715,7 @@ function updateHomeMusicLyricByTime(currentTime){
   if(!parsed.length){
     var fallbackTrack = getCurrentHomeMusicTrack();
     lineEl.textContent = fallbackTrack ? (fallbackTrack.name || '正在播放') : '';
-    subEl.textContent = fallbackTrack ? getHomeMusicDisplayLyric() : '';
+    subEl.textContent = fallbackTrack && fallbackTrack.lyricsText ? getHomeMusicDisplayLyric() : '';
     return;
   }
   var nextIndex = -1;
@@ -3355,28 +3356,32 @@ function bindHomeMusicSystem(){
         evt.preventDefault();
         return;
       }
+      var now = Date.now();
+      if(now - homeMusicBubbleLastTapAt < 260){
+        homeMusicBubbleLastTapAt = 0;
+        if(homeMusicBubbleClickTimer){
+          clearTimeout(homeMusicBubbleClickTimer);
+          homeMusicBubbleClickTimer = 0;
+        }
+        homeMusicState.lyricHidden = !homeMusicState.lyricHidden;
+        persistHomeMusicState();
+        renderHomeMusic();
+        return;
+      }
+      homeMusicBubbleLastTapAt = now;
       if(homeMusicBubbleClickTimer){
         clearTimeout(homeMusicBubbleClickTimer);
         homeMusicBubbleClickTimer = 0;
       }
       homeMusicBubbleClickTimer = setTimeout(function(){
         homeMusicBubbleClickTimer = 0;
+        homeMusicBubbleLastTapAt = 0;
         if(panel && panel.dataset.open){
           closeHomeMusicPanel();
         }else{
           openHomeMusicPanel();
         }
       }, 180);
-    });
-    bubble.addEventListener('dblclick', function(evt){
-      evt.preventDefault();
-      if(homeMusicBubbleClickTimer){
-        clearTimeout(homeMusicBubbleClickTimer);
-        homeMusicBubbleClickTimer = 0;
-      }
-      homeMusicState.lyricHidden = !homeMusicState.lyricHidden;
-      persistHomeMusicState();
-      renderHomeMusic();
     });
   }
   if(panel){
