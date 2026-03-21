@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T20:27:41Z';
+const APP_BUILD_ID = '2026-03-20T20:33:18Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2692,8 +2692,8 @@ function updateHomeMusicLyricByTime(currentTime){
   if(!lineEl || !subEl) return;
   if(!parsed.length){
     var fallbackTrack = getCurrentHomeMusicTrack();
-    lineEl.textContent = fallbackTrack ? (fallbackTrack.name || '正在播放') : '导入一首歌吧';
-    subEl.textContent = fallbackTrack ? (fallbackTrack.artist || '还没有歌词') : '歌词会显示在这里';
+    lineEl.textContent = fallbackTrack ? (fallbackTrack.name || '正在播放') : '';
+    subEl.textContent = fallbackTrack ? (fallbackTrack.artist || '') : '';
     return;
   }
   var nextIndex = -1;
