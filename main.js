@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T21:52:07Z';
+const APP_BUILD_ID = '2026-03-20T22:03:12Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2891,11 +2891,9 @@ function renderHomeMusicPlaybackUi(){
 function renderHomeMusic(){
   var floating = document.getElementById('home-music-floating');
   var panel = document.getElementById('home-music-panel');
-  var proxyInput = document.getElementById('home-music-proxy-input');
   if(floating) floating.hidden = false;
   if(floating) floating.classList.toggle('lyric-hidden', !!homeMusicState.lyricHidden);
   if(panel) panel.hidden = !panel.dataset.open;
-  if(proxyInput && proxyInput !== document.activeElement) proxyInput.value = homeMusicState.proxyBase || '';
   renderHomeMusicPlaybackUi();
   renderHomeMusicCover();
   renderHomeMusicPlaylist();
@@ -2988,43 +2986,61 @@ function bindHomeMusicTrackSwipe(){
     var startY = 0;
     var dx = 0;
     var dragging = false;
-    var pointerId = null;
+    var swiping = false;
+    var touchId = null;
     var reset = function(keepOpen){
       inner.style.transform = keepOpen ? 'translateX(-76px)' : '';
       dragging = false;
-      pointerId = null;
+      swiping = false;
+      touchId = null;
       dx = keepOpen ? -76 : 0;
     };
-    node.addEventListener('pointerdown', function(evt){
-      if(evt.pointerType === 'mouse' && evt.button !== 0) return;
-      if(evt.target.closest('button')) return;
-      pointerId = evt.pointerId;
-      startX = evt.clientX;
-      startY = evt.clientY;
+    node.addEventListener('touchstart', function(evt){
+      var touch = evt.changedTouches && evt.changedTouches[0];
+      if(!touch || evt.target.closest('button')) return;
+      touchId = touch.identifier;
+      startX = touch.clientX;
+      startY = touch.clientY;
       dragging = true;
+      swiping = false;
       dx = 0;
-    });
-    node.addEventListener('pointermove', function(evt){
-      if(!dragging || (pointerId !== null && evt.pointerId !== pointerId)) return;
-      var moveX = evt.clientX - startX;
-      var moveY = evt.clientY - startY;
-      if(Math.abs(moveY) > 10 && Math.abs(moveY) >= Math.abs(moveX)){
+    }, { passive: true });
+    node.addEventListener('touchmove', function(evt){
+      if(!dragging) return;
+      var touch = null;
+      for(var i = 0; i < (evt.changedTouches ? evt.changedTouches.length : 0); i += 1){
+        if(evt.changedTouches[i].identifier === touchId){
+          touch = evt.changedTouches[i];
+          break;
+        }
+      }
+      if(!touch) return;
+      var moveX = touch.clientX - startX;
+      var moveY = touch.clientY - startY;
+      if(!swiping && Math.abs(moveY) > 10 && Math.abs(moveY) >= Math.abs(moveX)){
         dragging = false;
-        pointerId = null;
+        touchId = null;
         dx = 0;
         inner.style.transform = '';
         return;
       }
-      if(moveX > 0 || Math.abs(moveX) < 18 || Math.abs(moveX) <= (Math.abs(moveY) + 8)) return;
-      if(node.hasPointerCapture && !node.hasPointerCapture(evt.pointerId)){
-        try{ node.setPointerCapture(evt.pointerId); }catch(err){}
-      }
+      if(moveX > 0 || Math.abs(moveX) < 18 || Math.abs(moveX) <= (Math.abs(moveY) + 10)) return;
+      swiping = true;
+      evt.preventDefault();
       dx = Math.min(0, Math.max(-76, moveX));
       inner.style.transform = 'translateX(' + dx + 'px)';
-    });
-    ['pointerup','pointercancel','lostpointercapture'].forEach(function(name){
+    }, { passive: false });
+    ['touchend','touchcancel'].forEach(function(name){
       node.addEventListener(name, function(evt){
-        if(pointerId !== null && evt.pointerId !== undefined && evt.pointerId !== pointerId && name !== 'lostpointercapture') return;
+        if(!dragging && !swiping) return;
+        var matched = false;
+        for(var i = 0; i < (evt.changedTouches ? evt.changedTouches.length : 0); i += 1){
+          if(evt.changedTouches[i].identifier === touchId){
+            matched = true;
+            break;
+          }
+        }
+        if(!matched && touchId !== null) return;
         var shouldOpen = dx <= -38;
         reset(shouldOpen);
       });
