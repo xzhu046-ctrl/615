@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T21:28:44Z';
+const APP_BUILD_ID = '2026-03-20T21:40:18Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2780,7 +2780,7 @@ function applyHomeMusicEqualizerState(){
 
 function applyHomeMusicBubblePosition(){
   var floating = document.getElementById('home-music-floating');
-  var screen = document.getElementById('home-screen');
+  var screen = document.querySelector('.screen');
   if(!floating || !screen) return;
   var maxX = Math.max(8, screen.clientWidth - floating.offsetWidth - 8);
   var maxY = Math.max(8, screen.clientHeight - floating.offsetHeight - 8);
@@ -2998,15 +2998,21 @@ function bindHomeMusicTrackSwipe(){
       startY = evt.clientY;
       dragging = true;
       dx = 0;
-      try{ node.setPointerCapture(pointerId); }catch(err){}
     });
     node.addEventListener('pointermove', function(evt){
       if(!dragging || (pointerId !== null && evt.pointerId !== pointerId)) return;
       var moveX = evt.clientX - startX;
       var moveY = evt.clientY - startY;
       if(Math.abs(moveY) > 16 && Math.abs(moveY) > Math.abs(moveX)){
-        reset(false);
+        dragging = false;
+        pointerId = null;
+        dx = 0;
+        inner.style.transform = '';
         return;
+      }
+      if(Math.abs(moveX) < 10 || Math.abs(moveX) <= Math.abs(moveY)) return;
+      if(node.hasPointerCapture && !node.hasPointerCapture(evt.pointerId)){
+        try{ node.setPointerCapture(evt.pointerId); }catch(err){}
       }
       dx = Math.min(0, Math.max(-76, moveX));
       inner.style.transform = 'translateX(' + dx + 'px)';
@@ -3222,10 +3228,15 @@ function bindHomeMusicSystem(){
   var fileInput = document.getElementById('home-music-file');
   var audio = getHomeMusicAudio();
   var progress = document.getElementById('home-music-progress');
+  var screen = document.querySelector('.screen');
+  if(screen){
+    if(floating && floating.parentElement !== screen) screen.appendChild(floating);
+    if(panel && panel.parentElement !== screen) screen.appendChild(panel);
+  }
   if(floating){
     floating.hidden = false;
     floating.addEventListener('pointerdown', function(evt){
-      var screen = document.getElementById('home-screen');
+      var screen = document.querySelector('.screen');
       if(!screen) return;
       homeMusicBubbleMoved = false;
       homeMusicDragState = {
