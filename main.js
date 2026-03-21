@@ -27,7 +27,7 @@ const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-20T20:58:26Z';
+const APP_BUILD_ID = '2026-03-20T21:06:41Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2685,10 +2685,29 @@ function setHomeMusicLyricsForCurrentTrack(text){
   var track = getCurrentHomeMusicTrack();
   if(!track) return;
   track.lyricsText = String(text || '');
+  track.lyricsLang = detectLyricsLanguage(track.lyricsText);
   homeMusicState.parsedLyrics = parseHomeMusicLrc(track.lyricsText);
   homeMusicState.currentLyricIndex = -1;
   persistHomeMusicState();
   renderHomeMusic();
+}
+
+function detectLyricsLanguage(text){
+  var raw = String(text || '').trim();
+  if(!raw) return '';
+  var counts = {
+    zh: (raw.match(/[\u4E00-\u9FFF]/g) || []).length,
+    ja: (raw.match(/[\u3040-\u30FF]/g) || []).length,
+    ko: (raw.match(/[\uAC00-\uD7AF]/g) || []).length,
+    fr: (raw.match(/[àâçéèêëîïôûùüÿœæ]/gi) || []).length,
+    latin: (raw.match(/[A-Za-z]/g) || []).length
+  };
+  if(counts.ja > 0 && counts.ja >= counts.zh * 0.35) return '日语';
+  if(counts.ko > 0) return '韩语';
+  if(counts.zh > 0) return '中文';
+  if(counts.fr >= 2) return '法语';
+  if(counts.latin > 0) return '英语';
+  return '';
 }
 
 function getHomeMusicDisplayLyric(){
@@ -2787,7 +2806,7 @@ function renderHomeMusicPlaylist(){
   if(!listEl) return;
   var tracks = Array.isArray(homeMusicState.tracks) ? homeMusicState.tracks : [];
   if(!tracks.length){
-    listEl.innerHTML = '<div class="home-music-track"><div><div class="home-music-track-name">还没有歌曲</div><div class="home-music-track-meta">先导入本地歌曲吧</div></div><button class="home-music-track-btn" type="button" onclick="openHomeMusicImport()">导入</button></div>';
+    listEl.innerHTML = '<div class="home-music-track"><div class="home-music-track-inner"><div><div class="home-music-track-name">空空如也，请亲爱的User导入</div><div class="home-music-track-meta">导入本地歌曲后，这里会出现你的播放列表</div></div></div></div>';
     return;
   }
   listEl.innerHTML = tracks.map(function(track, idx){
@@ -2833,8 +2852,10 @@ function renderHomeMusicPlaybackUi(){
   var totalTimeEl = document.getElementById('home-music-total-time');
   var track = getCurrentHomeMusicTrack();
   if(title) title.textContent = track ? (track.name || '未命名歌曲') : '还没有歌曲';
-  if(subtitle) subtitle.textContent = track ? (track.artist || '本地导入') : '先导入本地歌曲，后面也能接你自己的代理接口';
-  if(toggleBtn) toggleBtn.textContent = homeMusicState.isPlaying ? '暂停' : '播放';
+  if(subtitle) subtitle.textContent = track ? ((track.artist || '本地导入') + (track.lyricsLang ? ' · ' + track.lyricsLang : '')) : '先导入本地歌曲，后面也能接你自己的代理接口';
+  if(toggleBtn){
+    toggleBtn.innerHTML = homeMusicState.isPlaying ? '<span>Ⅱ</span>' : '<span>▶</span>';
+  }
   if(currentTimeEl) currentTimeEl.textContent = formatHomeMusicTime(homeMusicState.currentTime);
   var duration = track ? Number(track.duration) || 0 : 0;
   if(totalTimeEl) totalTimeEl.textContent = formatHomeMusicTime(duration);
@@ -2933,7 +2954,7 @@ function saveHomeMusicLyricsInput(){
   }
   setHomeMusicLyricsForCurrentTrack(String(input.value || ''));
   closeHomeMusicLyricsEditor();
-  showHomeToast('歌词已保存');
+  showHomeToast('歌词已保存' + (track.lyricsLang ? ' · 已识别' + track.lyricsLang : ''));
 }
 
 async function deleteHomeMusicTrack(index){
@@ -3464,7 +3485,8 @@ function bindHomeMusicSystem(){
       if(!file) return;
       readHomeMusicLyricsFile(file).then(function(text){
         setHomeMusicLyricsForCurrentTrack(text);
-        showHomeToast('歌词已导入');
+        var track = getCurrentHomeMusicTrack();
+        showHomeToast('歌词已导入' + (track && track.lyricsLang ? ' · 已识别' + track.lyricsLang : ''));
       }).catch(function(){
         showHomeToast('歌词导入失败');
       });
