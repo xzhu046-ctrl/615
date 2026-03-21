@@ -544,6 +544,11 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .memory-overlay.open{display:flex}
 .listen-along-overlay{position:fixed;inset:0;z-index:182;display:none;align-items:center;justify-content:center;padding:22px 18px;background:rgba(255,255,255,.34);backdrop-filter:blur(12px) saturate(118%);-webkit-backdrop-filter:blur(12px) saturate(118%)}
 .listen-along-overlay.open{display:flex}
+.listen-along-overlay.is-idle .listen-along-card::before{opacity:0}
+.listen-along-overlay.is-idle .listen-along-card{background:linear-gradient(180deg,rgba(255,255,255,.99),rgba(244,244,244,.97))}
+.listen-along-overlay.is-idle .listen-along-head{padding-top:16px}
+.listen-along-overlay.is-idle .listen-along-title{color:#111;text-shadow:none}
+.listen-along-overlay.is-idle .listen-along-kicker{color:#7d7d7d}
 .listen-along-card{position:relative;width:min(90vw,322px);border:var(--bd);border-radius:30px;background:linear-gradient(180deg,rgba(255,255,255,.985),rgba(245,245,245,.96));box-shadow:0 0 0 1px rgba(255,255,255,.98),5px 7px 0 rgba(0,0,0,.94),0 18px 34px rgba(0,0,0,.12);padding:14px 14px 16px;overflow:hidden}
 .listen-along-card::before{content:'';position:absolute;left:0;right:0;top:0;height:168px;background:
 linear-gradient(180deg,rgba(0,0,0,.36) 0%,rgba(0,0,0,.18) 42%,rgba(255,255,255,0) 100%),
@@ -571,6 +576,10 @@ linear-gradient(180deg,rgba(255,255,255,.76),rgba(255,255,255,.82)),
 url('assets/%E5%B0%8F%E7%8C%AB%E9%A5%BC%E5%B9%B2.webp') center / cover no-repeat;box-shadow:var(--sh);padding:9px 10px 10px}
 .listen-along-time-row{display:flex;justify-content:space-between;gap:8px;font-family:var(--fontd);font-size:10px;font-weight:900;color:#111;text-shadow:0 1px 0 rgba(255,255,255,.92)}
 .listen-along-progress{width:100%;margin-top:6px;accent-color:#111}
+.listen-along-progress::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:rgba(17,17,17,.18)}
+.listen-along-progress::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;margin-top:-5px;width:16px;height:16px;border-radius:999px;background:#fff;border:2px solid #111;box-shadow:1px 2px 0 rgba(0,0,0,.3)}
+.listen-along-progress::-moz-range-track{height:6px;border-radius:999px;background:rgba(17,17,17,.18)}
+.listen-along-progress::-moz-range-thumb{width:16px;height:16px;border-radius:999px;background:#fff;border:2px solid #111;box-shadow:1px 2px 0 rgba(0,0,0,.3)}
 .listen-along-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;font-family:var(--fontd);font-size:10px;font-weight:900;color:#666}
 .listen-along-actions{display:grid;grid-template-columns:40px 52px 40px 40px;gap:8px;align-items:center;margin-top:10px;justify-content:center}
 .listen-along-icon-btn,.listen-along-send-btn{border:var(--bd);background:#fff;color:#111;box-shadow:3px 4px 0 rgba(0,0,0,.92);border-radius:14px;font-family:var(--fontd);font-weight:900}
@@ -1473,7 +1482,6 @@ url('assets/%E5%B0%8F%E7%8C%AB%E9%A5%BC%E5%B9%B2.webp') center / cover no-repeat
       </div>
     </div>
     <div class="listen-along-send-row listen-along-active-actions" id="listenAlongActiveActions" hidden>
-      <button class="listen-along-send-btn" type="button" onclick="sendListenAlongInvite()">发送邀请</button>
       <button class="listen-along-send-btn danger" type="button" onclick="restListenAlong()">休息一会</button>
     </div>
     <div class="listen-along-empty" id="listenAlongEmpty" hidden>还没有正在播放的歌。先去主页的小音符那里选一首，再来邀请 TA 一起听。</div>
@@ -8471,57 +8479,76 @@ function renderListenAlongModal(){
   var disc = document.getElementById('listenAlongDisc');
   var progress = document.getElementById('listenAlongProgress');
   var toggleBtn = document.getElementById('listenAlongToggleBtn');
+  var idleSendBtn = idle ? idle.querySelector('.listen-along-send-btn') : null;
   setListenAlongAvatarNode(userAvatarNode, currentUserAvatarForFamily(character && character.id), userDisplayNameForFamily() || 'User');
   setListenAlongAvatarNode(charAvatarNode, currentCharAvatarForFamily(character && character.id), character ? (character.nickname || character.name || 'Char') : 'Char');
   renderListenAlongTrackSelect(state.trackId || '');
   renderListenAlongModeButton();
+  var visualShow = !!(currentTrack && isListenAlongActiveState(state));
+  overlay.classList.toggle('is-active', visualShow);
+  overlay.classList.toggle('is-idle', !visualShow);
   if(!currentTrack){
     if(empty) empty.hidden = false;
-    if(idle) idle.hidden = true;
+    if(idle) idle.hidden = false;
     if(activeActions) activeActions.hidden = true;
     if(controls) controls.hidden = true;
     if(progressWrap) progressWrap.hidden = true;
+    if(userAvatarNode) userAvatarNode.parentElement.hidden = true;
+    if(status) status.hidden = true;
+    if(disc) disc.parentElement.hidden = true;
+    if(document.getElementById('listenAlongMeta')) document.getElementById('listenAlongMeta').hidden = true;
     if(title) title.textContent = '一起听歌';
-    if(status) status.textContent = '先去主页的小音符里选一首歌，再回来邀请 TA。';
     if(artist) artist.textContent = '暂无歌曲';
     if(hint) hint.textContent = '';
     if(currentTime) currentTime.textContent = '0:00';
     if(duration) duration.textContent = '0:00 / 0:00';
     if(cover) cover.innerHTML = '<div class="listen-along-cover-fallback">♪</div>';
     if(disc) disc.classList.remove('is-spinning');
+    if(idleSendBtn){
+      idleSendBtn.disabled = true;
+      idleSendBtn.textContent = '发送邀请';
+    }
     return;
   }
   if(empty) empty.hidden = true;
   var active = isListenAlongActiveState(state);
-  if(idle) idle.hidden = active;
+  if(userAvatarNode) userAvatarNode.parentElement.hidden = !active;
+  if(status) status.hidden = !active;
+  if(disc) disc.parentElement.hidden = !active;
+  if(document.getElementById('listenAlongMeta')) document.getElementById('listenAlongMeta').hidden = !active;
+  if(idle) idle.hidden = active ? true : false;
   if(activeActions) activeActions.hidden = !active;
   if(controls) controls.hidden = !active;
   if(progressWrap) progressWrap.hidden = !active;
   var displayName = String(currentTrack.name || '未命名歌曲').trim() || '未命名歌曲';
-  if(title) title.textContent = displayName;
+  if(title) title.textContent = active ? displayName : '一起听歌';
   if(artist) artist.textContent = String(currentTrack.artist || (currentTrack.source === 'search' ? '搜索添加' : '本地导入') || '本地导入');
-  if(hint) hint.textContent = active ? '' : '点封面可换图';
+  if(hint) hint.textContent = active ? '' : '';
   if(inviteCopy){
-    inviteCopy.textContent = '把这首歌发给 TA 吧。等 TA 同意之后，这里才会开始一起听歌计时。';
+    inviteCopy.textContent = state.status === 'pending' ? '邀请已经发出，正在等 TA 的回答。' : '';
+  }
+  if(idleSendBtn){
+    idleSendBtn.disabled = state.status === 'pending';
+    idleSendBtn.textContent = state.status === 'pending' ? '等待回应' : '发送邀请';
   }
   if(status){
     if(active){
       var minutes = Math.max(0, Math.floor((Date.now() - Number(state.startedAt || Date.now())) / 60000));
       status.textContent = '等待获取对方位置，一起听了 ' + minutes + ' 分钟';
-    }else if(state.status === 'pending'){
-      status.textContent = '邀请已经发出，正在等 TA 的回答。';
-    }else if(state.status === 'declined'){
-      status.textContent = 'TA 刚刚还不想一起听。换首歌再试试看。';
-    }else{
-      status.textContent = '还没有发出邀请。';
     }
   }
+  var parentAudioDuration = 0;
+  try{
+    var parentAudio = window.parent && typeof window.parent.getHomeMusicAudio === 'function' ? window.parent.getHomeMusicAudio() : null;
+    parentAudioDuration = Number(parentAudio && parentAudio.duration) || 0;
+  }catch(e){}
   var playTime = Number(playback.currentTime) || 0;
+  var totalDuration = Number(currentTrack.duration) || parentAudioDuration || 0;
   if(currentTime) currentTime.textContent = formatListenAlongTime(playTime);
-  if(duration) duration.textContent = formatListenAlongTime(playTime) + ' / ' + formatListenAlongTime(currentTrack.duration || 0);
+  if(duration) duration.textContent = formatListenAlongTime(playTime) + ' / ' + formatListenAlongTime(totalDuration);
   if(progress){
     progress.max = 1000;
-    progress.value = currentTrack.duration > 0 ? Math.max(0, Math.min(1000, Math.round((playTime / currentTrack.duration) * 1000))) : 0;
+    progress.value = totalDuration > 0 ? Math.max(0, Math.min(1000, Math.round((playTime / totalDuration) * 1000))) : 0;
   }
   var coverSrc = getListenAlongCoverSrc(currentTrack, state);
   if(cover){
@@ -8625,7 +8652,7 @@ function seekListenAlongTrack(value){
     audio = window.parent && typeof window.parent.getHomeMusicAudio === 'function' ? window.parent.getHomeMusicAudio() : null;
   }catch(e){}
   if(!track || !audio) return;
-  var duration = Number(track.duration) || Number(audio.duration) || 0;
+  var duration = Number(track && track.duration) || Number(audio.duration) || 0;
   if(duration <= 0) return;
   var percent = Math.max(0, Math.min(1000, Number(value) || 0));
   audio.currentTime = duration * (percent / 1000);
