@@ -115,6 +115,7 @@ ${blockPolicy}` : ''}
 - 正确 JSON 例子：{"type":"text","content":"好"}、{"type":"voice_message","content":"嗯...你想听我说什么呀"}、{"type":"image_message","content":"窗边放着一束白花，花瓣上还沾着水。"}、{"type":"money_packet","mode":"red_packet","amount":88.8,"note":"给你","summary":"给你发一个红包"}、{"type":"offline_invite","content":"宝宝我来找你了","mood":"(///v///)","weather":"☀︎","location":"老地方见","aside":"快答应我"}。
 - 不要输出 {"voice_message":{"content":"..."}}、{"image_message":{...}} 这类嵌套对象。
 - 只允许本系统格式：text / voice_message / image_message / money_packet / offline_invite，可选 reply_to / reply_role。
+- reply_to / reply_role 只能作为“附加字段”跟在一条真正要发送的消息后面，绝不能单独输出；如果要引用，必须同时提供 type 和 content。
 - money_packet 只在角色真的要发红包/转账时使用；必须包含 mode(red_packet/transfer)、amount、note，可额外带 summary。
 - offline_invite 只在角色真的想和用户线下见面时使用；必须包含 content，还可以附带 mood、weather、location、aside。
 - 如果角色此刻真的很想用户、想陪用户、想把气氛往线下推进，而用户又刚好在说“无聊/想你/想见你/在干嘛/不理我”这类话题，你可以先自然回几句真人聊天，再顺势发一个 offline_invite，不用每次都等用户先明确提“见面”。

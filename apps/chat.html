@@ -10303,9 +10303,25 @@ async function deliverAiReply(text, limitOverride){
   };
   var parsed = null;
   var rawParts = [];
+  var isReplyMetadataOnly = function(item){
+    if(!item || typeof item !== 'object') return false;
+    var hasReplyMeta = !!String(item.reply_to || item.replyTo || '').trim() || !!String(item.reply_role || item.replyRole || '').trim();
+    if(!hasReplyMeta) return false;
+    var hasBody =
+      typeof item.content === 'string' ||
+      typeof item.reply_content === 'string' ||
+      typeof item.description === 'string' ||
+      typeof item.text === 'string' ||
+      (item.voice_message && typeof item.voice_message === 'object') ||
+      (item.image_message && typeof item.image_message === 'object') ||
+      (item.money_packet && typeof item.money_packet === 'object') ||
+      (item.offline_invite && typeof item.offline_invite === 'object');
+    return !hasBody;
+  };
   var appendRawPart = function(item){
     if(!item || typeof item !== 'object') return;
     if(item.type === 'thought_chain') return;
+    if(isReplyMetadataOnly(item)) return;
     var c = '';
     var t = normalizeMessageType(item.type || 'text');
     if(typeof item.content === 'string') c = item.content;
@@ -10426,6 +10442,7 @@ async function deliverAiReply(text, limitOverride){
       try{
         var obj = JSON.parse(line);
         if(obj && typeof obj === 'object'){
+          if(isReplyMetadataOnly(obj)) return;
           var c = obj.content || obj.reply_content || obj.description;
           var t = normalizeMessageType(obj.type || 'text');
           if(!c){
