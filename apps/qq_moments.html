@@ -232,6 +232,7 @@ let currentHeroBgSrc = '';
 let heroBgObjectUrl = '';
 let heroAvatarObjectUrl = '';
 const transientAssets = {};
+let hydratedPostsCache = [];
 let momentsDebugState = { bridgeScoped: 0, bridgeRaw: 0, localMain: 0, localAlt: 0, kvBest: 0, rendered: 0 };
 let publishState = {
   mode: '',
@@ -324,6 +325,9 @@ function goBackQQ(evt){
 
 function getPosts(){
   try{
+    if(Array.isArray(hydratedPostsCache) && hydratedPostsCache.length){
+      return hydratedPostsCache.slice();
+    }
     let best = [];
     storageKeyCandidates(STORAGE_POSTS).concat(storageKeyCandidates(STORAGE_POSTS_ALT)).forEach((key)=>{
       if(!key) return;
@@ -347,6 +351,7 @@ function getPosts(){
 }
 
 function savePosts(posts){
+  hydratedPostsCache = Array.isArray(posts) ? posts.slice() : [];
   lsSet(STORAGE_POSTS, JSON.stringify(posts));
   lsSet(STORAGE_POSTS_ALT, JSON.stringify(posts));
   if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
@@ -387,6 +392,7 @@ async function hydratePostsFromLargeStore(){
     momentsDebugState.kvBest = Array.isArray(best) ? best.length : 0;
     const posts = Array.isArray(best) ? best : [];
     if(posts.length){
+      hydratedPostsCache = posts.slice();
       lsSet(STORAGE_POSTS, JSON.stringify(posts));
       lsSet(STORAGE_POSTS_ALT, JSON.stringify(posts));
     }
@@ -413,6 +419,7 @@ function hydratePostsFromBridge(){
     }
     const posts = JSON.parse(raw);
     if(!Array.isArray(posts) || !posts.length) return false;
+    hydratedPostsCache = posts.slice();
     lsSet(STORAGE_POSTS, JSON.stringify(posts));
     lsSet(STORAGE_POSTS_ALT, JSON.stringify(posts));
     if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
