@@ -214,6 +214,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 <script>
 const STORAGE_POSTS = 'qq_moments_posts';
 const STORAGE_POSTS_ALT = 'moments_posts';
+const STORAGE_POSTS_BRIDGE = 'qq_moments_bridge_posts';
 const STORAGE_BG = 'qq_moments_hero_bg';
 const STORAGE_AVATAR = 'qq_moments_hero_avatar';
 const STORAGE_SIGN = 'qq_moments_signature';
@@ -369,6 +370,24 @@ async function hydratePostsFromLargeStore(){
       lsSet(STORAGE_POSTS_ALT, JSON.stringify(posts));
     }
   }catch(e){}
+}
+
+function hydratePostsFromBridge(){
+  try{
+    const raw = localStorage.getItem(scopedKey(STORAGE_POSTS_BRIDGE)) || localStorage.getItem(STORAGE_POSTS_BRIDGE) || '';
+    if(!raw) return false;
+    const posts = JSON.parse(raw);
+    if(!Array.isArray(posts) || !posts.length) return false;
+    lsSet(STORAGE_POSTS, JSON.stringify(posts));
+    lsSet(STORAGE_POSTS_ALT, JSON.stringify(posts));
+    if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
+      window.PhoneStorage.putJson(scopedKey(STORAGE_POSTS), posts).catch(()=>{});
+      window.PhoneStorage.putJson(scopedKey(STORAGE_POSTS_ALT), posts).catch(()=>{});
+    }
+    return true;
+  }catch(e){
+    return false;
+  }
 }
 
 function fmtTime(ts){
@@ -1014,6 +1033,7 @@ bindInputs();
 hideParentTopbar();
 window.addEventListener('beforeunload', restoreParentTopbar);
 window.addEventListener('pagehide', restoreParentTopbar);
+hydratePostsFromBridge();
 renderHero();
 hydratePostsFromLargeStore().then(function(){
   renderFeed();
