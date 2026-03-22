@@ -33,7 +33,7 @@ body{font-family:var(--font);color:var(--b);display:flex;flex-direction:column}
 .map-badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .map-badge{border:1.5px solid #0a0a0a;border-radius:999px;background:#fff;padding:5px 9px;font-size:11px;font-weight:800}
 .map-stage{padding:12px}
-.map-world{position:relative;height:300px;border:var(--bd);border-radius:22px;overflow:hidden;background:
+.map-world{position:relative;height:300px;border:var(--bd);border-radius:22px;overflow:hidden;touch-action:none;background:
  linear-gradient(180deg, rgba(255,255,255,.96), rgba(245,245,245,.93)),
  radial-gradient(circle at 18% 32%, rgba(0,0,0,.06) 0 18%, transparent 19%),
  radial-gradient(circle at 45% 48%, rgba(0,0,0,.05) 0 22%, transparent 23%),
@@ -43,6 +43,7 @@ body{font-family:var(--font);color:var(--b);display:flex;flex-direction:column}
  linear-gradient(rgba(0,0,0,.06) 1px, transparent 1px);
  background-size:auto,auto,auto,auto,auto,38px 38px,38px 38px;
  box-shadow:inset 0 0 0 1px rgba(255,255,255,.95)}
+.map-world-inner{position:absolute;inset:0;transform-origin:center center}
 .map-route-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 .map-route-line{stroke:#0a0a0a;stroke-width:2.6;stroke-linecap:round;stroke-dasharray:7 8;opacity:.72}
 .map-point{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:5px}
@@ -86,6 +87,8 @@ body{font-family:var(--font);color:var(--b);display:flex;flex-direction:column}
 
 <script>
 var mapAvatarCache = { user:'', char:'', charId:'' };
+var mapViewState = { scale:1, tx:0, ty:0 };
+var mapGestureState = null;
 
 function getActiveCharacter(){
   try{
@@ -130,12 +133,6 @@ function currentUserAvatar(){
     var src = String(localStorage.getItem(keys[i]) || '').trim();
     if(isRenderableAvatarSrc(src)) return src;
   }
-  try{
-    if(window.AccountManager){
-      var acct = window.AccountManager.getActive();
-      if(acct && isRenderableAvatarSrc(acct.avatar)) return String(acct.avatar).trim();
-    }
-  }catch(err){}
   return '';
 }
 
@@ -229,6 +226,76 @@ function setAvatarMarkup(src, fallback){
   return src ? ('<img src="' + escapeHtml(src) + '" alt="">') : escapeHtml(fallback || '你');
 }
 
+function applyMapTransform(){
+  var inner = document.getElementById('mapWorldInner');
+  if(!inner) return;
+  var scale = Math.max(1, Math.min(2.6, Number(mapViewState.scale) || 1));
+  var tx = Number(mapViewState.tx) || 0;
+  var ty = Number(mapViewState.ty) || 0;
+  inner.style.transform = 'translate(' + tx.toFixed(1) + 'px,' + ty.toFixed(1) + 'px) scale(' + scale.toFixed(3) + ')';
+}
+
+function touchDistance(a, b){
+  var dx = Number(a.clientX || 0) - Number(b.clientX || 0);
+  var dy = Number(a.clientY || 0) - Number(b.clientY || 0);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function bindMapGestures(){
+  var world = document.getElementById('mapWorld');
+  if(!world || world.dataset.bound === '1') return;
+  world.dataset.bound = '1';
+  world.addEventListener('touchstart', function(evt){
+    if(evt.touches.length === 2){
+      var dist = touchDistance(evt.touches[0], evt.touches[1]);
+      mapGestureState = {
+        mode: 'pinch',
+        startScale: mapViewState.scale,
+        startDist: dist
+      };
+      return;
+    }
+    if(evt.touches.length === 1){
+      mapGestureState = {
+        mode: 'pan',
+        startTx: mapViewState.tx,
+        startTy: mapViewState.ty,
+        startX: evt.touches[0].clientX,
+        startY: evt.touches[0].clientY
+      };
+    }
+  }, { passive:false });
+  world.addEventListener('touchmove', function(evt){
+    if(!mapGestureState) return;
+    if(mapGestureState.mode === 'pinch' && evt.touches.length === 2){
+      evt.preventDefault();
+      var dist = touchDistance(evt.touches[0], evt.touches[1]);
+      mapViewState.scale = Math.max(1, Math.min(2.6, mapGestureState.startScale * (dist / Math.max(1, mapGestureState.startDist))));
+      applyMapTransform();
+      return;
+    }
+    if(mapGestureState.mode === 'pan' && evt.touches.length === 1 && mapViewState.scale > 1){
+      evt.preventDefault();
+      mapViewState.tx = mapGestureState.startTx + (evt.touches[0].clientX - mapGestureState.startX);
+      mapViewState.ty = mapGestureState.startTy + (evt.touches[0].clientY - mapGestureState.startY);
+      applyMapTransform();
+    }
+  }, { passive:false });
+  world.addEventListener('touchend', function(){
+    mapGestureState = null;
+  });
+  world.addEventListener('dblclick', function(){
+    if(mapViewState.scale > 1.02){
+      mapViewState = { scale:1, tx:0, ty:0 };
+    }else{
+      mapViewState.scale = 1.45;
+      mapViewState.tx = 0;
+      mapViewState.ty = 0;
+    }
+    applyMapTransform();
+  });
+}
+
 function renderMapApp(){
   var char = getActiveCharacter();
   var statusHost = document.getElementById('mapStatusCard');
@@ -252,7 +319,7 @@ function renderMapApp(){
     return;
   }
   hydrateMapAvatars(char.id);
-  var userAvatar = currentUserAvatar() || mapAvatarCache.user;
+  var userAvatar = mapAvatarCache.user || currentUserAvatar();
   var charAvatar = currentCharAvatar(char.id) || mapAvatarCache.char;
   var charName = (char.nickname || char.name || 'Char');
   statusHost.innerHTML =
@@ -276,7 +343,8 @@ function renderMapApp(){
   var userPoint = window.PresenceShared.projectWorldPoint(snapshot.user, worldWidth, worldHeight);
   var charPoint = window.PresenceShared.projectWorldPoint(snapshot.char.point, worldWidth, worldHeight);
   stageHost.innerHTML =
-    '<div class="map-world">'
+    '<div class="map-world" id="mapWorld">'
+      + '<div class="map-world-inner" id="mapWorldInner">'
       + '<svg class="map-route-svg" viewBox="0 0 ' + worldWidth + ' ' + worldHeight + '" preserveAspectRatio="none">'
         + '<line class="map-route-line" x1="' + userPoint.x.toFixed(1) + '" y1="' + userPoint.y.toFixed(1) + '" x2="' + charPoint.x.toFixed(1) + '" y2="' + charPoint.y.toFixed(1) + '"></line>'
       + '</svg>'
@@ -288,7 +356,10 @@ function renderMapApp(){
         + '<div class="map-pin">' + setAvatarMarkup(charAvatar, charName.slice(0,1)) + '</div>'
         + '<div class="map-label">' + escapeHtml(charName + ' · ' + snapshot.char.placeLabel) + '</div>'
       + '</div>'
+      + '</div>'
     + '</div>';
+  bindMapGestures();
+  applyMapTransform();
   travelHost.innerHTML =
     '<div class="map-mini-title">现在过去要多久</div>'
     + '<div class="map-mini-value">' + escapeHtml(snapshot.travel.text) + '</div>'
@@ -297,39 +368,6 @@ function renderMapApp(){
     '<div class="map-mini-title">为什么他现在不太回</div>'
     + '<div class="map-mini-value">' + escapeHtml(snapshot.char.activityLabel) + '</div>'
     + '<div class="map-mini-sub">' + (snapshot.char.availability === 'busy' || snapshot.char.availability === 'sleep' ? ('大概 ' + escapeHtml(snapshot.char.freeAtLabel) + ' 会松一点。') : '他现在状态比较空，可以正常聊。') + '</div>';
-}
-
-function focusUserLocation(){
-  if(!window.PresenceShared) return;
-  var cities = window.PresenceShared.listCities();
-  var current = window.PresenceShared.getUserLocation();
-  var options = cities.map(function(city){
-    return '<option value="' + city.id + '"' + (current.cityId === city.id ? ' selected' : '') + '>' + city.name + ' · ' + city.country + '</option>';
-  }).join('');
-  var stageHost = document.getElementById('mapStageCard');
-  if(!stageHost) return;
-  stageHost.innerHTML =
-    '<div class="map-mini-title">切换我的城市</div>'
-    + '<select class="map-select" id="mapUserCitySelect">' + options + '</select>'
-    + '<button class="map-btn" style="margin-top:10px;width:100%" type="button" onclick="applyUserCityFromMap()">保存我的位置</button>';
-}
-
-function applyUserCityFromMap(){
-  if(!window.PresenceShared) return;
-  var select = document.getElementById('mapUserCitySelect');
-  if(!select) return;
-  var city = window.PresenceShared.getCity(select.value);
-  window.PresenceShared.saveUserLocation({
-    shareEnabled:true,
-    mode:'manual',
-    cityId:city.id,
-    label:city.name,
-    lat:city.lat,
-    lng:city.lng,
-    updatedAt:Date.now(),
-    accuracy:0
-  });
-  renderMapApp();
 }
 
 async function useDeviceLocation(){

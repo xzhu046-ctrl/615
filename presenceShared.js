@@ -169,10 +169,10 @@
     return accountScopedKey('real_weather_user_' + safeCharId);
   }
 
-  function getWeatherLockedLocation(role, charId){
+  function getWeatherConfiguredLocation(role, charId){
     try{
       var parsed = safeJsonParse(localStorage.getItem(weatherSettingsStorageKey(role, charId)) || 'null', null);
-      if(!parsed || parsed.locked !== true) return null;
+      if(!parsed) return null;
       var lat = Number(parsed.latitude);
       var lng = Number(parsed.longitude);
       if(!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
@@ -359,7 +359,7 @@
 
   function getCharPresence(character, now){
     const settings = getCharSettings(character);
-    const charWeatherLoc = getWeatherLockedLocation('char', character && character.id);
+    const charWeatherLoc = getWeatherConfiguredLocation('char', character && character.id);
     const city = charWeatherLoc ? findNearestCatalogCity(charWeatherLoc.lat, charWeatherLoc.lng) : getCity(settings.cityId || DEFAULT_CHAR_CITY);
     const parts = getLocalParts(city.tz, now);
     const profile = settings.schedule === 'auto' ? inferProfile(character) : String(settings.schedule || 'office');
@@ -457,9 +457,10 @@
   function getPresenceSnapshot(character, now){
     const charId = character && character.id ? String(character.id) : '';
     const storedUser = getUserLocation();
+    const weatherUserLoc = getWeatherConfiguredLocation('user', charId);
     const user = storedUser.mode === 'device'
       ? storedUser
-      : Object.assign({}, storedUser, getWeatherLockedLocation('user', charId) || {});
+      : Object.assign({}, storedUser, weatherUserLoc || {});
     const charPresence = getCharPresence(character, now);
     const userPoint = { lat:Number(user.lat), lng:Number(user.lng) };
     const charPoint = charPresence.point;
