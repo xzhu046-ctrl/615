@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-22T08:27:36Z';
+const APP_BUILD_ID = '2026-03-22T08:30:37Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -879,16 +879,17 @@ function setLiveDanmakuTexts(textMap){
 }
 
 function renderHomeAppIcon(app, icon){
-  const btn = document.querySelector('.home-app-btn[data-app="' + app + '"]');
-  if(!btn) return;
   const label = HOME_ICON_DEFAULTS[app] || app;
-  if(typeof icon === 'string' && icon.startsWith('data:')){
-    btn.classList.add('has-custom-icon');
-    btn.innerHTML = '<span class="home-app-icon-wrap"><img class="home-app-icon-img" src="' + icon + '" alt="' + label + '"></span><span class="home-app-label">' + label + '</span>';
-    return;
-  }
-  btn.classList.remove('has-custom-icon');
-  btn.innerHTML = '<span class="home-app-icon-wrap home-app-icon-fallback"><span class="home-app-fallback-text">' + label + '</span></span><span class="home-app-label">' + label + '</span>';
+  document.querySelectorAll('[data-app="' + app + '"]').forEach((btn)=>{
+    if(!btn) return;
+    if(typeof icon === 'string' && icon.startsWith('data:')){
+      btn.classList.add('has-custom-icon');
+      btn.innerHTML = '<span class="home-app-icon-wrap"><img class="home-app-icon-img" src="' + icon + '" alt="' + label + '"></span><span class="home-app-label">' + label + '</span>';
+      return;
+    }
+    btn.classList.remove('has-custom-icon');
+    btn.innerHTML = '<span class="home-app-icon-wrap home-app-icon-fallback"><span class="home-app-fallback-text">' + label + '</span></span><span class="home-app-label">' + label + '</span>';
+  });
 }
 
 function restoreHomeAppIcons(){
