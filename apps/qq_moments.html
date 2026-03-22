@@ -245,6 +245,34 @@ function scopedKey(base){
   }
   return base;
 }
+function getAccountIdCandidates(){
+  const ids = [];
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      const active = window.AccountManager.getActive ? window.AccountManager.getActive() : null;
+      const defaultId = window.AccountManager.getDefaultId ? window.AccountManager.getDefaultId() : '';
+      if(active && active.id) ids.push(String(active.id));
+      if(defaultId) ids.push(String(defaultId));
+      const accounts = window.AccountManager.loadAccounts ? window.AccountManager.loadAccounts() : [];
+      if(Array.isArray(accounts)){
+        accounts.forEach((account)=>{
+          if(account && account.id) ids.push(String(account.id));
+        });
+      }
+    }
+  }catch(e){}
+  return Array.from(new Set(ids.filter(Boolean)));
+}
+function storageKeyCandidates(base){
+  const raw = String(base || '').trim();
+  const keys = raw ? [raw] : [];
+  getAccountIdCandidates().forEach((id)=>{
+    if(raw) keys.push(raw + '__acct_' + id);
+  });
+  if(raw) keys.unshift(scopedKey(raw));
+  return Array.from(new Set(keys.filter(Boolean)));
+}
 function lsGet(base){
   return localStorage.getItem(scopedKey(base));
 }
@@ -282,10 +310,15 @@ function goBackQQ(evt){
 
 function getPosts(){
   try{
-    let posts = JSON.parse(lsGet(STORAGE_POSTS) || '[]');
-    if(Array.isArray(posts) && posts.length) return posts;
-    posts = JSON.parse(lsGet(STORAGE_POSTS_ALT) || '[]');
-    return Array.isArray(posts) ? posts : [];
+    let best = [];
+    storageKeyCandidates(STORAGE_POSTS).concat(storageKeyCandidates(STORAGE_POSTS_ALT)).forEach((key)=>{
+      if(!key) return;
+      try{
+        const posts = JSON.parse(localStorage.getItem(key) || '[]');
+        if(Array.isArray(posts) && posts.length > best.length) best = posts;
+      }catch(ignoreErr){}
+    });
+    return Array.isArray(best) ? best : [];
   }catch(e){
     return [];
   }
@@ -303,11 +336,18 @@ function savePosts(posts){
 async function hydratePostsFromLargeStore(){
   if(!(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function')) return;
   try{
-    let stored = await window.PhoneStorage.getJson(scopedKey(STORAGE_POSTS));
-    if(!Array.isArray(stored) || !stored.length){
-      stored = await window.PhoneStorage.getJson(scopedKey(STORAGE_POSTS_ALT));
+    let best = [];
+    const candidates = storageKeyCandidates(STORAGE_POSTS).concat(storageKeyCandidates(STORAGE_POSTS_ALT));
+    for(const key of Array.from(new Set(candidates.filter(Boolean)))){
+      let stored = null;
+      try{
+        stored = await window.PhoneStorage.getJson(key);
+      }catch(ignoreErr){}
+      if(Array.isArray(stored) && stored.length > best.length){
+        best = stored;
+      }
     }
-    const posts = Array.isArray(stored) ? stored : [];
+    const posts = Array.isArray(best) ? best : [];
     if(posts.length){
       lsSet(STORAGE_POSTS, JSON.stringify(posts));
       lsSet(STORAGE_POSTS_ALT, JSON.stringify(posts));
