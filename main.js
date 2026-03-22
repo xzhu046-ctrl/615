@@ -6,6 +6,7 @@ const APP_MAP = {
   settings:   { title: '设置',           src: 'apps/settings.html' },
   customize:  { title: '外观',           src: 'apps/customize.html' },
   worldbook:  { title: '世界书',         src: 'apps/worldbook.html' },
+  map6:       { title: '地图',           src: 'apps/map6.html' },
   offline_archive: { title: '档案馆',    src: 'apps/offline_archive.html' },
   offline:    { title: '线下模式',       src: 'apps/offline_mode.html', hideTopbar: true },
 };
@@ -29,7 +30,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-22T04:37:49Z';
+const APP_BUILD_ID = '2026-03-22T08:23:38Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -634,10 +635,12 @@ async function primeLatestCoreFiles(){
     'main.js',
     'assetStore.js',
     'chatStorage.js',
+    'presenceShared.js',
     'manifest.webmanifest',
     'version.json',
     'apps/qq.html',
     'apps/chat.html',
+    'apps/map6.html',
     'apps/offline_mode.html'
   ];
   await Promise.all(targets.map(function(path){
@@ -916,7 +919,8 @@ function slimChar(c){
     personality:c.personality, scenario:c.scenario, system_prompt:c.system_prompt,
     first_mes:c.first_mes, alternate_greetings:c.alternate_greetings,
     tags:c.tags, character_version:c.character_version, spec:c.spec, creator:c.creator,
-    msgMin:c.msgMin, msgMax:c.msgMax
+    msgMin:c.msgMin, msgMax:c.msgMax,
+    livePresence:(c.livePresence && typeof c.livePresence === 'object') ? Object.assign({}, c.livePresence) : null
   };
 }
 
@@ -2035,6 +2039,10 @@ function bindHomePager(){
 }
 
 function openPlaceholderMiniApp(idx){
+  if(Number(idx) === 6){
+    openApp('map6');
+    return;
+  }
   showHomeToast('占位' + idx + ' 暂未设置');
 }
 
@@ -4114,6 +4122,22 @@ window.addEventListener('message',(e)=>{
     renderBondWidget(payload);
     try{ localStorage.setItem('pendingChatChar',JSON.stringify(slim)); }catch(e){}
     postToChat({ type:'SET_ACTIVE_CHARACTER', payload: slim });
+  }
+  if(type==='OPEN_CHAT_SETTINGS'){
+    var activeSlim = payload ? slimChar(payload) : getActiveCharacterData();
+    openApp('chat');
+    if(activeSlim && activeSlim.id){
+      if(isDefaultAccountActive()){
+        try{ localStorage.setItem('activeCharacter', JSON.stringify(activeSlim)); }catch(err){}
+      }
+      try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(activeSlim)); }catch(err){}
+      setWidgetCharacter(activeSlim);
+      renderBondWidget(activeSlim);
+      postToChat({ type:'SET_ACTIVE_CHARACTER', payload: activeSlim });
+    }
+    [120, 280, 520].forEach(function(delay){
+      setTimeout(function(){ postToChat({ type:'OPEN_CHAT_SETTINGS' }); }, delay);
+    });
   }
   if(type==='OPEN_APP_WITH'){
     var appId=payload.app;

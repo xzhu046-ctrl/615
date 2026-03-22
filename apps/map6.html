@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+<title>地图</title>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+<script src="../accountManager.js"></script>
+<script src="../assetStore.js"></script>
+<script src="../presenceShared.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--b:#0a0a0a;--w:#fff;--off:#f7f7f7;--g:#6d6d6d;--bd:2px solid #0a0a0a;--sh:2px 2px 0 #0a0a0a;--font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif}
+html,body{width:100%;height:100%;overflow:hidden;background:#f4f4f4}
+body{font-family:var(--font);color:var(--b);display:flex;flex-direction:column}
+.map-shell{flex:1;min-height:0;display:flex;flex-direction:column;padding:14px 12px 18px;gap:12px;background:
+  radial-gradient(circle at top left, rgba(255,255,255,.98), rgba(243,243,243,.96) 32%, rgba(236,236,236,.94) 100%)}
+.map-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.map-title-wrap{min-width:0}
+.map-kicker{font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.16em;color:#7f7f7f;text-transform:uppercase}
+.map-title{margin-top:2px;font-family:var(--fontd);font-size:20px;font-weight:900}
+.map-chip{border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);padding:7px 10px;font-family:var(--fontd);font-size:11px;font-weight:900;white-space:nowrap}
+.map-card{border:var(--bd);border-radius:24px;background:rgba(255,255,255,.96);box-shadow:3px 4px 0 #0a0a0a;position:relative;overflow:hidden}
+.map-status-card{padding:14px 14px 12px}
+.map-status-row{display:flex;align-items:center;gap:10px}
+.map-avatar-stack{display:flex;align-items:center}
+.map-avatar{width:54px;height:54px;border:var(--bd);border-radius:18px;background:#fff;box-shadow:var(--sh);overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:var(--fontd);font-size:14px;font-weight:900}
+.map-avatar + .map-avatar{margin-left:-14px}
+.map-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.map-status-copy{min-width:0;flex:1}
+.map-status-title{font-family:var(--fontd);font-size:16px;font-weight:900;line-height:1.25}
+.map-status-sub{margin-top:3px;font-size:12px;color:#555;font-weight:700;line-height:1.4}
+.map-badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.map-badge{border:1.5px solid #0a0a0a;border-radius:999px;background:#fff;padding:5px 9px;font-size:11px;font-weight:800}
+.map-stage{padding:12px}
+.map-world{position:relative;height:300px;border:var(--bd);border-radius:22px;overflow:hidden;background:
+ linear-gradient(180deg, rgba(255,255,255,.96), rgba(245,245,245,.93)),
+ radial-gradient(circle at 18% 32%, rgba(0,0,0,.06) 0 18%, transparent 19%),
+ radial-gradient(circle at 45% 48%, rgba(0,0,0,.05) 0 22%, transparent 23%),
+ radial-gradient(circle at 74% 36%, rgba(0,0,0,.05) 0 19%, transparent 20%),
+ radial-gradient(circle at 82% 68%, rgba(0,0,0,.045) 0 11%, transparent 12%),
+ linear-gradient(90deg, rgba(0,0,0,.06) 1px, transparent 1px),
+ linear-gradient(rgba(0,0,0,.06) 1px, transparent 1px);
+ background-size:auto,auto,auto,auto,auto,38px 38px,38px 38px;
+ box-shadow:inset 0 0 0 1px rgba(255,255,255,.95)}
+.map-route-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.map-route-line{stroke:#0a0a0a;stroke-width:2.6;stroke-linecap:round;stroke-dasharray:7 8;opacity:.72}
+.map-point{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:5px}
+.map-pin{width:24px;height:24px;border-radius:999px;border:2px solid #0a0a0a;background:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.96),2px 2px 0 #0a0a0a;display:flex;align-items:center;justify-content:center}
+.map-pin img{width:100%;height:100%;object-fit:cover;border-radius:999px}
+.map-pin.you{background:#0a0a0a;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900}
+.map-label{max-width:118px;border:1.5px solid #0a0a0a;border-radius:999px;background:rgba(255,255,255,.94);padding:4px 8px;font-size:10px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:1px 1px 0 #0a0a0a}
+.map-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.map-mini{padding:12px}
+.map-mini-title{font-family:var(--fontd);font-size:12px;font-weight:900}
+.map-mini-value{margin-top:6px;font-size:15px;font-weight:800;line-height:1.35}
+.map-mini-sub{margin-top:4px;font-size:11px;color:#666;font-weight:700;line-height:1.45}
+.map-actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.map-btn{border:var(--bd);border-radius:16px;background:#fff;box-shadow:var(--sh);padding:11px 10px;font-family:var(--fontd);font-size:12px;font-weight:900;cursor:pointer}
+.map-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
+.map-empty{padding:18px 14px;text-align:center;font-size:13px;font-weight:700;color:#666}
+.map-select{width:100%;margin-top:8px;border:var(--bd);border-radius:14px;background:#fff;padding:10px 12px;font-size:13px;font-weight:800;outline:none}
+</style>
+</head>
+<body>
+  <div class="map-shell">
+    <div class="map-head">
+      <div class="map-title-wrap">
+        <div class="map-kicker">App 6</div>
+        <div class="map-title">共享位置</div>
+      </div>
+      <button class="map-chip" type="button" onclick="openChatSettingsFromMap()">聊天设置</button>
+    </div>
+
+    <div class="map-card map-status-card" id="mapStatusCard"></div>
+    <div class="map-card map-stage" id="mapStageCard"></div>
+    <div class="map-grid">
+      <div class="map-card map-mini" id="mapTravelCard"></div>
+      <div class="map-card map-mini" id="mapAvailabilityCard"></div>
+    </div>
+    <div class="map-actions">
+      <button class="map-btn" type="button" onclick="useDeviceLocation()">使用真实位置</button>
+      <button class="map-btn" type="button" onclick="focusUserLocation()">切换我的城市</button>
+      <button class="map-btn" type="button" onclick="openChatSettingsFromMap()">改角色日程</button>
+    </div>
+  </div>
+
+<script>
+function getActiveCharacter(){
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      var scoped = window.AccountManager.scopedKey('activeCharacter');
+      var scopedRaw = localStorage.getItem(scoped);
+      if(scopedRaw){
+        var scopedParsed = JSON.parse(scopedRaw);
+        if(scopedParsed && scopedParsed.id) return scopedParsed;
+      }
+    }
+  }catch(err){}
+  try{
+    var raw = localStorage.getItem('activeCharacter');
+    if(!raw) return null;
+    var parsed = JSON.parse(raw);
+    return parsed && parsed.id ? parsed : null;
+  }catch(err){
+    return null;
+  }
+}
+
+function currentUserAvatar(){
+  var keys = [];
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      keys.push(window.AccountManager.scopedKey('qq_profile_avatar_asset'));
+      keys.push(window.AccountManager.scopedKey('user_avatar'));
+    }
+  }catch(err){}
+  keys.push('qq_profile_avatar_asset','user_avatar');
+  for(var i = 0; i < keys.length; i++){
+    var src = String(localStorage.getItem(keys[i]) || '').trim();
+    if(src) return src;
+  }
+  return '';
+}
+
+function currentCharAvatar(charId){
+  if(!charId) return '';
+  var src = String(localStorage.getItem('char_avatar_' + charId) || '').trim();
+  if(src) return src;
+  var active = getActiveCharacter();
+  return String(active && active.imageData || '').trim();
+}
+
+function escapeHtml(text){
+  return String(text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function setAvatarMarkup(src, fallback){
+  return src ? ('<img src="' + escapeHtml(src) + '" alt="">') : escapeHtml(fallback || '你');
+}
+
+function renderMapApp(){
+  var char = getActiveCharacter();
+  var statusHost = document.getElementById('mapStatusCard');
+  var stageHost = document.getElementById('mapStageCard');
+  var travelHost = document.getElementById('mapTravelCard');
+  var availabilityHost = document.getElementById('mapAvailabilityCard');
+  if(!statusHost || !stageHost || !travelHost || !availabilityHost) return;
+  if(!char || !window.PresenceShared){
+    statusHost.innerHTML = '<div class="map-empty">先打开一个角色聊天，再来看共享位置。</div>';
+    stageHost.innerHTML = '<div class="map-empty">这里会显示你和 Char 的实时位置。</div>';
+    travelHost.innerHTML = '<div class="map-mini-title">距离</div><div class="map-mini-value">--</div>';
+    availabilityHost.innerHTML = '<div class="map-mini-title">状态</div><div class="map-mini-value">--</div>';
+    return;
+  }
+  var snapshot = window.PresenceShared.getPresenceSnapshot(char, Date.now());
+  if(snapshot.char.shareEnabled === false){
+    statusHost.innerHTML = '<div class="map-empty">这个角色暂时没有开启位置共享。去聊天设置里打开后，这里才会显示实时状态。</div>';
+    stageHost.innerHTML = '<div class="map-empty">打开位置共享后，这里会显示你和 ' + escapeHtml(char.nickname || char.name || 'Char') + ' 的实时位置。</div>';
+    travelHost.innerHTML = '<div class="map-mini-title">距离</div><div class="map-mini-value">未共享</div><div class="map-mini-sub">你可以在聊天设置里为这个角色打开实时位置。</div>';
+    availabilityHost.innerHTML = '<div class="map-mini-title">当前状态</div><div class="map-mini-value">未共享</div><div class="map-mini-sub">开启后会看到他在家、在公司、还是在路上。</div>';
+    return;
+  }
+  var userAvatar = currentUserAvatar();
+  var charAvatar = currentCharAvatar(char.id);
+  var charName = (char.nickname || char.name || 'Char');
+  statusHost.innerHTML =
+    '<div class="map-status-row">'
+      + '<div class="map-avatar-stack">'
+        + '<div class="map-avatar">' + setAvatarMarkup(userAvatar, '你') + '</div>'
+        + '<div class="map-avatar">' + setAvatarMarkup(charAvatar, charName.slice(0,1)) + '</div>'
+      + '</div>'
+      + '<div class="map-status-copy">'
+        + '<div class="map-status-title">' + escapeHtml(charName) + ' 现在在' + escapeHtml(snapshot.char.placeLabel) + '</div>'
+        + '<div class="map-status-sub">' + escapeHtml(snapshot.char.activityLabel) + '，当地时间 ' + escapeHtml(snapshot.char.localTimeLabel) + '。' + (snapshot.char.availability === 'busy' || snapshot.char.availability === 'sleep' ? ('预计 ' + escapeHtml(snapshot.char.freeAtLabel) + ' 更有空。') : '现在相对比较能回你。') + '</div>'
+      + '</div>'
+    + '</div>'
+    + '<div class="map-badges">'
+      + '<span class="map-badge">相距 ' + escapeHtml(snapshot.distanceLabel) + '</span>'
+      + '<span class="map-badge">' + escapeHtml(snapshot.travel.text) + '</span>'
+      + '<span class="map-badge">' + escapeHtml(snapshot.char.city.name + ' · ' + snapshot.char.city.country) + '</span>'
+    + '</div>';
+  var worldWidth = 1000;
+  var worldHeight = 540;
+  var userPoint = window.PresenceShared.projectWorldPoint(snapshot.user, worldWidth, worldHeight);
+  var charPoint = window.PresenceShared.projectWorldPoint(snapshot.char.point, worldWidth, worldHeight);
+  stageHost.innerHTML =
+    '<div class="map-world">'
+      + '<svg class="map-route-svg" viewBox="0 0 ' + worldWidth + ' ' + worldHeight + '" preserveAspectRatio="none">'
+        + '<line class="map-route-line" x1="' + userPoint.x.toFixed(1) + '" y1="' + userPoint.y.toFixed(1) + '" x2="' + charPoint.x.toFixed(1) + '" y2="' + charPoint.y.toFixed(1) + '"></line>'
+      + '</svg>'
+      + '<div class="map-point" style="left:' + ((userPoint.x / worldWidth) * 100).toFixed(2) + '%;top:' + ((userPoint.y / worldHeight) * 100).toFixed(2) + '%">'
+        + '<div class="map-pin you">YOU</div>'
+        + '<div class="map-label">' + escapeHtml(snapshot.user.label || '我的位置') + '</div>'
+      + '</div>'
+      + '<div class="map-point" style="left:' + ((charPoint.x / worldWidth) * 100).toFixed(2) + '%;top:' + ((charPoint.y / worldHeight) * 100).toFixed(2) + '%">'
+        + '<div class="map-pin">' + setAvatarMarkup(charAvatar, charName.slice(0,1)) + '</div>'
+        + '<div class="map-label">' + escapeHtml(charName + ' · ' + snapshot.char.placeLabel) + '</div>'
+      + '</div>'
+    + '</div>';
+  travelHost.innerHTML =
+    '<div class="map-mini-title">现在过去要多久</div>'
+    + '<div class="map-mini-value">' + escapeHtml(snapshot.travel.text) + '</div>'
+    + '<div class="map-mini-sub">这是按真实距离给出的拟真时长。跨洲会自动按飞行节奏算，近距离则按步行 / 开车估算。</div>';
+  availabilityHost.innerHTML =
+    '<div class="map-mini-title">为什么他现在不太回</div>'
+    + '<div class="map-mini-value">' + escapeHtml(snapshot.char.activityLabel) + '</div>'
+    + '<div class="map-mini-sub">' + (snapshot.char.availability === 'busy' || snapshot.char.availability === 'sleep' ? ('大概 ' + escapeHtml(snapshot.char.freeAtLabel) + ' 会松一点。') : '他现在状态比较空，可以正常聊。') + '</div>';
+}
+
+function focusUserLocation(){
+  if(!window.PresenceShared) return;
+  var cities = window.PresenceShared.listCities();
+  var current = window.PresenceShared.getUserLocation();
+  var options = cities.map(function(city){
+    return '<option value="' + city.id + '"' + (current.cityId === city.id ? ' selected' : '') + '>' + city.name + ' · ' + city.country + '</option>';
+  }).join('');
+  var stageHost = document.getElementById('mapStageCard');
+  if(!stageHost) return;
+  stageHost.innerHTML =
+    '<div class="map-mini-title">切换我的城市</div>'
+    + '<select class="map-select" id="mapUserCitySelect">' + options + '</select>'
+    + '<button class="map-btn" style="margin-top:10px;width:100%" type="button" onclick="applyUserCityFromMap()">保存我的位置</button>';
+}
+
+function applyUserCityFromMap(){
+  if(!window.PresenceShared) return;
+  var select = document.getElementById('mapUserCitySelect');
+  if(!select) return;
+  var city = window.PresenceShared.getCity(select.value);
+  window.PresenceShared.saveUserLocation({
+    shareEnabled:true,
+    mode:'manual',
+    cityId:city.id,
+    label:city.name,
+    lat:city.lat,
+    lng:city.lng,
+    updatedAt:Date.now(),
+    accuracy:0
+  });
+  renderMapApp();
+}
+
+async function useDeviceLocation(){
+  if(!window.PresenceShared) return;
+  try{
+    var next = await window.PresenceShared.requestDeviceLocation();
+    window.PresenceShared.saveUserLocation(next);
+    renderMapApp();
+  }catch(err){
+    alert((err && err.message) || '定位失败');
+  }
+}
+
+function openChatSettingsFromMap(){
+  try{
+    if(window.parent) window.parent.postMessage({ type:'OPEN_CHAT_SETTINGS', payload:getActiveCharacter() || null }, '*');
+  }catch(err){}
+}
+
+renderMapApp();
+setInterval(renderMapApp, 60000);
+</script>
+</body>
+</html>

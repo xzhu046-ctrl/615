@@ -9,6 +9,7 @@
 <script src="../accountManager.js"></script>
 <script src="../assetStore.js"></script>
 <script src="../chatStorage.js"></script>
+<script src="../presenceShared.js"></script>
 <script src="offlineInvite.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -476,6 +477,16 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .weather-preview-icon{flex-shrink:0;min-width:66px;padding:8px 10px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);text-align:center;font-family:'Helvetica Neue','Arial Unicode MS',var(--fontd);font-size:23px;font-weight:900;color:#0a0a0a;-webkit-text-fill-color:#0a0a0a;font-variant-emoji:text}
 .weather-preview-empty{display:none;margin-top:12px;font-size:11px;line-height:1.5;color:var(--g)}
 .weather-preview-empty.show{display:block}
+.presence-mini-map{margin-top:12px;height:146px;border:var(--bd);border-radius:16px;background:
+  linear-gradient(180deg,rgba(255,255,255,.98),rgba(244,244,244,.95)),
+  linear-gradient(90deg, rgba(0,0,0,.06) 1px, transparent 1px),
+  linear-gradient(rgba(0,0,0,.06) 1px, transparent 1px);
+  background-size:auto,28px 28px,28px 28px;position:relative;overflow:hidden;box-shadow:var(--sh)}
+.presence-mini-route{position:absolute;inset:0;pointer-events:none}
+.presence-mini-dot{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px}
+.presence-mini-pin{width:18px;height:18px;border-radius:999px;border:2px solid #0a0a0a;background:#fff;box-shadow:1px 1px 0 #0a0a0a}
+.presence-mini-pin.you{background:#0a0a0a}
+.presence-mini-tag{padding:2px 7px;border:1.5px solid #0a0a0a;border-radius:999px;background:rgba(255,255,255,.95);font-size:9px;font-weight:900;box-shadow:1px 1px 0 #0a0a0a;white-space:nowrap}
 .cs-input{font-family:var(--font);background:var(--w);border:var(--bd);border-radius:10px;padding:8px 12px;font-size:12px;color:var(--b);width:100%;outline:none;font-weight:600;transition:box-shadow .15s}
 .cs-input:focus{box-shadow:3px 3px 0 var(--b)}
 .cs-input::placeholder{color:#b5b5b5;font-size:10px;font-family:var(--fontcute);letter-spacing:.01em}
@@ -1056,6 +1067,62 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
     </div>
 
     <div class="cs-card">
+      <div class="cs-card-title">位置共享与生活状态</div>
+      <div class="toggle-row">
+        <div class="toggle-left">
+          <div class="toggle-label">允许显示 Char 的实时位置</div>
+          <div class="toggle-sub">会在地图 app6、一起听歌和聊天状态里显示他现在在哪、在干嘛。</div>
+        </div>
+        <div class="toggle-switch on" id="csPresenceShareToggle" onclick="togglePresenceShareSwitch()"></div>
+      </div>
+      <div class="toggle-row" style="margin-top:8px">
+        <div class="toggle-left">
+          <div class="toggle-label">忙碌时自动回复</div>
+          <div class="toggle-sub" id="csPresencePreviewSub">例如在上班、通勤或睡觉时，用更像活人的方式先回你一句。</div>
+        </div>
+        <div class="toggle-switch on" id="csPresenceAutoReplyToggle" onclick="togglePresenceAutoReplySwitch()"></div>
+      </div>
+      <div style="margin-top:10px">
+        <span class="cs-label">你的位置</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select class="cs-input" id="csPresenceUserCity" style="flex:1" onchange="renderPresenceSettingsUi()"></select>
+          <button class="cs-plain-btn" style="width:auto;white-space:nowrap;padding:11px 14px" type="button" onclick="useDevicePresenceLocation()">真实位置</button>
+        </div>
+      </div>
+      <div style="margin-top:10px">
+        <span class="cs-label">Char 所在城市</span>
+        <select class="cs-input" id="csPresenceCharCity" onchange="renderPresenceSettingsUi()"></select>
+      </div>
+      <div style="margin-top:10px">
+        <span class="cs-label">生活模式</span>
+        <select class="cs-input" id="csPresenceSchedule" onchange="renderPresenceSettingsUi()">
+          <option value="auto">自动推断</option>
+          <option value="office">上班族</option>
+          <option value="student">学生</option>
+          <option value="freelance">自由职业</option>
+          <option value="artist">艺人 / 创作者</option>
+          <option value="medical">医院 / 高强度工作</option>
+          <option value="nightowl">夜猫子</option>
+        </select>
+      </div>
+      <div style="margin-top:10px">
+        <span class="cs-label">上班 / 忙碌自动回复</span>
+        <textarea class="cs-textarea" id="csPresenceBusyReply" rows="2" placeholder="支持 {place} {activity} {freeAt}" oninput="renderPresenceSettingsUi()"></textarea>
+      </div>
+      <div style="margin-top:10px">
+        <span class="cs-label">睡觉自动回复</span>
+        <textarea class="cs-textarea" id="csPresenceSleepReply" rows="2" placeholder="支持 {freeAt}" oninput="renderPresenceSettingsUi()"></textarea>
+      </div>
+      <div style="margin-top:10px">
+        <span class="cs-label">通勤自动回复</span>
+        <textarea class="cs-textarea" id="csPresenceCommuteReply" rows="2" placeholder="支持 {place} {activity} {freeAt}" oninput="renderPresenceSettingsUi()"></textarea>
+      </div>
+      <div class="chat-bg-hint" id="csPresencePreviewBox" style="margin-top:12px">加载中...</div>
+      <div class="presence-mini-map" id="csPresenceMiniMap"></div>
+      <button class="cs-plain-btn" style="margin-top:10px" type="button" onclick="openMapAppFromChatSettings()">打开地图 app6</button>
+    </div>
+
+    <div class="cs-card">
       <div class="cs-card-title">世界书</div>
       <div class="toggle-row">
         <div class="toggle-left">
@@ -1622,6 +1689,8 @@ var DEFAULT_MOMENTS_FREQ = 'medium';
 var memorySummaryBusy = false;
 var pendingCharBgEnabled = null;
 var pendingAutoSummaryEnabled = null;
+var pendingPresenceShareEnabled = null;
+var pendingPresenceAutoReplyEnabled = null;
 var chatExportState = null;
 var memoryEditingId = '';
 var chatSettingsSavedAtLeastOnce = false;
@@ -3203,6 +3272,138 @@ function toggleAutoSummarySwitch(){
   toast(pendingAutoSummaryEnabled ? '已暂存：自动总结开启' : '已暂存：自动总结关闭');
 }
 
+function populatePresenceCitySelect(selectId, selectedId){
+  if(!(window.PresenceShared && typeof window.PresenceShared.listCities === 'function')) return;
+  var select = document.getElementById(selectId);
+  if(!select) return;
+  var selected = String(selectedId || '').trim();
+  var options = [];
+  if(selected === '__device__'){
+    options.push('<option value="__device__" selected>真实位置</option>');
+  }
+  options = options.concat(window.PresenceShared.listCities().map(function(city){
+    var label = city.name + ' · ' + city.country;
+    return '<option value="' + escAttr(city.id) + '"' + (selected === city.id ? ' selected' : '') + '>' + esc(label) + '</option>';
+  }));
+  select.innerHTML = options.join('');
+}
+
+function getPresenceSettingsDraft(){
+  if(!(window.PresenceShared && character && character.id)) return null;
+  var base = window.PresenceShared.getCharSettings(character) || {};
+  if(pendingPresenceShareEnabled !== null) base.shareEnabled = !!pendingPresenceShareEnabled;
+  if(pendingPresenceAutoReplyEnabled !== null) base.autoReplyEnabled = !!pendingPresenceAutoReplyEnabled;
+  return Object.assign({}, base);
+}
+
+function renderPresenceSettingsUi(){
+  if(!(window.PresenceShared && character && character.id)) return;
+  var settings = getPresenceSettingsDraft();
+  var shareToggle = document.getElementById('csPresenceShareToggle');
+  var autoToggle = document.getElementById('csPresenceAutoReplyToggle');
+  if(shareToggle) shareToggle.classList.toggle('on', settings.shareEnabled !== false);
+  if(autoToggle) autoToggle.classList.toggle('on', settings.autoReplyEnabled !== false);
+  var previewSub = document.getElementById('csPresencePreviewSub');
+  if(previewSub) previewSub.textContent = settings.autoReplyEnabled === false ? '关闭后就算他在忙，也会继续正常走 AI 回复。' : '例如在上班、通勤或睡觉时，用更像活人的方式先回你一句。';
+  var userSelect = document.getElementById('csPresenceUserCity');
+  var charSelect = document.getElementById('csPresenceCharCity');
+  var scheduleSelect = document.getElementById('csPresenceSchedule');
+  var draftChar = Object.assign({}, character, {
+    livePresence: Object.assign({}, settings, {
+      cityId: String(charSelect && charSelect.value || settings.cityId || 'beijing'),
+      schedule: String(scheduleSelect && scheduleSelect.value || settings.schedule || 'auto')
+    })
+  });
+  var currentUserLoc = window.PresenceShared.getUserLocation();
+  var snapshot = window.PresenceShared.getPresenceSnapshot(draftChar, Date.now());
+  if(userSelect && userSelect.value === '__device__' && currentUserLoc.mode === 'device'){
+    snapshot.user = Object.assign({}, currentUserLoc);
+  }else{
+    var userCity = window.PresenceShared.getCity(userSelect && userSelect.value || currentUserLoc.cityId || 'edmonton');
+    snapshot.user = {
+      shareEnabled:true,
+      cityId:userCity.id,
+      label:userCity.name,
+      lat:userCity.lat,
+      lng:userCity.lng
+    };
+  }
+  snapshot.travel = window.PresenceShared.estimateTravel(snapshot.user, snapshot.char.point);
+  snapshot.distanceLabel = window.PresenceShared.formatDistanceKm(snapshot.travel.distanceKm);
+  var previewBox = document.getElementById('csPresencePreviewBox');
+  if(previewBox){
+    previewBox.textContent = '现在：' + snapshot.char.placeLabel + ' · ' + snapshot.char.activityLabel + '。'
+      + ' 相距 ' + snapshot.distanceLabel + '，'
+      + snapshot.travel.text + '。'
+      + ((snapshot.char.availability === 'busy' || snapshot.char.availability === 'sleep') ? (' 预计 ' + snapshot.char.freeAtLabel + ' 更有空。') : ' 现在比较能回你。');
+  }
+  var miniMap = document.getElementById('csPresenceMiniMap');
+  if(miniMap && window.PresenceShared.projectWorldPoint){
+    var width = 1000;
+    var height = 420;
+    var userPoint = window.PresenceShared.projectWorldPoint(snapshot.user, width, height);
+    var charPoint = window.PresenceShared.projectWorldPoint(snapshot.char.point, width, height);
+    miniMap.innerHTML =
+      '<svg class="presence-mini-route" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none"><line x1="' + userPoint.x.toFixed(1) + '" y1="' + userPoint.y.toFixed(1) + '" x2="' + charPoint.x.toFixed(1) + '" y2="' + charPoint.y.toFixed(1) + '" stroke="#0a0a0a" stroke-width="2.6" stroke-dasharray="7 7" stroke-linecap="round" opacity=".7"></line></svg>'
+      + '<div class="presence-mini-dot" style="left:' + ((userPoint.x / width) * 100).toFixed(2) + '%;top:' + ((userPoint.y / height) * 100).toFixed(2) + '%"><span class="presence-mini-pin you"></span><span class="presence-mini-tag">你</span></div>'
+      + '<div class="presence-mini-dot" style="left:' + ((charPoint.x / width) * 100).toFixed(2) + '%;top:' + ((charPoint.y / height) * 100).toFixed(2) + '%"><span class="presence-mini-pin"></span><span class="presence-mini-tag">' + esc(character.nickname || character.name || 'Char') + '</span></div>';
+  }
+}
+
+function loadPresenceSettingsIntoPanel(){
+  if(!(window.PresenceShared && character && character.id)) return;
+  var settings = window.PresenceShared.getCharSettings(character);
+  var userLoc = window.PresenceShared.getUserLocation();
+  populatePresenceCitySelect('csPresenceUserCity', userLoc.mode === 'device' ? '__device__' : (userLoc.cityId || ''));
+  populatePresenceCitySelect('csPresenceCharCity', settings.cityId || '');
+  var userSel = document.getElementById('csPresenceUserCity');
+  if(userSel) userSel.value = userLoc.cityId || userSel.value;
+  var charSel = document.getElementById('csPresenceCharCity');
+  if(charSel) charSel.value = settings.cityId || charSel.value;
+  var scheduleSel = document.getElementById('csPresenceSchedule');
+  if(scheduleSel) scheduleSel.value = settings.schedule || 'auto';
+  var busyEl = document.getElementById('csPresenceBusyReply');
+  if(busyEl) busyEl.value = settings.busyReply || '';
+  var sleepEl = document.getElementById('csPresenceSleepReply');
+  if(sleepEl) sleepEl.value = settings.sleepReply || '';
+  var commuteEl = document.getElementById('csPresenceCommuteReply');
+  if(commuteEl) commuteEl.value = settings.commuteReply || '';
+  pendingPresenceShareEnabled = null;
+  pendingPresenceAutoReplyEnabled = null;
+  renderPresenceSettingsUi();
+}
+
+function togglePresenceShareSwitch(){
+  if(!(window.PresenceShared && character && character.id)) return;
+  var settings = getPresenceSettingsDraft();
+  pendingPresenceShareEnabled = !(settings.shareEnabled !== false);
+  renderPresenceSettingsUi();
+}
+
+function togglePresenceAutoReplySwitch(){
+  if(!(window.PresenceShared && character && character.id)) return;
+  var settings = getPresenceSettingsDraft();
+  pendingPresenceAutoReplyEnabled = !(settings.autoReplyEnabled !== false);
+  renderPresenceSettingsUi();
+}
+
+async function useDevicePresenceLocation(){
+  if(!(window.PresenceShared && typeof window.PresenceShared.requestDeviceLocation === 'function')) return;
+  try{
+    var next = await window.PresenceShared.requestDeviceLocation();
+    window.PresenceShared.saveUserLocation(next);
+    populatePresenceCitySelect('csPresenceUserCity', '__device__');
+    renderPresenceSettingsUi();
+    toast('已切到真实位置');
+  }catch(err){
+    toast((err && err.message) || '定位失败');
+  }
+}
+
+function openMapAppFromChatSettings(){
+  postToShell({ type:'OPEN_APP', payload:'map6' });
+}
+
 async function runManualSummaryNow(){
   if(!character){
     toast('未加载角色');
@@ -4747,6 +4948,7 @@ function compactChar(c){
     , offlineInviteMax:Number(c.offlineInviteMax)||Math.max(Number(c.offlineInviteMin)||300,360)
     , offlineInvitePerspective:String(c.offlineInvitePerspective||'first')
     , offlineInviteStyle:String(c.offlineInviteStyle||'')
+    , livePresence:(c.livePresence && typeof c.livePresence === 'object') ? Object.assign({}, c.livePresence) : null
   };
 }
 
@@ -5143,10 +5345,30 @@ function updateHeader() {
   loadStoredAsset('char_avatar_' + character.id).then(function(ovr){
     if (isRenderableAvatarSrc(ovr)) { av.innerHTML = '<img src="' + ovr + '">'; }
   });
+  updateModelLabel();
+}
+
+function getCurrentPresenceSnapshot(){
+  if(!(window.PresenceShared && character && character.id)) return null;
+  return window.PresenceShared.getPresenceSnapshot(character, Date.now());
 }
 
 function updateModelLabel() {
-  document.getElementById('hdrModel').textContent = STATUS_HEART + ' 在线';
+  var modelNode = document.getElementById('hdrModel');
+  if(!modelNode) return;
+  var snapshot = getCurrentPresenceSnapshot();
+  if(!snapshot || snapshot.char.shareEnabled === false){
+    modelNode.textContent = STATUS_HEART + ' 在线';
+    return;
+  }
+  var prefix = snapshot.char.availability === 'sleep'
+    ? '休息中'
+    : snapshot.char.availability === 'busy'
+      ? '忙碌中'
+      : snapshot.char.availability === 'limited'
+        ? '稍忙'
+        : '在线';
+  modelNode.textContent = STATUS_HEART + ' ' + prefix + ' · ' + snapshot.char.placeLabel + ' · ' + snapshot.char.activityLabel;
 }
 
 function getWbBookStateKey() {
@@ -5492,6 +5714,19 @@ function buildSystemPrompt() {
   }
   if(pendingFamilyFollowupCue){
     parts.push(pendingFamilyFollowupCue);
+  }
+  var presenceSnapshot = getCurrentPresenceSnapshot();
+  if(presenceSnapshot && presenceSnapshot.char && presenceSnapshot.char.shareEnabled !== false){
+    parts.push([
+      '【角色当前现实状态】',
+      '当前位置：' + presenceSnapshot.char.placeLabel + '（' + presenceSnapshot.char.city.name + '）',
+      '当前在做：' + presenceSnapshot.char.activityLabel,
+      '当地时间：' + presenceSnapshot.char.localTimeLabel,
+      '可回复状态：' + presenceSnapshot.char.availability,
+      '预计更有空的时间：' + presenceSnapshot.char.freeAtLabel,
+      '和用户距离：' + presenceSnapshot.distanceLabel,
+      '请把这些现实状态融进回复里：忙的时候别装得像一直抱着手机，休息时口气可以更松一点，但仍然要符合人设、世界书和最近聊天。'
+    ].join('\n'));
   }
 
   var wbAll = [].concat(wbBefore, wbMid, wbAfter).join('\n\n');
@@ -5971,6 +6206,26 @@ async function sendOnly() {
   captureUserMomentIntent(text, 'text');
 }
 
+async function maybeHandlePresenceAutoReply(){
+  if(!(window.PresenceShared && character && character.id)) return false;
+  var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
+  if(!snapshot || !snapshot.char || snapshot.char.shareEnabled === false) return false;
+  if(snapshot.char.autoReplyEnabled === false) return false;
+  if(snapshot.char.availability === 'available') return false;
+  var autoText = String(window.PresenceShared.buildAutoReply(character, snapshot.char) || '').trim();
+  if(!autoText) return false;
+  hideTyping();
+  var replyEntry = makeChatEntry('assistant', autoText, 'text');
+  chatLog.push(replyEntry);
+  addMessage('ai', autoText, true, 'text', replyEntry.id);
+  var systemEntry = makeChatEntry('system', snapshot.char.placeLabel + ' · ' + snapshot.char.activityLabel + '，预计 ' + snapshot.char.freeAtLabel + ' 更有空。', 'text');
+  systemEntry.hidden = true;
+  chatLog.push(systemEntry);
+  updateModelLabel();
+  await saveChat(true);
+  return true;
+}
+
 // Triggers AI to reply (either to existing last message or sends+replies)
 async function triggerReply() {
   if(!canSendNow()) return;
@@ -6014,6 +6269,12 @@ async function triggerReply() {
   }
 
   // Now get AI reply
+  if(await maybeHandlePresenceAutoReply()){
+    pendingMomentsChatCue = '';
+    pendingFamilyFollowupCue = '';
+    pendingModelUserCue = '';
+    return;
+  }
   var provider = localStorage.getItem('provider') || 'openai';
   var key = localStorage.getItem('key_' + provider);
   if (!key) {
@@ -8543,7 +8804,12 @@ function renderListenAlongActiveModal(state, currentTrack, playback){
   if(progressWrap) progressWrap.hidden = false;
   if(status){
     var minutes = Math.max(0, Math.floor((Date.now() - Number(state.startedAt || Date.now())) / 60000));
-    status.textContent = '等待获取对方位置，一起听了 ' + minutes + ' 分钟';
+    var snapshot = getCurrentPresenceSnapshot();
+    if(snapshot && snapshot.char && snapshot.char.shareEnabled !== false){
+      status.textContent = '相距 ' + snapshot.distanceLabel + '，一起听了 ' + minutes + ' 分钟';
+    }else{
+      status.textContent = '等待获取对方位置，一起听了 ' + minutes + ' 分钟';
+    }
   }
   var parentAudioDuration = 0;
   try{
@@ -10663,6 +10929,7 @@ function openChatSettings() {
     document.getElementById('csSummaryEvery').value = loadSummaryEverySize();
     document.getElementById('csManualSummarySize').value = loadManualSummarySize();
     document.getElementById('csMemoryMergeThreshold').value = loadMemoryMergeThreshold();
+    loadPresenceSettingsIntoPanel();
     var freqSel = document.getElementById('csMomentsFreq');
     if(freqSel) freqSel.value = loadCharMomentsFreq(character && character.id);
     var greetingsCard = document.getElementById('greetingsCard');
@@ -10704,6 +10971,8 @@ function closeChatSettings() {
     if(!chatSettingsSavedAtLeastOnce){
       pendingCharBgEnabled = null;
       pendingAutoSummaryEnabled = null;
+      pendingPresenceShareEnabled = null;
+      pendingPresenceAutoReplyEnabled = null;
       loadWorldBook();
     }
   }catch(err){
@@ -10918,6 +11187,12 @@ async function saveChatSettings() {
   var manualSize = parseInt(document.getElementById('csManualSummarySize').value || String(DEFAULT_MANUAL_SUMMARY_SIZE), 10);
   var mergeThreshold = parseInt(document.getElementById('csMemoryMergeThreshold').value || String(DEFAULT_MEMORY_MERGE_THRESHOLD), 10);
   var momentsFreq = normalizeMomentsFreq(document.getElementById('csMomentsFreq').value || DEFAULT_MOMENTS_FREQ);
+  var presenceUserCity = document.getElementById('csPresenceUserCity');
+  var presenceCharCity = document.getElementById('csPresenceCharCity');
+  var presenceSchedule = document.getElementById('csPresenceSchedule');
+  var presenceBusyReply = document.getElementById('csPresenceBusyReply');
+  var presenceSleepReply = document.getElementById('csPresenceSleepReply');
+  var presenceCommuteReply = document.getElementById('csPresenceCommuteReply');
   if(isDefault){
     localStorage.setItem(userKey('user_name'), un);
     localStorage.setItem(userKey('user_persona'), up);
@@ -10929,6 +11204,24 @@ async function saveChatSettings() {
   saveSummaryEverySize(severy);
   saveManualSummarySize(manualSize);
   saveMemoryMergeThreshold(mergeThreshold);
+  if(window.PresenceShared){
+    var userCity = window.PresenceShared.getCity(presenceUserCity && presenceUserCity.value);
+    if(presenceUserCity && presenceUserCity.value === '__device__'){
+      var currentUserLoc = window.PresenceShared.getUserLocation();
+      window.PresenceShared.saveUserLocation(currentUserLoc);
+    }else{
+      window.PresenceShared.saveUserLocation({
+        shareEnabled:true,
+        mode:'manual',
+        cityId:userCity.id,
+        label:userCity.name,
+        lat:userCity.lat,
+        lng:userCity.lng,
+        updatedAt:Date.now(),
+        accuracy:0
+      });
+    }
+  }
   if (character) {
     if (cn) { character.name = cn; }
     character.nickname = ck;
@@ -10939,6 +11232,19 @@ async function saveChatSettings() {
     character.offlineInviteMax = isFinite(inviteMax) && inviteMax >= character.offlineInviteMin ? inviteMax : Math.max(character.offlineInviteMin, 360);
     character.offlineInvitePerspective = /^(first|second|third)$/.test(invitePerspective) ? invitePerspective : 'first';
     character.offlineInviteStyle = inviteStyle;
+    if(window.PresenceShared){
+      var currentPresenceSettings = window.PresenceShared.getCharSettings(character);
+      character.livePresence = Object.assign({}, currentPresenceSettings, {
+        shareEnabled: pendingPresenceShareEnabled === null ? currentPresenceSettings.shareEnabled !== false : !!pendingPresenceShareEnabled,
+        autoReplyEnabled: pendingPresenceAutoReplyEnabled === null ? currentPresenceSettings.autoReplyEnabled !== false : !!pendingPresenceAutoReplyEnabled,
+        cityId: String(presenceCharCity && presenceCharCity.value || currentPresenceSettings.cityId || 'beijing'),
+        schedule: String(presenceSchedule && presenceSchedule.value || currentPresenceSettings.schedule || 'auto'),
+        busyReply: String(presenceBusyReply && presenceBusyReply.value || currentPresenceSettings.busyReply || ''),
+        sleepReply: String(presenceSleepReply && presenceSleepReply.value || currentPresenceSettings.sleepReply || ''),
+        commuteReply: String(presenceCommuteReply && presenceCommuteReply.value || currentPresenceSettings.commuteReply || '')
+      });
+      window.PresenceShared.saveCharSettings(character.id, character.livePresence);
+    }
     updateHeader();
     persistCharacter();
     var slim = compactChar(character);
@@ -10962,12 +11268,15 @@ async function saveChatSettings() {
     saveWeatherSettingState('user', getWeatherSettingState('user'));
     pendingCharBgEnabled = null;
     pendingAutoSummaryEnabled = null;
+    pendingPresenceShareEnabled = null;
+    pendingPresenceAutoReplyEnabled = null;
   }
   renderChatLog(true);
   chatSettingsSavedAtLeastOnce = true;
   toast('设置已保存！');
   // Persist chat log so changes survive leaving page
   await saveChat();
+  updateModelLabel();
   postSettingsPreviewSync();
   refreshMemoryUi();
 }
@@ -11527,6 +11836,9 @@ window.addEventListener('message', async function(e) {
     updateFloatingUi();
     maybeAutoTriggerFamilyReply(character && character.id);
   }
+  if (d.type === 'OPEN_CHAT_SETTINGS') {
+    openChatSettings();
+  }
   if (d.type === 'WORLDBOOK_UPDATED') { loadWorldBook(); updateBlockedUi(); }
   if (d.type === 'SETTINGS_SAVED') { updateModelLabel(); }
 });
@@ -11580,12 +11892,20 @@ window.addEventListener('focusout', function(e){
 window.addEventListener('pageshow', function(){
   stableChatAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || stableChatAppHeight;
   syncChatViewport();
+  updateModelLabel();
 });
 window.addEventListener('load', function(){
   stableChatAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || stableChatAppHeight;
   syncChatViewport();
   syncComposerMetrics();
+  updateModelLabel();
 });
+setInterval(function(){
+  updateModelLabel();
+  if(document.getElementById('listenAlongActiveOverlay')?.classList.contains('open')){
+    renderListenAlongModal();
+  }
+}, 60000);
 window.addEventListener('input', function(e){
   if(e.target && e.target.id === 'msg-input'){
     keepComposerVisible();
