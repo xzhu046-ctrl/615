@@ -70,14 +70,40 @@
       character && character.description || '',
       character && character.personality || '',
       character && character.scenario || '',
-      character && character.system_prompt || ''
+      character && character.system_prompt || '',
+      character && character.livePresenceWorldHint || '',
+      character && character.livePresence && character.livePresence.worldHint || ''
     ].join('\n').toLowerCase();
-    if(/医生|医院|护士|急诊|手术|medical|doctor|hospital|clinic/.test(corpus)) return 'medical';
-    if(/学生|大学|高中|图书馆|教授|课堂|campus|student|school|college/.test(corpus)) return 'student';
-    if(/歌手|演员|艺人|乐队|演出|拍摄|studio|idol|artist|singer|actor/.test(corpus)) return 'artist';
-    if(/自由职业|作家|插画|博主|freelance|writer|designer|illustrator/.test(corpus)) return 'freelance';
-    if(/夜猫子|熬夜|失眠|nocturnal|night owl/.test(corpus)) return 'nightowl';
-    return 'office';
+    const score = {
+      medical: 0,
+      student: 0,
+      artist: 0,
+      freelance: 0,
+      nightowl: 0,
+      office: 0
+    };
+    function hit(profile, regex, weight){
+      if(regex.test(corpus)) score[profile] += weight;
+    }
+    hit('medical', /医生|医院|护士|急诊|手术|medical|doctor|hospital|clinic|值班|门诊|病房/, 7);
+    hit('student', /学生|大学|高中|教授|课堂|campus|student|school|college|研究生|本科|宿舍|社团|选修/, 5);
+    hit('student', /图书馆|自习|考试周|复习|讲义|课表|学分|导师/, 3);
+    hit('artist', /歌手|演员|艺人|乐队|演出|拍摄|studio|idol|artist|singer|actor|练习生|录音棚|片场|舞台/, 6);
+    hit('freelance', /自由职业|作家|插画|博主|freelance|writer|designer|illustrator|撰稿|接稿|工作室/, 5);
+    hit('nightowl', /夜猫子|熬夜|失眠|nocturnal|night owl|凌晨|通宵|昼夜颠倒/, 5);
+    hit('office', /上班|工作|公司|开会|总裁|老板|秘书|助理|经理|总监|律师|法务|金融|白领|社畜|hr|ceo|office|meeting|company|corporate|firm|business/, 7);
+    hit('office', /客户|项目|汇报|述职|应酬|打卡|写字楼|部门|同事|老板/, 4);
+    if(score.office >= 7) score.student = Math.max(0, score.student - 4);
+    if(score.medical >= 7) score.office = Math.max(0, score.office - 2);
+    if(score.artist >= 6) score.office = Math.max(0, score.office - 2);
+    var best = 'office';
+    Object.keys(score).forEach(function(key){
+      if(score[key] > score[best]) best = key;
+    });
+    if(score[best] <= 0) return 'office';
+    if(best === 'student' && score.office >= score.student) return 'office';
+    if(best === 'student' && /上班|公司|开会|总裁|社畜|客户|老板/.test(corpus)) return 'office';
+    return best;
   }
 
   function getDefaultCharSettings(character){

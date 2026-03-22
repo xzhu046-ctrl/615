@@ -4948,6 +4948,7 @@ function compactChar(c){
     , offlineInviteMax:Number(c.offlineInviteMax)||Math.max(Number(c.offlineInviteMin)||300,360)
     , offlineInvitePerspective:String(c.offlineInvitePerspective||'first')
     , offlineInviteStyle:String(c.offlineInviteStyle||'')
+    , livePresenceWorldHint:String(c.livePresenceWorldHint||'')
     , livePresence:(c.livePresence && typeof c.livePresence === 'object') ? Object.assign({}, c.livePresence) : null
   };
 }
@@ -5470,6 +5471,42 @@ function getApplicableWorldBooks() {
   return books;
 }
 
+function buildPresenceWorldHintFromWorldbooks(){
+  if(!character || !wbEnabled) return '';
+  var currentBooks = getApplicableWorldBooks();
+  var focus = [];
+  currentBooks.forEach(function(book){
+    if(!book || !book.enabled) return;
+    (book.entries || []).forEach(function(entry){
+      if(!isWbEntryEnabled(entry)) return;
+      var content = String((entry && entry.content) || '').trim();
+      if(!content) return;
+      var weight = /职业|工作|公司|上班|学校|大学|医院|值班|教授|律师|总裁|老板|作息|日程|住在|家里|通勤|咖啡店|工作室|夜班|夜猫子|凌晨|图书馆|复习|考试|录音棚|片场|演出/i.test(content) ? 2 : 0;
+      focus.push({
+        text: content,
+        weight: weight,
+        order: Number((entry && entry.order) || 0) || 0
+      });
+    });
+  });
+  if(!focus.length) return '';
+  focus.sort(function(a, b){
+    if(b.weight !== a.weight) return b.weight - a.weight;
+    return a.order - b.order;
+  });
+  return focus.slice(0, 8).map(function(item){ return item.text; }).join('\n');
+}
+
+function syncPresenceWorldHint(){
+  if(!character) return '';
+  var hint = buildPresenceWorldHintFromWorldbooks();
+  character.livePresenceWorldHint = hint;
+  if(character.livePresence && typeof character.livePresence === 'object'){
+    character.livePresence.worldHint = hint;
+  }
+  return hint;
+}
+
 function updateWbInfoText() {
   var info = document.getElementById('wbInfo');
   if (!info) return;
@@ -5535,6 +5572,7 @@ function loadWorldBook() {
   if(saved === null) saved = localStorage.getItem('wb_enabled_' + getSharedCharacterId());
   if(saved === null) saved = localStorage.getItem('wb_enabled_' + character.id);
   wbEnabled = saved === null ? wbBooks.length > 0 : saved === 'true';
+  syncPresenceWorldHint();
   var tog = document.getElementById('wbToggle');
   if (tog) tog.classList.toggle('on', wbEnabled);
   updateWbInfoText();
@@ -6177,6 +6215,85 @@ function markLocalChatDirty(){
   skipNextStorageSync = true;
 }
 
+function presenceNudgeKey(charId){
+  return accountScopedKey('presence_nudge_' + String(charId || ''));
+}
+
+function loadPresenceNudgeState(charId){
+  if(!charId) return { score:0, requestCount:0, lastAt:0 };
+  try{
+    var parsed = JSON.parse(localStorage.getItem(presenceNudgeKey(charId)) || 'null');
+    return {
+      score: Math.max(0, Number(parsed && parsed.score) || 0),
+      requestCount: Math.max(0, Number(parsed && parsed.requestCount) || 0),
+      lastAt: Math.max(0, Number(parsed && parsed.lastAt) || 0)
+    };
+  }catch(e){
+    return { score:0, requestCount:0, lastAt:0 };
+  }
+}
+
+function savePresenceNudgeState(charId, state){
+  if(!charId) return;
+  try{
+    localStorage.setItem(presenceNudgeKey(charId), JSON.stringify({
+      score: Math.max(0, Number(state && state.score) || 0),
+      requestCount: Math.max(0, Number(state && state.requestCount) || 0),
+      lastAt: Math.max(0, Number(state && state.lastAt) || 0)
+    }));
+  }catch(e){}
+}
+
+function clearPresenceNudgeState(charId){
+  if(!charId) return;
+  try{ localStorage.removeItem(presenceNudgeKey(charId)); }catch(e){}
+}
+
+function registerPresenceNudge(kind){
+  if(!(character && character.id && window.PresenceShared)) return;
+  var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
+  if(!snapshot || !snapshot.char || snapshot.char.shareEnabled === false) return;
+  if(snapshot.char.autoReplyEnabled === false) return;
+  if(snapshot.char.availability === 'available') return;
+  var now = Date.now();
+  var state = loadPresenceNudgeState(character.id);
+  var gap = now - Number(state.lastAt || 0);
+  if(gap > 45 * 60 * 1000){
+    state.score = 0;
+    state.requestCount = 0;
+  }else if(gap > 12 * 60 * 1000){
+    state.score *= 0.55;
+  }
+  if(kind === 'request'){
+    state.score += snapshot.char.availability === 'sleep' ? 2.8 : 2.3;
+    state.requestCount += 1;
+  }else if(kind === 'message-request'){
+    state.score += snapshot.char.availability === 'sleep' ? 2.2 : 1.9;
+    state.requestCount += 1;
+  }else{
+    state.score += 1.05;
+  }
+  if(gap > 0 && gap < 2.5 * 60 * 1000) state.score += 0.8;
+  state.lastAt = now;
+  savePresenceNudgeState(character.id, state);
+}
+
+function maybeWakePresenceByNudge(snapshot){
+  if(!(character && character.id && snapshot && snapshot.char)) return false;
+  var state = loadPresenceNudgeState(character.id);
+  if(!state.score) return false;
+  var chance = snapshot.char.availability === 'sleep'
+    ? Math.min(0.9, 0.1 + state.score * 0.11 + state.requestCount * 0.08)
+    : Math.min(0.94, 0.16 + state.score * 0.14 + state.requestCount * 0.07);
+  if(Math.random() >= chance) return false;
+  clearPresenceNudgeState(character.id);
+  var wakeCue = snapshot.char.availability === 'sleep'
+    ? ('你原本已经在' + snapshot.char.placeLabel + '休息，被对方连续发来的消息和催回复弄醒了。你现在迷迷糊糊地看到了手机，请按人设自然回复，不要说自己是系统自动回复。')
+    : ('你原本正在' + snapshot.char.placeLabel + snapshot.char.activityLabel + '，因为对方连续发消息又反复请求回复，你终于注意到手机。请按人设自然回复，不要说自己是系统自动回复。');
+  pendingModelUserCue = wakeCue + (pendingModelUserCue ? ('\n' + pendingModelUserCue) : '');
+  return true;
+}
+
 function onKey(e) {
   // Enter = sendOnly (no AI trigger), Ctrl+Enter / Cmd+Enter = triggerReply
   if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
@@ -6200,6 +6317,7 @@ async function sendOnly() {
   chatLog.push(entry);
   addMessage('user', text, true, 'text', entry.id);
   markLocalChatDirty();
+  registerPresenceNudge('message');
   clearReplyTarget();
   await saveChat(true);
   hideError();
@@ -6212,6 +6330,7 @@ async function maybeHandlePresenceAutoReply(){
   if(!snapshot || !snapshot.char || snapshot.char.shareEnabled === false) return false;
   if(snapshot.char.autoReplyEnabled === false) return false;
   if(snapshot.char.availability === 'available') return false;
+  if(maybeWakePresenceByNudge(snapshot)) return false;
   var autoText = String(window.PresenceShared.buildAutoReply(character, snapshot.char) || '').trim();
   if(!autoText) return false;
   hideTyping();
@@ -6245,9 +6364,12 @@ async function triggerReply() {
     chatLog.push(entry);
     addMessage('user', text, true, 'text', entry.id);
     markLocalChatDirty();
+    registerPresenceNudge('message-request');
     clearReplyTarget();
     await saveChat(true);
     captureUserMomentIntent(text, 'text');
+  }else{
+    registerPresenceNudge('request');
   }
   var familyReplyId = await handlePendingFamilyCardReply();
   if(markUserMessagesReadByChar()){
@@ -6283,9 +6405,10 @@ async function triggerReply() {
   }
   hideError();
   pendingMomentsChatCue = processMomentsInteractionsOnTrigger();
-  pendingModelUserCue = familyReplyId
+  var familyFollowCue = familyReplyId
     ? '你刚刚已经对亲属卡作出决定。现在请紧接着上一条亲属卡回复之后，继续发送一条自然的正文消息。不要重复卡片结论，不要输出 JSON。'
     : '';
+  pendingModelUserCue = [pendingModelUserCue, familyFollowCue].filter(Boolean).join('\n');
   var offlineInviteReplyHandled = await handlePendingOfflineInviteReply();
   if(offlineInviteReplyHandled){
     pendingMomentsChatCue = '';
@@ -6353,6 +6476,7 @@ async function requestAndDeliverAiReply(provider, key){
     hideTyping();
     if(String(reply || '').trim()){
       await deliverAiReply(reply);
+      clearPresenceNudgeState(character && character.id);
     }
     await saveChat(true);
     pendingMomentsChatCue = '';
@@ -10925,6 +11049,7 @@ function openChatSettings() {
     document.getElementById('wbToggle').classList.toggle('on', wbEnabled);
     updateWbInfoText();
     renderWbBookList();
+    syncPresenceWorldHint();
     document.getElementById('csContextWindow').value = loadContextWindowSize();
     document.getElementById('csSummaryEvery').value = loadSummaryEverySize();
     document.getElementById('csManualSummarySize').value = loadManualSummarySize();
@@ -11070,6 +11195,7 @@ function toggleWB() {
   updateWbInfoText();
   renderWbBookList();
   renderContextTokenStats();
+  syncPresenceWorldHint();
   persistWorldbookStateNow();
 }
 
@@ -11086,6 +11212,7 @@ function toggleWbBook(idx) {
   updateWbInfoText();
   renderWbBookList();
   renderContextTokenStats();
+  syncPresenceWorldHint();
   persistWorldbookStateNow();
 }
 
@@ -11223,6 +11350,7 @@ async function saveChatSettings() {
     }
   }
   if (character) {
+    syncPresenceWorldHint();
     if (cn) { character.name = cn; }
     character.nickname = ck;
     character.personality = cp;
@@ -11239,6 +11367,7 @@ async function saveChatSettings() {
         autoReplyEnabled: pendingPresenceAutoReplyEnabled === null ? currentPresenceSettings.autoReplyEnabled !== false : !!pendingPresenceAutoReplyEnabled,
         cityId: String(presenceCharCity && presenceCharCity.value || currentPresenceSettings.cityId || 'beijing'),
         schedule: String(presenceSchedule && presenceSchedule.value || currentPresenceSettings.schedule || 'auto'),
+        worldHint: String(character.livePresenceWorldHint || ''),
         busyReply: String(presenceBusyReply && presenceBusyReply.value || currentPresenceSettings.busyReply || ''),
         sleepReply: String(presenceSleepReply && presenceSleepReply.value || currentPresenceSettings.sleepReply || ''),
         commuteReply: String(presenceCommuteReply && presenceCommuteReply.value || currentPresenceSettings.commuteReply || '')

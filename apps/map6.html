@@ -86,6 +86,8 @@ body{font-family:var(--font);color:var(--b);display:flex;flex-direction:column}
   </div>
 
 <script>
+var mapAvatarCache = { user:'', char:'', charId:'' };
+
 function getActiveCharacter(){
   try{
     if(window.AccountManager){
@@ -108,6 +110,10 @@ function getActiveCharacter(){
   }
 }
 
+function isRenderableAvatarSrc(src){
+  return /^(data:|https?:|blob:)/i.test(String(src || '').trim());
+}
+
 function currentUserAvatar(){
   var keys = [];
   try{
@@ -120,17 +126,95 @@ function currentUserAvatar(){
   keys.push('qq_profile_avatar_asset','user_avatar');
   for(var i = 0; i < keys.length; i++){
     var src = String(localStorage.getItem(keys[i]) || '').trim();
-    if(src) return src;
+    if(isRenderableAvatarSrc(src)) return src;
   }
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      if(acct && isRenderableAvatarSrc(acct.avatar)) return String(acct.avatar).trim();
+    }
+  }catch(err){}
   return '';
 }
 
 function currentCharAvatar(charId){
   if(!charId) return '';
-  var src = String(localStorage.getItem('char_avatar_' + charId) || '').trim();
-  if(src) return src;
+  var keys = [];
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      keys.push(window.AccountManager.scopedKey('char_avatar_' + charId));
+    }
+  }catch(err){}
+  keys.push('char_avatar_' + charId);
+  for(var i = 0; i < keys.length; i++){
+    var src = String(localStorage.getItem(keys[i]) || '').trim();
+    if(isRenderableAvatarSrc(src)) return src;
+  }
   var active = getActiveCharacter();
-  return String(active && active.imageData || '').trim();
+  var activeSrc = String(active && active.imageData || '').trim();
+  return isRenderableAvatarSrc(activeSrc) ? activeSrc : '';
+}
+
+function loadFirstAvatarAsset(keys){
+  var list = (keys || []).filter(Boolean);
+  var idx = 0;
+  function next(){
+    if(idx >= list.length) return Promise.resolve('');
+    var key = list[idx++];
+    if(window.assetStore && typeof window.assetStore.load === 'function'){
+      return window.assetStore.load(key).then(function(src){
+        src = String(src || '').trim();
+        if(isRenderableAvatarSrc(src)) return src;
+        return next();
+      }).catch(function(){
+        return next();
+      });
+    }
+    var raw = String(localStorage.getItem(key) || '').trim();
+    if(isRenderableAvatarSrc(raw)) return Promise.resolve(raw);
+    return next();
+  }
+  return next();
+}
+
+function hydrateMapAvatars(charId){
+  if(mapAvatarCache.charId !== String(charId || '')){
+    mapAvatarCache.charId = String(charId || '');
+    mapAvatarCache.char = '';
+  }
+  var userKeys = [];
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      userKeys.push(window.AccountManager.scopedKey('qq_profile_avatar_asset'));
+      userKeys.push(window.AccountManager.scopedKey('user_avatar'));
+    }
+  }catch(err){}
+  userKeys.push('qq_profile_avatar_asset', 'user_avatar');
+  loadFirstAvatarAsset(userKeys).then(function(src){
+    src = String(src || '').trim();
+    if(src && src !== mapAvatarCache.user){
+      mapAvatarCache.user = src;
+      renderMapApp();
+    }
+  }).catch(function(){});
+  if(!charId) return;
+  var charKeys = [];
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      charKeys.push(window.AccountManager.scopedKey('char_avatar_' + charId));
+    }
+  }catch(err){}
+  charKeys.push('char_avatar_' + charId);
+  loadFirstAvatarAsset(charKeys).then(function(src){
+    src = String(src || '').trim();
+    if(src && src !== mapAvatarCache.char){
+      mapAvatarCache.char = src;
+      renderMapApp();
+    }
+  }).catch(function(){});
 }
 
 function escapeHtml(text){
@@ -163,8 +247,9 @@ function renderMapApp(){
     availabilityHost.innerHTML = '<div class="map-mini-title">当前状态</div><div class="map-mini-value">未共享</div><div class="map-mini-sub">开启后会看到他在家、在公司、还是在路上。</div>';
     return;
   }
-  var userAvatar = currentUserAvatar();
-  var charAvatar = currentCharAvatar(char.id);
+  hydrateMapAvatars(char.id);
+  var userAvatar = currentUserAvatar() || mapAvatarCache.user;
+  var charAvatar = currentCharAvatar(char.id) || mapAvatarCache.char;
   var charName = (char.nickname || char.name || 'Char');
   statusHost.innerHTML =
     '<div class="map-status-row">'
