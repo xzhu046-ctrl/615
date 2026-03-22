@@ -4520,6 +4520,7 @@ async function removeMessagesByIds(ids){
   if(!ids || !ids.length) return 0;
   var set = new Set(ids);
   var before = chatLog.length;
+  var removedAssistant = chatLog.some(function(m){ return set.has(m.id) && m.role === 'assistant'; });
   chatLog = chatLog.filter(function(m){ return !set.has(m.id); });
   if(editingMessageId && set.has(editingMessageId)){
     editingMessageId = null;
@@ -4528,6 +4529,7 @@ async function removeMessagesByIds(ids){
   if(replyTargetId && set.has(replyTargetId)){
     replyTargetId = null;
   }
+  if(removedAssistant) resetPendingListenAlongInviteState();
   markLocalChatDirty();
   await saveChat(true);
   renderChatLog(false);
@@ -6049,6 +6051,16 @@ async function requestAndDeliverAiReply(provider, key){
         trackId: inviteTrack && inviteTrack.id ? inviteTrack.id : ''
       });
     }
+    var musicAddAction = parseTaggedSongAction(reply, 'MUSIC_ADD');
+    if(musicAddAction){
+      reply = musicAddAction.text || '';
+      await ensureCharHomeMusicTrack(musicAddAction.songName, false);
+    }
+    var musicSwitchAction = parseTaggedSongAction(reply, 'MUSIC_SWITCH');
+    if(musicSwitchAction){
+      reply = musicSwitchAction.text || '';
+      await ensureCharHomeMusicTrack(musicSwitchAction.songName, true);
+    }
     if(pendingListenInviteDecision){
       var decision = parseListenInviteDecision(reply);
       if(decision.accepted){
@@ -6411,6 +6423,7 @@ async function rerollLast(){
   rollbackFamilyReplyRoundOnReroll(removedIds);
   rollbackMoneyReplyRoundOnReroll(removedIds);
   rollbackInnerVoiceOnReroll();
+  if(removedIds.length) resetPendingListenAlongInviteState();
   await saveChat(true);
   renderChatLog(false);
   var provider = localStorage.getItem('provider') || 'openai';
@@ -8306,6 +8319,17 @@ var listenAlongTicker = 0;
 var pendingListenInviteDecision = null;
 var pendingIncomingListenInvite = null;
 
+function resetPendingListenAlongInviteState(){
+  var state = loadListenAlongState();
+  if(state && state.status === 'pending'){
+    state.status = '';
+    state.startedAt = 0;
+    saveListenAlongState(state);
+  }
+  pendingListenInviteDecision = null;
+  renderListenAlongModal();
+}
+
 function listenAlongStorageKey(){
   if(!character || !character.id) return accountScopedKey('listen_along_state_default');
   return accountScopedKey('listen_along_state_' + character.id);
@@ -8695,6 +8719,92 @@ function parseProactiveListenInvite(raw){
   var songName = String(match[1] || match[2] || match[3] || '').trim();
   text = text.replace(match[0], '').trim();
   return { songName: songName, text: text };
+}
+
+function parseTaggedSongAction(raw, tagName){
+  var text = String(raw || '');
+  var safeTag = String(tagName || '').trim().toUpperCase();
+  if(!safeTag) return null;
+  var pattern = new RegExp('\\[' + safeTag + '(?:\\s+song=(?:"([^"]+)"|\'([^\']+)\'|([^\\]]+)))?\\]', 'i');
+  var match = text.match(pattern);
+  if(!match) return null;
+  var songName = String(match[1] || match[2] || match[3] || '').trim();
+  text = text.replace(match[0], '').trim();
+  return { songName: songName, text: text };
+}
+
+function findExistingHomeMusicTrackByName(songName){
+  try{
+    var parentWin = window.parent;
+    var tracks = Array.isArray(parentWin && parentWin.homeMusicState && parentWin.homeMusicState.tracks) ? parentWin.homeMusicState.tracks : [];
+    var needle = String(songName || '').trim().toLowerCase();
+    if(!needle) return null;
+    return tracks.find(function(track){
+      var name = String(track && track.name || '').trim().toLowerCase();
+      return name === needle || name.indexOf(needle) >= 0 || needle.indexOf(name) >= 0;
+    }) || null;
+  }catch(err){}
+  return null;
+}
+
+async function ensureCharHomeMusicTrack(songName, switchAfter){
+  var safeSong = String(songName || '').trim();
+  if(!safeSong) return null;
+  try{
+    var parentWin = window.parent;
+    if(!parentWin || parentWin === window) return null;
+    var existing = findExistingHomeMusicTrackByName(safeSong);
+    if(existing){
+      if(switchAfter && typeof parentWin.setCurrentHomeMusicTrack === 'function'){
+        parentWin.setCurrentHomeMusicTrack(existing.id, true);
+      }
+      if(typeof parentWin.renderHomeMusic === 'function') parentWin.renderHomeMusic();
+      return { track: existing, added: false, switched: !!switchAfter };
+    }
+    if(typeof parentWin.getHomeMusicProvider !== 'function') return null;
+    var provider = parentWin.getHomeMusicProvider();
+    if(!provider || !provider.search || typeof provider.search.searchTracks !== 'function') return null;
+    var results = await provider.search.searchTracks(safeSong);
+    var candidate = Array.isArray(results) && results[0] ? results[0] : null;
+    if(!candidate) return null;
+    var track = typeof parentWin.cloneHomeMusicTrack === 'function'
+      ? parentWin.cloneHomeMusicTrack(candidate)
+      : Object.assign({}, candidate);
+    if(typeof parentWin.hydrateHomeMusicThirdPartyTrack === 'function'){
+      await parentWin.hydrateHomeMusicThirdPartyTrack(track);
+    }
+    var tracks = Array.isArray(parentWin.homeMusicState && parentWin.homeMusicState.tracks) ? parentWin.homeMusicState.tracks : [];
+    var dupe = tracks.find(function(item){
+      return String(item && item.remoteId || '') && String(item && item.remoteId || '') === String(track && track.remoteId || '');
+    });
+    if(dupe){
+      if(switchAfter && typeof parentWin.setCurrentHomeMusicTrack === 'function'){
+        parentWin.setCurrentHomeMusicTrack(dupe.id, true);
+      }
+      if(typeof parentWin.renderHomeMusic === 'function') parentWin.renderHomeMusic();
+      return { track: dupe, added: false, switched: !!switchAfter };
+    }
+    parentWin.homeMusicState.tracks = [track].concat(tracks);
+    if(switchAfter){
+      parentWin.homeMusicState.currentTrackId = track.id;
+      parentWin.homeMusicState.currentTime = 0;
+      parentWin.homeMusicState.currentLyricIndex = -1;
+    }else if(!parentWin.homeMusicState.currentTrackId){
+      parentWin.homeMusicState.currentTrackId = track.id;
+    }
+    if(typeof parentWin.persistHomeMusicState === 'function') parentWin.persistHomeMusicState();
+    if(typeof parentWin.renderHomeMusic === 'function') parentWin.renderHomeMusic();
+    if(switchAfter && typeof parentWin.setCurrentHomeMusicTrack === 'function'){
+      parentWin.setCurrentHomeMusicTrack(track.id, true);
+    }
+    if(typeof parentWin.showHomeToast === 'function'){
+      parentWin.showHomeToast(switchAfter ? 'TA 换了一首歌' : 'TA 往歌单里加了一首歌');
+    }
+    return { track: track, added: true, switched: !!switchAfter };
+  }catch(err){
+    console.error('[listen-along] char music action failed', err);
+  }
+  return null;
 }
 
 function openIncomingListenAlongInvite(payload){
