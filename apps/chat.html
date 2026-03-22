@@ -4521,6 +4521,7 @@ async function removeMessagesByIds(ids){
   var set = new Set(ids);
   var before = chatLog.length;
   var removedAssistant = chatLog.some(function(m){ return set.has(m.id) && m.role === 'assistant'; });
+  var removedSystem = chatLog.some(function(m){ return set.has(m.id) && m.role === 'system'; });
   chatLog = chatLog.filter(function(m){ return !set.has(m.id); });
   if(editingMessageId && set.has(editingMessageId)){
     editingMessageId = null;
@@ -4529,7 +4530,7 @@ async function removeMessagesByIds(ids){
   if(replyTargetId && set.has(replyTargetId)){
     replyTargetId = null;
   }
-  if(removedAssistant) resetPendingListenAlongInviteState();
+  if(removedAssistant || removedSystem) resetPendingListenAlongInviteState();
   markLocalChatDirty();
   await saveChat(true);
   renderChatLog(false);
@@ -6072,7 +6073,14 @@ async function requestAndDeliverAiReply(provider, key){
         });
       }else if(decision.declined){
         updateListenAlongInviteState({
-          status: 'declined',
+          status: '',
+          startedAt: 0,
+          trackId: pendingListenInviteDecision.trackId,
+          songName: pendingListenInviteDecision.songName
+        });
+      }else{
+        updateListenAlongInviteState({
+          status: '',
           startedAt: 0,
           trackId: pendingListenInviteDecision.trackId,
           songName: pendingListenInviteDecision.songName
@@ -8321,12 +8329,14 @@ var pendingIncomingListenInvite = null;
 
 function resetPendingListenAlongInviteState(){
   var state = loadListenAlongState();
-  if(state && state.status === 'pending'){
+  if(state && (state.status === 'pending' || state.status === 'declined')){
     state.status = '';
     state.startedAt = 0;
     saveListenAlongState(state);
   }
   pendingListenInviteDecision = null;
+  pendingIncomingListenInvite = null;
+  closeIncomingListenAlongInvite();
   renderListenAlongModal();
 }
 
@@ -8843,7 +8853,7 @@ async function respondToListenAlongInvite(accepted){
       songName: invite.songName || ''
     });
   }else{
-    updateListenAlongInviteState({ status: 'declined', startedAt: 0 });
+    updateListenAlongInviteState({ status: '', startedAt: 0 });
   }
   if(!key){
     renderListenAlongModal();
@@ -9283,6 +9293,7 @@ function closeClearChatConfirm(){
 }
 async function clearChatData(opts){
   var options = opts || {};
+  resetPendingListenAlongInviteState();
   closeMessageActions();
   multiSelectMode = false;
   selectedMessageIds = [];
@@ -10737,6 +10748,7 @@ function cancelGreetingChange(){
 
 async function confirmGreetingChange(){
   if(pendingGreetingIdx === null || !character) { cancelGreetingChange(); return; }
+  resetPendingListenAlongInviteState();
   curGreetingIdx = pendingGreetingIdx;
   localStorage.setItem(greetingStorageKey(character.id), curGreetingIdx);
   document.querySelectorAll('.g-item').forEach(function(el) {

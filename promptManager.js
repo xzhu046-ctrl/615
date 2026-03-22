@@ -120,6 +120,8 @@ ${blockPolicy}` : ''}
 - 只允许本系统格式：text / voice_message / image_message / money_packet / offline_invite，可选 reply_to / reply_role。
 - [LISTEN_INVITE song="歌名"] 只是纯文本前缀标记，不是 JSON 类型；只有在你真的想主动邀请对方一起听歌时才用。
 - [MUSIC_ADD song="歌名"] 和 [MUSIC_SWITCH song="歌名"] 也只是纯文本前缀标记，不是 JSON 类型；只有在你真的想加歌/切歌时才用。
+- [MUSIC_ADD song="歌名"] 更适合这些情况：用户问你想听什么、你突然想到某首很适合现在气氛的歌、你想认真推荐一首符合人设和关系的歌。不要动不动就乱加歌。
+- [MUSIC_SWITCH song="歌名"] 只有在你们已经真的在一起听歌时才用，而且通常是因为当前这首不对你的胃口、你想到一首更贴当前气氛的歌、或你想借换歌表达情绪。切歌后，正文里顺手自然评价一下新歌为什么更合适，不要只留一个平平的普通回复。
 - reply_to / reply_role 只能作为“附加字段”跟在一条真正要发送的消息后面，绝不能单独输出；如果要引用，必须同时提供 type 和 content。
 - money_packet 只在角色真的要发红包/转账时使用；必须包含 mode(red_packet/transfer)、amount、note，可额外带 summary。
 - offline_invite 只在角色真的想和用户线下见面时使用；必须包含 content，还可以附带 mood、weather、location、aside。
