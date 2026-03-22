@@ -48,7 +48,6 @@ body{font-family:var(--font);color:var(--b);display:flex;flex-direction:column}
 .map-point{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:5px}
 .map-pin{width:24px;height:24px;border-radius:999px;border:2px solid #0a0a0a;background:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.96),2px 2px 0 #0a0a0a;display:flex;align-items:center;justify-content:center}
 .map-pin img{width:100%;height:100%;object-fit:cover;border-radius:999px}
-.map-pin.you{background:#0a0a0a;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900}
 .map-label{max-width:118px;border:1.5px solid #0a0a0a;border-radius:999px;background:rgba(255,255,255,.94);padding:4px 8px;font-size:10px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:1px 1px 0 #0a0a0a}
 .map-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .map-mini{padding:12px}
@@ -80,7 +79,7 @@ body{font-family:var(--font);color:var(--b);display:flex;flex-direction:column}
     </div>
     <div class="map-actions">
       <button class="map-btn" type="button" onclick="useDeviceLocation()">使用真实位置</button>
-      <button class="map-btn" type="button" onclick="focusUserLocation()">切换我的城市</button>
+      <button class="map-btn" type="button" onclick="openChatSettingsFromMap()">天气城市</button>
       <button class="map-btn" type="button" onclick="openChatSettingsFromMap()">改角色日程</button>
     </div>
   </div>
@@ -116,13 +115,16 @@ function isRenderableAvatarSrc(src){
 
 function currentUserAvatar(){
   var keys = [];
+  var activeChar = getActiveCharacter();
   try{
     if(window.AccountManager){
       window.AccountManager.ensure();
+      if(activeChar && activeChar.id) keys.push(window.AccountManager.scopedKey('user_avatar_' + activeChar.id));
       keys.push(window.AccountManager.scopedKey('qq_profile_avatar_asset'));
       keys.push(window.AccountManager.scopedKey('user_avatar'));
     }
   }catch(err){}
+  if(activeChar && activeChar.id) keys.push('user_avatar_' + activeChar.id);
   keys.push('qq_profile_avatar_asset','user_avatar');
   for(var i = 0; i < keys.length; i++){
     var src = String(localStorage.getItem(keys[i]) || '').trim();
@@ -187,10 +189,12 @@ function hydrateMapAvatars(charId){
   try{
     if(window.AccountManager){
       window.AccountManager.ensure();
+      if(charId) userKeys.push(window.AccountManager.scopedKey('user_avatar_' + charId));
       userKeys.push(window.AccountManager.scopedKey('qq_profile_avatar_asset'));
       userKeys.push(window.AccountManager.scopedKey('user_avatar'));
     }
   }catch(err){}
+  if(charId) userKeys.push('user_avatar_' + charId);
   userKeys.push('qq_profile_avatar_asset', 'user_avatar');
   loadFirstAvatarAsset(userKeys).then(function(src){
     src = String(src || '').trim();
@@ -277,7 +281,7 @@ function renderMapApp(){
         + '<line class="map-route-line" x1="' + userPoint.x.toFixed(1) + '" y1="' + userPoint.y.toFixed(1) + '" x2="' + charPoint.x.toFixed(1) + '" y2="' + charPoint.y.toFixed(1) + '"></line>'
       + '</svg>'
       + '<div class="map-point" style="left:' + ((userPoint.x / worldWidth) * 100).toFixed(2) + '%;top:' + ((userPoint.y / worldHeight) * 100).toFixed(2) + '%">'
-        + '<div class="map-pin you">YOU</div>'
+        + '<div class="map-pin">' + setAvatarMarkup(userAvatar, '你') + '</div>'
         + '<div class="map-label">' + escapeHtml(snapshot.user.label || '我的位置') + '</div>'
       + '</div>'
       + '<div class="map-point" style="left:' + ((charPoint.x / worldWidth) * 100).toFixed(2) + '%;top:' + ((charPoint.y / worldHeight) * 100).toFixed(2) + '%">'

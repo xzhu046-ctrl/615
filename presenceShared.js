@@ -63,6 +63,17 @@
     return CITY_CATALOG.slice();
   }
 
+  function findNearestCatalogCity(lat, lng){
+    var target = { lat:Number(lat), lng:Number(lng) };
+    if(!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return getCity(DEFAULT_USER_CITY);
+    var best = null;
+    CITY_CATALOG.forEach(function(city){
+      var dist = getDistanceKm(target, city);
+      if(!best || dist < best.dist) best = { city: city, dist: dist };
+    });
+    return best && best.city ? best.city : getCity(DEFAULT_USER_CITY);
+  }
+
   function inferProfile(character){
     const corpus = [
       character && character.name || '',
@@ -149,6 +160,37 @@
     };
   }
 
+  function weatherSettingsStorageKey(role, charId){
+    var safeRole = role === 'user' ? 'user' : 'char';
+    var safeCharId = String(charId || '').trim();
+    if(safeRole === 'char'){
+      return accountScopedKey('real_weather_char_' + safeCharId);
+    }
+    return accountScopedKey('real_weather_user_' + safeCharId);
+  }
+
+  function getWeatherLockedLocation(role, charId){
+    try{
+      var parsed = safeJsonParse(localStorage.getItem(weatherSettingsStorageKey(role, charId)) || 'null', null);
+      if(!parsed || parsed.locked !== true) return null;
+      var lat = Number(parsed.latitude);
+      var lng = Number(parsed.longitude);
+      if(!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      var displayName = String(parsed.aliasName || parsed.resolvedName || parsed.realName || '').trim();
+      var nearest = findNearestCatalogCity(lat, lng);
+      return {
+        cityId: nearest.id,
+        label: displayName || nearest.name,
+        lat: lat,
+        lng: lng,
+        weatherName: String(parsed.resolvedName || parsed.realName || '').trim(),
+        timezone: String(parsed.timezone || '').trim()
+      };
+    }catch(err){
+      return null;
+    }
+  }
+
   function getUserLocation(){
     const defaults = getDefaultUserLocation();
     const stored = safeJsonParse(localStorage.getItem(accountScopedKey(USER_LOCATION_KEY)) || '{}', {});
@@ -174,11 +216,12 @@
         return;
       }
       navigator.geolocation.getCurrentPosition((pos) => {
+        var nearest = findNearestCatalogCity(pos.coords && pos.coords.latitude, pos.coords && pos.coords.longitude);
         resolve({
           shareEnabled: true,
           mode: 'device',
-          cityId: '',
-          label: '真实位置',
+          cityId: nearest.id,
+          label: nearest.name,
           lat: Number(pos.coords && pos.coords.latitude) || 0,
           lng: Number(pos.coords && pos.coords.longitude) || 0,
           updatedAt: Date.now(),
@@ -316,11 +359,14 @@
 
   function getCharPresence(character, now){
     const settings = getCharSettings(character);
-    const city = getCity(settings.cityId || DEFAULT_CHAR_CITY);
+    const charWeatherLoc = getWeatherLockedLocation('char', character && character.id);
+    const city = charWeatherLoc ? findNearestCatalogCity(charWeatherLoc.lat, charWeatherLoc.lng) : getCity(settings.cityId || DEFAULT_CHAR_CITY);
     const parts = getLocalParts(city.tz, now);
     const profile = settings.schedule === 'auto' ? inferProfile(character) : String(settings.schedule || 'office');
     const segment = segmentForProfile(profile, parts);
-    const point = pointForSegment(city, segment, [character && character.id || '', parts.daySeed, segment.key].join(':'));
+    const point = charWeatherLoc
+      ? { lat:Number(charWeatherLoc.lat), lng:Number(charWeatherLoc.lng) }
+      : pointForSegment(city, segment, [character && character.id || '', parts.daySeed, segment.key].join(':'));
     return {
       settings,
       city,
@@ -409,7 +455,11 @@
   }
 
   function getPresenceSnapshot(character, now){
-    const user = getUserLocation();
+    const charId = character && character.id ? String(character.id) : '';
+    const storedUser = getUserLocation();
+    const user = storedUser.mode === 'device'
+      ? storedUser
+      : Object.assign({}, storedUser, getWeatherLockedLocation('user', charId) || {});
     const charPresence = getCharPresence(character, now);
     const userPoint = { lat:Number(user.lat), lng:Number(user.lng) };
     const charPoint = charPresence.point;
