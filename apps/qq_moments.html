@@ -122,6 +122,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 
 .toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%) translateY(10px);background:#0a0a0a;color:#fff;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;transition:all .2s;pointer-events:none;z-index:160}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.moments-debug{position:fixed;left:12px;right:12px;bottom:14px;z-index:170;border:var(--bd);border-radius:14px;background:rgba(255,255,255,.96);box-shadow:var(--sh);padding:8px 10px;font-size:10px;font-weight:800;line-height:1.45;color:#111;white-space:pre-wrap;word-break:break-word}
 
 #heroBgInput,#heroAvatarInput{display:none}
 </style>
@@ -210,6 +211,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
   <input id="heroBgInput" type="file" accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg">
   <input id="heroAvatarInput" type="file" accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg">
   <div class="toast" id="toast"></div>
+  <div class="moments-debug" id="momentsDebug">moments debug: init</div>
 
 <script>
 const STORAGE_POSTS = 'qq_moments_posts';
@@ -230,6 +232,7 @@ let currentHeroBgSrc = '';
 let heroBgObjectUrl = '';
 let heroAvatarObjectUrl = '';
 const transientAssets = {};
+let momentsDebugState = { bridgeScoped: 0, bridgeRaw: 0, localMain: 0, localAlt: 0, kvBest: 0, rendered: 0 };
 let publishState = {
   mode: '',
   text: '',
@@ -305,6 +308,15 @@ function showToast(text){
   toastTimer = setTimeout(()=>t.classList.remove('show'), 1500);
 }
 
+function setMomentsDebugInfo(){
+  const el = document.getElementById('momentsDebug');
+  if(!el) return;
+  el.textContent = 'bridge(scoped/raw): ' + momentsDebugState.bridgeScoped + '/' + momentsDebugState.bridgeRaw
+    + ' | local(main/alt): ' + momentsDebugState.localMain + '/' + momentsDebugState.localAlt
+    + ' | kvBest: ' + momentsDebugState.kvBest
+    + ' | rendered: ' + momentsDebugState.rendered;
+}
+
 function goBackQQ(evt){
   if(evt && evt.stopPropagation) evt.stopPropagation();
   window.location.href = 'qq.html';
@@ -320,6 +332,14 @@ function getPosts(){
         if(Array.isArray(posts) && posts.length > best.length) best = posts;
       }catch(ignoreErr){}
     });
+    try{
+      const mainPosts = JSON.parse(localStorage.getItem(scopedKey(STORAGE_POSTS)) || '[]');
+      momentsDebugState.localMain = Array.isArray(mainPosts) ? mainPosts.length : 0;
+    }catch(ignoreErr){ momentsDebugState.localMain = 0; }
+    try{
+      const altPosts = JSON.parse(localStorage.getItem(scopedKey(STORAGE_POSTS_ALT)) || '[]');
+      momentsDebugState.localAlt = Array.isArray(altPosts) ? altPosts.length : 0;
+    }catch(ignoreErr){ momentsDebugState.localAlt = 0; }
     return Array.isArray(best) ? best : [];
   }catch(e){
     return [];
@@ -364,18 +384,33 @@ async function hydratePostsFromLargeStore(){
         }
       }catch(ignoreListErr){}
     }
+    momentsDebugState.kvBest = Array.isArray(best) ? best.length : 0;
     const posts = Array.isArray(best) ? best : [];
     if(posts.length){
       lsSet(STORAGE_POSTS, JSON.stringify(posts));
       lsSet(STORAGE_POSTS_ALT, JSON.stringify(posts));
     }
+    setMomentsDebugInfo();
   }catch(e){}
 }
 
 function hydratePostsFromBridge(){
   try{
-    const raw = localStorage.getItem(scopedKey(STORAGE_POSTS_BRIDGE)) || localStorage.getItem(STORAGE_POSTS_BRIDGE) || '';
-    if(!raw) return false;
+    const scopedRaw = localStorage.getItem(scopedKey(STORAGE_POSTS_BRIDGE)) || '';
+    const plainRaw = localStorage.getItem(STORAGE_POSTS_BRIDGE) || '';
+    const raw = scopedRaw || plainRaw;
+    try{
+      const scopedPosts = JSON.parse(scopedRaw || '[]');
+      momentsDebugState.bridgeScoped = Array.isArray(scopedPosts) ? scopedPosts.length : 0;
+    }catch(ignoreErr){ momentsDebugState.bridgeScoped = 0; }
+    try{
+      const plainPosts = JSON.parse(plainRaw || '[]');
+      momentsDebugState.bridgeRaw = Array.isArray(plainPosts) ? plainPosts.length : 0;
+    }catch(ignoreErr){ momentsDebugState.bridgeRaw = 0; }
+    if(!raw){
+      setMomentsDebugInfo();
+      return false;
+    }
     const posts = JSON.parse(raw);
     if(!Array.isArray(posts) || !posts.length) return false;
     lsSet(STORAGE_POSTS, JSON.stringify(posts));
@@ -384,8 +419,10 @@ function hydratePostsFromBridge(){
       window.PhoneStorage.putJson(scopedKey(STORAGE_POSTS), posts).catch(()=>{});
       window.PhoneStorage.putJson(scopedKey(STORAGE_POSTS_ALT), posts).catch(()=>{});
     }
+    setMomentsDebugInfo();
     return true;
   }catch(e){
+    setMomentsDebugInfo();
     return false;
   }
 }
@@ -439,6 +476,8 @@ function renderFeed(){
   const host = document.getElementById('feedList');
   if(!host) return;
   const posts = getPosts().sort((a,b)=> (b.createdAt||0) - (a.createdAt||0));
+  momentsDebugState.rendered = Array.isArray(posts) ? posts.length : 0;
+  setMomentsDebugInfo();
   if(!posts.length){
     host.innerHTML = '<div class="empty">还没有朋友圈，点击右下角 + 发布第一条吧。</div>';
     return;
