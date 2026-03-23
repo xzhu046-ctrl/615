@@ -148,7 +148,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
   </div>
 
   <button class="fab" type="button" aria-label="发布" onclick="openPublishMode()">+</button>
-  <button class="fab fab-delete" id="deleteFab" type="button" aria-label="删除朋友圈" onclick="toggleDeleteMode()">
+  <button class="fab fab-delete" id="deleteFab" type="button" aria-label="删除朋友圈">
     <img src="assets/Recycle-Bin-2--Streamline-Sharp.png" alt="" aria-hidden="true">
   </button>
 
@@ -238,6 +238,7 @@ let deleteMode = false;
 let deleteSelection = [];
 let replyTarget = {};
 let pendingDeleteComment = { postId:'', commentId:'' };
+let lastTapHandledAt = 0;
 
 function scopedKey(base){
   if(window.AccountManager){
@@ -302,6 +303,21 @@ function showToast(text){
   t.classList.add('show');
   if(toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(()=>t.classList.remove('show'), 1500);
+}
+
+function bindTap(element, handler){
+  if(!element || typeof handler !== 'function' || element.dataset.tapBound === '1') return;
+  element.dataset.tapBound = '1';
+  ['pointerup','click','touchend'].forEach((eventName)=>{
+    element.addEventListener(eventName, (evt)=>{
+      const now = Date.now();
+      if(now - lastTapHandledAt < 220) return;
+      lastTapHandledAt = now;
+      if(evt && evt.preventDefault) evt.preventDefault();
+      if(evt && evt.stopPropagation) evt.stopPropagation();
+      handler(evt);
+    }, { passive:false });
+  });
 }
 
 function goBackQQ(evt){
@@ -462,7 +478,7 @@ function renderFeed(){
     const typeLabel = post.type === 'dynamic' ? '动态' : '说说';
     const isSelected = deleteSelection.indexOf(post.id) !== -1;
     return '<article class="post' + (deleteMode ? ' delete-mode' : '') + '">'
-      + (deleteMode ? '<button class="post-select' + (isSelected ? ' selected' : '') + '" type="button" onclick="toggleDeletePost(\'' + esc(post.id) + '\')">' + (isSelected ? '✓' : '') + '</button>' : '')
+      + (deleteMode ? '<button class="post-select' + (isSelected ? ' selected' : '') + '" type="button" data-delete-post="' + esc(post.id) + '">' + (isSelected ? '✓' : '') + '</button>' : '')
       + '<div class="post-head">'
       + '<div class="post-left">'
       + '<div class="post-av" style="background-image:' + getPostAvatarStyleValue(post) + ';background-size:cover;background-position:center;background-repeat:no-repeat;"></div>'
@@ -488,7 +504,7 @@ function renderFeed(){
           const whoHtml = replyName
             ? ('<span class="name-accent">' + name + '</span>回复<span class="name-accent">' + replyName + '</span>')
             : ('<span class="name-accent">' + name + '</span>');
-          return '<div class="comment-item" onclick="prepareReply(\'' + esc(post.id) + '\',\'' + cid + '\')"><div class="comment-av" style="background-image:' + getCommentAvatarStyleValue(c) + ';background-size:cover;background-position:center;background-repeat:no-repeat;"></div><div class="comment-main"><strong>' + whoHtml + '</strong>：' + text + '</div><button class="comment-del" type="button" onclick="openDeleteCommentConfirm(event,\'' + esc(post.id) + '\',\'' + cid + '\');return false;" title="删除评论">×</button></div>';
+          return '<div class="comment-item" data-reply-post="' + esc(post.id) + '" data-reply-comment="' + cid + '"><div class="comment-av" style="background-image:' + getCommentAvatarStyleValue(c) + ';background-size:cover;background-position:center;background-repeat:no-repeat;"></div><div class="comment-main"><strong>' + whoHtml + '</strong>：' + text + '</div><button class="comment-del" type="button" data-delete-comment-post="' + esc(post.id) + '" data-delete-comment-id="' + cid + '" title="删除评论">×</button></div>';
         }).join('') : '<div class="comment-item"><div class="comment-main">还没有评论，快来抢沙发。</div></div>')
       + '</div>'
       + '<div class="comment-compose">'
@@ -996,25 +1012,9 @@ function bindInputs(){
     });
   }
   const deleteConfirmOkBtn = document.getElementById('deleteConfirmOkBtn');
-  if(deleteConfirmOkBtn){
-    ['click','touchend'].forEach((eventName)=>{
-      deleteConfirmOkBtn.addEventListener(eventName, (evt)=>{
-        evt.preventDefault();
-        evt.stopPropagation();
-        confirmDeletePosts();
-      }, { passive:false });
-    });
-  }
+  bindTap(deleteConfirmOkBtn, ()=>{ confirmDeletePosts(); });
   const deleteConfirmCancelBtn = document.getElementById('deleteConfirmCancelBtn');
-  if(deleteConfirmCancelBtn){
-    ['click','touchend'].forEach((eventName)=>{
-      deleteConfirmCancelBtn.addEventListener(eventName, (evt)=>{
-        evt.preventDefault();
-        evt.stopPropagation();
-        closeDeleteConfirm();
-      }, { passive:false });
-    });
-  }
+  bindTap(deleteConfirmCancelBtn, ()=>{ closeDeleteConfirm(); });
   const deleteCommentOverlay = document.getElementById('deleteCommentConfirmOverlay');
   if(deleteCommentOverlay){
     deleteCommentOverlay.addEventListener('click', (evt)=>{
@@ -1030,23 +1030,41 @@ function bindInputs(){
     });
   }
   const deleteCommentOkBtn = document.getElementById('deleteCommentOkBtn');
-  if(deleteCommentOkBtn){
-    ['click','touchend'].forEach((eventName)=>{
-      deleteCommentOkBtn.addEventListener(eventName, (evt)=>{
-        evt.preventDefault();
-        evt.stopPropagation();
-        confirmDeleteComment();
-      }, { passive:false });
-    });
-  }
+  bindTap(deleteCommentOkBtn, ()=>{ confirmDeleteComment(); });
   const deleteCommentCancelBtn = document.getElementById('deleteCommentCancelBtn');
-  if(deleteCommentCancelBtn){
-    ['click','touchend'].forEach((eventName)=>{
-      deleteCommentCancelBtn.addEventListener(eventName, (evt)=>{
-        evt.preventDefault();
-        evt.stopPropagation();
-        closeDeleteCommentConfirm();
-      }, { passive:false });
+  bindTap(deleteCommentCancelBtn, ()=>{ closeDeleteCommentConfirm(); });
+  const deleteFab = document.getElementById('deleteFab');
+  bindTap(deleteFab, ()=>{ toggleDeleteMode(); });
+  const feed = document.getElementById('feedList');
+  if(feed && feed.dataset.boundActions !== '1'){
+    feed.dataset.boundActions = '1';
+    const handleFeedTap = (evt)=>{
+      const now = Date.now();
+      if(now - lastTapHandledAt < 220) return;
+      lastTapHandledAt = now;
+      const delBtn = evt.target && evt.target.closest ? evt.target.closest('[data-delete-comment-post][data-delete-comment-id]') : null;
+      if(delBtn){
+        if(evt && evt.preventDefault) evt.preventDefault();
+        if(evt && evt.stopPropagation) evt.stopPropagation();
+        openDeleteCommentConfirm(evt, delBtn.getAttribute('data-delete-comment-post') || '', delBtn.getAttribute('data-delete-comment-id') || '');
+        return;
+      }
+      const selBtn = evt.target && evt.target.closest ? evt.target.closest('[data-delete-post]') : null;
+      if(selBtn){
+        if(evt && evt.preventDefault) evt.preventDefault();
+        if(evt && evt.stopPropagation) evt.stopPropagation();
+        toggleDeletePost(selBtn.getAttribute('data-delete-post') || '');
+        return;
+      }
+      const replyNode = evt.target && evt.target.closest ? evt.target.closest('[data-reply-post][data-reply-comment]') : null;
+      if(replyNode){
+        if(evt && evt.preventDefault) evt.preventDefault();
+        if(evt && evt.stopPropagation) evt.stopPropagation();
+        prepareReply(replyNode.getAttribute('data-reply-post') || '', replyNode.getAttribute('data-reply-comment') || '');
+      }
+    };
+    ['pointerup','click','touchend'].forEach((eventName)=>{
+      feed.addEventListener(eventName, handleFeedTap, { passive:false });
     });
   }
 
