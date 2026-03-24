@@ -69,6 +69,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg.user .msg-main{align-items:flex-end}
 .msg.ai .msg-main{align-items:flex-start}
 .msg.system .msg-main{align-items:center;width:100%}
+.msg.system.time-divider{margin:8px 0 4px}
 .msg-read{font-size:9px;line-height:1;color:#8a8a8a;font-weight:800;padding:0 4px;margin-top:4px}
 .msg.user .msg-read{margin-top:1px}
 .msg.familycard-msg{max-width:min(96%, 520px);gap:10px;align-items:center}
@@ -106,6 +107,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg.user .msg-bubble.moneypacket-shell,.msg.ai .msg-bubble.moneypacket-shell{background:transparent;border:none;box-shadow:none;padding:0}
 .msg.system .msg-bubble{background:transparent;border:none;box-shadow:none;min-height:0;padding:0}
 .system-pill{display:inline-flex;align-items:center;justify-content:center;max-width:min(100%,420px);padding:10px 18px;border:1.2px solid rgba(28,28,28,.36);border-radius:999px;background:rgba(255,255,255,.22);backdrop-filter:blur(18px) saturate(135%);-webkit-backdrop-filter:blur(18px) saturate(135%);box-shadow:0 10px 24px rgba(0,0,0,.04),0 1px 0 rgba(255,255,255,.62) inset,1px 2px 0 rgba(0,0,0,.1);font-family:var(--fontd);font-size:13px;font-weight:900;line-height:1.4;text-align:center}
+.msg.system.time-divider .system-pill{padding:7px 14px;font-size:11px;font-weight:800;background:rgba(255,255,255,.34)}
 .offline-invite-shell{display:block;padding:0;background:transparent;border:none;box-shadow:none;min-height:0;overflow:visible;max-width:min(100%,304px)}
 .offline-bubble-shell{position:relative;display:block;width:min(304px,calc(100vw - 138px));min-width:246px;max-width:100%;min-height:176px;padding:0}
 .offline-bubble-flower{position:absolute;bottom:28px;width:104px;height:132px;opacity:.94;pointer-events:none;z-index:8}
@@ -4341,6 +4343,78 @@ function fmtReadTime(ts){
   var m = String(d.getMinutes()).padStart(2, '0');
   return h + ':' + m;
 }
+function formatChatTimeDivider(ts){
+  var d = new Date(ts || 0);
+  if(Number.isNaN(d.getTime())) return '';
+  var now = new Date();
+  var sameYear = d.getFullYear() === now.getFullYear();
+  var sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  var h = String(d.getHours()).padStart(2, '0');
+  var m = String(d.getMinutes()).padStart(2, '0');
+  if(sameDay) return h + ':' + m;
+  if(sameYear) return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + h + ':' + m;
+  return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + h + ':' + m;
+}
+function getPreviousVisibleChatEntry(entryId){
+  var target = String(entryId || '');
+  var prev = null;
+  for(var i = 0; i < chatLog.length; i++){
+    var item = chatLog[i] || {};
+    if(item.hidden) continue;
+    if(String(item.id || '') === target) return prev;
+    prev = item;
+  }
+  return prev;
+}
+function shouldShowTimeDivider(prevEntry, nextEntry){
+  if(!nextEntry) return false;
+  if(!prevEntry) return true;
+  var prevTs = Number(prevEntry.sentAt || prevEntry.readAt || 0) || 0;
+  var nextTs = Number(nextEntry.sentAt || nextEntry.readAt || 0) || 0;
+  if(!prevTs || !nextTs) return false;
+  return (nextTs - prevTs) >= 30 * 60 * 1000;
+}
+function appendTimeDivider(ts, doScroll){
+  var msgs = document.getElementById('messages');
+  if(!msgs) return;
+  var div = document.createElement('div');
+  div.className = 'msg system time-divider';
+  div.innerHTML = '<div class="msg-main"><div class="msg-bubble"><div class="system-pill">' + esc(formatChatTimeDivider(ts)) + '</div></div></div>';
+  msgs.appendChild(div);
+  if(doScroll) msgs.scrollTop = msgs.scrollHeight;
+}
+function getConversationElapsedContext(){
+  var last = null;
+  for(var i = chatLog.length - 1; i >= 0; i--){
+    var item = chatLog[i] || {};
+    if(item.hidden) continue;
+    last = item;
+    break;
+  }
+  if(!last) return '';
+  var lastTs = Number(last.sentAt || last.readAt || 0) || 0;
+  if(!lastTs) return '';
+  var nowTs = getNowTs();
+  var delta = nowTs - lastTs;
+  if(delta < 30 * 60 * 1000) return '';
+  var lastDate = new Date(lastTs);
+  var nowDate = new Date(nowTs);
+  var dayGap = Math.floor((new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()) - new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate())) / 86400000);
+  var totalMinutes = Math.max(1, Math.floor(delta / 60000));
+  var hours = Math.floor(totalMinutes / 60);
+  var mins = totalMinutes % 60;
+  var elapsed = hours > 0 ? (hours + '小时' + (mins ? mins + '分钟' : '')) : (totalMinutes + '分钟');
+  var lines = ['【时间流逝】'];
+  if(dayGap >= 1){
+    lines.push('距离上一轮聊天已经过去了 ' + dayGap + ' 天，不是还停留在同一天。');
+  }else{
+    lines.push('距离上一轮聊天已经过去了 ' + elapsed + '。');
+  }
+  lines.push('上一条消息时间：' + formatChatTimeDivider(lastTs));
+  lines.push('现在时间：' + formatChatTimeDivider(nowTs));
+  lines.push('请把这种时间流逝自然地体现在回应里：隔天了就要有隔天感，别把关系状态和语境当成还停在上一秒。');
+  return lines.join('\n');
+}
 function makeChatEntry(role, content, type, id){
   var sentAt = getNowTs();
   var normRole = role || 'assistant';
@@ -5747,6 +5821,8 @@ function buildSystemPrompt() {
   if(identityHint) parts.push(identityHint);
   var weatherCommonSense = buildWeatherCommonSensePrompt();
   if(weatherCommonSense) parts.push(weatherCommonSense);
+  var elapsedContext = getConversationElapsedContext();
+  if(elapsedContext) parts.push(elapsedContext);
   if(pendingMomentsChatCue){
     parts.push(['【朋友圈新互动】', pendingMomentsChatCue].join('\n'));
   }
@@ -6616,6 +6692,18 @@ function addMessage(role, content, doScroll, msgType, msgId) {
   var msgs = document.getElementById('messages');
   // Remove welcome message
   var w = msgs.querySelector('.welcome'); if (w) w.remove();
+  var entryForDivider = msgId ? getMessageById(msgId) : null;
+  var prevForDivider = entryForDivider ? getPreviousVisibleChatEntry(msgId) : null;
+  if(entryForDivider && shouldShowTimeDivider(prevForDivider, entryForDivider)){
+    var lastNode = msgs.lastElementChild;
+    var lastDividerText = lastNode && lastNode.classList && lastNode.classList.contains('time-divider')
+      ? String(lastNode.textContent || '').trim()
+      : '';
+    var nextDividerText = formatChatTimeDivider(Number(entryForDivider.sentAt || entryForDivider.readAt || getNowTs()) || getNowTs());
+    if(lastDividerText !== nextDividerText){
+      appendTimeDivider(Number(entryForDivider.sentAt || entryForDivider.readAt || getNowTs()) || getNowTs(), false);
+    }
+  }
 
   // Some saved messages keep API-style role "assistant"; map to UI class
   var viewRole = role === 'system' ? 'system' : ((role === 'assistant') ? 'ai' : (role || 'ai'));
