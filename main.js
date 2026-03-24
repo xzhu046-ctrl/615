@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-24T04:36:59Z';
+const APP_BUILD_ID = '2026-03-24T05:05:15Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -665,6 +665,15 @@ async function clearHostedUpdateCaches(){
 function bindHostedServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   if(!window.isSecureContext) return;
+  if(!bindHostedServiceWorker.boundMessageListener){
+    navigator.serviceWorker.addEventListener('message', function(event){
+      var data = event && event.data ? event.data : {};
+      if(data.type === 'OPEN_HOME_NOTIFICATION_PAYLOAD'){
+        openHomeNotificationPayload(data.payload || null);
+      }
+    });
+    bindHostedServiceWorker.boundMessageListener = true;
+  }
   navigator.serviceWorker.register(getServiceWorkerUrl()).catch(function(err){
     console.warn('[sw] register failed', err);
   });
@@ -987,7 +996,7 @@ function isDefaultAccountActive(){
   return true;
 }
 
-function getBackgroundCharacter(){
+async function getBackgroundCharacter(){
   var defaultId = getDefaultAccountId();
   if(!defaultId) return null;
   var chars = [];
@@ -1000,13 +1009,30 @@ function getBackgroundCharacter(){
   });
   var owned = chars.filter(function(c){ return c && c.ownerAccountId === defaultId; });
   var enabledOwned = owned.filter(function(c){ return isCharBgEnabled(c.id, defaultId); });
+  if(!enabledOwned.length) return null;
   var active = null;
-  try{ active = JSON.parse(localStorage.getItem('activeCharacter') || 'null'); }catch(e){ active = null; }
+  try{
+    active = JSON.parse(
+      localStorage.getItem(scopedKeyForAccount('activeCharacter', defaultId))
+      || localStorage.getItem('activeCharacter')
+      || 'null'
+    );
+  }catch(e){ active = null; }
   if(active && active.id){
     var found = enabledOwned.find(function(c){ return c.id === active.id; });
     if(found) return Object.assign({}, found, active);
   }
-  return enabledOwned[0] || null;
+  var latest = null;
+  for(var i = 0; i < enabledOwned.length; i++){
+    var candidate = enabledOwned[i];
+    var history = await readBackgroundChatHistory(candidate.id, defaultId);
+    var last = Array.isArray(history) && history.length ? history[history.length - 1] : null;
+    var ts = Number(last && (last.sentAt || last.readAt || 0)) || 0;
+    if(!latest || ts > latest.ts){
+      latest = { ts: ts, character: candidate };
+    }
+  }
+  return latest && latest.character ? latest.character : (enabledOwned[0] || null);
 }
 
 async function readBackgroundChatHistory(charId, accountId){
@@ -1183,6 +1209,65 @@ function parseBgAction(raw){
   };
 }
 
+function summarizeBgConversationState(history){
+  var list = Array.isArray(history) ? history.filter(Boolean) : [];
+  if(!list.length){
+    return {
+      waitingForReply: false,
+      unreadAssistantCount: 0,
+      lastRole: '',
+      lastUserAt: 0,
+      lastAssistantAt: 0,
+      lastAnyAt: 0,
+      idleMs: 0
+    };
+  }
+  var now = Date.now();
+  var unreadAssistantCount = 0;
+  var lastUserAt = 0;
+  var lastAssistantAt = 0;
+  for(var i = 0; i < list.length; i++){
+    var item = list[i] || {};
+    var ts = Number(item.sentAt || item.readAt || 0) || 0;
+    if(item.role === 'user') lastUserAt = Math.max(lastUserAt, ts);
+    if(item.role === 'assistant'){
+      lastAssistantAt = Math.max(lastAssistantAt, ts);
+      if(!item.readAt) unreadAssistantCount += 1;
+    }
+  }
+  var last = list[list.length - 1] || {};
+  var lastAnyAt = Number(last.sentAt || last.readAt || 0) || Math.max(lastUserAt, lastAssistantAt, 0);
+  return {
+    waitingForReply: !!(lastUserAt && lastUserAt > lastAssistantAt),
+    unreadAssistantCount: unreadAssistantCount,
+    lastRole: String(last.role || ''),
+    lastUserAt: lastUserAt,
+    lastAssistantAt: lastAssistantAt,
+    lastAnyAt: lastAnyAt,
+    idleMs: lastAnyAt ? Math.max(0, now - lastAnyAt) : 0
+  };
+}
+
+function coerceBgAction(parsed, convoState){
+  var next = Object.assign({}, parsed || {});
+  var waitingForReply = !!(convoState && convoState.waitingForReply);
+  var unreadAssistantCount = Math.max(0, Number(convoState && convoState.unreadAssistantCount) || 0);
+  var idleMs = Math.max(0, Number(convoState && convoState.idleMs) || 0);
+  if(waitingForReply){
+    next.action = 'message';
+    return next;
+  }
+  if(unreadAssistantCount >= 2 && next.action === 'message'){
+    next.action = Math.random() < 0.7 ? 'say' : 'dynamic';
+    return next;
+  }
+  if(idleMs >= 2 * 60 * 60 * 1000 && next.action !== 'message'){
+    next.action = 'message';
+    return next;
+  }
+  return next;
+}
+
 function getCharacterAvatarForBg(character){
   if(character && character.imageData && String(character.imageData).startsWith('data:')) return String(character.imageData);
   var id = character && character.id ? character.id : '';
@@ -1223,6 +1308,15 @@ async function appendBackgroundAiMessage(character, accountId, content){
       time: now,
       payload: { kind:'message', char: character }
     });
+  }else{
+    await showSystemNotification({
+      avatar: getCharacterAvatarForBg(character),
+      name: character && (character.nickname || character.name || 'Char'),
+      text: entry.content,
+      kindLabel: '新消息',
+      time: now,
+      payload: { kind:'message', char: character }
+    });
   }
   try{
     var f = document.getElementById('app-iframe');
@@ -1253,6 +1347,15 @@ async function appendBackgroundMoment(character, accountId, action, content, ima
   renderHomeDockBadges();
   if(document.visibilityState === 'visible'){
     showHomeNotificationCard({
+      avatar: aiAvatar,
+      name: aiName,
+      text: text,
+      kindLabel: action === 'dynamic' ? '新动态' : '新说说',
+      time: now,
+      payload: { kind:'moment', char: character }
+    });
+  }else{
+    await showSystemNotification({
       avatar: aiAvatar,
       name: aiName,
       text: text,
@@ -1414,12 +1517,13 @@ async function runAiBackgroundActivity(){
   if(!enabled) return false;
   var defaultId = getDefaultAccountId();
   if(!defaultId) return false;
-  var character = getBackgroundCharacter();
+  var character = await getBackgroundCharacter();
   if(!character || !character.id) return false;
   var cfg = getBackgroundProviderConfig();
   if(!cfg) return false;
 
   var history = (await readBackgroundChatHistory(character.id, defaultId)).slice(-8);
+  var convoState = summarizeBgConversationState(history);
   var shortHistory = history.map(function(m){
     var role = m && m.role === 'user' ? 'User' : 'Char';
     var content = String((m && m.content) || '').replace(/\s+/g, ' ').trim();
@@ -1441,7 +1545,9 @@ async function runAiBackgroundActivity(){
     'JSON 格式：{"action":"message|say|dynamic","content":"...","imageText":"..."}',
     'action=message 表示给用户主动发一条聊天消息；action=say 表示发朋友圈说说；action=dynamic 表示发朋友圈动态。',
     'content 必填，简短自然；imageText 只在 dynamic 时填写。',
-    '如果 action=dynamic，则 content 和 imageText 都必须是图像描述（物体/场景/画面细节），不能是普通聊天句。'
+    '如果 action=dynamic，则 content 和 imageText 都必须是图像描述（物体/场景/画面细节），不能是普通聊天句。',
+    '如果用户其实正在等你回，或你们已经隔了一阵子没说话，优先选 message，不要用发朋友圈糊弄过去。',
+    '只有在真的更像这个角色会去发动态/说说的时候，才选 say 或 dynamic。'
   ].join('\n');
   var userPrompt = [
     '角色名：' + (character.nickname || character.name || '角色'),
@@ -1449,12 +1555,18 @@ async function runAiBackgroundActivity(){
     '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
     shortHistory ? ('最近聊天：\n' + shortHistory) : '最近聊天：无',
     posts ? ('最近朋友圈：\n' + posts) : '最近朋友圈：无',
+    convoState.waitingForReply
+      ? '现在的关键事实：用户上一条消息之后，你还没正经回他。请更像真人一点，优先主动发消息找他，不要假装去发动态。'
+      : ('现在距离上一次互动已经过去了大约 ' + Math.max(1, Math.round(convoState.idleMs / 60000)) + ' 分钟。'),
+    convoState.unreadAssistantCount > 0
+      ? ('你这边已经累计有 ' + convoState.unreadAssistantCount + ' 条未读主动消息了，别一直刷屏。')
+      : '目前没有你发出后还没被对方看到的主动消息。',
     '请像真人一样在这三种动作里选一个最自然的：主动聊天 / 发说说 / 发动态。',
-    '要求：不要机械，不要复读用户原话，不要出现“我是AI/不能发朋友圈”等元话。'
+    '要求：不要机械，不要复读用户原话，不要出现“我是AI/不能发朋友圈”等元话；如果选 message，要有一点“主动来找对方”的感觉。'
   ].join('\n\n');
 
   var rawReply = await callAiForBackground(cfg, sysPrompt, userPrompt);
-  var parsed = parseBgAction(rawReply);
+  var parsed = coerceBgAction(parseBgAction(rawReply), convoState);
   if(!parsed) return false;
   if(parsed.action === 'message'){
     await appendBackgroundAiMessage(character, defaultId, parsed.content);
@@ -4592,6 +4704,51 @@ function triggerHomeNotificationVibration(){
       navigator.vibrate([36, 52, 34]);
     }
   }catch(e){}
+}
+
+function canUseSystemNotifications(){
+  try{
+    return typeof Notification !== 'undefined' && Notification.permission === 'granted';
+  }catch(e){}
+  return false;
+}
+
+async function showSystemNotification(options){
+  if(!options || !canUseSystemNotifications()) return false;
+  var title = String(options.name || options.charName || '新消息');
+  var body = String(options.text || '').trim() || '刚刚有新的动静';
+  var payload = options.payload || null;
+  try{
+    if('serviceWorker' in navigator){
+      var reg = await navigator.serviceWorker.getRegistration();
+      if(reg && typeof reg.showNotification === 'function'){
+        await reg.showNotification(title, {
+          body: body,
+          icon: String(options.avatar || ''),
+          badge: String(options.avatar || ''),
+          tag: payload && payload.kind === 'message' && payload.char && payload.char.id ? ('msg_' + payload.char.id) : ('home_' + Date.now()),
+          renotify: true,
+          data: { payload: payload || null }
+        });
+        return true;
+      }
+    }
+  }catch(err){}
+  try{
+    var n = new Notification(title, {
+      body: body,
+      icon: String(options.avatar || '')
+    });
+    if(payload){
+      n.onclick = function(){
+        try{ window.focus(); }catch(e){}
+        openHomeNotificationPayload(payload);
+        try{ n.close(); }catch(e2){}
+      };
+    }
+    return true;
+  }catch(err2){}
+  return false;
 }
 
 function openHomeNotificationPayload(payload){

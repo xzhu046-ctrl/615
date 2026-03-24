@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-24T04:36:59Z';
+const CACHE_VERSION = '2026-03-24T05:05:15Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -87,6 +87,23 @@ self.addEventListener('message', (event)=>{
   if(event.data && event.data.type === 'SKIP_WAITING'){
     self.skipWaiting();
   }
+});
+
+self.addEventListener('notificationclick', (event)=>{
+  event.notification.close();
+  var payload = event.notification && event.notification.data ? event.notification.data.payload : null;
+  event.waitUntil(
+    self.clients.matchAll({ type:'window', includeUncontrolled:true }).then((clients)=>{
+      if(clients && clients.length){
+        var client = clients[0];
+        try{
+          client.postMessage({ type:'OPEN_HOME_NOTIFICATION_PAYLOAD', payload: payload || null });
+        }catch(err){}
+        return client.focus();
+      }
+      return self.clients.openWindow('./');
+    })
+  );
 });
 
 self.addEventListener('fetch', (event)=>{
