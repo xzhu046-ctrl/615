@@ -608,6 +608,13 @@ function buildWeatherMoodPrompt(snapshot){
   return bits.join('，');
 }
 function buildOfflineStatusSnapshot(){
+  var entries = Array.isArray(session && session.entries) ? session.entries : [];
+  for(var i = entries.length - 1; i >= 0; i -= 1){
+    var item = entries[i];
+    if(item && item.role === 'assistant' && item.statusCard){
+      return item.statusCard;
+    }
+  }
   var now = new Date();
   var seed = offlineHashSeed([
     character && character.id,
@@ -666,6 +673,22 @@ function buildOfflineStatusSnapshot(){
     desireText: pickOfflineSeeded(desireLines[moodBucket], seed, 15),
     favor: Math.min(99, favor),
     desire: Math.min(99, desire)
+  };
+}
+function normalizeOfflineStatusCard(raw, seedText){
+  var source = raw && typeof raw === 'object' ? raw : {};
+  var fallback = buildOfflineStatusSnapshot();
+  var favor = Number(source.affection != null ? source.affection : source.favor);
+  var desire = Number(source.desire);
+  return {
+    name: getCharDisplayName(),
+    avatar: resolveCharAvatar(),
+    moodFace: String(source.mood_face || source.moodFace || fallback.moodFace || '').trim() || fallback.moodFace,
+    outfit: String(source.outfit || '').trim() || fallback.outfit,
+    moodText: String(source.mood || source.mood_text || source.moodText || '').trim() || fallback.moodText,
+    desireText: String(source.desire_note || source.desireNote || source.desire_text || '').trim() || fallback.desireText,
+    favor: Math.max(0, Math.min(99, isFinite(favor) ? Math.round(favor) : fallback.favor)),
+    desire: Math.max(0, Math.min(99, isFinite(desire) ? Math.round(desire) : fallback.desire))
   };
 }
 function openOfflineStatusModal(){
@@ -1046,15 +1069,10 @@ function buildOfflineEntryMeta(entry, role, labels, extra){
 }
 function normalizeOfflineThoughtChain(raw, seedText){
   var source = raw && typeof raw === 'object' ? raw : {};
-  var personaHint = String((character && (character.nickname || character.name)) || 'Char');
   var seed = String(seedText || '').replace(/\s+/g, ' ').trim();
-  var monologue = source.character_thoughts && typeof source.character_thoughts === 'object'
-    ? String(source.character_thoughts[personaHint] || source.character_thoughts[character && character.originalName || ''] || '').trim()
-    : '';
   return {
     subtext_perception: String(source.subtext_perception || '').trim() || ('解析：他刚才那句背后肯定还有没说完的意思。 | 关联设定：现在这场线下见面必须顺着人设和当前氛围往下走。'),
     emotional_reaction: String(source.emotional_reaction || '').trim() || ('即时情绪：我心里先动了一下，但表面还得稳住。 | 适配度检查：这反应至少还算像我。'),
-    character_thoughts: monologue || ('（第一人称内心独白）' + (seed ? ('我现在最先想到的是：' + seed.slice(0, 30) + '。') : '我现在看着这一切，心里已经开始有点偏向你了。')),
     action_strategy: String(source.action_strategy || '').trim() || '本轮目标：先把这段气氛接住，再决定是逗你、试探你，还是顺着往前推一点。'
   };
 }
@@ -1065,7 +1083,6 @@ function renderOfflineThoughtChain(entry){
     '<think>',
     'subtext_perception: ' + chain.subtext_perception,
     'emotional_reaction: ' + chain.emotional_reaction,
-    'character_thoughts: ' + chain.character_thoughts,
     'action_strategy: ' + chain.action_strategy,
     '</think>'
   ];
@@ -1285,11 +1302,13 @@ function buildOfflineSystemPrompt(options){
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","character_thoughts":{"' + ((character && (character.originalName || character.nickname || character.name)) || 'Char') + '":"..."},"action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"..."}',
+    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":{"outfit":"...","mood":"...","mood_face":"...","affection":0,"desire":0,"desire_note":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"..."}',
     'text 写成长一点的线下面对面段落，细节感更强，但不要写成小说章节标题。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
     'title 是这一幕的标题，要有点戏剧感、吐槽感或黑色幽默，6-16 个中文字符，不要太正经。',
-    'quote 是 char 留下的一句小语录，可以伤感、嘴硬、好笑或阴阳怪气，但必须贴人设，12-30 个中文字符。',
+    'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个中文字符。',
+    'status_card 必须和正文一起生成，不能乱编模板：outfit、mood、affection、desire、desire_note 都要严格参考角色 persona、世界书、scenario、system prompt、最近上下文、当前天气与气氛。',
+    'outfit 要具体到外套/内搭/下装/袜子/内裤等；mood 要写成几句详细状态；affection 和 desire 都是 0-99 的整数百分比；desire_note 是更隐秘、贴人设、带欲望的补充说明。',
     '在线下模式正文里，text 的长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     '正文的镜头和感知中心必须是 char 本人：重点写 char 看到的、听到的、想到的、做出的动作和反应。',
@@ -1304,7 +1323,7 @@ function buildOfflineSystemPrompt(options){
     'heart 是右上角爱心里的短心声，2-10 个字。',
     '下笔前必须先读并吸收这些信息，再决定怎么回复：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、最近线下记录、scenario、system prompt。',
     '角色 persona 决定 char 的语气、习惯、亲密方式和反应逻辑；用户 persona 决定 char 对 user 的理解、称呼、照顾方式和互动边界。',
-    '最近线上聊天、记忆总结、世界书、人设、scenario、system prompt 优先级很高，必须先读懂再写；不要驴唇不对马嘴，不要脱离当下话题乱写，不要 OOC。',
+    '最近线上聊天、记忆总结、世界书、人设、scenario、system prompt 优先级极高，必须先读懂再写；不要驴唇不对马嘴，不要脱离当下话题乱写，不要 OOC，不要擅自无视设定。',
     storyPrefs.style ? ('这次线下正文的文风额外要求：' + storyPrefs.style) : '这次线下正文的文风额外要求：保持自然、细腻、有活人感。',
     '不要 markdown，不要代码块，不要额外解释。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
@@ -1345,11 +1364,13 @@ function buildOfflineOpeningChunkSystemPrompt(){
   return [
     '你在生成“线下见面模式”的第一幕正文。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","character_thoughts":{"' + ((character && (character.originalName || character.nickname || character.name)) || 'Char') + '":"..."},"action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."]}，不要代码块，不要解释。',
+    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":{"outfit":"...","mood":"...","mood_face":"...","affection":0,"desire":0,"desire_note":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."]}，不要代码块，不要解释。',
     '这次直接写完整第一幕正文，长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
     'title 是这一幕的标题，要有点戏剧感、吐槽感或黑色幽默，6-16 个中文字符，不要太正经。',
-    'quote 是 char 留下的一句小语录，可以伤感、嘴硬、好笑或阴阳怪气，但必须贴人设，12-30 个中文字符。',
+    'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个中文字符。',
+    'status_card 必须和正文一起生成，不能乱编模板：outfit、mood、affection、desire、desire_note 都要严格参考角色 persona、世界书、scenario、system prompt、最近上下文、当前天气与气氛。',
+    'outfit 要具体到外套/内搭/下装/袜子/内裤等；mood 要写成几句详细状态；affection 和 desire 都是 0-99 的整数百分比；desire_note 是更隐秘、贴人设、带欲望的补充说明。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     '正文的镜头和感知中心必须是 char 本人：重点写 char 看到的、听到的、想到的、做出的动作和反应。',
     '不要替 user 写内心活动，不要写 user 的主观感受，不要突然切到 user 视角；user 只能通过 char 当下能观察到的表情、动作、说话、距离变化来呈现。',
@@ -1362,7 +1383,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
     'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
     '下笔前必须先读并吸收这些信息，再决定 char 的开场方式：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、邀约信息、scenario、system prompt。',
     '角色 persona 决定 char 的气质、说话方式和推进节奏；用户 persona 决定 char 对 user 的理解、称呼、互动分寸和照顾方式。',
-    '最近线上聊天、记忆总结、世界书、人设、scenario、system prompt 优先级很高，必须先读懂再写；不要脱离上下文瞎写，不要 OOC。',
+    '最近线上聊天、记忆总结、世界书、人设、scenario、system prompt 优先级极高，必须先读懂再写；不要脱离上下文瞎写，不要 OOC，也不要偷偷无视这些规矩。',
     storyPrefs.style ? ('这次线下正文的文风额外要求：' + storyPrefs.style) : '这次线下正文的文风额外要求：保持自然、细腻、有活人感。',
     '要直接进入见面的第一幕，不要总结回顾，不要写成说明书，也不要偷懒只写很短一段。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
@@ -1466,6 +1487,7 @@ function parseOfflineReply(raw){
   }catch(e){}
   return {
     thought_chain: null,
+    status_card: null,
     text: clean || '他靠近了一点，眼神里带着藏不住的柔软。',
     title: '',
     quote: '',
@@ -1836,6 +1858,7 @@ async function generateOpeningIfNeeded(){
   var openingTitle = '';
   var openingQuote = '';
   var openingThoughtChain = null;
+  var openingStatusCard = null;
   var lastError = null;
   var bestText = '';
   var bestAsides = [];
@@ -1855,6 +1878,7 @@ async function generateOpeningIfNeeded(){
         openingTitle = String(parsedOpening && parsedOpening.title || '').trim();
         openingQuote = String(parsedOpening && parsedOpening.quote || '').trim();
         openingThoughtChain = parsedOpening && parsedOpening.thought_chain ? parsedOpening.thought_chain : openingThoughtChain;
+        openingStatusCard = parsedOpening && parsedOpening.status_card ? normalizeOfflineStatusCard(parsedOpening.status_card, openingText) : openingStatusCard;
         openingAsides = normalizeOfflineAsides(parsedOpening && parsedOpening.asides);
         if(openingTextLength(openingText) > openingTextLength(bestText)){
           bestText = openingText;
@@ -1869,7 +1893,7 @@ async function generateOpeningIfNeeded(){
             '这是已经写好的第一幕正文，请保持同一幕、同一视角、同一氛围继续往下写，不要重复前文：',
             openingText,
             '现在还差至少 ' + missing + ' 个中文字符才达到目标长度。',
-            '只返回新增内容的 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","character_thoughts":{"' + ((character && (character.originalName || character.nickname || character.name)) || 'Char') + '":"..."},"action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."]}。text 里不要重复上面已经写过的句子，title、quote 和 thought_chain 允许延续同一幕气质。'
+            '只返回新增内容的 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":{"outfit":"...","mood":"...","mood_face":"...","affection":0,"desire":0,"desire_note":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."]}。text 里不要重复上面已经写过的句子，title、quote、thought_chain 和 status_card 允许延续同一幕气质。'
           ].join('\n\n');
           try{
             var continueRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), continuePrompt, plan.continueTimeout);
@@ -1879,6 +1903,7 @@ async function generateOpeningIfNeeded(){
             if(!openingTitle) openingTitle = String(continueParsed && continueParsed.title || '').trim();
             if(!openingQuote) openingQuote = String(continueParsed && continueParsed.quote || '').trim();
             if(!openingThoughtChain && continueParsed && continueParsed.thought_chain) openingThoughtChain = continueParsed.thought_chain;
+            if(!openingStatusCard && continueParsed && continueParsed.status_card) openingStatusCard = normalizeOfflineStatusCard(continueParsed.status_card, openingText);
             openingText = mergeOfflineOpeningText(openingText, extraText);
             openingAsides = mergeOfflineAsides(openingAsides, normalizeOfflineAsides(continueParsed && continueParsed.asides));
             if(openingTextLength(openingText) > openingTextLength(bestText)){
@@ -1922,6 +1947,7 @@ async function generateOpeningIfNeeded(){
       asides: openingAsides.length ? openingAsides : [],
       heart:'♥',
       thoughtChain: normalizeOfflineThoughtChain(openingThoughtChain, openingText),
+      statusCard: openingStatusCard || normalizeOfflineStatusCard(null, openingText),
       bubbles:['终于见到你','过来一点'],
       timeLabel:labels.timeLabel,
       meta:labels.meta,
@@ -2005,6 +2031,7 @@ async function requestOfflineReply(options){
       asides: normalizeOfflineAsides(parsed.asides),
       heart:String(parsed.heart || '♥').trim() || '♥',
       thoughtChain: normalizeOfflineThoughtChain(parsed.thought_chain || null, parsed.text),
+      statusCard: normalizeOfflineStatusCard(parsed.status_card, parsed.text),
       bubbles:Array.isArray(parsed.bubbles) ? parsed.bubbles.slice(0,3) : [],
       timeLabel:nextLabels.timeLabel,
       meta:nextLabels.meta,
