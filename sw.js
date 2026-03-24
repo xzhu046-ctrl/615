@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-24T05:05:15Z';
+const CACHE_VERSION = '2026-03-24T05:15:48Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -102,6 +102,33 @@ self.addEventListener('notificationclick', (event)=>{
         return client.focus();
       }
       return self.clients.openWindow('./');
+    })
+  );
+});
+
+self.addEventListener('push', (event)=>{
+  var payload = {};
+  try{
+    payload = event.data ? event.data.json() : {};
+  }catch(err){
+    try{
+      payload = { body: event.data ? event.data.text() : '' };
+    }catch(err2){
+      payload = {};
+    }
+  }
+  var title = String(payload.title || payload.name || '新消息');
+  var body = String(payload.body || payload.text || '刚刚有新的动静');
+  var icon = String(payload.icon || payload.avatar || '');
+  var data = payload.data || {};
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: body,
+      icon: icon,
+      badge: icon,
+      tag: String(payload.tag || ('push_' + Date.now())),
+      renotify: true,
+      data: data
     })
   );
 });
