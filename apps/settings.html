@@ -268,6 +268,10 @@ textarea{resize:none}
     <div class="card-body" style="gap:12px">
       <div style="font-size:12px;line-height:1.6;color:#444">想要 iPhone 息屏也能收到角色消息，需要：已添加到主屏幕 + 给通知权限 + 配一个免费的 Web Push 后端。这里先把前端订阅和测试都接好。</div>
       <div class="debug-box" id="push-status-box" style="min-height:auto;max-height:none;padding:10px 12px">状态检测中…</div>
+      <div class="btn-row">
+        <button class="btn btn-white btn-full" type="button" onclick="requestNotificationPermission()">通知权限</button>
+        <button class="btn btn-white btn-full" type="button" onclick="testLocalNotification()">测试通知</button>
+      </div>
       <label>Push Worker 地址（可选）</label>
       <input type="text" id="push-endpoint-url" placeholder="例如：https://your-worker.workers.dev" oninput="markDirty()">
       <label>VAPID 公钥（可选）</label>
@@ -1018,6 +1022,68 @@ async function refreshWebPushStatus(){
   var vapid = (document.getElementById('push-public-key').value || '').trim();
   lines.push('VAPID 公钥：' + (vapid ? '已填写' : '未填写'));
   box.textContent = lines.join('\n');
+}
+
+async function requestNotificationPermission(){
+  if(!('Notification' in window)){
+    showToast('当前环境不支持通知');
+    return;
+  }
+  try{
+    var permission = await Notification.requestPermission();
+    showToast(permission === 'granted' ? '通知权限已开启' : '通知权限未开启');
+  }catch(e){
+    showToast('通知权限请求失败');
+  }
+  refreshWebPushStatus();
+}
+
+async function testLocalNotification(){
+  if(!('Notification' in window)){
+    showToast('当前环境不支持通知');
+    return;
+  }
+  var permission = Notification.permission;
+  if(permission !== 'granted'){
+    try{
+      permission = await Notification.requestPermission();
+    }catch(e){}
+  }
+  if(permission !== 'granted'){
+    showToast('请先允许通知');
+    refreshWebPushStatus();
+    return;
+  }
+  try{
+    if(navigator && typeof navigator.vibrate === 'function'){
+      navigator.vibrate([50, 80, 50]);
+    }
+  }catch(e){}
+  try{
+    var reg = await getPushRegistration();
+    if(reg && typeof reg.showNotification === 'function'){
+      await reg.showNotification('测试通知', {
+        body: '如果你看到了这条，就说明通知弹窗链路通了。',
+        tag: 'local_test_notification',
+        renotify: true,
+        data: { payload: { kind:'message' } }
+      });
+      showToast('测试通知已触发');
+      return;
+    }
+  }catch(err){}
+  try{
+    var n = new Notification('测试通知', {
+      body: '如果你看到了这条，就说明通知弹窗链路通了。'
+    });
+    n.onclick = function(){
+      try{ window.focus(); }catch(e){}
+      try{ n.close(); }catch(e2){}
+    };
+    showToast('测试通知已触发');
+  }catch(err2){
+    showToast('测试通知失败');
+  }
 }
 
 async function enableWebPush(){
