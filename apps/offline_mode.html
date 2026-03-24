@@ -145,6 +145,26 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 .flight-tip{font-size:11px;line-height:1.4;color:#5b5b5b;text-align:center}
 .toast{position:fixed;bottom:164px;left:50%;transform:translateX(-50%) translateY(16px);background:#0a0a0a;color:#fff;padding:9px 16px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;transition:.24s;z-index:80}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.story-wrap{padding:calc(64px + env(safe-area-inset-top)) 14px calc(var(--offline-composer-height) + 8px) 14px;gap:12px;background:linear-gradient(180deg,#f6f2e9 0%,#efe8dc 100%)}
+.story-card{min-height:0;border:var(--bd);border-radius:24px;background:rgba(255,255,255,.95);box-shadow:var(--sh);padding:14px 14px 12px;overflow:hidden}
+.story-card::before,
+.story-card.char::before,
+.story-card.user::before{display:none}
+.story-card.char,
+.story-card.user{padding:14px 14px 12px;background:rgba(255,255,255,.95);border:var(--bd);box-shadow:var(--sh);min-height:0;width:min(100%,336px)}
+.story-card.char{align-self:flex-start;border-top-left-radius:10px}
+.story-card.user{align-self:flex-end;border-top-right-radius:10px}
+.offline-story-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.offline-story-avatar{width:46px;height:46px;border:var(--bd);border-radius:16px;background:#f0f0ec;box-shadow:var(--sh);overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:var(--fontd);font-size:14px;font-weight:900;color:#111;flex-shrink:0}
+.offline-story-avatar img{width:100%;height:100%;object-fit:cover}
+.offline-story-meta{min-width:0;display:flex;flex-direction:column;gap:3px}
+.offline-story-role{font-family:var(--fontd);font-size:13px;font-weight:900;line-height:1.2;color:#111}
+.offline-story-time{font-size:11px;font-weight:800;line-height:1.3;color:#707070}
+.offline-story-body{font-size:14px;font-weight:600;line-height:1.82;color:#111;white-space:pre-wrap;word-break:break-word}
+.offline-story-body p{margin:0 0 10px}
+.offline-story-body p:last-child{margin-bottom:0}
+.offline-story-foot{margin-top:10px;display:flex;justify-content:flex-end;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;color:#8a8a8a;text-transform:uppercase}
+.inner-voice-overlay{display:none !important}
 </style>
 </head>
 <body>
@@ -177,16 +197,6 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 
 <div class="toast" id="toast"></div>
 <button class="offline-mini-launcher" id="offlineMiniLauncher" type="button" onclick="restoreOfflineMeet()"><img src="assets/线下模式图标.png" alt="线下模式"></button>
-<div class="inner-voice-overlay" id="offlineThoughtOverlay">
-  <div class="inner-voice-card">
-    <div class="inner-voice-head">
-      <div class="inner-voice-head-left"></div>
-      <div class="inner-voice-title">心声</div>
-      <button class="inner-voice-mini" type="button" onclick="closeThoughtBubbles()">×</button>
-    </div>
-    <div class="inner-voice-body" id="offlineThoughtBody"></div>
-  </div>
-</div>
 <div class="exit-menu" id="exitMenu">
   <div class="exit-menu-card">
     <div class="exit-menu-title">要先离开一下吗</div>
@@ -572,27 +582,18 @@ function renderCharSheetBody(text, asides){
 function renderPaperStoryCard(entry, idx, isChar){
   var avatar = isChar ? resolveCharAvatar() : resolveUserAvatar();
   var displayName = isChar ? getCharDisplayName() : resolveUserName();
-  var bubbles = encodeURIComponent(JSON.stringify(entry.bubbles || []));
-  var sheetHeight = isChar
-    ? sheetHeightForCharText(entry.text || '', displayName, entry.asides || (entry.aside ? [entry.aside] : []))
-    : sheetHeightForUserText(entry.text || '', displayName, entry.asides || (entry.aside ? [entry.aside] : []));
-  var backTwoTop = charBackTwoTop(sheetHeight);
-  var flowerTop = storyFlowerTop(sheetHeight, isChar);
-  var layoutHeight = cardVisualHeight(sheetHeight, isChar);
-  return '<div class="story-card ' + (isChar ? 'char' : 'user') + '" style="min-height:' + layoutHeight + 'px" data-base-sheet-height="' + sheetHeight + '">' +
-    '<div class="char-layout" style="min-height:' + layoutHeight + 'px">' +
-    '<div class="char-paper-layer back-one" style="height:' + sheetHeight + 'px"></div>' +
-    '<div class="char-paper-layer back-two" style="height:' + sheetHeight + 'px;top:' + backTwoTop + 'px"></div>' +
-    '<div class="char-main-sheet" style="height:' + sheetHeight + 'px"></div>' +
-    '<div class="char-polaroid-stack">' +
-    '<div class="char-polaroid-main"><div class="char-polaroid-frame" ' + (isChar ? ('onclick="toggleThoughtBubbles(' + idx + ')" data-bubbles="' + bubbles + '"') : '') + '>' +
-    (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : esc(displayName)) +
-    '</div></div>' +
-    '<div class="char-camera"></div>' +
+  var roleLabel = isChar ? '第' + (idx + 1) + '幕 · ' + displayName : '你 · ' + displayName;
+  var timeBits = [String(entry && entry.timeLabel || '').trim(), String(entry && entry.meta || '').trim()].filter(Boolean).join(' · ');
+  return '<div class="story-card ' + (isChar ? 'char' : 'user') + '">' +
+    '<div class="offline-story-head">' +
+      '<div class="offline-story-avatar">' + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : esc(displayName.slice(0, 2) || (isChar ? 'C' : 'U'))) + '</div>' +
+      '<div class="offline-story-meta">' +
+        '<div class="offline-story-role">' + esc(roleLabel) + '</div>' +
+        '<div class="offline-story-time">' + esc(timeBits || '刚刚') + '</div>' +
+      '</div>' +
     '</div>' +
-    '<div class="char-sheet-content"><div class="char-sheet-actline">第' + (idx + 1) + '幕</div><div class="char-sheet-text">' + renderCharSheetBody(entry.text || '', entry.asides || (entry.aside ? [entry.aside] : [])) + '</div><div class="char-sheet-sign">' + esc(displayName) + '</div></div>' +
-    '<div class="char-flower" style="top:' + flowerTop + 'px"><img src="assets/floral-border-1.png" alt=""></div>' +
-    '</div>' +
+    '<div class="offline-story-body">' + renderCharSheetBody(entry.text || '', entry.asides || (entry.aside ? [entry.aside] : [])) + '</div>' +
+    '<div class="offline-story-foot">' + esc(isChar ? 'offline mode' : 'your turn') + '</div>' +
   '</div>';
 }
 function renderStory(){
@@ -600,52 +601,25 @@ function renderStory(){
   if(!wrap) return;
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   if(!list.length){
-    var emptyHeight = sheetHeightForCharText('这场线下见面还没正式开始。', getCharDisplayName(), []);
-    var emptyBackTwoTop = charBackTwoTop(emptyHeight);
-    var emptyFlowerTop = charFlowerTop(emptyHeight);
-    wrap.innerHTML = '<div class="story-card char" style="min-height:' + cardVisualHeight(emptyHeight, true) + 'px" data-base-sheet-height="' + emptyHeight + '"><div class="char-layout" style="min-height:' + cardVisualHeight(emptyHeight, true) + 'px"><div class="char-paper-layer back-one" style="height:' + emptyHeight + 'px"></div><div class="char-paper-layer back-two" style="height:' + emptyHeight + 'px;top:' + emptyBackTwoTop + 'px"></div><div class="char-main-sheet" style="height:' + emptyHeight + 'px"></div><div class="char-polaroid-stack"><div class="char-polaroid-main"><div class="char-polaroid-frame">' + esc(getCharDisplayName()) + '</div></div><div class="char-camera"></div></div><div class="char-sheet-content"><div class="char-sheet-actline">第1幕</div><div class="char-sheet-text">' + renderCharSheetBody('这场线下见面还没正式开始。', '') + '</div><div class="char-sheet-sign">' + esc(getCharDisplayName()) + '</div></div><div class="char-flower" style="top:' + emptyFlowerTop + 'px"><img src="assets/floral-border-1.png" alt=""></div></div></div>';
-    syncStoryCardHeights();
+    wrap.innerHTML = renderPaperStoryCard({
+      role: 'assistant',
+      text: '这场线下见面还没正式开始。',
+      timeLabel: '现在',
+      meta: ''
+    }, 0, true);
     return;
   }
   wrap.innerHTML = list.map(function(entry, idx){
     var isChar = entry.role !== 'user';
     return renderPaperStoryCard(entry, idx, isChar);
   }).join('');
-  syncStoryCardHeights();
   var last = list[list.length - 1] || {};
   var statusEl = document.getElementById('offlineStatus');
   if(statusEl) statusEl.textContent = '线下模式 · ' + ((character && (character.nickname || character.name)) || 'Char');
   wrap.scrollTop = wrap.scrollHeight;
 }
 function syncStoryCardHeights(){
-  requestAnimationFrame(function(){
-    var cards = Array.prototype.slice.call(document.querySelectorAll('.story-card.char, .story-card.user'));
-    cards.forEach(function(card){
-      var isChar = card.classList.contains('char');
-      var layout = card.querySelector('.char-layout');
-      var mainSheet = card.querySelector('.char-main-sheet');
-      var backOne = card.querySelector('.char-paper-layer.back-one');
-      var backTwo = card.querySelector('.char-paper-layer.back-two');
-      var content = card.querySelector('.char-sheet-content');
-      var flower = card.querySelector('.char-flower');
-      if(!layout || !mainSheet || !backOne || !backTwo || !content || !flower) return;
-      var baseHeight = Number(card.dataset.baseSheetHeight || 0) || (isChar ? 372 : 196);
-      var mainSheetTop = parseFloat(getComputedStyle(mainSheet).top) || 0;
-      var contentTop = parseFloat(getComputedStyle(content).top) || 0;
-      var contentBottom = contentTop + content.offsetHeight;
-      var sheetHeight = Math.max(baseHeight, Math.ceil(contentBottom - mainSheetTop + (isChar ? 18 : 14)));
-      var backTwoTop = charBackTwoTop(sheetHeight);
-      var flowerTop = storyFlowerTop(sheetHeight, isChar);
-      var layoutHeight = cardVisualHeight(sheetHeight, isChar);
-      card.style.minHeight = layoutHeight + 'px';
-      layout.style.minHeight = layoutHeight + 'px';
-      mainSheet.style.height = sheetHeight + 'px';
-      backOne.style.height = sheetHeight + 'px';
-      backTwo.style.height = sheetHeight + 'px';
-      backTwo.style.top = backTwoTop + 'px';
-      flower.style.top = flowerTop + 'px';
-    });
-  });
+  return;
 }
 function baseSheetMetrics(text, sign, asides){
   var body = String(text || '').trim();
@@ -695,40 +669,10 @@ function cardVisualHeight(sheetHeight, isChar){
   return Math.max(364, sheetHeight + 166, paperBottom + 28, flowerBottom + 24);
 }
 function toggleThoughtBubbles(index){
-  var overlay = document.getElementById('offlineThoughtOverlay');
-  var body = document.getElementById('offlineThoughtBody');
-  if(!overlay || !body) return;
-  var entry = (session && session.entries && session.entries[index]) || null;
-  var thoughts = normalizeOfflineThoughtPair(entry && entry.thoughts ? entry.thoughts : null);
-  if(!thoughts.normal && !thoughts.desire){
-    thoughts = normalizeOfflineThoughtPair({
-      normal: entry && Array.isArray(entry.bubbles) && entry.bubbles[0] ? entry.bubbles[0] : '',
-      desire: entry && Array.isArray(entry.bubbles) ? entry.bubbles.slice(1).filter(Boolean).join(' / ') : ''
-    });
-  }
-  if(!thoughts.normal && !thoughts.desire){
-    closeThoughtBubbles();
-    return;
-  }
-  var same = overlay.dataset.entryIndex === String(index) && overlay.classList.contains('open');
-  if(same){
-    closeThoughtBubbles();
-    return;
-  }
-  body.innerHTML =
-    '<div class="inner-voice-box normal">' + esc(thoughts.normal || '（空）') + '</div>' +
-    '<div class="inner-voice-box desire">' + esc(thoughts.desire || '（空）') + '</div>' +
-    '<div class="inner-voice-meta">点头像时会看到角色这一刻的心声和欲望。</div>';
-  overlay.dataset.entryIndex = String(index);
-  overlay.classList.add('open');
+  return;
 }
 function closeThoughtBubbles(){
-  var overlay = document.getElementById('offlineThoughtOverlay');
-  if(!overlay) return;
-  overlay.classList.remove('open');
-  overlay.dataset.entryIndex = '';
-  var body = document.getElementById('offlineThoughtBody');
-  if(body) body.innerHTML = '';
+  return;
 }
 function setOfflineComposerBusy(flag){
   sending = !!flag;
@@ -1855,14 +1799,10 @@ async function init(){
   }
 }
 document.addEventListener('click', function(e){
-  var avatar = e.target && e.target.closest ? e.target.closest('.avatar,.char-polaroid-frame') : null;
+  var avatar = e.target && e.target.closest ? e.target.closest('.avatar,.char-polaroid-frame,.offline-story-avatar') : null;
   var exitCard = e.target && e.target.closest ? e.target.closest('.exit-menu-card') : null;
-  var thoughtCard = e.target && e.target.closest ? e.target.closest('.inner-voice-card') : null;
   if(e.target === document.getElementById('exitMenu') && !exitCard){
     closeExitMenu();
-  }
-  if(e.target === document.getElementById('offlineThoughtOverlay') && !thoughtCard){
-    closeThoughtBubbles();
   }
   if(!avatar) closeThoughtBubbles();
 });

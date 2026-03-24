@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-24T05:19:10Z';
+const APP_BUILD_ID = '2026-03-24T06:12:34Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -665,15 +665,6 @@ async function clearHostedUpdateCaches(){
 function bindHostedServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   if(!window.isSecureContext) return;
-  if(!bindHostedServiceWorker.boundMessageListener){
-    navigator.serviceWorker.addEventListener('message', function(event){
-      var data = event && event.data ? event.data : {};
-      if(data.type === 'OPEN_HOME_NOTIFICATION_PAYLOAD'){
-        openHomeNotificationPayload(data.payload || null);
-      }
-    });
-    bindHostedServiceWorker.boundMessageListener = true;
-  }
   navigator.serviceWorker.register(getServiceWorkerUrl()).catch(function(err){
     console.warn('[sw] register failed', err);
   });
@@ -1299,25 +1290,6 @@ async function appendBackgroundAiMessage(character, accountId, content){
   history.push(entry);
   await writeBackgroundChatHistory(character.id, accountId, history);
   renderHomeDockBadges();
-  if(document.visibilityState === 'visible' && !isViewingCharacterChat(character && character.id)){
-    showHomeNotificationCard({
-      avatar: getCharacterAvatarForBg(character),
-      name: character && (character.nickname || character.name || 'Char'),
-      text: entry.content,
-      kindLabel: '新消息',
-      time: now,
-      payload: { kind:'message', char: character }
-    });
-  }else{
-    await showSystemNotification({
-      avatar: getCharacterAvatarForBg(character),
-      name: character && (character.nickname || character.name || 'Char'),
-      text: entry.content,
-      kindLabel: '新消息',
-      time: now,
-      payload: { kind:'message', char: character }
-    });
-  }
   try{
     var f = document.getElementById('app-iframe');
     if(f && f.contentWindow){
@@ -1345,25 +1317,6 @@ async function appendBackgroundMoment(character, accountId, action, content, ima
   });
   await writeBackgroundMoments(accountId, posts);
   renderHomeDockBadges();
-  if(document.visibilityState === 'visible'){
-    showHomeNotificationCard({
-      avatar: aiAvatar,
-      name: aiName,
-      text: text,
-      kindLabel: action === 'dynamic' ? '新动态' : '新说说',
-      time: now,
-      payload: { kind:'moment', char: character }
-    });
-  }else{
-    await showSystemNotification({
-      avatar: aiAvatar,
-      name: aiName,
-      text: text,
-      kindLabel: action === 'dynamic' ? '新动态' : '新说说',
-      time: now,
-      payload: { kind:'moment', char: character }
-    });
-  }
 }
 
 async function callAiForBackground(cfg, sysPrompt, userPrompt){
@@ -4546,9 +4499,6 @@ function normalizeUnreadBadgeCount(n){
 
 var qqUnreadCountCache = {};
 var qqUnreadRefreshToken = 0;
-var homeNotificationTimers = {};
-var homeNotificationSeq = 0;
-
 function getQqUnreadCountForActive(){
   var activeId = '';
   try{
@@ -4679,13 +4629,6 @@ function renderHomeDockBadges(){
   }
 }
 
-function formatHomeNotificationTime(ts){
-  var date = new Date(Number(ts) || Date.now());
-  var hh = String(date.getHours()).padStart(2, '0');
-  var mm = String(date.getMinutes()).padStart(2, '0');
-  return hh + ':' + mm;
-}
-
 function isViewingCharacterChat(charId){
   if(currentApp !== 'chat' || !charId) return false;
   try{
@@ -4696,129 +4639,6 @@ function isViewingCharacterChat(charId){
   }catch(e){
     return false;
   }
-}
-
-function triggerHomeNotificationVibration(){
-  try{
-    if(navigator && typeof navigator.vibrate === 'function'){
-      navigator.vibrate([36, 52, 34]);
-    }
-  }catch(e){}
-}
-
-function canUseSystemNotifications(){
-  try{
-    return typeof Notification !== 'undefined' && Notification.permission === 'granted';
-  }catch(e){}
-  return false;
-}
-
-async function showSystemNotification(options){
-  if(!options || !canUseSystemNotifications()) return false;
-  var title = String(options.name || options.charName || '新消息');
-  var body = String(options.text || '').trim() || '刚刚有新的动静';
-  var payload = options.payload || null;
-  try{
-    if('serviceWorker' in navigator){
-      var reg = await navigator.serviceWorker.getRegistration();
-      if(reg && typeof reg.showNotification === 'function'){
-        await reg.showNotification(title, {
-          body: body,
-          icon: String(options.avatar || ''),
-          badge: String(options.avatar || ''),
-          tag: payload && payload.kind === 'message' && payload.char && payload.char.id ? ('msg_' + payload.char.id) : ('home_' + Date.now()),
-          renotify: true,
-          data: { payload: payload || null }
-        });
-        return true;
-      }
-    }
-  }catch(err){}
-  try{
-    var n = new Notification(title, {
-      body: body,
-      icon: String(options.avatar || '')
-    });
-    if(payload){
-      n.onclick = function(){
-        try{ window.focus(); }catch(e){}
-        openHomeNotificationPayload(payload);
-        try{ n.close(); }catch(e2){}
-      };
-    }
-    return true;
-  }catch(err2){}
-  return false;
-}
-
-function openHomeNotificationPayload(payload){
-  if(!payload || !payload.kind) return;
-  if(payload.kind === 'moment'){
-    openApp('qq');
-    return;
-  }
-  if(payload.char){
-    var slim = slimChar(payload.char);
-    try{
-      localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim));
-      localStorage.setItem('pendingChatChar', JSON.stringify(slim));
-    }catch(e){}
-    try{
-      var frame = document.getElementById('app-iframe');
-      if(frame && frame.contentWindow){
-        frame.contentWindow.postMessage({ type:'OPEN_CHAT_WITH', payload: slim }, '*');
-      }
-    }catch(e){}
-    openApp('chat');
-  }
-}
-
-function showHomeNotificationCard(options){
-  var stack = document.getElementById('home-shell-toast-stack');
-  if(!stack || !options) return;
-  var id = 'home_note_' + (++homeNotificationSeq);
-  var card = document.createElement('button');
-  card.type = 'button';
-  card.className = 'home-shell-notification';
-  card.dataset.notificationId = id;
-  var avatarSrc = String(options.avatar || '').trim();
-  var safeName = escapeHtml(String(options.name || options.charName || 'Char'));
-  var safeText = escapeHtml(String(options.text || '').trim() || '刚刚有新的动静');
-  var safeType = escapeHtml(String(options.kindLabel || '消息'));
-  card.innerHTML =
-    '<div class="home-shell-notification-avatar">'
-      + (avatarSrc ? ('<img src="' + escapeHtmlAttr(avatarSrc) + '" alt="">') : '<span>头像</span>')
-      + '<div class="home-shell-notification-char">' + safeName + '</div>'
-    + '</div>'
-    + '<div class="home-shell-notification-copy">'
-      + '<div class="home-shell-notification-line">' + safeText + '</div>'
-      + '<div class="home-shell-notification-meta"><span class="home-shell-notification-type">' + safeType + '</span></div>'
-    + '</div>'
-    + '<div class="home-shell-notification-time">' + formatHomeNotificationTime(options.time) + '</div>';
-  card.addEventListener('click', function(){
-    dismissHomeNotification(id, true);
-    openHomeNotificationPayload(options.payload || null);
-  });
-  stack.prepend(card);
-  triggerHomeNotificationVibration();
-  homeNotificationTimers[id] = setTimeout(function(){
-    dismissHomeNotification(id, false);
-  }, 4200);
-}
-
-function dismissHomeNotification(id){
-  var stack = document.getElementById('home-shell-toast-stack');
-  if(!stack) return;
-  var node = stack.querySelector('.home-shell-notification[data-notification-id="' + id + '"]');
-  if(!node) return;
-  if(homeNotificationTimers[id]){
-    clearTimeout(homeNotificationTimers[id]);
-    delete homeNotificationTimers[id];
-  }
-  node.classList.add('leaving');
-  setTimeout(function(){
-    if(node && node.parentNode) node.parentNode.removeChild(node);
-  }, 180);
 }
 
 let aiBgTickTimer = null;

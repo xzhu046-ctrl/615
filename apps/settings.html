@@ -260,34 +260,6 @@ textarea{resize:none}
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-header">
-      <h3>锁屏通知 / Web Push</h3>
-      <span style="font-size:11px;color:#666;font-weight:800">免费版骨架</span>
-    </div>
-    <div class="card-body" style="gap:12px">
-      <div style="font-size:12px;line-height:1.6;color:#444">想要 iPhone 息屏也能收到角色消息，需要：已添加到主屏幕 + 给通知权限 + 配一个免费的 Web Push 后端。这里先把前端订阅和测试都接好。</div>
-      <div class="debug-box" id="push-status-box" style="min-height:auto;max-height:none;padding:10px 12px">状态检测中…</div>
-      <div class="btn-row">
-        <button class="btn btn-white btn-full" type="button" onclick="requestNotificationPermission()">通知权限</button>
-        <button class="btn btn-white btn-full" type="button" onclick="testLocalNotification()">测试通知</button>
-      </div>
-      <label>Push Worker 地址（可选）</label>
-      <input type="text" id="push-endpoint-url" placeholder="例如：https://your-worker.workers.dev" oninput="markDirty()">
-      <label>VAPID 公钥（可选）</label>
-      <input type="text" id="push-public-key" placeholder="部署 Cloudflare Worker 后填这里" oninput="markDirty()">
-      <div class="btn-row">
-        <button class="btn btn-white btn-full" type="button" onclick="enableWebPush()">开启通知并订阅</button>
-        <button class="btn btn-white btn-full" type="button" onclick="sendWebPushTest()">测试通知</button>
-      </div>
-      <div class="btn-row">
-        <button class="btn btn-white btn-full" type="button" onclick="refreshWebPushStatus()">刷新状态</button>
-        <button class="btn btn-white btn-full" type="button" onclick="disableWebPush()">取消订阅</button>
-      </div>
-      <div class="hint">如果只开了权限、没配 Worker，前台/后台活着时仍会尽量走系统通知；但真正锁屏推送还要订阅成功并把订阅发给 Worker。</div>
-    </div>
-  </div>
-
   <!-- Reset / Format -->
   <div class="card">
     <div class="card-header">
@@ -328,9 +300,6 @@ var dirty = false;
 var curProvider = localStorage.getItem('provider') || 'openai';
 var AI_BG_ENABLED_KEY = 'ai_bg_activity_enabled';
 var AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
-var PUSH_ENDPOINT_URL_KEY = 'web_push_endpoint_url';
-var PUSH_PUBLIC_KEY_KEY = 'web_push_public_key';
-var PUSH_SUBSCRIPTION_KEY = 'web_push_subscription_json';
 var PROVIDER_LABELS = {
   openai: 'OpenAI',
   claude: 'Claude',
@@ -361,9 +330,6 @@ function init() {
   var aiBgEnabled = localStorage.getItem(AI_BG_ENABLED_KEY) === '1';
   document.getElementById('ai-bg-switch').classList.toggle('on', aiBgEnabled);
   document.getElementById('ai-bg-interval').value = localStorage.getItem(AI_BG_INTERVAL_KEY) || '6';
-  document.getElementById('push-endpoint-url').value = localStorage.getItem(PUSH_ENDPOINT_URL_KEY) || '';
-  document.getElementById('push-public-key').value = localStorage.getItem(PUSH_PUBLIC_KEY_KEY) || '';
-  refreshWebPushStatus();
   dirty = false;
 }
 
@@ -918,272 +884,6 @@ async function onImportAllData(event){
   }
 }
 
-function isStandaloneMode(){
-  try{
-    return !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
-      || !!window.navigator.standalone;
-  }catch(e){}
-  return false;
-}
-
-function getNotificationPermissionLabel(){
-  try{
-    if(typeof Notification === 'undefined') return '当前浏览器不支持';
-    if(Notification.permission === 'granted') return '已允许';
-    if(Notification.permission === 'denied') return '已拒绝';
-    return '未请求';
-  }catch(e){}
-  return '未知';
-}
-
-function urlBase64ToUint8Array(base64String) {
-  var padding = '='.repeat((4 - base64String.length % 4) % 4);
-  var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  var rawData = atob(base64);
-  var outputArray = new Uint8Array(rawData.length);
-  for (var i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
-
-async function getPushRegistration(){
-  if(!('serviceWorker' in navigator)) return null;
-  try{
-    var reg = await navigator.serviceWorker.getRegistration();
-    return reg || await navigator.serviceWorker.ready;
-  }catch(e){
-    return null;
-  }
-}
-
-async function getPushSubscription(){
-  var reg = await getPushRegistration();
-  if(!reg || !reg.pushManager) return null;
-  try{
-    return await reg.pushManager.getSubscription();
-  }catch(e){
-    return null;
-  }
-}
-
-async function syncSubscriptionToWorker(subscription){
-  var endpoint = (document.getElementById('push-endpoint-url').value || '').trim().replace(/\/$/, '');
-  if(!endpoint || !subscription) return false;
-  try{
-    var res = await fetch(endpoint + '/subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({
-        subscription: subscription,
-        client: {
-          ua: navigator.userAgent,
-          platform: navigator.platform || '',
-          standalone: isStandaloneMode()
-        }
-      })
-    });
-    return !!(res && res.ok);
-  }catch(e){
-    return false;
-  }
-}
-
-async function removeSubscriptionFromWorker(subscription){
-  var endpoint = (document.getElementById('push-endpoint-url').value || '').trim().replace(/\/$/, '');
-  if(!endpoint || !subscription) return false;
-  try{
-    var res = await fetch(endpoint + '/unsubscribe', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({ subscription: subscription })
-    });
-    return !!(res && res.ok);
-  }catch(e){
-    return false;
-  }
-}
-
-async function refreshWebPushStatus(){
-  var box = document.getElementById('push-status-box');
-  if(!box) return;
-  var lines = [];
-  lines.push('主屏幕模式：' + (isStandaloneMode() ? '已添加到主屏幕' : '还不是主屏幕模式'));
-  lines.push('通知权限：' + getNotificationPermissionLabel());
-  lines.push('Service Worker：' + (('serviceWorker' in navigator) ? '可用' : '不可用'));
-  lines.push('PushManager：' + (('PushManager' in window) ? '可用' : '不可用'));
-  var sub = await getPushSubscription();
-  if(sub){
-    try{ localStorage.setItem(PUSH_SUBSCRIPTION_KEY, JSON.stringify(sub)); }catch(e){}
-  }
-  lines.push('当前订阅：' + (sub ? '已订阅' : '未订阅'));
-  var endpoint = (document.getElementById('push-endpoint-url').value || '').trim();
-  lines.push('Worker 地址：' + (endpoint || '未填写'));
-  var vapid = (document.getElementById('push-public-key').value || '').trim();
-  lines.push('VAPID 公钥：' + (vapid ? '已填写' : '未填写'));
-  box.textContent = lines.join('\n');
-}
-
-async function requestNotificationPermission(){
-  if(!('Notification' in window)){
-    showToast('当前环境不支持通知');
-    return;
-  }
-  try{
-    var permission = await Notification.requestPermission();
-    showToast(permission === 'granted' ? '通知权限已开启' : '通知权限未开启');
-  }catch(e){
-    showToast('通知权限请求失败');
-  }
-  refreshWebPushStatus();
-}
-
-async function testLocalNotification(){
-  if(!('Notification' in window)){
-    showToast('当前环境不支持通知');
-    return;
-  }
-  var permission = Notification.permission;
-  if(permission !== 'granted'){
-    try{
-      permission = await Notification.requestPermission();
-    }catch(e){}
-  }
-  if(permission !== 'granted'){
-    showToast('请先允许通知');
-    refreshWebPushStatus();
-    return;
-  }
-  try{
-    if(navigator && typeof navigator.vibrate === 'function'){
-      navigator.vibrate([50, 80, 50]);
-    }
-  }catch(e){}
-  try{
-    var reg = await getPushRegistration();
-    if(reg && typeof reg.showNotification === 'function'){
-      await reg.showNotification('测试通知', {
-        body: '如果你看到了这条，就说明通知弹窗链路通了。',
-        tag: 'local_test_notification',
-        renotify: true,
-        data: { payload: { kind:'message' } }
-      });
-      showToast('测试通知已触发');
-      return;
-    }
-  }catch(err){}
-  try{
-    var n = new Notification('测试通知', {
-      body: '如果你看到了这条，就说明通知弹窗链路通了。'
-    });
-    n.onclick = function(){
-      try{ window.focus(); }catch(e){}
-      try{ n.close(); }catch(e2){}
-    };
-    showToast('测试通知已触发');
-  }catch(err2){
-    showToast('测试通知失败');
-  }
-}
-
-async function enableWebPush(){
-  if(!('Notification' in window)){
-    showToast('当前环境不支持通知');
-    return;
-  }
-  var permission = Notification.permission;
-  if(permission !== 'granted'){
-    try{
-      permission = await Notification.requestPermission();
-    }catch(e){}
-  }
-  if(permission !== 'granted'){
-    showToast('你还没有允许通知');
-    refreshWebPushStatus();
-    return;
-  }
-  if(!('PushManager' in window)){
-    showToast('当前环境还不能订阅 Push');
-    refreshWebPushStatus();
-    return;
-  }
-  var vapidKey = (document.getElementById('push-public-key').value || '').trim();
-  if(!vapidKey){
-    showToast('先填 VAPID 公钥');
-    refreshWebPushStatus();
-    return;
-  }
-  var reg = await getPushRegistration();
-  if(!reg || !reg.pushManager){
-    showToast('还没拿到 Service Worker');
-    refreshWebPushStatus();
-    return;
-  }
-  try{
-    var existing = await reg.pushManager.getSubscription();
-    if(existing) await existing.unsubscribe().catch(function(){});
-    var subscription = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidKey)
-    });
-    try{ localStorage.setItem(PUSH_SUBSCRIPTION_KEY, JSON.stringify(subscription)); }catch(e){}
-    var synced = await syncSubscriptionToWorker(subscription);
-    showToast(synced ? '订阅成功，已同步到 Worker' : '订阅成功，请稍后同步到 Worker');
-  }catch(err){
-    console.error(err);
-    showToast('订阅失败');
-  }
-  refreshWebPushStatus();
-}
-
-async function disableWebPush(){
-  var sub = await getPushSubscription();
-  if(!sub){
-    try{ localStorage.removeItem(PUSH_SUBSCRIPTION_KEY); }catch(e){}
-    showToast('当前没有订阅');
-    refreshWebPushStatus();
-    return;
-  }
-  try{
-    await removeSubscriptionFromWorker(sub);
-    await sub.unsubscribe();
-  }catch(err){
-    console.error(err);
-  }
-  try{ localStorage.removeItem(PUSH_SUBSCRIPTION_KEY); }catch(e){}
-  showToast('已取消订阅');
-  refreshWebPushStatus();
-}
-
-async function sendWebPushTest(){
-  var endpoint = (document.getElementById('push-endpoint-url').value || '').trim().replace(/\/$/, '');
-  var sub = await getPushSubscription();
-  if(!endpoint){
-    showToast('先填 Worker 地址');
-    return;
-  }
-  if(!sub){
-    showToast('先完成订阅');
-    return;
-  }
-  try{
-    var res = await fetch(endpoint + '/test', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json' },
-      body: JSON.stringify({
-        subscription: sub,
-        title: 'Char 来找你了',
-        body: '这是一条测试推送，锁屏通知链已经接上。',
-        data: { payload: { kind:'message' } }
-      })
-    });
-    showToast(res && res.ok ? '测试请求已发出' : '测试请求失败');
-  }catch(err){
-    console.error(err);
-    showToast('测试请求失败');
-  }
-}
-
 async function confirmFormat() {
   if (!confirm('将清空所有数据并重启小手机，确认继续？')) return;
   try {
@@ -1215,8 +915,6 @@ function saveAll() {
   if(mm && mm.value) localStorage.setItem('model_custom_manual', mm.value);
   localStorage.setItem('sysprompt', document.getElementById('sysprompt').value);
   localStorage.setItem(AI_BG_ENABLED_KEY, document.getElementById('ai-bg-switch').classList.contains('on') ? '1' : '0');
-  localStorage.setItem(PUSH_ENDPOINT_URL_KEY, document.getElementById('push-endpoint-url').value || '');
-  localStorage.setItem(PUSH_PUBLIC_KEY_KEY, document.getElementById('push-public-key').value || '');
   var aiBgInterval = parseInt(document.getElementById('ai-bg-interval').value || '6', 10);
   if(Number.isNaN(aiBgInterval)) aiBgInterval = 6;
   aiBgInterval = Math.max(1, Math.min(120, aiBgInterval));
@@ -1228,9 +926,7 @@ function saveAll() {
     payload: {
       provider: curProvider,
       aiBgEnabled: document.getElementById('ai-bg-switch').classList.contains('on'),
-      aiBgIntervalMin: aiBgInterval,
-      pushEndpointUrl: document.getElementById('push-endpoint-url').value || '',
-      pushPublicKey: document.getElementById('push-public-key').value || ''
+      aiBgIntervalMin: aiBgInterval
     }
   }, '*');
 }

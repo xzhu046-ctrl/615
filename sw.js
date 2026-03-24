@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-24T05:19:10Z';
+const CACHE_VERSION = '2026-03-24T06:12:34Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -87,50 +87,6 @@ self.addEventListener('message', (event)=>{
   if(event.data && event.data.type === 'SKIP_WAITING'){
     self.skipWaiting();
   }
-});
-
-self.addEventListener('notificationclick', (event)=>{
-  event.notification.close();
-  var payload = event.notification && event.notification.data ? event.notification.data.payload : null;
-  event.waitUntil(
-    self.clients.matchAll({ type:'window', includeUncontrolled:true }).then((clients)=>{
-      if(clients && clients.length){
-        var client = clients[0];
-        try{
-          client.postMessage({ type:'OPEN_HOME_NOTIFICATION_PAYLOAD', payload: payload || null });
-        }catch(err){}
-        return client.focus();
-      }
-      return self.clients.openWindow('./');
-    })
-  );
-});
-
-self.addEventListener('push', (event)=>{
-  var payload = {};
-  try{
-    payload = event.data ? event.data.json() : {};
-  }catch(err){
-    try{
-      payload = { body: event.data ? event.data.text() : '' };
-    }catch(err2){
-      payload = {};
-    }
-  }
-  var title = String(payload.title || payload.name || '新消息');
-  var body = String(payload.body || payload.text || '刚刚有新的动静');
-  var icon = String(payload.icon || payload.avatar || '');
-  var data = payload.data || {};
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body: body,
-      icon: icon,
-      badge: icon,
-      tag: String(payload.tag || ('push_' + Date.now())),
-      renotify: true,
-      data: data
-    })
-  );
 });
 
 self.addEventListener('fetch', (event)=>{
