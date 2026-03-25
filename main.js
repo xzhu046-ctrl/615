@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-25T06:03:46Z';
+const APP_BUILD_ID = '2026-03-25T06:10:44Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -4278,11 +4278,10 @@ window.addEventListener('message',(e)=>{
       });
     }
     var nextChar = payload && payload.data ? payload.data : null;
-    if(nextChar && nextChar.id){
-      if(isDefaultAccountActive()){
-        try{ localStorage.setItem('activeCharacter', JSON.stringify(nextChar)); }catch(e){}
-      }
-      try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(nextChar)); }catch(e){}
+    var currentActive = getActiveCharacterData();
+    var currentActiveId = String((currentActive && currentActive.id) || '').trim();
+    var nextCharId = String((nextChar && nextChar.id) || '').trim();
+    if(nextChar && nextCharId && (!currentActiveId || currentActiveId === nextCharId)){
       setWidgetCharacter(nextChar);
       renderBondWidget(nextChar);
     }else{

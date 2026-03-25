@@ -1708,6 +1708,7 @@ var moneyComposerMode = 'red_packet';
 var selectedMoneyCoverId = '';
 var pendingChatSavePromise = null;
 var skipNextStorageSync = false;
+var characterSwitchToken = 0;
 var pendingMoneyCoverName = '';
 var pendingDeleteMoneyCoverId = '';
 var moneyCoverLongPressTimer = null;
@@ -5199,6 +5200,8 @@ async function init() {
       }catch(e){}
     }
   }
+  var initToken = ++characterSwitchToken;
+  var initCharId = String((character && character.id) || '').trim();
   ensureMsgRange();
 
   updateHeader();
@@ -5207,6 +5210,7 @@ async function init() {
   if (character) {
     curGreetingIdx = parseInt(localStorage.getItem(greetingStorageKey(character.id)) || '0');
     await applyChatBackgroundForCharacter(character.id);
+    if(initToken !== characterSwitchToken || String((character && character.id) || '').trim() !== initCharId) return;
     if(isSubAccountNeedFriend(character.id)){
       needsFriendRequestGate = true;
       openFriendRequestConfirm();
@@ -5214,7 +5218,9 @@ async function init() {
     }
     loadWorldBook();
     await hydrateChatLargeStates();
+    if(initToken !== characterSwitchToken || String((character && character.id) || '').trim() !== initCharId) return;
     await restoreOrStartChat();
+    if(initToken !== characterSwitchToken || String((character && character.id) || '').trim() !== initCharId) return;
     importPendingOfflineArtifacts();
     updateBlockedUi();
     refreshMemoryUi();
@@ -5451,12 +5457,14 @@ function getAvatarPlaceholderHtml(kind, symbol){
 
 function updateHeader() {
   if (!character) return;
+  var headerCharId = String((character && character.id) || '').trim();
   var displayName = character.nickname || character.name || '角色';
   document.getElementById('hdrName').textContent = displayName;
   var av = document.getElementById('hdrAvatar');
   if (character.imageData) { av.innerHTML = '<img src="' + character.imageData + '">'; }
   else av.textContent = character.avatar || '🌸';
-  loadStoredAsset('char_avatar_' + character.id).then(function(ovr){
+  loadStoredAsset('char_avatar_' + headerCharId).then(function(ovr){
+    if(String((character && character.id) || '').trim() !== headerCharId) return;
     if (isRenderableAvatarSrc(ovr)) { av.innerHTML = '<img src="' + ovr + '">'; }
   });
   updateModelLabel();
@@ -12060,7 +12068,10 @@ window.addEventListener('message', async function(e) {
   }
   if (d.type === 'SET_ACTIVE_CHARACTER' || d.type === 'OPEN_CHAT_WITH') {
     var incoming = d.payload || {};
-    var sameChar = character && incoming.id && incoming.id === character.id;
+    var incomingId = String((incoming && incoming.id) || '').trim();
+    var prevId = String((character && character.id) || '').trim();
+    var sameChar = !!(incomingId && prevId && incomingId === prevId);
+    var switchToken = ++characterSwitchToken;
     character = incoming;
     if(isDefaultAccountContext()){
       localStorage.setItem('activeCharacter', JSON.stringify(character));
@@ -12069,10 +12080,12 @@ window.addEventListener('message', async function(e) {
     ensureMsgRange();
     curGreetingIdx = parseInt(localStorage.getItem(greetingStorageKey(character.id)) || '0');
     await applyChatBackgroundForCharacter(character.id);
+    if(switchToken !== characterSwitchToken || String((character && character.id) || '').trim() !== incomingId) return;
     updateHeader();
     updateModelLabel();
     loadWorldBook();
     await hydrateChatLargeStates();
+    if(switchToken !== characterSwitchToken || String((character && character.id) || '').trim() !== incomingId) return;
     updateBlockedUi();
     refreshMemoryUi();
     if (!sameChar) {
@@ -12081,13 +12094,17 @@ window.addEventListener('message', async function(e) {
       selectedMessageIds = [];
       editingMessageId = null;
       editingDraft = '';
+      chatLog = [];
+      renderEmptyState();
       await restoreOrStartChat();
+      if(switchToken !== characterSwitchToken || String((character && character.id) || '').trim() !== incomingId) return;
       importPendingOfflineArtifacts();
       updateFloatingUi();
       maybeAutoTriggerFamilyReply(character && character.id);
       return;
     }
     await syncChatLogFromStorageForCurrentCharacter();
+    if(switchToken !== characterSwitchToken || String((character && character.id) || '').trim() !== incomingId) return;
     importPendingOfflineArtifacts();
     updateFloatingUi();
     maybeAutoTriggerFamilyReply(character && character.id);
