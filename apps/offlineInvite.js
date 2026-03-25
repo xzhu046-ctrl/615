@@ -76,7 +76,7 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
     mood: randomPick(OFFLINE_MOODS, '(｡･ω･｡)'),
     weather: randomPick(OFFLINE_WEATHERS, '☀︎'),
     location: ((character && (character.nickname || character.name)) || '对方') + '想和你见面的地方',
-    aside: sourceRole === 'user' ? '快答应我' : '好想见你',
+    aside: sourceRole === 'user' ? '' : '好想见你',
     timeLabel: labels.timeLabel,
     dateLabel: labels.dateLabel,
     createdAt: Date.now(),
@@ -88,7 +88,8 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   data.mood = String(data.mood || '').trim() || '(｡･ω･｡)';
   data.weather = normalizeOfflineWeatherIcon(data.weather);
   data.location = String(data.location || '').trim() || '老地方';
-  data.aside = String(data.aside || '').trim() || '快答应我';
+  data.aside = String(data.aside || '').trim();
+  if(data.sourceRole !== 'user' && !data.aside) data.aside = '好想见你';
   data.timeLabel = String(data.timeLabel || labels.timeLabel);
   data.dateLabel = String(data.dateLabel || labels.dateLabel);
   data.status = String(data.status || 'pending');
@@ -601,7 +602,6 @@ async function sendOfflineInviteFromUser(){
   closeOfflineInviteComposer();
   var userWeather = await resolveOfflineInviteWeather('user', '☀︎');
   var payload = buildOfflineInvitePayload('user', text, {
-    aside: '想立刻见你',
     weather: userWeather.icon,
     location: location || (((character && (character.nickname || character.name)) || '对方') + '方便出现的地方')
   });

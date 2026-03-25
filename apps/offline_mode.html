@@ -172,7 +172,7 @@ linear-gradient(180deg,#d9d9d7 0%,#efefed 34%,#d7d7d3 100%)}
 .offline-story-avatar img{width:100%;height:100%;object-fit:cover}
 .offline-story-stats{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;width:100%}
 .story-card.user .offline-story-stats{justify-content:space-between}
-.offline-story-stat{display:inline-flex;align-items:center;gap:6px;font-family:var(--fontd);font-size:11px;font-weight:900;color:#555;text-shadow:0 1px 0 rgba(255,255,255,.98),0 0 10px rgba(255,255,255,.9)}
+.offline-story-stat{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,.26);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.34);font-family:var(--fontd);font-size:11px;font-weight:900;color:#555;text-shadow:0 1px 0 rgba(255,255,255,.98),0 0 10px rgba(255,255,255,.9)}
 .offline-story-stat-icon{font-size:11px;line-height:1}
 .offline-story-panel{position:relative;border:1.5px solid rgba(26,26,26,.72);border-radius:30px;background:
 linear-gradient(180deg,rgba(255,255,255,.985),rgba(246,246,243,.95)),
@@ -356,6 +356,9 @@ function pendingOfflineBootstrapKey(charId){
 }
 function pendingOfflineLaunchKey(charId){
   return scopedKey('offline_launch_' + String(charId || ''));
+}
+function pendingOfflineResumeKey(charId){
+  return scopedKey('offline_resume_' + String(charId || ''));
 }
 function offlineArchiveListKey(){
   return scopedKey('offline_meet_archives');
@@ -630,6 +633,23 @@ function consumePendingOfflineLaunch(charId){
       localStorage.removeItem(key);
       var parsed = JSON.parse(raw);
       if(parsed && typeof parsed === 'object') return parsed;
+    }catch(e){}
+  }
+  return null;
+}
+function consumePendingOfflineResume(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return null;
+  var keys = [pendingOfflineResumeKey(safeId), 'offline_resume_' + safeId];
+  for(var i = 0; i < keys.length; i += 1){
+    var key = keys[i];
+    try{
+      var raw = localStorage.getItem(key);
+      if(!raw) continue;
+      localStorage.removeItem(key);
+      var parsed = JSON.parse(raw);
+      var sessionData = parsed && parsed.session ? parsed.session : parsed;
+      if(sessionData && typeof sessionData === 'object') return sessionData;
     }catch(e){}
   }
   return null;
@@ -2579,7 +2599,8 @@ async function init(){
     desiredOfflineCharId = String(localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }
   character = loadCharacter(desiredOfflineCharId);
-  session = loadSession();
+  session = desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null;
+  if(!session) session = loadSession();
   if((!session || !hasMeaningfulOfflineSession(session) || session.active === false) && desiredOfflineCharId){
     var bootSession = consumePendingOfflineBootstrap(desiredOfflineCharId);
     if(bootSession){
