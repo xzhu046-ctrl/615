@@ -162,7 +162,7 @@ linear-gradient(180deg,#d9d9d7 0%,#efefed 34%,#d7d7d3 100%)}
 .offline-story-strip{position:relative;display:flex;align-items:center;min-height:78px}
 .story-card.user .offline-story-strip{justify-content:flex-end}
 .offline-story-strip-shell{position:relative;width:calc(100% - 28px);min-height:62px;border:1.5px solid rgba(26,26,26,.72);border-radius:30px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(247,247,244,.95));box-shadow:0 0 0 1px rgba(255,255,255,.96) inset,0 12px 26px rgba(0,0,0,.05);display:flex;align-items:center;padding:0 22px 0 88px;overflow:hidden}
-.offline-story-strip-shell::before{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.52),rgba(255,255,255,.68)),url('assets/小狗海边傻乎乎.jpg') center/cover no-repeat;opacity:.9;pointer-events:none}
+.offline-story-strip-shell::before{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,.66)),url('assets/小猫爪.jpg') center/cover no-repeat;opacity:.94;pointer-events:none}
 .offline-story-strip-shell > *{position:relative;z-index:1}
 .story-card.user .offline-story-strip-shell{padding:0 88px 0 22px}
 .offline-story-avatar{position:absolute;top:0;width:68px;height:68px;border-radius:999px;border:1.5px solid rgba(18,18,18,.74);box-shadow:0 0 0 2px rgba(255,255,255,.95),0 10px 20px rgba(0,0,0,.08);background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:var(--fontd);font-size:18px;font-weight:900;color:#111;flex-shrink:0}
@@ -195,7 +195,7 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-think-toggle-caret{font-size:12px;line-height:1;color:#666}
 .offline-think-body{margin-top:12px;padding:12px 14px;border:2px solid rgba(31,31,31,.18);border-radius:18px;background:rgba(255,255,255,.86);font-size:11px;font-weight:700;line-height:1.7;color:#333;white-space:pre-wrap;word-break:break-word}
 .offline-story-hero{margin-top:14px;position:relative;padding:18px 18px 16px;border:1.5px solid rgba(20,20,20,.12);border-radius:24px;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(245,245,242,.90))}
-.offline-story-hero::before{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.32),rgba(255,255,255,.58)),url('assets/小狗海边傻乎乎.jpg') center/cover no-repeat;opacity:.98;pointer-events:none}
+.offline-story-hero::before{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.28),rgba(255,255,255,.56)),url('assets/小猫爪.jpg') center/cover no-repeat;opacity:.98;pointer-events:none}
 .offline-story-hero::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,.54) 46%,rgba(255,255,255,.78) 100%);pointer-events:none}
 .offline-story-hero > *{position:relative;z-index:1}
 .offline-story-title{font-family:'ZCOOL KuaiLe','Fredoka','Nunito',sans-serif;font-size:30px;font-weight:900;line-height:1.08;letter-spacing:.01em;color:#111;text-shadow:0 1px 0 rgba(255,255,255,.88),0 0 14px rgba(255,255,255,.52)}
@@ -350,6 +350,9 @@ function pendingOfflineMemoryKey(charId){
 }
 function pendingOfflineNoticeKey(charId){
   return scopedKey('offline_notice_pending_' + String(charId || ''));
+}
+function pendingOfflineBootstrapKey(charId){
+  return scopedKey('offline_bootstrap_' + String(charId || ''));
 }
 function offlineArchiveListKey(){
   return scopedKey('offline_meet_archives');
@@ -590,6 +593,23 @@ function loadSession(){
     if(matched) character = matched;
   }
   return fallback.session || null;
+}
+function consumePendingOfflineBootstrap(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return null;
+  var keys = [pendingOfflineBootstrapKey(safeId), 'offline_bootstrap_' + safeId];
+  for(var i = 0; i < keys.length; i += 1){
+    var key = keys[i];
+    try{
+      var raw = localStorage.getItem(key);
+      if(!raw) continue;
+      localStorage.removeItem(key);
+      var parsed = JSON.parse(raw);
+      var sessionData = parsed && parsed.session ? parsed.session : parsed;
+      if(sessionData && typeof sessionData === 'object') return sessionData;
+    }catch(e){}
+  }
+  return null;
 }
 function resolveCharAvatar(){
   if(runtimeCharAvatar) return runtimeCharAvatar;
@@ -2526,6 +2546,13 @@ async function init(){
   }
   character = loadCharacter(desiredOfflineCharId);
   session = loadSession();
+  if((!session || !hasMeaningfulOfflineSession(session)) && desiredOfflineCharId){
+    var bootSession = consumePendingOfflineBootstrap(desiredOfflineCharId);
+    if(bootSession){
+      session = bootSession;
+      if(character && character.id) saveSession();
+    }
+  }
   await hydrateOfflineMemorySnippet();
   refreshOfflineAvatarAssets();
   if((!character || !character.id) && session && session.invite){

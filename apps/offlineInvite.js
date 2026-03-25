@@ -159,6 +159,10 @@ function persistOfflineSession(session){
   }catch(e){}
 }
 
+function pendingOfflineBootstrapStorageKey(charId){
+  return accountScopedKey('offline_bootstrap_' + String(charId || '').trim());
+}
+
 function readOfflineSession(charId){
   if(!charId) return null;
   try{
@@ -173,7 +177,7 @@ function readOfflineSession(charId){
 async function openOfflineSession(payload){
   if(!character || !character.id) return;
   var history = formatChatForModel(chatLog.slice(-10));
-  persistOfflineSession({
+  var nextSession = {
     active: true,
     invite: payload,
     entries: [],
@@ -181,7 +185,14 @@ async function openOfflineSession(payload){
     pendingOpening: true,
     chatHistory: history,
     updatedAt: Date.now()
-  });
+  };
+  persistOfflineSession(nextSession);
+  try{
+    localStorage.setItem(pendingOfflineBootstrapStorageKey(character.id), JSON.stringify({
+      charId: String(character.id || ''),
+      session: nextSession
+    }));
+  }catch(e){}
   postToShell({ type:'OPEN_APP_WITH', payload:{ app:'offline', charId: String(character.id || '') } });
 }
 
