@@ -5068,6 +5068,36 @@ function compactChar(c){
   };
 }
 
+function resolveCharacterFromRoster(charId, fallback){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return fallback || null;
+  try{
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    if(!Array.isArray(list)) return fallback || null;
+    var activeAcctId = '';
+    try{
+      if(window.AccountManager){
+        var acct = window.AccountManager.getActive();
+        activeAcctId = String((acct && acct.id) || '').trim();
+      }
+    }catch(err){}
+    var found = list.find(function(item){
+      if(!item || String(item.id || '').trim() !== safeId) return false;
+      if(!activeAcctId) return true;
+      var owner = String(item.ownerAccountId || '').trim();
+      return !owner || owner === activeAcctId;
+    });
+    if(!found){
+      found = list.find(function(item){
+        return item && String(item.id || '').trim() === safeId;
+      });
+    }
+    return found ? Object.assign({}, found) : (fallback || null);
+  }catch(err){
+    return fallback || null;
+  }
+}
+
 function isSubAccountNeedFriend(charId){
   if(!window.AccountManager || !charId) return false;
   var acct = window.AccountManager.getActive();
@@ -5225,15 +5255,9 @@ async function init() {
       }catch(e){}
     }
   }
-  if(!character && desiredChatCharId){
-    try{
-      var rawCharacters = localStorage.getItem('characters');
-      var allCharacters = rawCharacters ? JSON.parse(rawCharacters) : [];
-      var foundCharacter = Array.isArray(allCharacters)
-        ? allCharacters.find(function(item){ return String((item && item.id) || '').trim() === desiredChatCharId; })
-        : null;
-      if(foundCharacter) character = compactChar(foundCharacter);
-    }catch(err){}
+  if(desiredChatCharId){
+    var rosterCharacter = resolveCharacterFromRoster(desiredChatCharId, character);
+    if(rosterCharacter) character = rosterCharacter;
   }
   var initToken = ++characterSwitchToken;
   var initCharId = String((character && character.id) || '').trim();
@@ -12107,6 +12131,7 @@ window.addEventListener('message', async function(e) {
     if(desiredChatCharId && incomingId && incomingId !== desiredChatCharId){
       return;
     }
+    incoming = resolveCharacterFromRoster(incomingId, incoming) || incoming;
     var prevId = String((character && character.id) || '').trim();
     var sameChar = !!(incomingId && prevId && incomingId === prevId);
     var switchToken = ++characterSwitchToken;
