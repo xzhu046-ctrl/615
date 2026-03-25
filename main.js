@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-25T06:16:31Z';
+const APP_BUILD_ID = '2026-03-25T06:49:42Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -3863,6 +3863,7 @@ window.deleteHomeMusicTrack = deleteHomeMusicTrack;
 // Maintain a simple app navigation stack so Back can return to the previous app
 const appStack=[];
 let currentApp=null;
+let pendingOpenChatCharId='';
 let appTransitionPromise = Promise.resolve();
 
 function runAppTransition(task){
@@ -3931,6 +3932,9 @@ function buildAppFrameUrl(src){
   try{
     var url = new URL(String(src || ''), window.location.href);
     url.searchParams.set('__appBuild', APP_BUILD_ID);
+    if(/\/apps\/chat\.html$/i.test(url.pathname || '') && pendingOpenChatCharId){
+      url.searchParams.set('char', String(pendingOpenChatCharId || '').trim());
+    }
     return url.toString();
   }catch(err){
     return String(src || '');
@@ -3975,6 +3979,9 @@ function renderApp(id){
     }
   }
   document.getElementById('app-iframe').src = buildAppFrameUrl(a.src);
+  if(id === 'chat'){
+    pendingOpenChatCharId = '';
+  }
   document.getElementById('app-container').classList.add('open');
   document.getElementById('home-screen').classList.add('hidden');
 }
@@ -4190,6 +4197,7 @@ window.addEventListener('message',(e)=>{
     setWidgetCharacter(payload);
     renderBondWidget(payload);
     try{ localStorage.setItem('pendingChatChar',JSON.stringify(slim)); }catch(e){}
+    pendingOpenChatCharId = String((slim && slim.id) || '').trim();
     openApp('chat');
   }
   if(type==='OPEN_CHAT_SETTINGS'){

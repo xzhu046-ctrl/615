@@ -1646,6 +1646,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 // ════════════════════════════════════════════
 var chatLog = [];
 var character = null;
+var desiredChatCharId = '';
 var stagedChatBackground = '';
 var stagedWeatherSettings = { char: null, user: null };
 var weatherSearchState = { char: false, user: false };
@@ -5182,23 +5183,57 @@ function confirmFriendRequestFlow(){
 // ════════════════════════════════════════════
 async function init() {
   tightenParentTopbarForChat();
+  try{
+    var initUrl = new URL(window.location.href);
+    desiredChatCharId = String(initUrl.searchParams.get('char') || '').trim();
+  }catch(err){
+    desiredChatCharId = '';
+  }
   // 1. Try pendingChatChar (set when user clicks "Chat" in characters app)
   var pending = localStorage.getItem('pendingChatChar');
   if (pending) {
-    try { character = JSON.parse(pending); } catch(e){}
+    try {
+      var pendingParsed = JSON.parse(pending);
+      var pendingId = String((pendingParsed && pendingParsed.id) || '').trim();
+      if(!desiredChatCharId || (pendingId && pendingId === desiredChatCharId)){
+        character = pendingParsed;
+      }
+    } catch(e){}
     localStorage.removeItem('pendingChatChar');
   }
   // 2. Fall back to activeCharacter
   if (!character) {
     if(isDefaultAccountContext()){
       var ac = localStorage.getItem('activeCharacter');
-      if (ac) try { character = JSON.parse(ac); } catch(e){}
+      if (ac) try {
+        var activeParsed = JSON.parse(ac);
+        var activeId = String((activeParsed && activeParsed.id) || '').trim();
+        if(!desiredChatCharId || (activeId && activeId === desiredChatCharId)){
+          character = activeParsed;
+        }
+      } catch(e){}
     }else{
       try{
         var scopedAc = localStorage.getItem(accountScopedKey('activeCharacter'));
-        if(scopedAc) character = JSON.parse(scopedAc);
+        if(scopedAc){
+          var scopedParsed = JSON.parse(scopedAc);
+          var scopedId = String((scopedParsed && scopedParsed.id) || '').trim();
+          if(!desiredChatCharId || (scopedId && scopedId === desiredChatCharId)){
+            character = scopedParsed;
+          }
+        }
       }catch(e){}
     }
+  }
+  if(!character && desiredChatCharId){
+    try{
+      var rawCharacters = localStorage.getItem('characters');
+      var allCharacters = rawCharacters ? JSON.parse(rawCharacters) : [];
+      var foundCharacter = Array.isArray(allCharacters)
+        ? allCharacters.find(function(item){ return String((item && item.id) || '').trim() === desiredChatCharId; })
+        : null;
+      if(foundCharacter) character = compactChar(foundCharacter);
+    }catch(err){}
   }
   var initToken = ++characterSwitchToken;
   var initCharId = String((character && character.id) || '').trim();
@@ -12069,6 +12104,9 @@ window.addEventListener('message', async function(e) {
   if (d.type === 'SET_ACTIVE_CHARACTER' || d.type === 'OPEN_CHAT_WITH') {
     var incoming = d.payload || {};
     var incomingId = String((incoming && incoming.id) || '').trim();
+    if(desiredChatCharId && incomingId && incomingId !== desiredChatCharId){
+      return;
+    }
     var prevId = String((character && character.id) || '').trim();
     var sameChar = !!(incomingId && prevId && incomingId === prevId);
     var switchToken = ++characterSwitchToken;
