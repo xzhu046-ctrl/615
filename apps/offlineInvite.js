@@ -436,11 +436,14 @@ async function requestCharOfflineInviteDecision(userPayload){
   delete safePayload.type;
   delete safePayload.sourceRole;
   delete safePayload.createdAt;
+  var inviteText = String(safePayload.content || '').trim();
+  var inviteLocation = String(safePayload.location || '').trim();
   var msgMin = Math.max(1, Number(character && character.msgMin) || 1);
   var msgMax = Math.max(msgMin, Number(character && character.msgMax) || 3);
   var systemPrompt = [
     '你是角色本人，要决定是否接受用户发来的线下邀请。',
     '必须认真读取角色当前人设、世界书设定、最近聊天气氛、用户此刻的伤心或情绪状态，以及用户这次邀约里写的具体话和地点。',
+    '一定要把用户邀约里写的那句话和地点真正读进去，再决定接受还是拒绝，不能忽略地点，也不能把卡片装饰文案当成用户原话。',
     '如果 accept 为 true，text 不是模板句，而是角色本人认真写给用户的一句约会邀请或回应，语气要符合角色，不要套话，不要默认文案。',
     'text 控制在大约 45 个字，允许上下浮动一点，但不要太短，也不要太长。',
     '只返回 JSON：{"accept":true|false,"text":"...","mood":"...","weather":"...","location":"...","aside":"..."}',
@@ -453,6 +456,8 @@ async function requestCharOfflineInviteDecision(userPayload){
   ].join('\n');
   var userPrompt = [
     buildSystemPrompt(),
+    '用户这次真正写下的邀约话语：' + (inviteText || '（空）'),
+    '用户想约你的地点：' + (inviteLocation || '（未填写）'),
     '用户刚刚发来线下邀请：' + JSON.stringify(safePayload),
     (window.getInviteWeatherPromptText ? window.getInviteWeatherPromptText('char') : ''),
     (window.getInviteWeatherPromptText ? window.getInviteWeatherPromptText('user') : ''),
