@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-25T07:29:04Z';
+const APP_BUILD_ID = '2026-03-25T08:31:10Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -3864,6 +3864,7 @@ window.deleteHomeMusicTrack = deleteHomeMusicTrack;
 const appStack=[];
 let currentApp=null;
 let pendingOpenChatCharId='';
+let pendingOpenChatNonce='';
 let appTransitionPromise = Promise.resolve();
 
 function runAppTransition(task){
@@ -3934,6 +3935,9 @@ function buildAppFrameUrl(src){
     url.searchParams.set('__appBuild', APP_BUILD_ID);
     if(/\/apps\/chat\.html$/i.test(url.pathname || '') && pendingOpenChatCharId){
       url.searchParams.set('char', String(pendingOpenChatCharId || '').trim());
+      if(pendingOpenChatNonce){
+        url.searchParams.set('__chatNav', String(pendingOpenChatNonce || ''));
+      }
     }
     return url.toString();
   }catch(err){
@@ -3981,6 +3985,7 @@ function renderApp(id){
   document.getElementById('app-iframe').src = buildAppFrameUrl(a.src);
   if(id === 'chat'){
     pendingOpenChatCharId = '';
+    pendingOpenChatNonce = '';
   }
   document.getElementById('app-container').classList.add('open');
   document.getElementById('home-screen').classList.add('hidden');
@@ -4203,7 +4208,8 @@ window.addEventListener('message',(e)=>{
     try{ localStorage.setItem('pendingChatChar',JSON.stringify(slim)); }catch(e){}
     try{ localStorage.setItem('pendingChatCharId', String((slim && slim.id) || '')); }catch(e){}
     pendingOpenChatCharId = String((slim && slim.id) || '').trim();
-    openApp('chat');
+    pendingOpenChatNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+    replaceApp('chat');
   }
   if(type==='OPEN_CHAT_SETTINGS'){
     var activeSlim = payload ? slimChar(payload) : getActiveCharacterData();
