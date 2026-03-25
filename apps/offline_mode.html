@@ -623,22 +623,79 @@ function normalizeOfflineStatusCard(raw, seedText){
     futureNote: note
   };
 }
-function openOfflineStatusModal(){
+var offlineStatusGenerating = false;
+async function ensureOfflineStatusCardForEntry(entry){
+  if(entry && entry.statusCard) return entry.statusCard;
+  if(!entry || entry.role === 'user') return null;
+  var idx = Array.isArray(session && session.entries) ? session.entries.indexOf(entry) : -1;
+  var relevantEntries = idx >= 0 ? session.entries.slice(Math.max(0, idx - 5), idx + 1) : [entry];
+  var historyText = relevantEntries.map(function(item){
+    return (item && item.role === 'user' ? '用户：' : '角色：') + String(item && item.text || '').replace(/\s+/g, ' ').trim();
+  }).join('\n');
+  var baseContext = [
+    '这是一次已经发生过的线下见面，请根据已经写好的这一幕正文补生成对应的未来番外。',
+    session && session.invite ? ('邀约背景：' + JSON.stringify(session.invite)) : '',
+    '最近线上聊天：\n' + (getOfflineRecentOnlineSnippet() || '无'),
+    '相关线下记录：\n' + (historyText || '无'),
+    entry.title ? ('这一幕标题：' + String(entry.title || '').trim()) : '',
+    entry.quote ? ('这一幕语录：' + String(entry.quote || '').trim()) : '',
+    '这一幕已经写好的正文：\n' + String(entry.text || '').trim()
+  ].filter(Boolean).join('\n\n');
+  var lastStatusError = null;
+  for(var statusAttempt = 0; statusAttempt < 4; statusAttempt += 1){
+    try{
+      var statusCompact = statusAttempt >= 3 ? 2 : statusAttempt;
+      var statusRaw = await callAIWithTimeout(buildOfflineStatusSystemPrompt({ compactLevel: statusCompact }), baseContext, Math.min(getOfflineReplyTimeoutMs(), 90000));
+      var statusObj = parseOfflineJsonObject(statusRaw);
+      if(hasValidOfflineStatusPayload(statusObj)){
+        var normalized = normalizeOfflineStatusCard(statusObj.status_card, entry.text || '');
+        if(normalized){
+          entry.statusCard = normalized;
+          saveSession();
+          renderStory();
+          return normalized;
+        }
+      }
+      lastStatusError = new Error('未来番外结构不完整');
+    }catch(statusErr){
+      lastStatusError = statusErr;
+    }
+  }
+  throw lastStatusError || new Error('未来番外没有成功生成');
+}
+async function openOfflineStatusModal(){
   var overlay = document.getElementById('offlineStatusOverlay');
   var top = document.getElementById('offlineStatusTop');
   var grid = document.getElementById('offlineStatusGrid');
   if(!overlay || !top || !grid) return;
   var entries = Array.isArray(session && session.entries) ? session.entries : [];
-  var snap = null;
+  var targetEntry = null;
   for(var i = entries.length - 1; i >= 0; i -= 1){
-    if(entries[i] && entries[i].role === 'assistant' && entries[i].statusCard){
-      snap = entries[i].statusCard;
+    if(entries[i] && entries[i].role === 'assistant'){
+      targetEntry = entries[i];
       break;
     }
   }
-  if(!snap){
-    toast('这张未来番外还没生成出来');
+  if(!targetEntry){
+    toast('还没有可以生成未来番外的 char 正文');
     return;
+  }
+  var snap = targetEntry.statusCard || null;
+  if(!snap){
+    if(offlineStatusGenerating){
+      toast('未来番外还在补写中');
+      return;
+    }
+    offlineStatusGenerating = true;
+    toast('正在补写未来番外…');
+    try{
+      snap = await ensureOfflineStatusCardForEntry(targetEntry);
+    }catch(err){
+      toast('未来番外生成失败：' + summarizeOfflineError(err));
+      return;
+    }finally{
+      offlineStatusGenerating = false;
+    }
   }
   top.innerHTML =
     '<div class="offline-status-avatar">' + (snap.avatar ? ('<img src="' + esc(snap.avatar) + '" alt="">') : esc((snap.name || 'C').slice(0,2))) + '</div>' +
