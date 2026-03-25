@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-25T06:10:44Z';
+const APP_BUILD_ID = '2026-03-25T06:16:31Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -4162,7 +4162,9 @@ window.addEventListener('message',(e)=>{
     cacheAvatar(payload);
     renderBondWidget(payload);
     renderHomeDockBadges();
-    postToChat({ type:'SET_ACTIVE_CHARACTER', payload: slim });
+    if(currentApp === 'chat'){
+      postToChat({ type:'SET_ACTIVE_CHARACTER', payload: slim });
+    }
   }
   if(type==='BOND_WIDGET_PREVIEW'){
     applyBondWidgetPreview(payload);
@@ -4180,7 +4182,6 @@ window.addEventListener('message',(e)=>{
     renderHomeDockBadges();
   }
   if(type==='OPEN_CHAT_WITH'){
-    openApp('chat');
     const slim = slimChar(payload);
     if(isDefaultAccountActive()){
       try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
@@ -4189,7 +4190,7 @@ window.addEventListener('message',(e)=>{
     setWidgetCharacter(payload);
     renderBondWidget(payload);
     try{ localStorage.setItem('pendingChatChar',JSON.stringify(slim)); }catch(e){}
-    postToChat({ type:'SET_ACTIVE_CHARACTER', payload: slim });
+    openApp('chat');
   }
   if(type==='OPEN_CHAT_SETTINGS'){
     var activeSlim = payload ? slimChar(payload) : getActiveCharacterData();
@@ -4770,6 +4771,19 @@ window.addEventListener('load', ()=>{
     frame.addEventListener('load', function(){
       applyIframeSafeAreaOverrides();
       setTimeout(applyIframeSafeAreaOverrides, 120);
+      try{
+        if(currentApp === 'chat' && frame.contentWindow){
+          var rawPending = localStorage.getItem('pendingChatChar') || '';
+          var rawActive = localStorage.getItem(scopedKeyForAccount('activeCharacter', getActiveAccountId())) || localStorage.getItem('activeCharacter') || '';
+          var raw = rawPending || rawActive;
+          if(raw){
+            var parsed = JSON.parse(raw);
+            if(parsed && parsed.id){
+              frame.contentWindow.postMessage({ type:'SET_ACTIVE_CHARACTER', payload: slimChar(parsed) }, '*');
+            }
+          }
+        }
+      }catch(err){}
     });
   }
 });
