@@ -333,6 +333,18 @@ function activeCharacterKey(){
 function offlineSessionKey(charId){
   return scopedKey('offline_meet_session_' + String(charId || ''));
 }
+function offlineSessionKeyCandidates(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return [];
+  var keys = [offlineSessionKey(safeId), 'offline_meet_session_' + safeId];
+  try{
+    var acctId = activeAccountId();
+    if(acctId){
+      keys.unshift('offline_meet_session_' + safeId + '__acct_' + acctId);
+    }
+  }catch(e){}
+  return Array.from(new Set(keys.filter(Boolean)));
+}
 function pendingOfflineMemoryKey(charId){
   return scopedKey('offline_memory_pending_' + String(charId || ''));
 }
@@ -560,9 +572,12 @@ function saveSession(){
 }
 function loadSession(){
   if(character && character.id){
-    var raw = localStorage.getItem(offlineSessionKey(character.id)) || '';
-    if(raw){
-      try{ return JSON.parse(raw); }catch(e){}
+    var keys = offlineSessionKeyCandidates(character.id);
+    for(var k = 0; k < keys.length; k += 1){
+      var raw = localStorage.getItem(keys[k]) || '';
+      if(raw){
+        try{ return JSON.parse(raw); }catch(e){}
+      }
     }
   }
   if(desiredOfflineCharId){

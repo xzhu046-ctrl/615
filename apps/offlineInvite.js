@@ -154,6 +154,9 @@ function persistOfflineSession(session){
   try{
     localStorage.setItem(offlineSessionStorageKey(character.id), JSON.stringify(session || {}));
   }catch(e){}
+  try{
+    localStorage.setItem('offline_meet_session_' + String(character.id || '').trim(), JSON.stringify(session || {}));
+  }catch(e){}
 }
 
 function readOfflineSession(charId){
