@@ -624,6 +624,11 @@ function normalizeOfflineStatusCard(raw, seedText){
   };
 }
 var offlineStatusGenerating = false;
+var offlineStatusQueue = {};
+function offlineStatusEntryKey(entry){
+  if(!entry || typeof entry !== 'object') return '';
+  return String(entry.createdAt || '') + '::' + String(entry.timeLabel || '') + '::' + String(entry.title || '').slice(0, 24);
+}
 async function ensureOfflineStatusCardForEntry(entry){
   if(entry && entry.statusCard) return entry.statusCard;
   if(!entry || entry.role === 'user') return null;
@@ -662,6 +667,19 @@ async function ensureOfflineStatusCardForEntry(entry){
     }
   }
   throw lastStatusError || new Error('未来番外没有成功生成');
+}
+function queueOfflineStatusCardGeneration(entry){
+  if(!entry || entry.role === 'user' || entry.statusCard) return;
+  var key = offlineStatusEntryKey(entry);
+  if(!key || offlineStatusQueue[key]) return;
+  offlineStatusQueue[key] = true;
+  Promise.resolve().then(function(){
+    return ensureOfflineStatusCardForEntry(entry);
+  }).catch(function(err){
+    console.warn('offline future epilogue generation failed', err);
+  }).finally(function(){
+    delete offlineStatusQueue[key];
+  });
 }
 async function openOfflineStatusModal(){
   var overlay = document.getElementById('offlineStatusOverlay');
@@ -2172,6 +2190,7 @@ async function generateOpeningIfNeeded(){
     session.entries.push(openingEntry);
     session.pendingOpening = false;
     saveSession();
+    queueOfflineStatusCardGeneration(openingEntry);
   }catch(e){
     toast('线下首幕生成失败：' + summarizeOfflineError(e));
     session.pendingOpening = true;
@@ -2329,6 +2348,7 @@ async function requestOfflineReply(options){
     }));
     session.entries.push(replyEntry);
     saveSession();
+    queueOfflineStatusCardGeneration(replyEntry);
     renderStory();
     keepOfflineComposerVisible();
   }catch(e){
@@ -2499,6 +2519,8 @@ async function init(){
     document.getElementById('offlineMiniLauncher')?.classList.add('show');
   }
   renderStory();
+  var latestAssistant = list.slice().reverse().find(function(entry){ return entry && entry.role === 'assistant' && !entry.statusCard; });
+  if(latestAssistant) queueOfflineStatusCardGeneration(latestAssistant);
   showFlightIfNeeded();
   await generateOpeningIfNeeded();
   renderStory();
