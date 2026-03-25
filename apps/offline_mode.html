@@ -162,7 +162,7 @@ linear-gradient(180deg,#d9d9d7 0%,#efefed 34%,#d7d7d3 100%)}
 .offline-story-strip{position:relative;display:flex;align-items:center;min-height:78px}
 .story-card.user .offline-story-strip{justify-content:flex-end}
 .offline-story-strip-shell{position:relative;width:calc(100% - 28px);min-height:62px;border:1.5px solid rgba(26,26,26,.72);border-radius:30px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(247,247,244,.95));box-shadow:0 0 0 1px rgba(255,255,255,.96) inset,0 12px 26px rgba(0,0,0,.05);display:flex;align-items:center;padding:0 22px 0 88px;overflow:hidden}
-.offline-story-strip-shell::before{content:'';position:absolute;inset:0;background:url('assets/小猫爪.jpg') center/cover no-repeat;opacity:1;pointer-events:none}
+.offline-story-strip-shell::before{content:'';position:absolute;inset:0;background:url('assets/花瓣掉落.gif') center/cover no-repeat;opacity:1;pointer-events:none}
 .offline-story-strip-shell > *{position:relative;z-index:1}
 .story-card.user .offline-story-strip-shell{padding:0 88px 0 22px}
 .offline-story-avatar{position:absolute;top:0;width:68px;height:68px;border-radius:999px;border:1.5px solid rgba(18,18,18,.74);box-shadow:0 0 0 2px rgba(255,255,255,.95),0 10px 20px rgba(0,0,0,.08);background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:var(--fontd);font-size:18px;font-weight:900;color:#111;flex-shrink:0}
@@ -195,7 +195,7 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-think-toggle-caret{font-size:12px;line-height:1;color:#666}
 .offline-think-body{margin-top:12px;padding:12px 14px;border:2px solid rgba(31,31,31,.18);border-radius:18px;background:rgba(255,255,255,.86);font-size:11px;font-weight:700;line-height:1.7;color:#333;white-space:pre-wrap;word-break:break-word}
 .offline-story-hero{margin-top:14px;position:relative;padding:18px 18px 16px;border:1.5px solid rgba(20,20,20,.12);border-radius:24px;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(245,245,242,.90))}
-.offline-story-hero::before{content:'';position:absolute;inset:0;background:url('assets/小猫爪.jpg') center/cover no-repeat;opacity:1;pointer-events:none}
+.offline-story-hero::before{content:'';position:absolute;inset:0;background:url('assets/花瓣掉落.gif') center/cover no-repeat;opacity:1;pointer-events:none}
 .offline-story-hero::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.14) 48%,rgba(255,255,255,.3) 100%);pointer-events:none}
 .offline-story-hero > *{position:relative;z-index:1}
 .offline-story-title{font-family:'ZCOOL KuaiLe','Fredoka','Nunito',sans-serif;font-size:30px;font-weight:900;line-height:1.08;letter-spacing:.01em;color:#111;text-shadow:0 1px 0 rgba(255,255,255,.88),0 0 14px rgba(255,255,255,.52)}
@@ -748,6 +748,14 @@ function queueOfflineStatusCardGeneration(entry){
     delete offlineStatusQueue[key];
   });
 }
+function primeOfflineStatusCards(){
+  var list = Array.isArray(session && session.entries) ? session.entries : [];
+  list.forEach(function(entry){
+    if(entry && entry.role === 'assistant' && !entry.statusCard && String(entry.text || '').trim()){
+      queueOfflineStatusCardGeneration(entry);
+    }
+  });
+}
 async function openOfflineStatusModal(){
   var overlay = document.getElementById('offlineStatusOverlay');
   var top = document.getElementById('offlineStatusTop');
@@ -1174,11 +1182,10 @@ function hasValidOfflineAssistantPayload(parsed){
 }
 function normalizeOfflineThoughtChain(raw, seedText){
   var source = raw && typeof raw === 'object' ? raw : {};
-  var seed = String(seedText || '').replace(/\s+/g, ' ').trim();
   return {
-    subtext_perception: String(source.subtext_perception || '').trim() || ('解析：他刚才那句背后肯定还有没说完的意思。 | 关联设定：现在这场线下见面必须顺着人设和当前氛围往下走。'),
-    emotional_reaction: String(source.emotional_reaction || '').trim() || ('即时情绪：我心里先动了一下，但表面还得稳住。 | 适配度检查：这反应至少还算像我。'),
-    action_strategy: String(source.action_strategy || '').trim() || '本轮目标：先把这段气氛接住，再决定是逗你、试探你，还是顺着往前推一点。'
+    subtext_perception: clipOfflinePromptText(String(source.subtext_perception || '').trim() || '解析：先接住你话里的潜台词。 | 关联设定：必须贴人设和当前场景。', 120),
+    emotional_reaction: clipOfflinePromptText(String(source.emotional_reaction || '').trim() || '即时情绪：心里先动了一下。 | 适配度检查：这反应还算像我。', 110),
+    action_strategy: clipOfflinePromptText(String(source.action_strategy || '').trim() || '本轮目标：顺着这股气氛往前推一点。', 90)
   };
 }
 function renderOfflineThoughtChain(entry){
@@ -1476,6 +1483,8 @@ function buildOfflineThoughtSystemPrompt(options){
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."}}',
     '不要正文，不要 status_card，不要 title，不要 quote，不要解释。',
     'thought_chain 必须严格参考角色 persona、世界书、记忆总结、最近上下文、scenario、system prompt。',
+    '每一项都要短，不要长篇分析，不要复述正文，不要超过两小句。',
+    'subtext_perception / emotional_reaction / action_strategy 都控制在 18-55 个中文字符左右。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '用户名字：' + resolveUserName(),
     '用户 persona：' + (userPersona || '未提供'),
@@ -2258,6 +2267,7 @@ async function generateOpeningIfNeeded(){
     session.pendingOpening = false;
     saveSession();
     queueOfflineStatusCardGeneration(openingEntry);
+    setTimeout(function(){ queueOfflineStatusCardGeneration(openingEntry); }, 120);
   }catch(e){
     toast('线下首幕生成失败：' + summarizeOfflineError(e));
     session.pendingOpening = true;
@@ -2416,6 +2426,7 @@ async function requestOfflineReply(options){
     session.entries.push(replyEntry);
     saveSession();
     queueOfflineStatusCardGeneration(replyEntry);
+    setTimeout(function(){ queueOfflineStatusCardGeneration(replyEntry); }, 120);
     renderStory();
     keepOfflineComposerVisible();
   }catch(e){
@@ -2619,10 +2630,7 @@ async function init(){
     document.getElementById('offlineMiniLauncher')?.classList.add('show');
   }
   renderStory();
-  var latestAssistant = (Array.isArray(session && session.entries) ? session.entries.slice() : []).reverse().find(function(entry){
-    return entry && entry.role === 'assistant' && !entry.statusCard;
-  });
-  if(latestAssistant) queueOfflineStatusCardGeneration(latestAssistant);
+  primeOfflineStatusCards();
   showFlightIfNeeded();
   await generateOpeningIfNeeded();
   renderStory();
