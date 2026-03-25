@@ -516,7 +516,7 @@ function renderFeed(){
     const comments = Array.isArray(post.comments) ? post.comments : [];
     const likes = Array.isArray(post.likes) ? post.likes : [];
     const typeLabel = post.type === 'dynamic' ? '动态' : '说说';
-    const isSelected = deleteSelection.indexOf(post.id) !== -1;
+    const isSelected = deleteSelection.indexOf(String(post && post.id || '')) !== -1;
     return '<article class="post' + (deleteMode ? ' delete-mode' : '') + '">'
       + (deleteMode ? '<button class="post-select' + (isSelected ? ' selected' : '') + '" type="button" data-delete-post="' + esc(post.id) + '">' + (isSelected ? '✓' : '') + '</button>' : '')
       + '<div class="post-head">'
@@ -562,7 +562,7 @@ function renderFeed(){
     btn.addEventListener('click', ()=>{
       if(deleteMode) return;
       const id = btn.getAttribute('data-post-id');
-      const post = getPosts().find((p)=>p.id === id);
+    const post = getPosts().find((p)=>String(p && p.id || '') === String(id || ''));
       openImageViewer(post && post.imageText ? post.imageText : '无图片描述');
     });
   });
@@ -570,9 +570,9 @@ function renderFeed(){
 
 function prepareReply(postId, commentId){
   const posts = getPosts();
-  const post = posts.find((p)=>p.id === postId);
+  const post = posts.find((p)=>String(p && p.id || '') === String(postId || ''));
   if(!post || !Array.isArray(post.comments)) return;
-  const c = post.comments.find((x)=>x && x.id === commentId);
+  const c = post.comments.find((x)=>String(x && x.id || '') === String(commentId || ''));
   if(!c) return;
   replyTarget[postId] = c.name || DEFAULT_BUBBLE_NAME;
   renderFeed();
@@ -606,7 +606,7 @@ function confirmDeleteComment(){
     return;
   }
   const posts = getPosts();
-  const idx = posts.findIndex((p)=>p && p.id === postId);
+  const idx = posts.findIndex((p)=>String(p && p.id || '') === String(postId || ''));
   if(idx === -1){
     showToast('这条评论对应的朋友圈没找到');
     closeDeleteCommentConfirm();
@@ -624,7 +624,7 @@ function togglePostLike(postId){
   if(deleteMode) return;
   const name = getCurrentBubbleName();
   const posts = getPosts();
-  const idx = posts.findIndex((p)=>p.id === postId);
+  const idx = posts.findIndex((p)=>String(p && p.id || '') === String(postId || ''));
   if(idx === -1) return;
   const likes = Array.isArray(posts[idx].likes) ? posts[idx].likes : [];
   const hit = likes.indexOf(name);
@@ -658,8 +658,9 @@ function toggleDeleteMode(){
 }
 
 function toggleDeletePost(postId){
-  const idx = deleteSelection.indexOf(postId);
-  if(idx === -1) deleteSelection.push(postId);
+  const normalizedId = String(postId || '');
+  const idx = deleteSelection.indexOf(normalizedId);
+  if(idx === -1) deleteSelection.push(normalizedId);
   else deleteSelection.splice(idx, 1);
   renderFeed();
 }
@@ -688,8 +689,8 @@ function confirmDeletePosts(){
     closeDeleteConfirm();
     return;
   }
-  const selected = new Set(deleteSelection);
-  const next = getPosts().filter((post)=>!selected.has(post.id));
+  const selected = new Set(deleteSelection.map((id)=>String(id || '')));
+  const next = getPosts().filter((post)=>!selected.has(String(post && post.id || '')));
   savePosts(next);
   const btn = document.getElementById('deleteFab');
   if(btn) btn.classList.remove('active');
@@ -710,7 +711,7 @@ function addComment(postId){
     return;
   }
   const posts = getPosts();
-  const idx = posts.findIndex((p)=>p.id === postId);
+  const idx = posts.findIndex((p)=>String(p && p.id || '') === String(postId || ''));
   if(idx === -1) return;
   const comments = Array.isArray(posts[idx].comments) ? posts[idx].comments : [];
   const bubbleName = getCurrentBubbleName();
