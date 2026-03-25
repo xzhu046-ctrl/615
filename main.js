@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-25T07:02:18Z';
+const APP_BUILD_ID = '2026-03-25T07:29:04Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -4164,8 +4164,10 @@ window.addEventListener('message',(e)=>{
     setWidgetCharacter(payload);
     if(isDefaultAccountActive()){
       try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
+      try{ localStorage.setItem('activeChatCharacterId', String((slim && slim.id) || '')); }catch(e){}
     }
     try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
+    try{ localStorage.setItem(scopedKeyForAccount('activeChatCharacterId', getActiveAccountId()), String((slim && slim.id) || '')); }catch(e){}
     cacheAvatar(payload);
     renderBondWidget(payload);
     renderHomeDockBadges();
@@ -4192,11 +4194,14 @@ window.addEventListener('message',(e)=>{
     const slim = slimChar(payload);
     if(isDefaultAccountActive()){
       try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
+      try{ localStorage.setItem('activeChatCharacterId', String((slim && slim.id) || '')); }catch(e){}
     }
     try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
+    try{ localStorage.setItem(scopedKeyForAccount('activeChatCharacterId', getActiveAccountId()), String((slim && slim.id) || '')); }catch(e){}
     setWidgetCharacter(payload);
     renderBondWidget(payload);
     try{ localStorage.setItem('pendingChatChar',JSON.stringify(slim)); }catch(e){}
+    try{ localStorage.setItem('pendingChatCharId', String((slim && slim.id) || '')); }catch(e){}
     pendingOpenChatCharId = String((slim && slim.id) || '').trim();
     openApp('chat');
   }
@@ -4640,6 +4645,8 @@ function renderHomeDockBadges(){
 function isViewingCharacterChat(charId){
   if(currentApp !== 'chat' || !charId) return false;
   try{
+    var forcedId = String(localStorage.getItem(scopedKeyForAccount('activeChatCharacterId', getActiveAccountId())) || localStorage.getItem('activeChatCharacterId') || '').trim();
+    if(forcedId) return forcedId === String(charId || '');
     var raw = localStorage.getItem(scopedKeyForAccount('activeCharacter', getActiveAccountId())) || localStorage.getItem('activeCharacter') || '';
     if(!raw) return false;
     var parsed = JSON.parse(raw);
@@ -4779,19 +4786,6 @@ window.addEventListener('load', ()=>{
     frame.addEventListener('load', function(){
       applyIframeSafeAreaOverrides();
       setTimeout(applyIframeSafeAreaOverrides, 120);
-      try{
-        if(currentApp === 'chat' && frame.contentWindow){
-          var rawPending = localStorage.getItem('pendingChatChar') || '';
-          var rawActive = localStorage.getItem(scopedKeyForAccount('activeCharacter', getActiveAccountId())) || localStorage.getItem('activeCharacter') || '';
-          var raw = rawPending || rawActive;
-          if(raw){
-            var parsed = JSON.parse(raw);
-            if(parsed && parsed.id){
-              frame.contentWindow.postMessage({ type:'SET_ACTIVE_CHARACTER', payload: slimChar(parsed) }, '*');
-            }
-          }
-        }
-      }catch(err){}
     });
   }
 });
