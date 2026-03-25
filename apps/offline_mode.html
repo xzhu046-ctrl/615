@@ -303,6 +303,7 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 var promptManager = new (window.PromptManager || function(){})();
 var session = null;
 var character = null;
+var desiredOfflineCharId = '';
 var sending = false;
 var exitingOfflineMeet = false;
 var archivingOfflineMeet = false;
@@ -489,9 +490,14 @@ function toast(msg){
 function esc(s){
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-function loadCharacter(){
+function loadCharacter(charIdOverride){
+  var forcedId = String(charIdOverride || '').trim();
+  if(forcedId){
+    var forcedCharacter = findCharacterById(forcedId);
+    if(forcedCharacter) return Object.assign({}, forcedCharacter);
+  }
   var raw = localStorage.getItem(activeCharacterKey()) || localStorage.getItem('activeCharacter') || '';
-  if(!raw) return null;
+  if(!raw) return forcedId ? findCharacterById(forcedId) : null;
   try{
     var parsed = JSON.parse(raw);
     if(parsed && parsed.id){
@@ -507,7 +513,7 @@ function loadCharacter(){
     }
     return parsed;
   }catch(e){
-    return null;
+    return forcedId ? findCharacterById(forcedId) : null;
   }
 }
 function loadCharactersList(){
@@ -558,6 +564,9 @@ function loadSession(){
     if(raw){
       try{ return JSON.parse(raw); }catch(e){}
     }
+  }
+  if(desiredOfflineCharId){
+    return null;
   }
   var fallback = findLatestOfflineSessionRecord();
   if(!fallback) return null;
@@ -2494,7 +2503,13 @@ function hideFlightOverlay(){
   }
 }
 async function init(){
-  character = loadCharacter();
+  try{
+    var initUrl = new URL(window.location.href);
+    desiredOfflineCharId = String(initUrl.searchParams.get('char') || localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
+  }catch(err){
+    desiredOfflineCharId = String(localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
+  }
+  character = loadCharacter(desiredOfflineCharId);
   session = loadSession();
   await hydrateOfflineMemorySnippet();
   refreshOfflineAvatarAssets();

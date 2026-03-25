@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-25T08:31:10Z';
+const APP_BUILD_ID = '2026-03-25T13:19:06Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -3865,6 +3865,8 @@ const appStack=[];
 let currentApp=null;
 let pendingOpenChatCharId='';
 let pendingOpenChatNonce='';
+let pendingOpenOfflineCharId='';
+let pendingOpenOfflineNonce='';
 let appTransitionPromise = Promise.resolve();
 
 function runAppTransition(task){
@@ -3939,6 +3941,12 @@ function buildAppFrameUrl(src){
         url.searchParams.set('__chatNav', String(pendingOpenChatNonce || ''));
       }
     }
+    if(/\/apps\/offline_mode\.html$/i.test(url.pathname || '') && pendingOpenOfflineCharId){
+      url.searchParams.set('char', String(pendingOpenOfflineCharId || '').trim());
+      if(pendingOpenOfflineNonce){
+        url.searchParams.set('__offlineNav', String(pendingOpenOfflineNonce || ''));
+      }
+    }
     return url.toString();
   }catch(err){
     return String(src || '');
@@ -3986,6 +3994,10 @@ function renderApp(id){
   if(id === 'chat'){
     pendingOpenChatCharId = '';
     pendingOpenChatNonce = '';
+  }
+  if(id === 'offline'){
+    pendingOpenOfflineCharId = '';
+    pendingOpenOfflineNonce = '';
   }
   document.getElementById('app-container').classList.add('open');
   document.getElementById('home-screen').classList.add('hidden');
@@ -4230,6 +4242,14 @@ window.addEventListener('message',(e)=>{
   if(type==='OPEN_APP_WITH'){
     var appId=payload.app;
     if(payload.charId) localStorage.setItem('wbCharId', payload.charId);
+    if(appId === 'offline' && payload.charId){
+      pendingOpenOfflineCharId = String(payload.charId || '').trim();
+      pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+      try{ localStorage.setItem(scopedKeyForAccount('activeOfflineCharacterId', getActiveAccountId()), pendingOpenOfflineCharId); }catch(err){}
+      try{ localStorage.setItem('activeOfflineCharacterId', pendingOpenOfflineCharId); }catch(err){}
+      replaceApp(appId);
+      return;
+    }
     openApp(appId);
   }
   if(type==='OFFLINE_MINIMIZED'){

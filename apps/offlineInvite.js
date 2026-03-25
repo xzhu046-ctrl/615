@@ -179,7 +179,7 @@ async function openOfflineSession(payload){
     chatHistory: history,
     updatedAt: Date.now()
   });
-  postToShell({ type:'OPEN_APP', payload:'offline' });
+  postToShell({ type:'OPEN_APP_WITH', payload:{ app:'offline', charId: String(character.id || '') } });
 }
 
 function getCurrentUserDisplayName(){
