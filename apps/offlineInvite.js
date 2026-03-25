@@ -430,6 +430,12 @@ async function acceptOfflineInvite(messageId){
 }
 
 async function requestCharOfflineInviteDecision(userPayload){
+  var safePayload = Object.assign({}, userPayload || {});
+  delete safePayload.aside;
+  delete safePayload.status;
+  delete safePayload.type;
+  delete safePayload.sourceRole;
+  delete safePayload.createdAt;
   var msgMin = Math.max(1, Number(character && character.msgMin) || 1);
   var msgMax = Math.max(msgMin, Number(character && character.msgMax) || 3);
   var systemPrompt = [
@@ -447,7 +453,7 @@ async function requestCharOfflineInviteDecision(userPayload){
   ].join('\n');
   var userPrompt = [
     buildSystemPrompt(),
-    '用户刚刚发来线下邀请：' + JSON.stringify(userPayload),
+    '用户刚刚发来线下邀请：' + JSON.stringify(safePayload),
     (window.getInviteWeatherPromptText ? window.getInviteWeatherPromptText('char') : ''),
     (window.getInviteWeatherPromptText ? window.getInviteWeatherPromptText('user') : ''),
     '最近聊天：\n' + formatChatForModel(chatLog.slice(-12))
