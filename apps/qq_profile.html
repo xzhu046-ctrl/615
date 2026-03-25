@@ -237,6 +237,21 @@ function loadWalletCharacters(){
 function currentActiveCharId(){ try{ const scoped=localStorage.getItem(window.AccountManager.scopedKey('activeCharacter'))||''; const global=localStorage.getItem('activeCharacter')||''; const parsed=JSON.parse(scoped||global||'null'); return parsed&&parsed.id ? String(parsed.id) : ''; }catch(e){ return ''; } }
 function getChatUserName(charId){ const keys=[]; if(charId) keys.push(window.AccountManager.scopedKey('user_name_' + charId)); keys.push(window.AccountManager.scopedKey('user_name')); if(charId) keys.push('user_name_' + charId); keys.push('user_name'); for(const key of keys){ const val=String(localStorage.getItem(key)||'').trim(); if(val) return val; } return String((active()&&active().name)||'').trim() || 'User'; }
 function getChatUserAvatar(charId){ const keys=[]; if(charId) keys.push(window.AccountManager.scopedKey('user_avatar_' + charId)); keys.push(window.AccountManager.scopedKey('user_avatar')); if(charId) keys.push('user_avatar_' + charId); keys.push('user_avatar'); for(const key of keys){ const val=String(localStorage.getItem(key)||'').trim(); if(val) return val; } return String((active()&&active().avatar)||'').trim(); }
+async function resolveProfileAvatar(){
+  const keys=[
+    window.AccountManager.scopedKey('qq_profile_avatar_asset'),
+    window.AccountManager.scopedKey('qq_moments_hero_avatar_asset'),
+    window.AccountManager.scopedKey('user_avatar'),
+    'qq_profile_avatar_asset',
+    'qq_moments_hero_avatar_asset',
+    'user_avatar'
+  ];
+  for(const key of keys){
+    const src = String(await loadStoredAsset(key).catch(()=>'' ) || '').trim();
+    if(src) return src;
+  }
+  return String((active() && active().avatar) || '').trim();
+}
 function getCharAvatarSnapshot(charObj){ const id=String((charObj&&charObj.id)||''); const key=id ? ('char_avatar_' + id) : ''; const saved=key ? String(localStorage.getItem(key)||'').trim() : ''; return saved || String((charObj&&charObj.imageData)||'').trim(); }
 function getCharDisplayName(charObj){ return String((charObj && (charObj.nickname || charObj.name)) || '').trim() || 'Char'; }
 function buildFamilyInviteText(userName, charName, mode){ return userName + '邀请' + charName + (mode==='request' ? '来掏钱' : '来花钱'); }
@@ -250,7 +265,18 @@ function renderProfile(){
   const acc=active(); const nameIn=document.getElementById('nameInput'); const curName=String(acc.name||'').trim();
   if(curName && curName !== '我哥天下第一好'){ nameIn.value=curName; nameIn.placeholder=''; } else { nameIn.value=''; nameIn.placeholder='我哥天下第一好'; }
   const av=document.getElementById('avatarBtn');
-  if(acc.avatar){ av.style.backgroundImage='url(' + JSON.stringify(acc.avatar).slice(1,-1) + ')'; av.textContent=''; } else { av.style.backgroundImage=''; av.textContent='+'; }
+  resolveProfileAvatar().then((src)=>{
+    const next = String(src || '').trim();
+    if(next){
+      av.style.backgroundImage='url(' + JSON.stringify(next).slice(1,-1) + ')';
+      av.textContent='';
+    }else{
+      av.style.backgroundImage='';
+      av.textContent='+';
+    }
+  }).catch(()=>{
+    if(acc.avatar){ av.style.backgroundImage='url(' + JSON.stringify(acc.avatar).slice(1,-1) + ')'; av.textContent=''; } else { av.style.backgroundImage=''; av.textContent='+'; }
+  });
   document.getElementById('favCount').textContent=((acc.favorites||[]).length)+'条';
   document.getElementById('walletSub').textContent=formatMoney(loadWalletState().balance);
 }
@@ -299,7 +325,7 @@ function openRevokeFamilyCardConfirm(cardId){ const item=loadActiveFamilyCards()
 
 function saveName(){ const v=String(document.getElementById('nameInput').value||'').trim(); window.AccountManager.updateActive(a=>{ a.name=v; }); renderProfile(); postProfilePreviewUpdate(); showToast('名称已保存'); }
 function pickAvatar(){ document.getElementById('avatarInput').click(); }
-function bindAvatarInput(){ document.getElementById('avatarInput').addEventListener('change', async (e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ()=>{ const data=String(r.result||''); window.AccountManager.updateActive(a=>{ a.avatar=data; }); const scopedProfileKey=window.AccountManager.scopedKey('qq_profile_avatar_asset'); const scopedUserKey=window.AccountManager.scopedKey('user_avatar'); await Promise.all([ saveStoredAsset(scopedProfileKey, data), saveStoredAsset(scopedUserKey, data), saveStoredAsset('qq_profile_avatar_asset', data), saveStoredAsset('user_avatar', data) ]); renderProfile(); postProfilePreviewUpdate(); try{ window.parent.postMessage({ type:'USER_AVATAR_UPDATED', payload:{ src:data } }, '*'); }catch(err){} showToast('头像已更新'); }; r.readAsDataURL(f); e.target.value=''; }); }
+function bindAvatarInput(){ document.getElementById('avatarInput').addEventListener('change', async (e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ()=>{ const data=String(r.result||''); const av=document.getElementById('avatarBtn'); if(av){ av.style.backgroundImage='url(' + JSON.stringify(data).slice(1,-1) + ')'; av.textContent=''; } window.AccountManager.updateActive(a=>{ a.avatar=data; }); const scopedProfileKey=window.AccountManager.scopedKey('qq_profile_avatar_asset'); const scopedUserKey=window.AccountManager.scopedKey('user_avatar'); const scopedMomentsAvatarKey=window.AccountManager.scopedKey('qq_moments_hero_avatar_asset'); try{ localStorage.setItem(scopedProfileKey, data); localStorage.setItem(scopedUserKey, data); localStorage.setItem(scopedMomentsAvatarKey, data); localStorage.setItem('qq_profile_avatar_asset', data); localStorage.setItem('qq_moments_hero_avatar_asset', data); localStorage.setItem('user_avatar', data); }catch(storageErr){} await Promise.all([ saveStoredAsset(scopedProfileKey, data), saveStoredAsset(scopedUserKey, data), saveStoredAsset(scopedMomentsAvatarKey, data), saveStoredAsset('qq_profile_avatar_asset', data), saveStoredAsset('qq_moments_hero_avatar_asset', data), saveStoredAsset('user_avatar', data) ]); renderProfile(); postProfilePreviewUpdate(); try{ window.parent.postMessage({ type:'USER_AVATAR_UPDATED', payload:{ src:data } }, '*'); }catch(err){} showToast('头像已更新'); }; r.readAsDataURL(f); e.target.value=''; }); }
 function renderFavorites(){ const list=document.getElementById('favList'); const acc=active(); const favs=Array.isArray(acc.favorites)?acc.favorites:[]; if(!favs.length){ list.innerHTML='<div class="sub">还没有收藏，去聊天里长按消息收藏吧。</div>'; return; } list.innerHTML=favs.map((f)=>{ const av=f.avatar ? 'style="background-image:url(' + escAttr(f.avatar) + ')"' : ''; return '<article class="fav-item" data-fav-id="'+escAttr(f.id||'')+'"><div class="fav-av" '+av+'></div><div class="fav-meta"><div class="fav-name">'+esc(f.name||'未命名')+'</div><div class="fav-time">'+fmtTime(f.at)+'</div><div class="fav-text">'+esc(f.text||'')+'</div></div></article>'; }).join(''); bindFavoriteSwipeDelete(); }
 function openFavorites(){ renderFavorites(); document.getElementById('favOverlay').classList.add('open'); }
 function removeFavoriteById(id){ if(!id) return; window.AccountManager.updateActive((a)=>{ const arr=Array.isArray(a.favorites)?a.favorites:[]; a.favorites=arr.filter((it)=>String(it&&it.id||'')!==String(id)); }); renderProfile(); renderFavorites(); }
@@ -328,7 +354,7 @@ window.addEventListener('beforeunload', restoreParentTopbar);
 window.addEventListener('pagehide', restoreParentTopbar);
 Promise.all([
   hydrateMoneyStateCache(),
-  loadStoredAsset(window.AccountManager.scopedKey('qq_profile_avatar_asset'))
+  resolveProfileAvatar()
 ]).then((results)=>{ const src=results[1]; if(src){ window.AccountManager.updateActive((a)=>{ a.avatar=src; }); } renderProfile(); renderWallet(); }).catch(()=>{ renderProfile(); renderWallet(); });
 </script>
 </body>
