@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-25T15:00:38Z';
+const APP_BUILD_ID = '2026-03-25T15:13:30Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -3107,14 +3107,21 @@ function renderHomeMusicModeButton(){
 
 function applyHomeMusicBubblePosition(){
   var floating = document.getElementById('home-music-floating');
-  var screen = document.querySelector('.screen');
-  if(!floating || !screen) return;
-  var maxX = Math.max(8, screen.clientWidth - floating.offsetWidth - 8);
-  var maxY = Math.max(8, screen.clientHeight - floating.offsetHeight - 8);
+  if(!floating) return;
+  var vv = window.visualViewport || null;
+  var viewportLeft = vv ? Number(vv.offsetLeft || 0) : 0;
+  var viewportTop = vv ? Number(vv.offsetTop || 0) : 0;
+  var viewportWidth = vv ? Number(vv.width || window.innerWidth || 0) : Number(window.innerWidth || 0);
+  var viewportHeight = vv ? Number(vv.height || window.innerHeight || 0) : Number(window.innerHeight || 0);
+  var margin = 6;
+  var minX = viewportLeft + margin;
+  var minY = viewportTop + margin;
+  var maxX = Math.max(minX, viewportLeft + viewportWidth - floating.offsetWidth - margin);
+  var maxY = Math.max(minY, viewportTop + viewportHeight - floating.offsetHeight - margin);
   var x = typeof homeMusicState.bubbleX === 'number' ? homeMusicState.bubbleX : maxX;
-  var y = typeof homeMusicState.bubbleY === 'number' ? homeMusicState.bubbleY : Math.max(8, maxY - 92);
-  x = Math.max(8, Math.min(maxX, x));
-  y = Math.max(8, Math.min(maxY, y));
+  var y = typeof homeMusicState.bubbleY === 'number' ? homeMusicState.bubbleY : Math.max(minY, maxY - 92);
+  x = Math.max(minX, Math.min(maxX, x));
+  y = Math.max(minY, Math.min(maxY, y));
   homeMusicState.bubbleX = x;
   homeMusicState.bubbleY = y;
   floating.style.left = x + 'px';
@@ -3693,8 +3700,6 @@ function bindHomeMusicSystem(){
   if(floating){
     floating.hidden = false;
     floating.addEventListener('pointerdown', function(evt){
-      var screen = document.querySelector('.screen');
-      if(!screen) return;
       homeMusicBubbleMoved = false;
       homeMusicDragState = {
         pointerId: evt.pointerId,
@@ -3721,6 +3726,11 @@ function bindHomeMusicSystem(){
         homeMusicDragState = null;
       });
     });
+  }
+  if(window.visualViewport && !window.visualViewport.__homeMusicBound){
+    window.visualViewport.__homeMusicBound = true;
+    window.visualViewport.addEventListener('resize', applyHomeMusicBubblePosition);
+    window.visualViewport.addEventListener('scroll', applyHomeMusicBubblePosition);
   }
   if(bubble){
     bubble.addEventListener('click', function(evt){
