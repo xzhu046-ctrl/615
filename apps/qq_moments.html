@@ -179,8 +179,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
     <div class="modal" id="deleteConfirmModal">
       <div class="modal-title" id="deleteConfirmText">确定清除 0 条朋友圈？</div>
       <div class="footer-actions">
-        <button class="footer-btn" id="deleteConfirmCancelBtn" type="button" onclick="return handleDeleteConfirmCancel(event)" onpointerdown="return handleDeleteConfirmCancel(event)" ontouchstart="return handleDeleteConfirmCancel(event)">取消</button>
-        <button class="footer-btn black" id="deleteConfirmOkBtn" type="button" onclick="return handleDeletePostsConfirm(event)" onpointerdown="return handleDeletePostsConfirm(event)" ontouchstart="return handleDeletePostsConfirm(event)">确认</button>
+        <button class="footer-btn" id="deleteConfirmCancelBtn" type="button" onclick="return handleDeleteConfirmCancel(event)">取消</button>
+        <button class="footer-btn black" id="deleteConfirmOkBtn" type="button" onclick="return handleDeletePostsConfirm(event)">确认</button>
       </div>
     </div>
   </div>
@@ -188,8 +188,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
     <div class="modal" id="deleteCommentConfirmModal">
       <div class="modal-title">删除评论？</div>
       <div class="footer-actions">
-        <button class="footer-btn" id="deleteCommentCancelBtn" type="button" onclick="return handleDeleteCommentCancel(event)" onpointerdown="return handleDeleteCommentCancel(event)" ontouchstart="return handleDeleteCommentCancel(event)">取消</button>
-        <button class="footer-btn black" id="deleteCommentOkBtn" type="button" onclick="return handleDeleteCommentConfirm(event)" onpointerdown="return handleDeleteCommentConfirm(event)" ontouchstart="return handleDeleteCommentConfirm(event)">确认</button>
+        <button class="footer-btn" id="deleteCommentCancelBtn" type="button" onclick="return handleDeleteCommentCancel(event)">取消</button>
+        <button class="footer-btn black" id="deleteCommentOkBtn" type="button" onclick="return handleDeleteCommentConfirm(event)">确认</button>
       </div>
     </div>
   </div>
@@ -335,7 +335,6 @@ function bindTap(element, handler){
 function handleDeletePostsConfirm(evt){
   if(evt && evt.preventDefault) evt.preventDefault();
   if(evt && evt.stopPropagation) evt.stopPropagation();
-  showToast('确认删朋友圈');
   confirmDeletePosts();
   return false;
 }
@@ -350,7 +349,6 @@ function handleDeleteConfirmCancel(evt){
 function handleDeleteCommentConfirm(evt){
   if(evt && evt.preventDefault) evt.preventDefault();
   if(evt && evt.stopPropagation) evt.stopPropagation();
-  showToast('确认删评论');
   confirmDeleteComment();
   return false;
 }
@@ -369,73 +367,112 @@ function goBackQQ(evt){
 
 function getPosts(){
   try{
-    if(Array.isArray(hydratedPostsCache) && hydratedPostsCache.length){
+    if(Array.isArray(hydratedPostsCache)){
       return hydratedPostsCache.slice();
     }
-    let best = [];
-    storageKeyCandidates(STORAGE_POSTS).concat(storageKeyCandidates(STORAGE_POSTS_ALT)).forEach((key)=>{
-      if(!key) return;
+    const orderedCandidates = [
+      scopedKey(STORAGE_POSTS_BRIDGE),
+      STORAGE_POSTS_BRIDGE,
+      scopedKey(STORAGE_POSTS),
+      scopedKey(STORAGE_POSTS_ALT),
+      STORAGE_POSTS,
+      STORAGE_POSTS_ALT
+    ].concat(storageKeyCandidates(STORAGE_POSTS)).concat(storageKeyCandidates(STORAGE_POSTS_ALT));
+    for(const key of Array.from(new Set(orderedCandidates.filter(Boolean)))){
       try{
         const posts = JSON.parse(localStorage.getItem(key) || '[]');
-        if(Array.isArray(posts) && posts.length > best.length) best = posts;
+        if(Array.isArray(posts)){
+          hydratedPostsCache = posts.slice();
+          return posts.slice();
+        }
       }catch(ignoreErr){}
-    });
-    return Array.isArray(best) ? best : [];
+    }
+    return [];
   }catch(e){
     return [];
   }
+}
+
+function writePostsToStorageKey(key, payload){
+  try{
+    if(key) localStorage.setItem(key, payload);
+  }catch(ignoreErr){}
+}
+
+function writePostsToAllLocalStores(payload){
+  const keys = [
+    STORAGE_POSTS,
+    STORAGE_POSTS_ALT,
+    STORAGE_POSTS_BRIDGE,
+    scopedKey(STORAGE_POSTS),
+    scopedKey(STORAGE_POSTS_ALT),
+    scopedKey(STORAGE_POSTS_BRIDGE)
+  ].concat(storageKeyCandidates(STORAGE_POSTS)).concat(storageKeyCandidates(STORAGE_POSTS_ALT));
+  Array.from(new Set(keys.filter(Boolean))).forEach((key)=>{
+    writePostsToStorageKey(key, payload);
+  });
 }
 
 function savePosts(posts){
   const safePosts = Array.isArray(posts) ? posts.slice() : [];
   const payload = JSON.stringify(safePosts);
   hydratedPostsCache = safePosts.slice();
-  lsSet(STORAGE_POSTS, payload);
-  lsSet(STORAGE_POSTS_ALT, payload);
-  lsSet(STORAGE_POSTS_BRIDGE, payload);
-  try{
-    localStorage.setItem(STORAGE_POSTS_BRIDGE, payload);
-  }catch(ignoreBridgeErr){}
+  writePostsToAllLocalStores(payload);
   if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
-    window.PhoneStorage.putJson(scopedKey(STORAGE_POSTS), safePosts).catch(()=>{});
-    window.PhoneStorage.putJson(scopedKey(STORAGE_POSTS_ALT), safePosts).catch(()=>{});
+    const phoneKeys = [
+      scopedKey(STORAGE_POSTS),
+      scopedKey(STORAGE_POSTS_ALT),
+      STORAGE_POSTS,
+      STORAGE_POSTS_ALT
+    ];
+    Array.from(new Set(phoneKeys.filter(Boolean))).forEach((key)=>{
+      if(!key) return;
+      try{
+        window.PhoneStorage.putJson(key, safePosts).catch(()=>{});
+      }catch(ignorePhoneErr){}
+    });
   }
 }
 
 async function hydratePostsFromLargeStore(){
   if(!(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function')) return;
   try{
-    let best = [];
-    const candidates = storageKeyCandidates(STORAGE_POSTS).concat(storageKeyCandidates(STORAGE_POSTS_ALT));
-    for(const key of Array.from(new Set(candidates.filter(Boolean)))){
+    const preferredCandidates = [
+      scopedKey(STORAGE_POSTS),
+      scopedKey(STORAGE_POSTS_ALT),
+      STORAGE_POSTS,
+      STORAGE_POSTS_ALT
+    ].concat(storageKeyCandidates(STORAGE_POSTS)).concat(storageKeyCandidates(STORAGE_POSTS_ALT));
+    for(const key of Array.from(new Set(preferredCandidates.filter(Boolean)))){
       let stored = null;
       try{
         stored = await window.PhoneStorage.getJson(key);
       }catch(ignoreErr){}
-      if(Array.isArray(stored) && stored.length > best.length){
-        best = stored;
+      if(Array.isArray(stored)){
+        hydratedPostsCache = stored.slice();
+        writePostsToAllLocalStores(JSON.stringify(stored));
+        return;
       }
     }
-    if((!best || !best.length) && typeof window.PhoneStorage.list === 'function'){
+    if(typeof window.PhoneStorage.list === 'function'){
       try{
         const records = await window.PhoneStorage.list('kv');
         if(Array.isArray(records)){
+          let matched = [];
           records.forEach((record)=>{
             const id = String(record && record.id || '');
             const data = record && Object.prototype.hasOwnProperty.call(record, 'data') ? record.data : null;
             if(!/moments_posts/i.test(id)) return;
-            if(Array.isArray(data) && data.length > best.length){
-              best = data;
+            if(Array.isArray(data) && !matched.length){
+              matched = data;
             }
           });
+          if(Array.isArray(matched)){
+            hydratedPostsCache = matched.slice();
+            writePostsToAllLocalStores(JSON.stringify(matched));
+          }
         }
       }catch(ignoreListErr){}
-    }
-    const posts = Array.isArray(best) ? best : [];
-    if(posts.length){
-      hydratedPostsCache = posts.slice();
-      lsSet(STORAGE_POSTS, JSON.stringify(posts));
-      lsSet(STORAGE_POSTS_ALT, JSON.stringify(posts));
     }
   }catch(e){}
 }
@@ -447,13 +484,20 @@ function hydratePostsFromBridge(){
     const raw = scopedRaw || plainRaw;
     if(!raw) return false;
     const posts = JSON.parse(raw);
-    if(!Array.isArray(posts) || !posts.length) return false;
+    if(!Array.isArray(posts)) return false;
     hydratedPostsCache = posts.slice();
-    lsSet(STORAGE_POSTS, JSON.stringify(posts));
-    lsSet(STORAGE_POSTS_ALT, JSON.stringify(posts));
+    writePostsToAllLocalStores(JSON.stringify(posts));
     if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
-      window.PhoneStorage.putJson(scopedKey(STORAGE_POSTS), posts).catch(()=>{});
-      window.PhoneStorage.putJson(scopedKey(STORAGE_POSTS_ALT), posts).catch(()=>{});
+      [
+        scopedKey(STORAGE_POSTS),
+        scopedKey(STORAGE_POSTS_ALT),
+        STORAGE_POSTS,
+        STORAGE_POSTS_ALT
+      ].forEach((key)=>{
+        try{
+          window.PhoneStorage.putJson(key, posts).catch(()=>{});
+        }catch(ignorePhoneErr){}
+      });
     }
     return true;
   }catch(e){
