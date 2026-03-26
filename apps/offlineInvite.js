@@ -90,10 +90,25 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   data.location = String(data.location || '').trim() || '老地方';
   data.aside = String(data.aside || '').trim();
   if(data.sourceRole !== 'user' && !data.aside) data.aside = '好想见你';
+  if(data.sourceRole === 'user') data.aside = '';
   data.timeLabel = String(data.timeLabel || labels.timeLabel);
   data.dateLabel = String(data.dateLabel || labels.dateLabel);
   data.status = String(data.status || 'pending');
   return data;
+}
+
+function sanitizeOfflineInvitePayloadForModel(payload){
+  var src = payload && typeof payload === 'object' ? Object.assign({}, payload) : {};
+  delete src.aside;
+  delete src.status;
+  delete src.type;
+  delete src.sourceRole;
+  delete src.createdAt;
+  delete src.timeLabel;
+  delete src.dateLabel;
+  if(src.content != null) src.content = String(src.content || '').trim();
+  if(src.location != null) src.location = String(src.location || '').trim();
+  return src;
 }
 
 function offlineInviteSummaryText(content){
@@ -410,7 +425,9 @@ async function appendOfflineInviteToChat(role, payload, doScroll){
   var notice = makeSystemNoticeEntry(appendOfflineInviteNoticeText(role));
   chatLog.push(notice);
   addSystemNotice(notice.content, doScroll !== false, notice.id);
-  var entry = makeChatEntry(role === 'user' ? 'user' : 'assistant', JSON.stringify(payload), 'offline_invite');
+  var finalPayload = buildOfflineInvitePayload(role === 'user' ? 'user' : 'assistant', payload && payload.content, payload || {});
+  if(role === 'user') finalPayload.aside = '';
+  var entry = makeChatEntry(role === 'user' ? 'user' : 'assistant', JSON.stringify(finalPayload), 'offline_invite');
   chatLog.push(entry);
   addMessage(role === 'user' ? 'user' : 'ai', entry.content, doScroll !== false, 'offline_invite', entry.id);
   await saveChat(true);
@@ -443,12 +460,7 @@ async function acceptOfflineInvite(messageId){
 }
 
 async function requestCharOfflineInviteDecision(userPayload){
-  var safePayload = Object.assign({}, userPayload || {});
-  delete safePayload.aside;
-  delete safePayload.status;
-  delete safePayload.type;
-  delete safePayload.sourceRole;
-  delete safePayload.createdAt;
+  var safePayload = sanitizeOfflineInvitePayloadForModel(userPayload);
   var inviteText = String(safePayload.content || '').trim();
   var inviteLocation = String(safePayload.location || '').trim();
   var msgMin = Math.max(1, Number(character && character.msgMin) || 1);
@@ -471,7 +483,7 @@ async function requestCharOfflineInviteDecision(userPayload){
     buildSystemPrompt(),
     '用户这次真正写下的邀约话语：' + (inviteText || '（空）'),
     '用户想约你的地点：' + (inviteLocation || '（未填写）'),
-    '用户刚刚发来线下邀请：' + JSON.stringify(safePayload),
+    '用户刚刚发来线下邀请（只保留真实邀约信息）：' + JSON.stringify(safePayload),
     (window.getInviteWeatherPromptText ? window.getInviteWeatherPromptText('char') : ''),
     (window.getInviteWeatherPromptText ? window.getInviteWeatherPromptText('user') : ''),
     '最近聊天：\n' + formatChatForModel(chatLog.slice(-12))
@@ -605,6 +617,7 @@ async function sendOfflineInviteFromUser(){
     weather: userWeather.icon,
     location: location || (((character && (character.nickname || character.name)) || '对方') + '方便出现的地方')
   });
+  payload.aside = '';
   await appendOfflineInviteToChat('user', payload, true);
 }
 

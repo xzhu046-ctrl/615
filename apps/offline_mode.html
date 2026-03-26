@@ -144,8 +144,10 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 .flight-copy{font-family:var(--fontd);font-size:17px;font-weight:900;text-align:center}
 .flight-subcopy{font-size:12px;line-height:1.6;color:#4f4f4f;text-align:center}
 .flight-tip{font-size:11px;line-height:1.4;color:#5b5b5b;text-align:center}
-.toast{position:fixed;bottom:164px;left:50%;transform:translateX(-50%) translateY(16px);background:#0a0a0a;color:#fff;padding:9px 16px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;transition:.24s;z-index:80}
+.toast{position:fixed;bottom:164px;left:50%;transform:translateX(-50%) translateY(16px);background:#0a0a0a;color:#fff;padding:9px 16px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;transition:.24s;z-index:80;max-width:min(82vw,420px);text-align:center;line-height:1.45}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.sticky{padding:14px 16px 12px;border-radius:18px;white-space:normal}
+.toast.sticky::after{content:'轻点一下关闭';display:block;margin-top:7px;font-size:10px;font-weight:700;opacity:.78}
 .story-wrap{padding:calc(70px + env(safe-area-inset-top)) 14px calc(var(--offline-composer-height) + 8px) 14px;gap:26px;background:
 linear-gradient(180deg,rgba(255,255,255,.34),rgba(255,255,255,.06)),
 radial-gradient(circle at 12% 20%,rgba(255,255,255,.32),transparent 28%),
@@ -500,13 +502,26 @@ function loadStoredAsset(key){
   }
   return Promise.resolve(localStorage.getItem(key) || '');
 }
-function toast(msg){
+function toast(msg, options){
   var el = document.getElementById('toast');
   if(!el) return;
   el.textContent = String(msg || '');
-  el.classList.add('show');
   clearTimeout(toast._timer);
-  toast._timer = setTimeout(function(){ el.classList.remove('show'); }, 1800);
+  var sticky = !!(options && options.sticky);
+  if(!sticky){
+    var raw = String(msg || '');
+    sticky = /失败|错误|超时|超过|quota|context|无法|不成功|拦截/.test(raw);
+  }
+  el.classList.toggle('sticky', sticky);
+  el.onclick = sticky ? function(){
+    el.classList.remove('show');
+    el.classList.remove('sticky');
+    el.onclick = null;
+  } : null;
+  el.classList.add('show');
+  if(!sticky){
+    toast._timer = setTimeout(function(){ el.classList.remove('show'); }, 2200);
+  }
 }
 function esc(s){
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1208,6 +1223,14 @@ function hasValidOfflineAssistantPayload(parsed){
   var status = parsed.status_card && typeof parsed.status_card === 'object';
   return !!(text && title && quote && thought && status);
 }
+function hasValidOfflineCombinedPayload(obj){
+  return !!(
+    obj &&
+    hasValidOfflineThoughtPayload(obj) &&
+    hasValidOfflineBodyPayload(obj) &&
+    hasValidOfflineStatusPayload(obj)
+  );
+}
 function normalizeOfflineThoughtChain(raw, seedText){
   var source = raw && typeof raw === 'object' ? raw : {};
   return {
@@ -1618,7 +1641,7 @@ function buildOfflineSystemPrompt(options){
     '下笔前必须先读并吸收这些信息，再决定怎么回复：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、最近线下记录、scenario、system prompt。',
     '角色 persona 决定 char 的语气、习惯、亲密方式和反应逻辑；用户 persona 决定 char 对 user 的理解、称呼、照顾方式和互动边界。',
     '最近线上聊天、记忆总结、世界书、人设、scenario、system prompt 优先级极高，必须先读懂再写；不要驴唇不对马嘴，不要脱离当下话题乱写，不要 OOC，不要擅自无视设定。',
-    storyPrefs.style ? ('这次线下正文的文风额外要求：' + storyPrefs.style) : '这次线下正文的文风额外要求：保持自然、细腻、有活人感。',
+    storyPrefs.style ? ('这次线下正文的文风额外要求（必须严格执行，不要偷懒无视）：' + storyPrefs.style) : '这次线下正文的文风额外要求：保持自然、细腻、有活人感。',
     '不要 markdown，不要代码块，不要额外解释。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '角色 persona：' + (compactPersona || '未提供'),
@@ -1681,7 +1704,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '下笔前必须先读并吸收这些信息，再决定 char 的开场方式：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、邀约信息、scenario、system prompt。',
     '角色 persona 决定 char 的气质、说话方式和推进节奏；用户 persona 决定 char 对 user 的理解、称呼、互动分寸和照顾方式。',
     '最近线上聊天、记忆总结、世界书、人设、scenario、system prompt 优先级极高，必须先读懂再写；不要脱离上下文瞎写，不要 OOC，也不要偷偷无视这些规矩。',
-    storyPrefs.style ? ('这次线下正文的文风额外要求：' + storyPrefs.style) : '这次线下正文的文风额外要求：保持自然、细腻、有活人感。',
+    storyPrefs.style ? ('这次线下正文的文风额外要求（必须严格执行，不要偷懒无视）：' + storyPrefs.style) : '这次线下正文的文风额外要求：保持自然、细腻、有活人感。',
     '要直接进入见面的第一幕，不要总结回顾，不要写成说明书，也不要偷懒只写很短一段。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '角色 persona：' + (compactPersona || '未提供'),
@@ -2255,6 +2278,22 @@ async function generateOpeningIfNeeded(){
         lastError = statusErr;
       }
     }
+    if((!openingTitle || !openingQuote || !String(openingText || '').trim() || !openingThoughtChain || !openingStatusCard)){
+      try{
+        var combinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt({ compactLevel: 0 }), openingContext, Math.min(plan.mainTimeout, 110000));
+        var combinedObj = parseOfflineJsonObject(combinedRaw);
+        if(hasValidOfflineCombinedPayload(combinedObj)){
+          openingThoughtChain = combinedObj.thought_chain;
+          openingStatusCard = combinedObj.status_card;
+          openingTitle = String(combinedObj.title || '').trim();
+          openingQuote = String(combinedObj.quote || '').trim();
+          openingText = String(combinedObj.text || '').trim();
+          openingAsides = normalizeOfflineAsides(combinedObj.asides);
+        }
+      }catch(combinedErr){
+        lastError = combinedErr;
+      }
+    }
     if(openingTextLength(bestText) > openingTextLength(openingText)){
       openingText = bestText;
       openingAsides = bestAsides.slice();
@@ -2297,7 +2336,7 @@ async function generateOpeningIfNeeded(){
     queueOfflineStatusCardGeneration(openingEntry);
     setTimeout(function(){ queueOfflineStatusCardGeneration(openingEntry); }, 120);
   }catch(e){
-    toast('线下首幕生成失败：' + summarizeOfflineError(e));
+    toast('线下首幕生成失败：' + summarizeOfflineError(e), { sticky:true });
     session.pendingOpening = true;
     saveSession();
   }
@@ -2423,6 +2462,21 @@ async function requestOfflineReply(options){
         lastError = statusErr;
       }
     }
+    if((!parsed.title || !parsed.quote || !String(replyText || '').trim() || !parsed.thought_chain || !parsed.status_card)){
+      try{
+        var combinedContext = replyContextBase.concat([
+          '最近线下记录：\n' + (clipOfflinePromptText(formatOfflineHistory(4) || '无', offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, 0, 360)) || '无')
+        ]).join('\n\n');
+        var combinedRaw = await callAIWithTimeout(buildOfflineSystemPrompt({ compactLevel: 0 }), combinedContext, Math.min(getOfflineReplyTimeoutMs(), 110000));
+        var combinedObj = parseOfflineJsonObject(combinedRaw);
+        if(hasValidOfflineCombinedPayload(combinedObj)){
+          parsed = Object.assign({}, parsed, combinedObj);
+          replyText = String(combinedObj.text || '').trim();
+        }
+      }catch(combinedErr){
+        lastError = combinedErr;
+      }
+    }
     if(openingTextLength(replyText) < minChars || !hasValidOfflineAssistantPayload({
       text: replyText,
       title: parsed.title,
@@ -2458,7 +2512,7 @@ async function requestOfflineReply(options){
     renderStory();
     keepOfflineComposerVisible();
   }catch(e){
-    toast('线下回复生成失败：' + summarizeOfflineError(e));
+    toast('线下回复生成失败：' + summarizeOfflineError(e), { sticky:true });
   }finally{
     setOfflineComposerBusy(false);
   }
@@ -2621,29 +2675,28 @@ async function init(){
     desiredOfflineCharId = String(localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }
   character = loadCharacter(desiredOfflineCharId);
-  session = desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null;
-  if(!session) session = loadSession();
-  if((!session || !hasMeaningfulOfflineSession(session) || session.active === false) && desiredOfflineCharId){
-    var bootSession = consumePendingOfflineBootstrap(desiredOfflineCharId);
-    if(bootSession){
-      session = bootSession;
-      if(character && character.id) saveSession();
-    }
+  var resumeSession = desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null;
+  var bootSession = desiredOfflineCharId ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
+  var launchSeed = desiredOfflineCharId ? consumePendingOfflineLaunch(desiredOfflineCharId) : null;
+  if(resumeSession && hasMeaningfulOfflineSession(resumeSession)){
+    session = resumeSession;
+  }else if(bootSession && (hasMeaningfulOfflineSession(bootSession) || (bootSession.invite && bootSession.active !== false))){
+    session = bootSession;
+    if(character && character.id) saveSession();
+  }else{
+    session = loadSession();
   }
-  if((!session || !hasMeaningfulOfflineSession(session) || session.active === false) && desiredOfflineCharId){
-    var launchSeed = consumePendingOfflineLaunch(desiredOfflineCharId);
-    if(launchSeed){
-      session = {
-        active: true,
-        invite: launchSeed.payload || null,
-        entries: [],
-        pendingAnimation: true,
-        pendingOpening: true,
-        chatHistory: String(launchSeed.chatHistory || ''),
-        updatedAt: Date.now()
-      };
-      if(character && character.id) saveSession();
-    }
+  if((!session || !hasMeaningfulOfflineSession(session) || session.active === false) && launchSeed){
+    session = {
+      active: true,
+      invite: launchSeed.payload || null,
+      entries: [],
+      pendingAnimation: true,
+      pendingOpening: true,
+      chatHistory: String(launchSeed.chatHistory || ''),
+      updatedAt: Date.now()
+    };
+    if(character && character.id) saveSession();
   }
   await hydrateOfflineMemorySnippet();
   refreshOfflineAvatarAssets();
