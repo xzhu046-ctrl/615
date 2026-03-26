@@ -488,12 +488,12 @@ async function requestCharOfflineInviteDecision(userPayload){
     (window.getInviteWeatherPromptText ? window.getInviteWeatherPromptText('user') : ''),
     '最近聊天：\n' + formatChatForModel(chatLog.slice(-12))
   ].join('\n\n');
+  var raw = await callAIWithCustomPrompts(systemPrompt, userPrompt);
+  var clean = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
   try{
-    var raw = await callAIWithCustomPrompts(systemPrompt, userPrompt);
-    var clean = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
     return JSON.parse(clean);
   }catch(e){
-    return { accept: false, text: '今天先不出门了，不过我有点心动。' };
+    throw new Error('邀约回复解析失败');
   }
 }
 
@@ -589,6 +589,11 @@ async function handlePendingOfflineInviteReply(){
     addSystemNotice(rejectNotice.content, true, rejectNotice.id);
     await deliverAiReply(normalizeOfflineInviteRejectText((decision && decision.text) || '', '今天先不出门了，不过我有点心动。'), Math.max(1, character && character.msgMax ? character.msgMax : 3));
     await saveChat(true);
+    return true;
+  }catch(err){
+    hideTyping();
+    showError('邀约回复失败: ' + humanizeAiError(err));
+    console.error('offline invite reply error:', err);
     return true;
   } finally {
     hideTyping();
