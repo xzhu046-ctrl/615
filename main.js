@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-26T13:31:00Z';
+const APP_BUILD_ID = '2026-03-26T13:38:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -4306,14 +4306,8 @@ window.addEventListener('message',(e)=>{
     } catch(err){}
   };
   if(type==='SET_ACTIVE_CHARACTER'){
-    const slim = slimChar(payload);
+    const slim = persistShellActiveCharacter(payload) || slimChar(payload);
     setWidgetCharacter(payload);
-    if(isDefaultAccountActive()){
-      try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
-      try{ localStorage.setItem('activeChatCharacterId', String((slim && slim.id) || '')); }catch(e){}
-    }
-    try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
-    try{ localStorage.setItem(scopedKeyForAccount('activeChatCharacterId', getActiveAccountId()), String((slim && slim.id) || '')); }catch(e){}
     cacheAvatar(payload);
     renderBondWidget(payload);
     renderHomeDockBadges();
@@ -4326,24 +4320,14 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='CHARACTER_IMPORTED'){
     // When a card is imported, immediately reflect it on the home widget.
-    const slim = slimChar(payload);
+    const slim = persistShellActiveCharacter(payload) || slimChar(payload);
     cacheAvatar(payload);
     setWidgetCharacter(payload);
-    if(isDefaultAccountActive()){
-      try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
-    }
-    try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
     renderBondWidget(payload);
     renderHomeDockBadges();
   }
   if(type==='OPEN_CHAT_WITH'){
-    const slim = slimChar(payload);
-    if(isDefaultAccountActive()){
-      try{ localStorage.setItem('activeCharacter',JSON.stringify(slim)); }catch(e){}
-      try{ localStorage.setItem('activeChatCharacterId', String((slim && slim.id) || '')); }catch(e){}
-    }
-    try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
-    try{ localStorage.setItem(scopedKeyForAccount('activeChatCharacterId', getActiveAccountId()), String((slim && slim.id) || '')); }catch(e){}
+    const slim = persistShellActiveCharacter(payload) || slimChar(payload);
     setWidgetCharacter(payload);
     renderBondWidget(payload);
     try{ localStorage.setItem('pendingChatChar',JSON.stringify(slim)); }catch(e){}
@@ -4356,10 +4340,7 @@ window.addEventListener('message',(e)=>{
     var activeSlim = payload ? slimChar(payload) : getActiveCharacterData();
     openApp('chat');
     if(activeSlim && activeSlim.id){
-      if(isDefaultAccountActive()){
-        try{ localStorage.setItem('activeCharacter', JSON.stringify(activeSlim)); }catch(err){}
-      }
-      try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(activeSlim)); }catch(err){}
+      persistShellActiveCharacter(activeSlim);
       setWidgetCharacter(activeSlim);
       renderBondWidget(activeSlim);
       postToChat({ type:'SET_ACTIVE_CHARACTER', payload: activeSlim });
