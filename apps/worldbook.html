@@ -102,20 +102,21 @@ pointer-events:none
 .workspace-head,.entriesList{position:relative;z-index:1}
 .workspace-head{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
 .workspace-meta{
-display:grid;grid-template-columns:minmax(0,1fr) 118px;align-items:center;gap:12px;padding:14px;border:var(--bd);border-radius:22px;background:var(--paper)
+display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:12px;padding:14px;border:var(--bd);border-radius:22px;background:var(--paper)
+}
+.workspace-meta-left{position:relative;min-width:0;padding:8px 0 2px}
+.workspace-meta-left::before{
+content:'';position:absolute;left:-14px;right:-6px;bottom:-14px;height:88px;
+background:
+linear-gradient(180deg,rgba(255,255,255,0) 0%, rgba(255,255,255,.2) 24%, rgba(17,17,17,.36) 100%),
+url("./assets/%E6%B5%B7%E8%BE%B9%E5%B0%8F%E5%B1%8B.webp") center bottom/cover no-repeat;
+filter:grayscale(1) contrast(1.05);
+border-radius:18px;
+opacity:.78;
+pointer-events:none
 }
 .workspace-title-row{display:flex;align-items:center;gap:12px;min-width:0}
 .workspace-title{font-family:var(--fontd);font-size:18px;font-weight:900;line-height:1.2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.workspace-photo-card{
-height:128px;border:var(--bd);border-radius:18px;overflow:hidden;background:#d8d8d8;box-shadow:var(--sh);
-position:relative;transform:rotate(2deg)
-}
-.workspace-photo-card::before,.workspace-photo-card::after{
-content:'';position:absolute;top:-8px;width:22px;height:16px;background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.15)
-}
-.workspace-photo-card::before{left:16px;transform:rotate(-10deg)}
-.workspace-photo-card::after{right:14px;transform:rotate(9deg)}
-.workspace-photo-card img{width:100%;height:100%;object-fit:cover;filter:grayscale(1) contrast(1.08) brightness(1.02)}
 .home-stage{display:flex;min-height:12px}
 .home-stage-card{display:none}
 
@@ -202,7 +203,6 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .workspace-meta{grid-template-columns:1fr}
 .row2,.btn-row{flex-direction:column}
 .folder-card{min-width:116px;max-width:116px}
-.workspace-photo-card{height:112px;max-width:150px;justify-self:end}
 }
 </style>
 </head>
@@ -219,12 +219,11 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
   <div class="workspace-shell" id="workspaceShell">
     <div class="workspace-head">
       <div class="workspace-meta">
-        <div class="workspace-title-row">
-          <div class="workspace-avatar-wrap" id="workspaceAvatar">?</div>
-          <div class="workspace-title" id="workspaceTitle">未分类</div>
-        </div>
-        <div class="workspace-photo-card">
-          <img src="assets/%E6%B5%B7%E8%BE%B9%E5%B0%8F%E5%B1%8B.webp" alt="海边小屋">
+        <div class="workspace-meta-left">
+          <div class="workspace-title-row">
+            <div class="workspace-avatar-wrap" id="workspaceAvatar">?</div>
+            <div class="workspace-title" id="workspaceTitle">未分类</div>
+          </div>
         </div>
       </div>
       <div class="tabs-row" id="wbTabs"></div>
@@ -296,6 +295,7 @@ var confirmResolver = null;
 var openCategoryPickerId = null;
 var topCategoryPickerOpen = false;
 var folderOpened = false;
+var avatarAssetCache = {};
 var WORLD_BOOK_TEXT_EXTENSIONS = ['.txt','.md','.markdown','.docx','.rtf','.csv','.json','.jsonl','.xml','.html','.htm'];
 
 function approxTokenCount(text) {
@@ -382,20 +382,43 @@ function getCharById(id) {
 
 function readStoredCharAvatar(charId) {
   if (!charId) return '';
+  if (avatarAssetCache[charId]) return avatarAssetCache[charId];
   try {
-    return String(localStorage.getItem('char_avatar_' + charId) || '').trim();
+    var direct = String(localStorage.getItem('char_avatar_' + charId) || '').trim();
+    if (direct) {
+      avatarAssetCache[charId] = direct;
+      return direct;
+    }
   } catch (e) {
-    return '';
   }
+  return '';
+}
+
+function requestStoredCharAvatar(charId) {
+  if (!charId || avatarAssetCache[charId]) return;
+  var loader = null;
+  try {
+    if (typeof window.loadStoredAsset === 'function') loader = window.loadStoredAsset;
+    else if (window.parent && window.parent !== window && typeof window.parent.loadStoredAsset === 'function') loader = window.parent.loadStoredAsset.bind(window.parent);
+  } catch (e) {}
+  if (!loader) return;
+  loader('char_avatar_' + charId).then(function(src) {
+    var clean = String(src || '').trim();
+    if (!clean) return;
+    avatarAssetCache[charId] = clean;
+    renderFolderShelf();
+    updateWorkspaceHeader();
+  }).catch(function(){});
 }
 
 function getCharAvatarSource(charId) {
   var c = getCharById(charId);
   var override = readStoredCharAvatar(charId);
+  requestStoredCharAvatar(charId);
   if (override) return { type: 'image', value: override };
   if (c && c.imageData) return { type: 'image', value: c.imageData };
   if (c && c.avatar) return { type: 'text', value: c.avatar };
-  return { type: 'text', value: '?' };
+  return { type: 'text', value: c && c.name ? String(c.name).trim().slice(0, 1) : '?' };
 }
 
 function renderAvatarHtml(source, className) {
@@ -466,7 +489,7 @@ function renderFolderShelf() {
     var avatarHtml = card.id === UNCATEGORIZED_KEY
       ? '<div class="folder-avatar-wrap">+</div>'
       : renderAvatarHtml(getCharAvatarSource(card.id), 'folder-avatar-wrap');
-    return '<button class="folder-card' + (card.id === curCharId ? ' active' : '') + '" type="button" onclick="selectTopCategory(\'' + escAttr(card.id) + '\')">' +
+    return '<button class="folder-card' + (card.id === curCharId ? ' active' : '') + '" type="button" onclick="openFolder(\'' + escAttr(card.id) + '\')">' +
       '<div class="folder-tab-cap">' + esc(card.cap) + '</div>' +
       '<div class="folder-body">' +
         '<div class="folder-topline"><div class="folder-name">' + esc(card.name) + '</div>' + avatarHtml + '</div>' +
@@ -480,7 +503,7 @@ function updateWorkspaceHeader() {
   var title = document.getElementById('workspaceTitle');
   var avatar = document.getElementById('workspaceAvatar');
   var currentLabel = getCategoryLabel(curCharId);
-  if (title) title.textContent = currentLabel;
+  if (title) title.textContent = curCharId === UNCATEGORIZED_KEY ? currentLabel : ('@' + currentLabel);
   if (avatar) {
     var source = curCharId === UNCATEGORIZED_KEY ? { type: 'text', value: '+' } : getCharAvatarSource(curCharId);
     avatar.innerHTML = source.type === 'image' && source.value
@@ -528,6 +551,13 @@ function selectTopCategory(value) {
   folderOpened = true;
   closeTopCategoryPicker();
   onCharChange();
+}
+
+function openFolder(value) {
+  curCharId = value || UNCATEGORIZED_KEY;
+  folderOpened = true;
+  onCharChange();
+  return false;
 }
 
 // ── WB Tabs ──
