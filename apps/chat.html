@@ -5274,6 +5274,9 @@ async function init() {
     var rosterCharacter = resolveCharacterFromRoster(desiredChatCharId, character);
     if(rosterCharacter) character = rosterCharacter;
   }
+  if(character && character.id){
+    syncActiveCharacterToShell();
+  }
   var initToken = ++characterSwitchToken;
   var initCharId = String((character && character.id) || '').trim();
   ensureMsgRange();
@@ -11477,8 +11480,17 @@ function persistActiveCharacterSnapshot(slim){
   if(!slim) return;
   if(isDefaultAccountContext()){
     try{ localStorage.setItem('activeCharacter', JSON.stringify(slim)); }catch(e){}
+    try{ localStorage.setItem('activeChatCharacterId', String((slim && slim.id) || '')); }catch(e){}
   }
   try{ localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim)); }catch(e){}
+  try{ localStorage.setItem(accountScopedKey('activeChatCharacterId'), String((slim && slim.id) || '')); }catch(e){}
+}
+
+function syncActiveCharacterToShell(){
+  if(!character || !character.id) return;
+  var slim = compactChar(character);
+  persistActiveCharacterSnapshot(slim);
+  postToShell({ type:'SET_ACTIVE_CHARACTER', payload: slim });
 }
 
 function postSettingsPreviewSync(){
@@ -12158,10 +12170,7 @@ window.addEventListener('message', async function(e) {
     var sameChar = !!(incomingId && prevId && incomingId === prevId);
     var switchToken = ++characterSwitchToken;
     character = incoming;
-    if(isDefaultAccountContext()){
-      localStorage.setItem('activeCharacter', JSON.stringify(character));
-    }
-    try{ localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(character)); }catch(err){}
+    syncActiveCharacterToShell();
     ensureMsgRange();
     curGreetingIdx = parseInt(localStorage.getItem(greetingStorageKey(character.id)) || '0');
     await applyChatBackgroundForCharacter(character.id);

@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-26T08:58:00Z';
+const APP_BUILD_ID = '2026-03-26T09:15:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2128,6 +2128,18 @@ function getActiveCharacterData(){
     return null;
   }
   return null;
+}
+
+function persistShellActiveCharacter(character){
+  var slim = slimChar(character);
+  if(!slim || !slim.id) return null;
+  if(isDefaultAccountActive()){
+    try{ localStorage.setItem('activeCharacter', JSON.stringify(slim)); }catch(e){}
+    try{ localStorage.setItem('activeChatCharacterId', String((slim && slim.id) || '')); }catch(e){}
+  }
+  try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
+  try{ localStorage.setItem(scopedKeyForAccount('activeChatCharacterId', getActiveAccountId()), String((slim && slim.id) || '')); }catch(e){}
+  return slim;
 }
 
 function getChatUserName(charId){
@@ -4328,6 +4340,9 @@ window.addEventListener('message',(e)=>{
       });
     }
     var nextChar = payload && payload.data ? payload.data : null;
+    if(currentApp === 'chat' && nextChar && nextChar.id){
+      persistShellActiveCharacter(nextChar);
+    }
     var currentActive = getActiveCharacterData();
     var currentActiveId = String((currentActive && currentActive.id) || '').trim();
     var nextCharId = String((nextChar && nextChar.id) || '').trim();
