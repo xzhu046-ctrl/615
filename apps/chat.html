@@ -364,8 +364,9 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .welcome-sub{font-size:12px;line-height:1.7}
 
 /* ── Error notice ── */
-.err-notice{background:var(--w);border:2px solid #c00;border-radius:12px;padding:10px 14px;margin:4px 12px;font-size:12px;font-weight:600;color:#c00;text-align:center;box-shadow:2px 2px 0 #c00;display:none}
+.err-notice{background:var(--w);border:2px solid #c00;border-radius:12px;padding:10px 14px;margin:4px 12px;font-size:12px;font-weight:600;color:#c00;text-align:center;box-shadow:2px 2px 0 #c00;display:none;cursor:pointer}
 .err-notice a{font-weight:800;cursor:pointer;text-decoration:underline;color:#c00}
+.err-notice::after{content:'轻点一下关闭';display:block;margin-top:6px;font-size:10px;font-weight:800;opacity:.72}
 
 /* ── Input area ── */
 .chat-input-area{background:transparent;border:none;padding:0;display:flex;gap:8px;align-items:flex-end;flex-shrink:0;z-index:35;position:fixed;left:14px;right:14px;bottom:var(--composer-bottom);transform:translateY(calc(-1 * var(--composer-shift)))}
@@ -860,9 +861,9 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
   </div>
 </div>
 
-<div class="err-notice" id="errNotice">
+<div class="err-notice" id="errNotice" onclick="hideError()">
   <span id="errText">未设置 API key</span>
-  &nbsp;<a onclick="window.parent.postMessage({type:'OPEN_APP',payload:'settings'},'*')">去设置 →</a>
+  &nbsp;<a onclick="event.stopPropagation();window.parent.postMessage({type:'OPEN_APP',payload:'settings'},'*')">去设置 →</a>
 </div>
 
 <div class="chat-input-area">
@@ -6053,8 +6054,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
       body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] })
     });
-    var d = await res.json();
-    if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
+    var d = await readAiJsonResponse(res);
     return extractAiResponseText(d);
   }
 
@@ -6069,8 +6069,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
       },
       body: JSON.stringify({ model: model, temperature: temperature, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] })
     });
-    var dClaude = await resClaude.json();
-    if (dClaude.error) throw new Error(dClaude.error.message || JSON.stringify(dClaude.error));
+    var dClaude = await readAiJsonResponse(resClaude);
     return extractAiResponseText(dClaude);
   }
 
@@ -6088,8 +6087,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
         generationConfig: { temperature: temperature }
       })
     });
-    var dGemini = await resGemini.json();
-    if (dGemini.error) throw new Error(dGemini.error.message || dGemini.error.status || JSON.stringify(dGemini.error));
+    var dGemini = await readAiJsonResponse(resGemini);
     return extractAiResponseText(dGemini);
   }
 
@@ -6104,8 +6102,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
       },
       body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] })
     });
-    var dOr = await resOr.json();
-    if (dOr.error) throw new Error(dOr.error.message || JSON.stringify(dOr.error));
+    var dOr = await readAiJsonResponse(resOr);
     return extractAiResponseText(dOr);
   }
 
@@ -6120,8 +6117,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
       headers: headers,
       body: JSON.stringify({ model: customModel, temperature: temperature, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] })
     });
-    var dCustom = await resCustom.json();
-    if (dCustom.error) throw new Error(dCustom.error.message || JSON.stringify(dCustom.error));
+    var dCustom = await readAiJsonResponse(resCustom);
     return extractAiResponseText(dCustom);
   }
 
@@ -6723,7 +6719,7 @@ async function requestAndDeliverAiReply(provider, key){
     return true;
   } catch(err) {
     hideTyping();
-    var errMsg = err && (err.message || String(err)) || '未知错误';
+    var errMsg = humanizeAiError(err);
     showError('AI 回复失败: ' + errMsg);
     console.error('callAI error:', err);
     return false;
@@ -6765,8 +6761,7 @@ async function callAI(provider, key) {
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
       body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
     });
-    var d = await res.json();
-    if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
+    var d = await readAiJsonResponse(res);
     return extractAiResponseText(d);
   }
 
@@ -6781,8 +6776,7 @@ async function callAI(provider, key) {
       },
       body: JSON.stringify({ model: model, temperature: temperature, system: sys, messages: msgs })
     });
-    var d = await res.json();
-    if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
+    var d = await readAiJsonResponse(res);
     return extractAiResponseText(d);
   }
 
@@ -6799,8 +6793,7 @@ async function callAI(provider, key) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: contents, generationConfig: { temperature: temperature } })
     });
-    var d = await res.json();
-    if (d.error) throw new Error(d.error.message || d.error.status || JSON.stringify(d.error));
+    var d = await readAiJsonResponse(res);
     return extractAiResponseText(d);
   }
 
@@ -6815,8 +6808,7 @@ async function callAI(provider, key) {
       },
       body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
     });
-    var d = await res.json();
-    if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
+    var d = await readAiJsonResponse(res);
     return extractAiResponseText(d);
   }
 
@@ -6835,12 +6827,61 @@ async function callAI(provider, key) {
     }catch(err){
       throw new Error('自定义接口请求被浏览器拦截。当前是跨域/CORS 问题，不是聊天页逻辑错误。请给 ' + baseUrl + ' 返回 Access-Control-Allow-Origin，或换一个允许浏览器跨域访问的代理地址。');
     }
-    var d = await res.json();
-    if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
+    var d = await readAiJsonResponse(res);
     return extractAiResponseText(d);
   }
 
   throw new Error('未知 provider: ' + provider);
+}
+
+async function readAiJsonResponse(res){
+  var rawText = '';
+  try{
+    rawText = await res.text();
+  }catch(e){}
+  var data = {};
+  if(rawText){
+    try{ data = JSON.parse(rawText); }catch(e){ data = { rawText: rawText }; }
+  }
+  if(!res.ok){
+    throw new Error(humanizeAiHttpStatus(res.status, data));
+  }
+  if(data && data.error){
+    throw new Error(humanizeAiApiMessage(data.error.message || data.error.status || JSON.stringify(data.error)));
+  }
+  return data;
+}
+
+function humanizeAiHttpStatus(status, data){
+  var code = Number(status) || 0;
+  var detail = '';
+  if(data && data.error) detail = String(data.error.message || data.error.status || '').trim();
+  else if(data && data.rawText) detail = String(data.rawText || '').trim();
+  if(code === 429) return '请求太多了，模型那边现在限流了（429）。等一小会儿再试。';
+  if(code === 430) return '服务暂时把这次请求拦下来了（430）。等一下再试，或者换个模型。';
+  if(code === 401) return 'API key 不对，或者已经失效了（401）。';
+  if(code === 402) return '额度不够了，或者账单那边有问题（402）。';
+  if(code === 403) return '这个 key 现在没有权限调用这个模型（403）。';
+  if(code === 404) return '没找到这个模型或接口地址（404）。';
+  if(code >= 500) return '模型服务那边炸了一下（' + code + '）。等一会儿再试。';
+  return humanizeAiApiMessage(detail || ('请求失败（' + code + '）。'));
+}
+
+function humanizeAiApiMessage(message){
+  var text = String(message || '').trim();
+  if(!text) return '请求失败了。';
+  if(/429|rate limit|too many requests/i.test(text)) return '请求太多了，模型那边现在限流了（429）。等一小会儿再试。';
+  if(/430/.test(text)) return '服务暂时把这次请求拦下来了（430）。等一下再试，或者换个模型。';
+  if(/insufficient_quota|quota|额度|余额不足|billing/i.test(text)) return '额度不够了，或者账单那边有问题。';
+  if(/invalid api key|incorrect api key|unauthorized|401/i.test(text)) return 'API key 不对，或者已经失效了。';
+  if(/model.*not found|does not exist|404/i.test(text)) return '没找到这个模型，可能是模型名写错了。';
+  if(/context length|maximum context|too long|token/i.test(text)) return '上下文太长了，这次消息塞不下。';
+  return text;
+}
+
+function humanizeAiError(err){
+  var msg = err && (err.message || String(err)) || '未知错误';
+  return humanizeAiApiMessage(msg);
 }
 
 function extractAiResponseText(payload){
@@ -12197,14 +12238,7 @@ async function deliverAiReply(text, limitOverride){
       await sleep(320 + Math.floor(Math.random()*320));
     }
   }
-  if(sentCount === 0){
-    var fallbackEntry = makeChatEntry('assistant', '收到', 'text');
-    chatLog.push(fallbackEntry);
-    addMessage('ai', fallbackEntry.content, true, 'text', fallbackEntry.id);
-    await saveChat();
-    sentTexts.push(fallbackEntry.content);
-    sentIds.push(fallbackEntry.id);
-  }
+  if(sentCount === 0) throw new Error('AI 没有返回可显示的聊天内容');
   if(sentTexts.length){
     refreshInnerVoiceFromAi(sentTexts[sentTexts.length - 1]);
   }
