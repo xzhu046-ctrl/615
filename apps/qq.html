@@ -8,6 +8,7 @@
 <script src="../accountManager.js"></script>
 <script src="../assetStore.js"></script>
 <script src="../chatStorage.js"></script>
+<script src="../metadataStore.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--b:#0a0a0a;--w:#fff;--off:#f7f7f7;--g:#888;--p:#eee;--bd:2px solid #0a0a0a;--sh:2px 2px 0 #0a0a0a;--font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif}
@@ -114,6 +115,18 @@ var MOMENTS_BRIDGE_KEY = 'qq_moments_bridge_posts';
 var chatSummaryCache = {};
 var livePreviewCache = {};
 var momentsPostsCache = [];
+
+function getStoredCharactersSnapshot(){
+  if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
+    return window.MetadataStore.getCharactersSync();
+  }
+  try{
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    return Array.isArray(list) ? list : [];
+  }catch(err){
+    return [];
+  }
+}
 
 function accountScopedKey(base){
   if(window.AccountManager){
@@ -276,7 +289,7 @@ async function refreshMomentsCache(){
 }
 
 async function loadChars(){
-  try{ chars=JSON.parse(localStorage.getItem('characters')||'[]'); }catch(e){ chars=[]; }
+  chars = getStoredCharactersSnapshot();
   if(!Array.isArray(chars)) chars = [];
   if(window.AccountManager){
     window.AccountManager.ensure();
@@ -292,7 +305,11 @@ async function loadChars(){
       return c;
     });
     if(changed){
-      try{ localStorage.setItem('characters', JSON.stringify(chars)); }catch(err){}
+      if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
+        window.MetadataStore.saveCharacters(chars).catch(function(){});
+      }else{
+        try{ localStorage.setItem('characters', JSON.stringify(chars)); }catch(err){}
+      }
     }
     if(acct){
       chars = chars.filter(function(c){ return c && c.ownerAccountId === acct.id; });
@@ -754,7 +771,11 @@ window.addEventListener('message', async function(e){
 function forward(msg){
   try{ if(window.top && window.top!==window) window.top.postMessage(msg,'*'); }catch(e){}
 }
-loadChars().catch(function(err){ console.error('qq load chars failed', err); });
+Promise.resolve(window.MetadataStore && typeof window.MetadataStore.init === 'function' ? window.MetadataStore.init() : null)
+  .catch(function(){ return null; })
+  .then(function(){
+    return loadChars().catch(function(err){ console.error('qq load chars failed', err); });
+  });
 hydrateAvatarAssets();
 setInterval(function(){ loadChars().catch(function(){}); renderMomentsBadge(); }, 3000);
 ensureParentTopbarVisible();
