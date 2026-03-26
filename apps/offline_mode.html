@@ -209,15 +209,9 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-status-chip{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;padding:10px 14px;border:none;border-radius:999px;background:#151515;color:#fff;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.03em;box-shadow:0 10px 22px rgba(0,0,0,.14);cursor:pointer;transition:transform .16s ease,box-shadow .16s ease,opacity .22s ease}
 .offline-status-chip::before{content:'✦';font-size:11px;line-height:1}
 .offline-status-chip.pending{background:linear-gradient(180deg,#3b3b3b,#171717)}
-.offline-status-chip.ready{animation:offlineStatusReadyPulse .9s ease 2}
 .offline-status-chip:active{transform:translateY(1px)}
 .offline-streaming-tail{display:inline-block;min-width:10px;height:1.05em;margin-left:4px;border-radius:999px;background:rgba(17,17,17,.86);vertical-align:-1px;animation:offlineStreamingBlink .95s steps(1,end) infinite}
 @keyframes offlineStreamingBlink{0%,49%{opacity:1}50%,100%{opacity:.18}}
-@keyframes offlineStatusReadyPulse{
-  0%{transform:translateY(8px) scale(.98);opacity:0}
-  45%{transform:translateY(0) scale(1.02);opacity:1}
-  100%{transform:translateY(0) scale(1);opacity:1}
-}
 .offline-story-hero{margin-top:14px;position:relative;padding:18px 18px 16px;border:1.5px solid rgba(20,20,20,.12);border-radius:24px;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(245,245,242,.90))}
 .offline-story-hero::before{content:'';position:absolute;inset:0;background:url('assets/花瓣掉落.gif') center/cover no-repeat;opacity:1;pointer-events:none}
 .offline-story-hero::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.14) 48%,rgba(255,255,255,.3) 100%);pointer-events:none}
@@ -869,6 +863,10 @@ async function ensureOfflineStatusCardForEntry(entry){
           entry.statusFreshAt = Date.now();
           saveSession();
           renderStory();
+          if(entry.statusToastOnReady){
+            entry.statusToastOnReady = false;
+            toast('番外已送达');
+          }
           return normalized;
         }
       }
@@ -892,11 +890,13 @@ function queueOfflineSummaryGeneration(entry){
     delete offlineSummaryQueue[key];
   });
 }
-function queueOfflineStatusCardGeneration(entry){
+function queueOfflineStatusCardGeneration(entry, options){
   if(!entry || entry.role === 'user' || entry.statusCard) return;
+  var opts = options || {};
   var key = offlineStatusEntryKey(entry);
   if(!key || offlineStatusQueue[key]) return;
   entry.statusPending = true;
+  entry.statusToastOnReady = !opts.silent;
   saveSession();
   renderStory();
   offlineStatusQueue[key] = true;
@@ -915,7 +915,7 @@ function primeOfflineStatusCards(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   list.forEach(function(entry){
     if(entry && entry.role === 'assistant' && !entry.statusCard && String(entry.text || '').trim()){
-      queueOfflineStatusCardGeneration(entry);
+      queueOfflineStatusCardGeneration(entry, { silent:true });
     }
     if(entry && entry.role === 'assistant' && !String(entry.summaryText || '').trim() && String(entry.text || '').trim()){
       queueOfflineSummaryGeneration(entry);
@@ -1419,11 +1419,8 @@ function renderOfflineStatusChip(entry, idx){
   if(!entry || entry.role === 'user') return '';
   var hasStatus = !!(entry.statusCard && entry.statusCard.futureDate && entry.statusCard.futureTitle && entry.statusCard.futureNote);
   var isPending = !!entry.statusPending && !hasStatus;
-  if(!hasStatus && !isPending) return '';
-  var stateClass = hasStatus ? 'ready' : 'pending';
-  var label = hasStatus ? '番外已送达' : '番外写作中…';
-  var attr = hasStatus ? (' onclick="openOfflineStatusModal(' + idx + ')"') : '';
-  return '<button class="offline-status-chip ' + stateClass + '" type="button"' + attr + '>' + esc(label) + '</button>';
+  if(!isPending) return '';
+  return '<div class="offline-status-chip pending" aria-live="polite">' + esc('番外写作中…') + '</div>';
 }
 function formatOfflineGenTime(ms){
   var secs = Math.max(0, Number(ms || 0)) / 1000;
