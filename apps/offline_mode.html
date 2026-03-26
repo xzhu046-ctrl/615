@@ -2573,7 +2573,7 @@ async function generateOpeningIfNeeded(){
     }catch(fastCombinedErr){
       lastError = fastCombinedErr;
     }
-    for(var thoughtAttempt = 0; thoughtAttempt < 3; thoughtAttempt += 1){
+    for(var thoughtAttempt = 0; thoughtAttempt < 2; thoughtAttempt += 1){
       if(openingThoughtChain) break;
       try{
         var thoughtCompact = thoughtAttempt >= 2 ? 2 : thoughtAttempt;
@@ -2807,7 +2807,7 @@ async function requestOfflineReply(options){
     if(!thoughtChain){
       throw thoughtErr || new Error('thought_chain 生成失败');
     }
-    var bodyPrompt = buildOfflineBodyTextSystemPrompt({ compactLevel: retryCompactBase, thoughtChain: thoughtChain });
+    var bodyPrompt = buildOfflineBodySystemPrompt({ compactLevel: retryCompactBase });
     var bodyContext = options.fromUserSend && lastUserEntry && lastUserEntry.role === 'user'
       ? buildOfflineUserPrompt(String(lastUserEntry.text || '').trim(), retryCompactBase)
       : [
@@ -2815,33 +2815,69 @@ async function requestOfflineReply(options){
           safeInvite ? ('邀约背景：' + JSON.stringify(safeInvite)) : '',
           '最近线上聊天（压缩）：\n' + onlineSnippet,
           '最近线下记录（压缩）：\n' + shortOfflineHistory,
-          '用户此刻没有说新话，请角色自己顺着当前氛围继续这一幕，并且直接写够完整长度，不要偷成短回复。'
+          '用户此刻没有说新话，请角色自己顺着当前氛围继续这一幕，并且直接写够完整长度，不要偷成短回复。',
+          '这一幕的 thought_chain 方向如下，请严格顺着它来写，不要跑偏：',
+          'subtext_perception: ' + String(thoughtChain.subtext_perception || ''),
+          'emotional_reaction: ' + String(thoughtChain.emotional_reaction || ''),
+          'action_strategy: ' + String(thoughtChain.action_strategy || '')
         ].filter(Boolean).join('\n\n');
-    var replyText = String(await callAIWithTimeout(bodyPrompt, bodyContext, getOfflineReplyTimeoutMs()) || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+    var bodyPayload = null;
+    var bestBodyPayload = null;
+    var bodyError = null;
+    for(var bodyAttempt = 0; bodyAttempt < 2; bodyAttempt += 1){
+      try{
+        var bodyCompact = Math.min(2, Math.max(retryCompactBase, bodyAttempt >= 1 ? 1 : 0, bodyAttempt >= 2 ? 2 : 0));
+        var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: bodyCompact }), bodyContext, getOfflineReplyTimeoutMs());
+        var bodyObj = parseOfflineJsonObject(bodyRaw);
+        if(!hasValidOfflineBodyPayload(bodyObj)) throw new Error('正文结构不完整');
+        if(!bestBodyPayload || openingTextLength(bodyObj.text) > openingTextLength(bestBodyPayload.text || '')){
+          bestBodyPayload = bodyObj;
+        }
+        if(!violatesOfflinePerspective(bodyObj.text, prefs.perspective) && !containsOfflineStyleViolation(bodyObj.text)){
+          bodyPayload = bodyObj;
+          break;
+        }
+      }catch(err){
+        bodyError = err;
+      }
+    }
+    if(!bodyPayload && bestBodyPayload && !violatesOfflinePerspective(bestBodyPayload.text, prefs.perspective) && !containsOfflineStyleViolation(bestBodyPayload.text)){
+      bodyPayload = bestBodyPayload;
+    }
+    if(!bodyPayload){
+      throw bodyError || new Error('正文生成失败');
+    }
+    var replyText = String(bodyPayload.text || '').trim();
+    var replyTitle = String(bodyPayload.title || '').trim();
+    var replyQuote = String(bodyPayload.quote || '').trim();
+    var replyAsides = normalizeOfflineAsides(bodyPayload.asides);
     for(var extendAttempt = 0; extendAttempt < 2; extendAttempt += 1){
       if(openingTextLength(replyText) >= minChars) break;
       var missing = minChars - openingTextLength(replyText);
-      var extendRaw = await callAIWithTimeout(buildOfflineBodyTextSystemPrompt({ compactLevel: Math.min(2, retryCompactBase + 1), thoughtChain: thoughtChain }), [
+      var extendRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: Math.min(2, retryCompactBase + 1) }), [
         '这是同一幕线下见面的续写，不要重复前文。',
         '最近线下记录（压缩）：\n' + shortOfflineHistory,
         '已经写好的正文：\n' + replyText,
         '现在还差至少 ' + missing + ' 个中文字符，请继续补足同一幕的动作、气氛、停顿、对话和身体反应。',
-        '只返回新增正文纯文本。'
+        '继续严格保持这幕已有的标题气质、语录气质和蓝字心声质感。',
+        '只返回新增内容 JSON：{"text":"...","asides":["...","..."]}'
       ].join('\n\n'), getOfflineReplyTimeoutMs());
-      var extraText = String(extendRaw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+      var extendParsed = parseOfflineJsonObject(extendRaw) || {};
+      var extraText = String(extendParsed.text || '').trim();
       if(!extraText) break;
       replyText = mergeOfflineOpeningText(replyText, extraText);
+      replyAsides = mergeOfflineAsides(replyAsides, normalizeOfflineAsides(extendParsed.asides));
     }
-    if(openingTextLength(replyText) < minChars || violatesOfflinePerspective(replyText, prefs.perspective) || containsOfflineStyleViolation(replyText)){
+    if(openingTextLength(replyText) < minChars || violatesOfflinePerspective(replyText, prefs.perspective) || containsOfflineStyleViolation(replyText) || !replyTitle || !replyQuote){
       throw new Error('回复字数不足或未通过线下正文校验（' + openingTextLength(replyText) + '/' + minChars + '）');
     }
     var nextLabels = nowLabels();
     var replyEntry = {
       role:'assistant',
       text:replyText,
-      title:buildOfflineFallbackTitle(replyText, 'assistant'),
-      quote:buildOfflineFallbackQuote(replyText, 'assistant'),
-      asides:buildOfflineAsideFallback(),
+      title:replyTitle,
+      quote:replyQuote,
+      asides:replyAsides,
       heart:'♥',
       thoughtChain: normalizeOfflineThoughtChain(thoughtChain, replyText),
       statusCard:null,
