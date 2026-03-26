@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-26T13:08:00Z';
+const APP_BUILD_ID = '2026-03-26T13:18:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -66,6 +66,8 @@ let hostedUpdateCardPending = false;
 let lastHostedUpdateCheckStatus = '';
 let chatInputFocusActive = false;
 let chatReportedKeyboardShift = 0;
+var shellActiveCharacterCache = {};
+var shellActiveChatIdCache = {};
 
 function getTopLevelChatKeyboardShift(){
   var vv = window.visualViewport;
@@ -244,6 +246,40 @@ requestPersistentStorageIfPossible();
 if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
   window.MetadataStore.init().catch(function(err){
     console.warn('MetadataStore init failed', err);
+  });
+}
+
+function shellActiveCharacterStorageId(accountId){
+  return 'shell_active_character_' + String(accountId || 'default');
+}
+
+function shellActiveChatIdStorageId(accountId){
+  return 'shell_active_chat_id_' + String(accountId || 'default');
+}
+
+function getShellAccountCacheKey(accountId){
+  return String(accountId || getActiveAccountId() || 'default');
+}
+
+function hydrateShellActiveCharacterState(){
+  var accountId = getActiveAccountId();
+  var cacheKey = getShellAccountCacheKey(accountId);
+  return Promise.all([
+    loadLargeState(shellActiveCharacterStorageId(accountId)),
+    loadLargeState(shellActiveChatIdStorageId(accountId))
+  ]).then(function(results){
+    var charData = results[0];
+    var chatId = String(results[1] || '').trim();
+    if(charData && typeof charData === 'object' && charData.id){
+      shellActiveCharacterCache[cacheKey] = charData;
+    }
+    if(chatId) shellActiveChatIdCache[cacheKey] = chatId;
+    return {
+      character: shellActiveCharacterCache[cacheKey] || null,
+      chatId: shellActiveChatIdCache[cacheKey] || ''
+    };
+  }).catch(function(){
+    return { character:null, chatId:'' };
   });
 }
 
@@ -2149,33 +2185,26 @@ function resolveShellCharacterById(charId, fallback){
 }
 
 function getActiveCharacterData(){
-  var scopedActive = null;
-  try{
-    var scoped = scopedKeyForAccount('activeCharacter', getActiveAccountId());
-    scopedActive = JSON.parse(localStorage.getItem(scoped) || 'null');
-  }catch(e){
-  }
-  try{
-    var scopedChatId = String(localStorage.getItem(scopedKeyForAccount('activeChatCharacterId', getActiveAccountId())) || '').trim();
+  var cacheKey = getShellAccountCacheKey(getActiveAccountId());
+  var scopedActive = shellActiveCharacterCache[cacheKey] || null;
+  var scopedChatId = String(shellActiveChatIdCache[cacheKey] || '').trim();
+  if(scopedChatId){
     var scopedResolved = resolveShellCharacterById(scopedChatId, scopedActive);
     if(scopedResolved && scopedResolved.id) return scopedResolved;
-  }catch(e){}
-  if(scopedActive && scopedActive.id) return resolveShellCharacterById(scopedActive.id, scopedActive) || scopedActive;
-  try{
-    var globalActive = JSON.parse(localStorage.getItem('activeCharacter') || 'null');
-    var globalChatId = String(localStorage.getItem('activeChatCharacterId') || '').trim();
-    var globalResolved = resolveShellCharacterById(globalChatId, globalActive);
-    if(globalResolved && globalResolved.id) return globalResolved;
-    if(globalActive && globalActive.id) return resolveShellCharacterById(globalActive.id, globalActive) || globalActive;
-  }catch(e){
-    return null;
   }
+  if(scopedActive && scopedActive.id) return resolveShellCharacterById(scopedActive.id, scopedActive) || scopedActive;
   return null;
 }
 
 function persistShellActiveCharacter(character){
   var slim = slimChar(character);
   if(!slim || !slim.id) return null;
+  var accountId = getActiveAccountId();
+  var cacheKey = getShellAccountCacheKey(accountId);
+  shellActiveCharacterCache[cacheKey] = slim;
+  shellActiveChatIdCache[cacheKey] = String((slim && slim.id) || '');
+  saveLargeState(shellActiveCharacterStorageId(accountId), slim).catch(function(){ return null; });
+  saveLargeState(shellActiveChatIdStorageId(accountId), String((slim && slim.id) || '')).catch(function(){ return null; });
   if(isDefaultAccountActive()){
     try{ localStorage.setItem('activeCharacter', JSON.stringify(slim)); }catch(e){}
     try{ localStorage.setItem('activeChatCharacterId', String((slim && slim.id) || '')); }catch(e){}
@@ -4794,16 +4823,11 @@ function renderHomeDockBadges(){
 
 function isViewingCharacterChat(charId){
   if(currentApp !== 'chat' || !charId) return false;
-  try{
-    var forcedId = String(localStorage.getItem(scopedKeyForAccount('activeChatCharacterId', getActiveAccountId())) || localStorage.getItem('activeChatCharacterId') || '').trim();
-    if(forcedId) return forcedId === String(charId || '');
-    var raw = localStorage.getItem(scopedKeyForAccount('activeCharacter', getActiveAccountId())) || localStorage.getItem('activeCharacter') || '';
-    if(!raw) return false;
-    var parsed = JSON.parse(raw);
-    return parsed && String(parsed.id || '') === String(charId || '');
-  }catch(e){
-    return false;
-  }
+  var cacheKey = getShellAccountCacheKey(getActiveAccountId());
+  var forcedId = String(shellActiveChatIdCache[cacheKey] || '').trim();
+  if(forcedId) return forcedId === String(charId || '');
+  var parsed = shellActiveCharacterCache[cacheKey] || null;
+  return !!(parsed && String(parsed.id || '') === String(charId || ''));
 }
 
 let aiBgTickTimer = null;
@@ -4882,10 +4906,13 @@ function restoreState(){
       if(c) setWallpaper(c); else setWallpaper('default');
     });
   } else if(wp) setWallpaper(wp);
-  try{ const c = getActiveCharacterData();
-    if(c){ setWidgetCharacter(c); }
-    renderBondWidget(c);
-  }catch(e){}
+  hydrateShellActiveCharacterState().finally(function(){
+    try{
+      const c = getActiveCharacterData();
+      if(c){ setWidgetCharacter(c); }
+      renderBondWidget(c);
+    }catch(e){}
+  });
   renderHomeDockBadges();
   refreshQqUnreadCountCache();
   try{
@@ -4986,7 +5013,11 @@ if(window.visualViewport){
 
 restoreState();
 
-window.addEventListener('focus', ()=>renderBondWidget());
+window.addEventListener('focus', ()=>{
+  hydrateShellActiveCharacterState().finally(function(){
+    renderBondWidget();
+  });
+});
 document.addEventListener('visibilitychange', ()=>{
   if(!document.hidden){
     renderBondWidget();
