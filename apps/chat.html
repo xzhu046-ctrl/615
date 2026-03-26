@@ -6055,7 +6055,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
     });
     var d = await res.json();
     if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-    return d.choices && d.choices[0] && d.choices[0].message ? d.choices[0].message.content : '';
+    return extractAiResponseText(d);
   }
 
   if (provider === 'claude') {
@@ -6071,7 +6071,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
     });
     var dClaude = await resClaude.json();
     if (dClaude.error) throw new Error(dClaude.error.message || JSON.stringify(dClaude.error));
-    return dClaude.content && dClaude.content[0] ? dClaude.content[0].text : '';
+    return extractAiResponseText(dClaude);
   }
 
   if (provider === 'gemini') {
@@ -6090,8 +6090,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
     });
     var dGemini = await resGemini.json();
     if (dGemini.error) throw new Error(dGemini.error.message || dGemini.error.status || JSON.stringify(dGemini.error));
-    return dGemini.candidates && dGemini.candidates[0] && dGemini.candidates[0].content && dGemini.candidates[0].content.parts && dGemini.candidates[0].content.parts[0]
-      ? dGemini.candidates[0].content.parts[0].text : '';
+    return extractAiResponseText(dGemini);
   }
 
   if (provider === 'openrouter') {
@@ -6107,7 +6106,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
     });
     var dOr = await resOr.json();
     if (dOr.error) throw new Error(dOr.error.message || JSON.stringify(dOr.error));
-    return dOr.choices && dOr.choices[0] && dOr.choices[0].message ? dOr.choices[0].message.content : '';
+    return extractAiResponseText(dOr);
   }
 
   if (provider === 'custom') {
@@ -6123,7 +6122,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
     });
     var dCustom = await resCustom.json();
     if (dCustom.error) throw new Error(dCustom.error.message || JSON.stringify(dCustom.error));
-    return dCustom.choices && dCustom.choices[0] && dCustom.choices[0].message ? dCustom.choices[0].message.content : '';
+    return extractAiResponseText(dCustom);
   }
 
   return '';
@@ -6711,11 +6710,13 @@ async function requestAndDeliverAiReply(provider, key){
       reply = decision.text || reply;
       pendingListenInviteDecision = null;
     }
-    hideTyping();
-    if(String(reply || '').trim()){
-      await deliverAiReply(reply);
-      clearPresenceNudgeState(character && character.id);
+    reply = String(reply == null ? '' : reply).trim();
+    if(!reply){
+      throw new Error('AI 返回了空回复');
     }
+    hideTyping();
+    await deliverAiReply(reply);
+    clearPresenceNudgeState(character && character.id);
     await saveChat(true);
     pendingMomentsChatCue = '';
     hideError();
@@ -6766,7 +6767,7 @@ async function callAI(provider, key) {
     });
     var d = await res.json();
     if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-    return d.choices[0].message.content;
+    return extractAiResponseText(d);
   }
 
   if (provider === 'claude') {
@@ -6782,7 +6783,7 @@ async function callAI(provider, key) {
     });
     var d = await res.json();
     if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-    return d.content[0].text;
+    return extractAiResponseText(d);
   }
 
   if (provider === 'gemini') {
@@ -6800,7 +6801,7 @@ async function callAI(provider, key) {
     });
     var d = await res.json();
     if (d.error) throw new Error(d.error.message || d.error.status || JSON.stringify(d.error));
-    return d.candidates[0].content.parts[0].text;
+    return extractAiResponseText(d);
   }
 
   if (provider === 'openrouter') {
@@ -6816,7 +6817,7 @@ async function callAI(provider, key) {
     });
     var d = await res.json();
     if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-    return d.choices[0].message.content;
+    return extractAiResponseText(d);
   }
 
   if (provider === 'custom') {
@@ -6836,10 +6837,55 @@ async function callAI(provider, key) {
     }
     var d = await res.json();
     if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-    return d.choices[0].message.content;
+    return extractAiResponseText(d);
   }
 
   throw new Error('未知 provider: ' + provider);
+}
+
+function extractAiResponseText(payload){
+  function pull(value){
+    if(value == null) return '';
+    if(typeof value === 'string') return value;
+    if(Array.isArray(value)){
+      return value.map(function(item){
+        if(typeof item === 'string') return item;
+        if(!item || typeof item !== 'object') return '';
+        if(typeof item.text === 'string') return item.text;
+        if(typeof item.output_text === 'string') return item.output_text;
+        if(typeof item.content === 'string') return item.content;
+        if(Array.isArray(item.content)) return pull(item.content);
+        if(item.type === 'text' && typeof item.value === 'string') return item.value;
+        if(item.type === 'output_text' && typeof item.text === 'string') return item.text;
+        if(Array.isArray(item.parts)) return pull(item.parts);
+        return '';
+      }).join('').trim();
+    }
+    if(typeof value === 'object'){
+      if(typeof value.output_text === 'string') return value.output_text;
+      if(typeof value.text === 'string') return value.text;
+      if(typeof value.content === 'string') return value.content;
+      if(Array.isArray(value.content)) return pull(value.content);
+      if(Array.isArray(value.parts)) return pull(value.parts);
+      if(value.message) return pull(value.message);
+      if(value.delta) return pull(value.delta);
+    }
+    return '';
+  }
+  if(!payload || typeof payload !== 'object') return pull(payload);
+  if(Array.isArray(payload.output)) return pull(payload.output);
+  if(typeof payload.output_text === 'string') return payload.output_text;
+  if(Array.isArray(payload.choices) && payload.choices.length){
+    var choice = payload.choices[0] || {};
+    return pull(choice.message || choice.delta || choice);
+  }
+  if(Array.isArray(payload.content) && payload.content.length){
+    return pull(payload.content);
+  }
+  if(Array.isArray(payload.candidates) && payload.candidates.length){
+    return pull(payload.candidates[0] && payload.candidates[0].content);
+  }
+  return pull(payload);
 }
 
 function getDefaultModel(p) {
