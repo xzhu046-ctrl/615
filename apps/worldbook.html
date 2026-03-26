@@ -58,7 +58,12 @@ padding:14px 14px 12px;display:flex;flex-direction:column;justify-content:space-
 }
 .folder-body::before{display:none}
 .folder-body::after{display:none}
-.folder-card.active .folder-tab-cap,.folder-card.active .folder-body{background:linear-gradient(180deg,#1a1a1a,#000);color:#fff}
+.folder-card.active .folder-tab-cap,.folder-card.active .folder-body{
+background:
+linear-gradient(180deg,rgba(8,8,8,.28),rgba(8,8,8,.72)),
+url("./assets/黑白城市.jpg") center/cover no-repeat;
+color:#fff
+}
 .folder-card.active .folder-body{border-color:#000}
 .folder-topline{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;position:relative;z-index:1}
 .folder-name{font-family:'ZCOOL KuaiLe','Nunito',sans-serif;font-size:15px;font-weight:900;line-height:1.22;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;position:relative;z-index:1}
@@ -126,7 +131,15 @@ position:absolute;left:14px;right:12px;bottom:14px;display:flex;align-items:flex
 .workspace-title{
 display:inline-flex;align-items:center;max-width:138px;font-family:'ZCOOL KuaiLe','Nunito',sans-serif;font-size:15px;font-weight:900;line-height:1.2;
 letter-spacing:.01em;color:#111;padding:6px 12px 8px;border:var(--bd);border-radius:999px;background:#fff;
-box-shadow:3px 3px 0 #0a0a0a;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;position:absolute;right:48px;top:8px;z-index:3
+box-shadow:3px 3px 0 #0a0a0a;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;position:absolute;right:60px;top:8px;z-index:3
+}
+.workspace-sign-wrap{
+position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:flex-start;gap:10px;
+padding:16px 122px 14px 14px;background:rgba(255,255,255,.95);border-top:var(--bd);z-index:1
+}
+.workspace-sign{
+font-family:'ZCOOL KuaiLe','Fredoka','Quicksand',sans-serif;font-size:17px;line-height:1.2;letter-spacing:.01em;
+word-break:break-word;cursor:pointer;position:relative;z-index:2
 }
 .home-stage{display:flex;min-height:12px}
 .home-stage-card{display:none}
@@ -217,7 +230,9 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .folder-shelf{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .folder-body{min-height:98px;padding:12px 12px 10px}
 .workspace-meta-left{min-height:224px}
-.workspace-title{font-size:14px;max-width:132px;right:42px;top:10px}
+.workspace-title{font-size:14px;max-width:132px;right:54px;top:10px}
+.workspace-sign-wrap{padding-right:114px}
+.workspace-sign{font-size:15px}
 }
 </style>
 </head>
@@ -243,6 +258,9 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
             <div class="entry-avatar-shell">
               <div class="workspace-avatar-wrap" id="workspaceAvatar">?</div>
             </div>
+          </div>
+          <div class="workspace-sign-wrap">
+            <div class="workspace-sign" id="workspaceSignature" onclick="openWorldbookSignatureEditor()">在时间的尽头我们终将相遇</div>
           </div>
         </div>
       </div>
@@ -318,6 +336,7 @@ var topCategoryPickerOpen = false;
 var folderOpened = false;
 var avatarAssetCache = {};
 var WORLD_BOOK_TEXT_EXTENSIONS = ['.txt','.md','.markdown','.doc','.docx','.rtf','.csv','.json','.jsonl','.xml','.html','.htm'];
+var WORLD_BOOK_SIGNATURE_DEFAULT = '在时间的尽头我们终将相遇';
 
 function approxTokenCount(text) {
   var src = String(text || '');
@@ -402,6 +421,24 @@ function loadStoredAsset(key){
     }
   } catch (e) {}
   try { return Promise.resolve(localStorage.getItem(key) || ''); } catch(e){ return Promise.resolve(''); }
+}
+
+function worldbookSignatureKey() {
+  return 'worldbook_signature_' + String(curCharId || UNCATEGORIZED_KEY);
+}
+
+function getWorldbookSignature() {
+  try {
+    return String(localStorage.getItem(worldbookSignatureKey()) || '').trim() || WORLD_BOOK_SIGNATURE_DEFAULT;
+  } catch (e) {
+    return WORLD_BOOK_SIGNATURE_DEFAULT;
+  }
+}
+
+function setWorldbookSignature(value) {
+  var next = String(value || '').trim() || WORLD_BOOK_SIGNATURE_DEFAULT;
+  try { localStorage.setItem(worldbookSignatureKey(), next); } catch (e) {}
+  return next;
 }
 
 function isRenderableAssetSource(src) {
@@ -541,6 +578,7 @@ function renderFolderShelf() {
 function updateWorkspaceHeader() {
   var title = document.getElementById('workspaceTitle');
   var avatar = document.getElementById('workspaceAvatar');
+  var signature = document.getElementById('workspaceSignature');
   var currentLabel = getCategoryLabel(curCharId);
   if (title) title.textContent = curCharId === UNCATEGORIZED_KEY ? currentLabel : ('@' + currentLabel);
   if (avatar) {
@@ -549,7 +587,17 @@ function updateWorkspaceHeader() {
       ? '<img src="' + escAttr(source.value) + '" alt="">'
       : esc(source.value || '☀︎');
   }
+  if (signature) signature.textContent = getWorldbookSignature();
   updateViewMode();
+}
+
+function openWorldbookSignatureEditor() {
+  var current = getWorldbookSignature();
+  var next = window.prompt('编辑个性签名', current);
+  if (next === null) return;
+  setWorldbookSignature(next);
+  updateWorkspaceHeader();
+  toast('个性签名已更新');
 }
 
 function renderTopCategoryMenu() {
