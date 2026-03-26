@@ -1284,7 +1284,7 @@ function getOfflineStoryPrefs(){
 }
 function getOfflineReplyMinChars(){
   var prefs = getOfflineStoryPrefs();
-  return Math.max(180, Math.min(prefs.minChars, Math.round(prefs.minChars * 0.72)));
+  return prefs.minChars;
 }
 function getOfflineStoryPerspectiveLabel(value){
   return value === 'second' ? '第二人称' : (value === 'third' ? '第三人称' : '第一人称');
@@ -1556,12 +1556,13 @@ function buildOfflineThoughtSystemPrompt(options){
     '你现在只负责生成线下模式这一幕的 thought_chain。',
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."}}',
     '不要正文，不要 status_card，不要 title，不要 quote，不要解释。',
-    'thought_chain 必须严格参考角色 persona、最近线上聊天、最近线下正文。',
+    'thought_chain 必须严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt。',
     '每一项都要短，不要长篇分析，不要复述正文，不要超过两小句。',
     'subtext_perception / emotional_reaction / action_strategy 都控制在 18-55 个中文字符左右。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '用户名字：' + resolveUserName(),
     '用户 persona：' + (userPersona || '未提供'),
+    buildOfflineCoreSettingSummary(compactLevel),
     onlineChatText ? ('最近线上聊天（压缩）：\n' + onlineChatText) : '最近线上聊天：无',
     historyText ? ('最近线下记录（压缩）：\n' + historyText) : '最近线下记录：无'
   ].join('\n');
@@ -1586,6 +1587,7 @@ function buildOfflineBodySystemPrompt(options){
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '用户名字：' + resolveUserName(),
     '用户 persona：' + (userPersona || '未提供'),
+    buildOfflineCoreSettingSummary(compactLevel),
     onlineChatText ? ('最近线上聊天（压缩）：\n' + onlineChatText) : '最近线上聊天：无',
     historyText ? ('最近线下记录（压缩）：\n' + historyText) : '最近线下记录：无'
   ].join('\n');
@@ -1599,9 +1601,10 @@ function buildOfflineStatusSystemPrompt(options){
     '你现在只负责生成这一幕的 status_card。',
     '只返回 JSON：{"status_card":{"future_date":"...","future_title":"...","future_note":"..."}}',
     '不要正文，不要 thought_chain，不要 title，不要 quote。',
-    'status_card 必须和这幕正文一起构成同一件事的“未来番外”，严格参考角色 persona、最近线上聊天、最近线下正文。',
+    'status_card 必须和这幕正文一起构成同一件事的“未来番外”，严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt。',
     'future_date 必须是未来某一天的具体日期与时间；future_title 必须是超级无敌搞笑、带黑色幽默或缺德网感的小标题；future_note 必须是 char 在未来回想这件事时写下的一小段番外感想/吐槽，可以好笑也可以伤感，但必须贴人设，不能模板化。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
+    buildOfflineCoreSettingSummary(compactLevel),
     onlineChatText ? ('最近线上聊天（压缩）：\n' + onlineChatText) : '最近线上聊天：无',
     historyText ? ('最近线下记录（压缩）：\n' + historyText) : '最近线下记录：无'
   ].join('\n');
@@ -1631,6 +1634,8 @@ function buildOfflineSystemPrompt(options){
   var scenario = character ? String(character.scenario || '').trim() : '';
   var systemPrompt = character ? String(character.system_prompt || '').trim() : '';
   var storyPrefs = getOfflineStoryPrefs();
+  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1500 : 2200, compactLevel, 520));
+  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 420));
   var onlineChatText = getOfflineRecentOnlineSnippet();
   onlineChatText = clipOfflinePromptText(onlineChatText, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
   var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
@@ -1647,7 +1652,7 @@ function buildOfflineSystemPrompt(options){
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个中文字符，不要太正经，但必须贴人设。',
     'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个中文字符。',
-    'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、最近线上聊天、最近线下正文与当前气氛。',
+    'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 与当前气氛。',
     'future_date 是未来某一天的具体日期与时间；future_title 要写成超级无敌搞笑、带黑色幽默网感的小标题；future_note 是 char 在未来回想这件事时写下的一小段番外感想/吐槽，可以好笑也可以伤感，但必须贴人设，不能说空话。',
     '在线下模式正文里，text 的长度严格控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间，绝对不要明显短于下限。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
@@ -1661,9 +1666,9 @@ function buildOfflineSystemPrompt(options){
     'text 至少写成 3 个自然段，每一段都用完整句子收尾；如果字数不够，就继续补充同一幕的动作、气氛、停顿、对话和身体反应，直到达到下限。',
     'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
     'heart 是右上角爱心里的短心声，2-10 个字。',
-    '下笔前必须先读并吸收这些信息，再决定怎么回复：角色 persona、用户 persona、最近线上聊天、最近线下记录、scenario、system prompt。',
+    '下笔前必须先读并吸收这些信息，再决定怎么回复：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、最近线下记录、scenario、system prompt。',
     '角色 persona 决定 char 的语气、习惯、亲密方式和反应逻辑；用户 persona 决定 char 对 user 的理解、称呼、照顾方式和互动边界。',
-    '最近线上聊天、最近线下记录、人设、scenario、system prompt 优先级极高，必须先读懂再写；不要驴唇不对马嘴，不要脱离当下话题乱写，不要 OOC，不要擅自无视设定。',
+    '最近线上聊天、最近线下记录、世界书、记忆总结、人设、scenario、system prompt 优先级极高，必须先读懂再写；不要驴唇不对马嘴，不要脱离当下话题乱写，不要 OOC，不要擅自无视设定。',
     storyPrefs.style ? ('这次线下正文的文风额外要求（必须严格执行，不要偷懒无视）：' + storyPrefs.style) : '这次线下正文的文风额外要求：保持自然、细腻、有活人感。',
     '不要 markdown，不要代码块，不要额外解释。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
@@ -1674,6 +1679,8 @@ function buildOfflineSystemPrompt(options){
     openingReference ? ('开场白 / 开场参考：' + openingReference) : '开场白 / 开场参考：无',
     compactScenario ? ('场景设定：' + compactScenario) : '场景设定：无',
     compactSystemPrompt ? ('角色补充规则：' + compactSystemPrompt) : '角色补充规则：无',
+    worldBook ? ('世界书（已启用条目）：\n' + worldBook) : '世界书（已启用条目）：无',
+    memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无',
     onlineChatText ? ('最近线上聊天：\n' + onlineChatText) : '最近线上聊天：无',
     historyText ? ('最近线下记录：\n' + historyText) : '最近线下记录：无'
   ];
@@ -1694,6 +1701,8 @@ function buildOfflineOpeningChunkSystemPrompt(){
   var scenario = character ? String(character.scenario || '').trim() : '';
   var systemPrompt = character ? String(character.system_prompt || '').trim() : '';
   var storyPrefs = getOfflineStoryPrefs();
+  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1500 : 2200, compactLevel, 520));
+  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 420));
   var onlineChatText = getOfflineRecentOnlineSnippet();
   onlineChatText = clipOfflinePromptText(onlineChatText, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
   var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
@@ -1710,7 +1719,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个中文字符，不要太正经，但必须贴人设。',
     'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个中文字符。',
-    'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、最近线上聊天、最近线下正文与当前气氛。',
+    'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 与当前气氛。',
     'future_date 是未来某一天的具体日期与时间；future_title 要写成超级无敌搞笑、带黑色幽默网感的小标题；future_note 是 char 在未来回想这件事时写下的一小段番外感想/吐槽，可以好笑也可以伤感，但必须贴人设，不能说空话。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     '正文的镜头和感知中心必须是 char 本人：重点写 char 看到的、听到的、想到的、做出的动作和反应。',
@@ -1722,9 +1731,9 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '不要使用“像受惊的小动物一样”“像护食的小动物一样”这类把人比成小动物的写法。',
     'text 至少写成 3 个自然段，每一段都用完整句子收尾。',
     'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
-    '下笔前必须先读并吸收这些信息，再决定 char 的开场方式：角色 persona、用户 persona、最近线上聊天、邀约信息、scenario、system prompt。',
+    '下笔前必须先读并吸收这些信息，再决定 char 的开场方式：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、邀约信息、scenario、system prompt。',
     '角色 persona 决定 char 的气质、说话方式和推进节奏；用户 persona 决定 char 对 user 的理解、称呼、互动分寸和照顾方式。',
-    '最近线上聊天、人设、scenario、system prompt 优先级极高，必须先读懂再写；不要脱离上下文瞎写，不要 OOC，也不要偷偷无视这些规矩。',
+    '最近线上聊天、世界书、记忆总结、人设、scenario、system prompt 优先级极高，必须先读懂再写；不要脱离上下文瞎写，不要 OOC，也不要偷偷无视这些规矩。',
     storyPrefs.style ? ('这次线下正文的文风额外要求（必须严格执行，不要偷懒无视）：' + storyPrefs.style) : '这次线下正文的文风额外要求：保持自然、细腻、有活人感。',
     '要直接进入见面的第一幕，不要总结回顾，不要写成说明书，也不要偷懒只写很短一段。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
@@ -1735,6 +1744,8 @@ function buildOfflineOpeningChunkSystemPrompt(){
     openingReference ? ('开场白 / 开场参考：' + openingReference) : '开场白 / 开场参考：无',
     compactScenario ? ('场景设定：' + compactScenario) : '场景设定：无',
     compactSystemPrompt ? ('角色补充规则：' + compactSystemPrompt) : '角色补充规则：无',
+    worldBook ? ('世界书（已启用条目）：\n' + worldBook) : '世界书（已启用条目）：无',
+    memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无',
     onlineChatText ? ('最近线上聊天：\n' + onlineChatText) : '最近线上聊天：无',
     historyText ? ('最近线下记录：\n' + historyText) : '最近线下记录：无',
     offlineOpeningBanRules()
