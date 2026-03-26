@@ -124,13 +124,13 @@ content:'';position:absolute;left:0;right:0;bottom:0;height:72px;background:rgba
 position:absolute;left:14px;right:12px;bottom:14px;display:flex;align-items:flex-start;justify-content:flex-end;gap:10px;min-width:0;z-index:2
 }
 .workspace-title{
-display:inline-flex;align-items:center;max-width:calc(100% - 112px);font-family:'ZCOOL KuaiLe','Nunito',sans-serif;font-size:15px;font-weight:900;line-height:1.2;
+display:inline-flex;align-items:center;max-width:138px;font-family:'ZCOOL KuaiLe','Nunito',sans-serif;font-size:15px;font-weight:900;line-height:1.2;
 letter-spacing:.01em;color:#111;padding:6px 12px 8px;border:var(--bd);border-radius:999px;background:#fff;
-box-shadow:3px 3px 0 #0a0a0a;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;position:relative;z-index:1;
-margin:6px -6px 0 0
+box-shadow:3px 3px 0 #0a0a0a;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;position:absolute;right:48px;top:8px;z-index:3
 }
 .home-stage{display:flex;min-height:12px}
 .home-stage-card{display:none}
+body.detail-open .main{padding-top:calc(10px + env(safe-area-inset-top))}
 
 /* Empty state */
 .empty{text-align:center;padding:34px 18px;color:var(--g);border:var(--bd);border-radius:22px;background:var(--paper);box-shadow:var(--sh)}
@@ -217,7 +217,7 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .folder-shelf{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .folder-body{min-height:98px;padding:12px 12px 10px}
 .workspace-meta-left{min-height:224px}
-.workspace-title{font-size:14px;max-width:calc(100% - 104px)}
+.workspace-title{font-size:14px;max-width:132px;right:42px;top:10px}
 }
 </style>
 </head>
@@ -464,9 +464,15 @@ function updateViewMode() {
   var shell = document.getElementById('workspaceShell');
   var home = document.getElementById('homeStage');
   var topbar = document.querySelector('.topbar');
+  document.body.classList.toggle('detail-open', !!folderOpened);
   if (shell) shell.style.display = folderOpened ? 'block' : 'none';
   if (home) home.style.display = folderOpened ? 'none' : 'flex';
   if (topbar) topbar.style.display = folderOpened ? 'none' : 'flex';
+  try {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type:'WORLDBOOK_TOPBAR', hidden: !!folderOpened }, '*');
+    }
+  } catch (e) {}
 }
 
 // ── Character selector ──
@@ -520,9 +526,9 @@ function renderFolderShelf() {
   }));
   shelf.innerHTML = cards.map(function(card) {
     var avatarHtml = card.id === UNCATEGORIZED_KEY
-      ? '<div class="folder-avatar-wrap">+</div>'
+      ? '<div class="folder-avatar-wrap">☀︎</div>'
       : renderAvatarHtml(getCharAvatarSource(card.id), 'folder-avatar-wrap');
-    return '<button class="folder-card' + (card.id === curCharId && folderOpened ? ' active' : '') + '" type="button" onpointerup="return openFolder(event,\'' + escAttr(card.id) + '\')" onclick="return false">' +
+    return '<button class="folder-card' + (card.id === curCharId ? ' active' : '') + '" type="button" onpointerup="return openFolder(event,\'' + escAttr(card.id) + '\')" onclick="return false">' +
       '<div class="folder-tab-cap">' + esc(card.cap) + '</div>' +
       '<div class="folder-body">' +
         '<div class="folder-topline"><div class="folder-name">' + esc(card.name) + '</div>' + avatarHtml + '</div>' +
@@ -538,10 +544,10 @@ function updateWorkspaceHeader() {
   var currentLabel = getCategoryLabel(curCharId);
   if (title) title.textContent = curCharId === UNCATEGORIZED_KEY ? currentLabel : ('@' + currentLabel);
   if (avatar) {
-    var source = curCharId === UNCATEGORIZED_KEY ? { type: 'text', value: '+' } : getCharAvatarSource(curCharId);
+    var source = curCharId === UNCATEGORIZED_KEY ? { type: 'text', value: '☀︎' } : getCharAvatarSource(curCharId);
     avatar.innerHTML = source.type === 'image' && source.value
       ? '<img src="' + escAttr(source.value) + '" alt="">'
-      : esc(source.value || '+');
+      : esc(source.value || '☀︎');
   }
   updateViewMode();
 }
