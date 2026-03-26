@@ -210,8 +210,6 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-status-chip::before{content:'✦';font-size:11px;line-height:1}
 .offline-status-chip.pending{background:linear-gradient(180deg,#3b3b3b,#171717)}
 .offline-status-chip:active{transform:translateY(1px)}
-.offline-streaming-tail{display:inline-block;min-width:10px;height:1.05em;margin-left:4px;border-radius:999px;background:rgba(17,17,17,.86);vertical-align:-1px;animation:offlineStreamingBlink .95s steps(1,end) infinite}
-@keyframes offlineStreamingBlink{0%,49%{opacity:1}50%,100%{opacity:.18}}
 .offline-story-hero{margin-top:14px;position:relative;padding:18px 18px 16px;border:1.5px solid rgba(20,20,20,.12);border-radius:24px;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(245,245,242,.90))}
 .offline-story-hero::before{content:'';position:absolute;inset:0;background:url('assets/花瓣掉落.gif') center/cover no-repeat;opacity:1;pointer-events:none}
 .offline-story-hero::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.14) 48%,rgba(255,255,255,.3) 100%);pointer-events:none}
@@ -1131,7 +1129,7 @@ function renderPaperStoryCard(entry, idx, isChar){
         '<div class="offline-story-quote">' + esc(meta.quote) + '</div>' +
       '</div>' +
       '<div class="offline-story-divider"></div>' +
-      '<div class="offline-story-body">' + renderCharSheetBody(entry.text || '', entry.asides || (entry.aside ? [entry.aside] : [])) + (entry.streaming ? '<span class="offline-streaming-tail" aria-hidden="true"></span>' : '') + '</div>' +
+      '<div class="offline-story-body">' + renderCharSheetBody(entry.text || '', entry.asides || (entry.aside ? [entry.aside] : [])) + '</div>' +
       (isChar ? ('<div class="offline-story-postcards">' + statusChip + summaryToggle + '</div>') : '') +
       bottomActions +
     '</div>' +
@@ -2809,32 +2807,6 @@ async function requestOfflineReply(options){
     if(!thoughtChain){
       throw thoughtErr || new Error('thought_chain 生成失败');
     }
-    var nextLabels = nowLabels();
-    var replyEntry = {
-      role:'assistant',
-      text:'',
-      title:'这一幕正在长出来',
-      quote:'先别急，他已经在靠近了。',
-      asides:[],
-      heart:'♥',
-      thoughtChain: normalizeOfflineThoughtChain(thoughtChain, ''),
-      statusCard:null,
-      statusPending:true,
-      summaryText:'',
-      bubbles:[],
-      streaming:true,
-      timeLabel:nextLabels.timeLabel,
-      meta:nextLabels.meta,
-      fullLabel: nextLabels.fullLabel,
-      createdAt: nextLabels.createdAt
-    };
-    Object.assign(replyEntry, buildOfflineEntryMeta(replyEntry, 'assistant', nextLabels, {
-      generationMs: 0,
-      tokenCount: 1
-    }));
-    session.entries.push(replyEntry);
-    saveSession();
-    renderStory();
     var bodyPrompt = buildOfflineBodyTextSystemPrompt({ compactLevel: retryCompactBase, thoughtChain: thoughtChain });
     var bodyContext = options.fromUserSend && lastUserEntry && lastUserEntry.role === 'user'
       ? buildOfflineUserPrompt(String(lastUserEntry.text || '').trim(), retryCompactBase)
@@ -2845,29 +2817,7 @@ async function requestOfflineReply(options){
           '最近线下记录（压缩）：\n' + shortOfflineHistory,
           '用户此刻没有说新话，请角色自己顺着当前氛围继续这一幕，并且直接写够完整长度，不要偷成短回复。'
         ].filter(Boolean).join('\n\n');
-    var streamAccum = '';
-    var streamed = false;
-    var lastRenderAt = 0;
-    try{
-      streamed = await callAIStreamText(bodyPrompt, bodyContext, function(piece){
-        if(!piece) return;
-        streamAccum = appendStreamPiece(streamAccum, piece);
-        replyEntry.text = streamAccum;
-        var now = Date.now();
-        if(now - lastRenderAt > 80){
-          lastRenderAt = now;
-          renderStory();
-        }
-      });
-    }catch(streamErr){
-      streamed = false;
-    }
-    if(!streamed || !String(streamAccum || '').trim()){
-      streamAccum = String(await callAIWithTimeout(bodyPrompt, bodyContext, getOfflineReplyTimeoutMs()) || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
-      replyEntry.text = streamAccum;
-      renderStory();
-    }
-    var replyText = String(streamAccum || '').trim();
+    var replyText = String(await callAIWithTimeout(bodyPrompt, bodyContext, getOfflineReplyTimeoutMs()) || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
     for(var extendAttempt = 0; extendAttempt < 2; extendAttempt += 1){
       if(openingTextLength(replyText) >= minChars) break;
       var missing = minChars - openingTextLength(replyText);
@@ -2881,34 +2831,38 @@ async function requestOfflineReply(options){
       var extraText = String(extendRaw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
       if(!extraText) break;
       replyText = mergeOfflineOpeningText(replyText, extraText);
-      replyEntry.text = replyText;
-      renderStory();
     }
     if(openingTextLength(replyText) < minChars || violatesOfflinePerspective(replyText, prefs.perspective) || containsOfflineStyleViolation(replyText)){
       throw new Error('回复字数不足或未通过线下正文校验（' + openingTextLength(replyText) + '/' + minChars + '）');
     }
-    replyEntry.text = replyText;
-    replyEntry.title = buildOfflineFallbackTitle(replyText, 'assistant');
-    replyEntry.quote = buildOfflineFallbackQuote(replyText, 'assistant');
-    replyEntry.asides = buildOfflineAsideFallback();
-    replyEntry.streaming = false;
+    var nextLabels = nowLabels();
+    var replyEntry = {
+      role:'assistant',
+      text:replyText,
+      title:buildOfflineFallbackTitle(replyText, 'assistant'),
+      quote:buildOfflineFallbackQuote(replyText, 'assistant'),
+      asides:buildOfflineAsideFallback(),
+      heart:'♥',
+      thoughtChain: normalizeOfflineThoughtChain(thoughtChain, replyText),
+      statusCard:null,
+      statusPending:true,
+      summaryText:'',
+      bubbles:[],
+      timeLabel:nextLabels.timeLabel,
+      meta:nextLabels.meta,
+      fullLabel: nextLabels.fullLabel,
+      createdAt: nextLabels.createdAt
+    };
     Object.assign(replyEntry, buildOfflineEntryMeta(replyEntry, 'assistant', nextLabels, {
       generationMs: Date.now() - replyStartedAt
     }));
+    session.entries.push(replyEntry);
     saveSession();
     queueOfflineSummaryGeneration(replyEntry);
     queueOfflineStatusCardGeneration(replyEntry);
     renderStory();
     keepOfflineComposerVisible();
   }catch(e){
-    if(Array.isArray(session && session.entries) && session.entries.length){
-      var maybeLast = session.entries[session.entries.length - 1];
-      if(maybeLast && maybeLast.role === 'assistant' && maybeLast.streaming){
-        session.entries.pop();
-        saveSession();
-        renderStory();
-      }
-    }
     toast('线下回复生成失败：' + summarizeOfflineError(e), { sticky:true });
   }finally{
     sending = false;
