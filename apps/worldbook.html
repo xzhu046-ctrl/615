@@ -109,11 +109,11 @@ display:grid;grid-template-columns:minmax(0,1fr);align-items:center;gap:12px;pad
 .workspace-meta-left::before{
 content:'';position:absolute;left:-14px;right:-6px;bottom:-14px;height:88px;
 background:
-linear-gradient(180deg,rgba(255,255,255,0) 0%, rgba(255,255,255,.2) 24%, rgba(17,17,17,.36) 100%),
+linear-gradient(180deg,rgba(255,255,255,0) 0%, rgba(255,255,255,.08) 20%, rgba(12,12,12,.22) 100%),
 url("./assets/海边小屋.webp") center bottom/cover no-repeat;
-filter:grayscale(1) contrast(1.05);
+filter:none;
 border-radius:18px;
-opacity:.78;
+opacity:.98;
 pointer-events:none
 }
 .workspace-title-row{display:flex;align-items:center;gap:12px;min-width:0}
@@ -385,6 +385,11 @@ function loadStoredAsset(key){
   try { return Promise.resolve(localStorage.getItem(key) || ''); } catch(e){ return Promise.resolve(''); }
 }
 
+function isRenderableAssetSource(src) {
+  var value = String(src || '').trim();
+  return !!(value && value !== '__asset__' && (value.indexOf('data:') === 0 || value.indexOf('blob:') === 0 || value.indexOf('http') === 0 || value.indexOf('/') === 0 || value.indexOf('./') === 0 || value.indexOf('../') === 0));
+}
+
 function getCharById(id) {
   for (var i = 0; i < chars.length; i++) {
     if (chars[i] && chars[i].id === id) return chars[i];
@@ -397,7 +402,7 @@ function readStoredCharAvatar(charId) {
   if (avatarAssetCache[charId]) return avatarAssetCache[charId];
   try {
     var direct = String(localStorage.getItem('char_avatar_' + charId) || '').trim();
-    if (direct) {
+    if (isRenderableAssetSource(direct)) {
       avatarAssetCache[charId] = direct;
       return direct;
     }
@@ -410,7 +415,7 @@ function requestStoredCharAvatar(charId) {
   if (!charId || avatarAssetCache[charId]) return;
   loadStoredAsset('char_avatar_' + charId).then(function(src) {
     var clean = String(src || '').trim();
-    if (!clean) return;
+    if (!isRenderableAssetSource(clean)) return;
     avatarAssetCache[charId] = clean;
     renderFolderShelf();
     updateWorkspaceHeader();
@@ -422,7 +427,8 @@ function getCharAvatarSource(charId) {
   var override = readStoredCharAvatar(charId);
   requestStoredCharAvatar(charId);
   if (override) return { type: 'image', value: override };
-  if (c && c.imageData) return { type: 'image', value: c.imageData };
+  if (c && isRenderableAssetSource(c.imageData)) return { type: 'image', value: c.imageData };
+  if (c && isRenderableAssetSource(c.avatar)) return { type: 'image', value: c.avatar };
   if (c && c.avatar) return { type: 'text', value: c.avatar };
   return { type: 'text', value: c && c.name ? String(c.name).trim().slice(0, 1) : '?' };
 }
