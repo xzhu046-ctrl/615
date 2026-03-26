@@ -152,6 +152,8 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
 </style>
 <script src="../assetStore.js"></script>
 <script src="../accountManager.js"></script>
+<script src="../chatStorage.js"></script>
+<script src="../metadataStore.js"></script>
 </head>
 <body>
 
@@ -420,6 +422,30 @@ function saveStoredAsset(key, value){
   }
 }
 
+function getStoredCharactersSnapshot(){
+  if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
+    return window.MetadataStore.getCharactersSync();
+  }
+  try{
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    return Array.isArray(list) ? list : [];
+  }catch(err){
+    return [];
+  }
+}
+
+function getStoredWorldbooksSnapshot(){
+  if(window.MetadataStore && typeof window.MetadataStore.getWorldbooksSync === 'function'){
+    return window.MetadataStore.getWorldbooksSync();
+  }
+  try{
+    var data = JSON.parse(localStorage.getItem('worldbooks') || '{}');
+    return data && typeof data === 'object' ? data : {};
+  }catch(err){
+    return {};
+  }
+}
+
 function hydrateAvatarAssets(){
   chars.forEach(function(c){
     if(!c || !c.id) return;
@@ -488,7 +514,7 @@ function slimChar(c){
 
 // ── Storage ──
 function load() {
-  try { chars = JSON.parse(localStorage.getItem('characters') || '[]'); } catch(e){ chars=[]; }
+  chars = getStoredCharactersSnapshot();
   if(!Array.isArray(chars)) chars = [];
   if(window.AccountManager){
     var active = window.AccountManager.getActive();
@@ -503,7 +529,11 @@ function load() {
       return c;
     });
     if(changed){
-      try{ localStorage.setItem('characters', JSON.stringify(chars)); }catch(err){}
+      if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
+        window.MetadataStore.saveCharacters(chars).catch(function(){});
+      }else{
+        try{ localStorage.setItem('characters', JSON.stringify(chars)); }catch(err){}
+      }
     }
   }
   try { var a = JSON.parse(localStorage.getItem('activeCharacter')||'null'); if(a) activeCharId=a.id||''; } catch(e){}
@@ -513,7 +543,13 @@ function safeSet(key, val) {
   try { localStorage.setItem(key, val); return true; }
   catch(e) { console.warn('localStorage set failed for', key, e); return false; }
 }
-function saveCharsWithFallback(lastCard) {
+async function saveCharsWithFallback(lastCard) {
+  if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
+    try{
+      await window.MetadataStore.saveCharacters(chars);
+      return true;
+    }catch(err){}
+  }
   if (safeSet('characters', JSON.stringify(chars))) return true;
   // Fallback 1: drop large fields on the newest card then retry
   var changed = false;
@@ -645,7 +681,7 @@ function openDetail(c) {
   // World book info
   var wbHtml = '暂无世界书数据';
   try {
-    var wbs = JSON.parse(localStorage.getItem('worldbooks')||'{}');
+    var wbs = getStoredWorldbooksSnapshot();
     var cWbs = wbs[c.id]||[];
     var globalTotal = Object.keys(wbs || {}).reduce(function(n, key) {
       return n + (wbs[key] || []).reduce(function(sum, wb) {
@@ -705,7 +741,7 @@ function closeCreate(){
   ['cr-name','cr-nick','cr-avatar','cr-desc','cr-avatar-file'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; });
   avatarUpload = '';
 }
-function createChar() {
+async function createChar() {
   var name = document.getElementById('cr-name').value.trim();
   if(!name){ alert('请填写姓名'); return; }
   var nick = document.getElementById('cr-nick').value.trim();
@@ -723,7 +759,7 @@ function createChar() {
     avatarAssetCache[id] = avatarUpload;
   }
   chars.push(c);
-  save(); updateCount(); renderList();
+  await save(); updateCount(); renderList();
   closeCreate();
   log('已创建: ' + name);
   maybeAskFriendRequest(c.id);
@@ -979,15 +1015,17 @@ function deleteChar() {
   if (!curChar) return;
   if (!confirm('确认删除 '+curChar.name+'？')) return;
   chars = chars.filter(function(c){ return c.id !== curChar.id; });
-  save(); updateCount(); renderList(); closeDetail();
-  log('已删除 '+curChar.name);
+  Promise.resolve(save()).then(function(){
+    updateCount(); renderList(); closeDetail();
+    log('已删除 '+curChar.name);
+  });
 }
 
 function getCharacterWorldbookExport(charId, charName) {
   var list = [];
   var seen = {};
   try{
-    var buckets = JSON.parse(localStorage.getItem('worldbooks') || '{}') || {};
+    var buckets = getStoredWorldbooksSnapshot();
     Object.keys(buckets).forEach(function(bucketKey){
       var bucket = Array.isArray(buckets[bucketKey]) ? buckets[bucketKey] : [];
       bucket.forEach(function(wb){
@@ -1942,7 +1980,7 @@ function parseCard(jsonStr, imageData, filename) {
 function autoImportWorldBook(card, charBook) {
   try {
     var allWbs = {};
-    try { allWbs = JSON.parse(localStorage.getItem('worldbooks')||'{}'); } catch(e){}
+    allWbs = getStoredWorldbooksSnapshot();
     if (!allWbs[card.id]) allWbs[card.id] = [];
 
     function normalizeWbIdentity(value){
@@ -2003,7 +2041,11 @@ function autoImportWorldBook(card, charBook) {
         global: false,
         entries: trimmed
       });
-      if (!safeSet('worldbooks', JSON.stringify(allWbs))) {
+      if(window.MetadataStore && typeof window.MetadataStore.saveWorldbooks === 'function'){
+        window.MetadataStore.saveWorldbooks(allWbs).catch(function(){
+          log('世界书太大，未全部导入（存储超限）');
+        });
+      }else if (!safeSet('worldbooks', JSON.stringify(allWbs))) {
         log('世界书太大，未全部导入（存储超限）');
       }
     }
@@ -2070,7 +2112,11 @@ document.addEventListener('input', function(e){
   try{ target.setSelectionRange(start, end); }catch(err){}
 }, true);
 
-load(); hydrateAvatarAssets(); renderList();
+Promise.resolve(window.MetadataStore && typeof window.MetadataStore.init === 'function' ? window.MetadataStore.init() : null)
+  .catch(function(){ return null; })
+  .then(function(){
+    load(); hydrateAvatarAssets(); renderList();
+  });
 </script>
 </body>
 </html>

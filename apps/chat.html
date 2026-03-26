@@ -9,6 +9,7 @@
 <script src="../accountManager.js"></script>
 <script src="../assetStore.js"></script>
 <script src="../chatStorage.js"></script>
+<script src="../metadataStore.js"></script>
 <script src="../presenceShared.js"></script>
 <script src="offlineInvite.js"></script>
 <style>
@@ -2528,7 +2529,7 @@ function getSharedCharacterId(){
   try{
     var did = window.AccountManager.getDefaultId() || '';
     if(!did) return currentId;
-    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    var list = getStoredCharactersSnapshot();
     if(!Array.isArray(list)) return currentId;
     var currentName = normalizeNameLite(character.nickname || character.name || '');
     var match = list.find(function(item){
@@ -3206,6 +3207,43 @@ function removeJsonFromLargeStore(id){
   });
 }
 
+function getStoredCharactersSnapshot(){
+  if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
+    return window.MetadataStore.getCharactersSync();
+  }
+  try{
+    var list = getStoredCharactersSnapshot();
+    return Array.isArray(list) ? list : [];
+  }catch(err){
+    return [];
+  }
+}
+
+function saveStoredCharactersSnapshot(list){
+  if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
+    return window.MetadataStore.saveCharacters(list);
+  }
+  try{ localStorage.setItem('characters', JSON.stringify(list)); }catch(err){}
+  return Promise.resolve(Array.isArray(list) ? list : []);
+}
+
+function getStoredWorldbooksSnapshot(){
+  if(window.MetadataStore && typeof window.MetadataStore.getWorldbooksSync === 'function'){
+    return window.MetadataStore.getWorldbooksSync();
+  }
+  try{
+    var data = JSON.parse(localStorage.getItem('worldbooks') || '{}');
+    return data && typeof data === 'object' ? data : {};
+  }catch(err){
+    return {};
+  }
+}
+if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
+  window.MetadataStore.init().catch(function(err){
+    console.warn('MetadataStore init failed', err);
+  });
+}
+
 function normalizeMomentsFreq(value){
   var v = String(value || '').toLowerCase();
   if(v === 'low' || v === 'high' || v === 'medium') return v;
@@ -3693,7 +3731,7 @@ function findCharacterByMomentActorName(name){
   var target = String(name || '').trim();
   if(!target) return null;
   try{
-    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    var list = getStoredCharactersSnapshot();
     if(!Array.isArray(list)) return null;
     for(var i = 0; i < list.length; i++){
       var item = list[i];
@@ -5033,7 +5071,7 @@ function userKey(base){
 function ensureMsgRange(){
   if(!character) return;
   try{
-    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    var list = getStoredCharactersSnapshot();
     var activeAcctId = '';
     try{ if(window.AccountManager) activeAcctId = (window.AccountManager.getActive()||{}).id || ''; }catch(err){}
     var rec = list.find(function(c){
@@ -5081,7 +5119,7 @@ function resolveCharacterFromRoster(charId, fallback){
   var safeId = String(charId || '').trim();
   if(!safeId) return fallback || null;
   try{
-    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    var list = getStoredCharactersSnapshot();
     if(!Array.isArray(list)) return fallback || null;
     var activeAcctId = '';
     try{
@@ -5639,7 +5677,7 @@ function isWbEntryEnabled(entry){
 function getApplicableWorldBooks() {
   if (!character) return [];
   var allWbs = {};
-  try { allWbs = JSON.parse(localStorage.getItem('worldbooks') || '{}'); } catch(e) { allWbs = {}; }
+  try { allWbs = getStoredWorldbooksSnapshot(); } catch(e) { allWbs = {}; }
   var savedStates = getSavedWbBookStates();
   var sharedCharId = getSharedCharacterId();
   var books = [];
@@ -10279,7 +10317,7 @@ function getChatExportWorldbook(){
   var out = [];
   var seen = {};
   try{
-    var buckets = JSON.parse(localStorage.getItem('worldbooks') || '{}') || {};
+    var buckets = getStoredWorldbooksSnapshot();
     Object.keys(buckets).forEach(function(bucketKey){
       var bucket = Array.isArray(buckets[bucketKey]) ? buckets[bucketKey] : [];
       bucket.forEach(function(wb){
@@ -11652,7 +11690,7 @@ async function saveChatSettings() {
 function persistCharacter(){
   if(!character) return;
   try{
-    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    var list = getStoredCharactersSnapshot();
     var activeAcctId = '';
     try{ if(window.AccountManager) activeAcctId = (window.AccountManager.getActive()||{}).id || ''; }catch(err){}
     var idx = list.findIndex(function(c){
@@ -11670,7 +11708,7 @@ function persistCharacter(){
     }else{
       list.push(nextChar);
     }
-    localStorage.setItem('characters', JSON.stringify(list));
+    saveStoredCharactersSnapshot(list).catch(function(){});
     var slim = compactChar(character);
     if(slim && isDefaultAccountContext()) localStorage.setItem('activeCharacter', JSON.stringify(slim));
     if(slim) localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim));

@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-26T12:47:00Z';
+const APP_BUILD_ID = '2026-03-26T13:08:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -219,6 +219,18 @@ function saveLargeState(id, data){
   return Promise.resolve(data || null);
 }
 
+function getStoredCharactersSnapshot(){
+  if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
+    return window.MetadataStore.getCharactersSync();
+  }
+  try{
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    return Array.isArray(list) ? list : [];
+  }catch(err){
+    return [];
+  }
+}
+
 function requestPersistentStorageIfPossible(){
   if(persistentStorageRequestStarted) return;
   persistentStorageRequestStarted = true;
@@ -229,6 +241,11 @@ function requestPersistentStorageIfPossible(){
   }
 }
 requestPersistentStorageIfPossible();
+if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
+  window.MetadataStore.init().catch(function(err){
+    console.warn('MetadataStore init failed', err);
+  });
+}
 
 function hasSavedPhoneFramePreference(){
   const saved = localStorage.getItem(PHONE_FRAME_STORAGE_KEY);
@@ -990,11 +1007,7 @@ function isDefaultAccountActive(){
 async function getBackgroundCharacter(){
   var defaultId = getDefaultAccountId();
   if(!defaultId) return null;
-  var chars = [];
-  try{
-    chars = JSON.parse(localStorage.getItem('characters') || '[]');
-    if(!Array.isArray(chars)) chars = [];
-  }catch(e){ chars = []; }
+  var chars = getStoredCharactersSnapshot();
   chars.forEach(function(c){
     if(c && !c.ownerAccountId) c.ownerAccountId = defaultId;
   });
@@ -2118,8 +2131,7 @@ function resolveShellCharacterById(charId, fallback){
   var safeId = String(charId || '').trim();
   if(!safeId) return fallback || null;
   try{
-    var list = JSON.parse(localStorage.getItem('characters') || '[]');
-    if(!Array.isArray(list)) list = [];
+    var list = getStoredCharactersSnapshot();
     var activeAcctId = getActiveAccountId();
     var match = list.find(function(item){
       if(!item || String(item.id || '') !== safeId) return false;
@@ -4662,11 +4674,7 @@ function getQqUnreadCountForActive(){
       activeId = (active && active.id) || '';
     }
   }catch(e){}
-  var chars = [];
-  try{
-    chars = JSON.parse(localStorage.getItem('characters') || '[]');
-    if(!Array.isArray(chars)) chars = [];
-  }catch(e){ chars = []; }
+  var chars = getStoredCharactersSnapshot();
   var defaultId = '';
   try{ defaultId = window.AccountManager ? (window.AccountManager.getDefaultId() || '') : ''; }catch(e){ defaultId = ''; }
   chars = chars.map(function(c){

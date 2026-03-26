@@ -1,0 +1,173 @@
+(function(global){
+  'use strict';
+
+  var CHARACTERS_KEY = 'meta_characters_v1';
+  var WORLDBOOKS_KEY = 'meta_worldbooks_v1';
+  var listeners = [];
+  var cache = {
+    characters: null,
+    worldbooks: null
+  };
+  var pending = {
+    characters: null,
+    worldbooks: null
+  };
+
+  function cloneJson(value){
+    try{
+      return JSON.parse(JSON.stringify(value));
+    }catch(err){
+      return value;
+    }
+  }
+
+  function safeParseJson(raw, fallback){
+    try{
+      var parsed = JSON.parse(raw);
+      return parsed == null ? fallback : parsed;
+    }catch(err){
+      return fallback;
+    }
+  }
+
+  function readLegacyCharacters(){
+    var list = safeParseJson(global.localStorage.getItem('characters') || '[]', []);
+    return Array.isArray(list) ? list : [];
+  }
+
+  function readLegacyWorldbooks(){
+    var data = safeParseJson(global.localStorage.getItem('worldbooks') || '{}', {});
+    return data && typeof data === 'object' ? data : {};
+  }
+
+  function removeLegacyKey(key){
+    try{ global.localStorage.removeItem(key); }catch(err){}
+  }
+
+  function notify(topic){
+    listeners.slice().forEach(function(fn){
+      try{ fn(topic); }catch(err){}
+    });
+    try{
+      global.dispatchEvent(new CustomEvent('metadata-store-updated', { detail:{ topic: topic } }));
+    }catch(err){}
+  }
+
+  function loadCharacters(){
+    if(Array.isArray(cache.characters)) return Promise.resolve(cloneJson(cache.characters));
+    if(pending.characters) return pending.characters.then(cloneJson);
+    pending.characters = Promise.resolve()
+      .then(function(){
+        if(global.PhoneStorage && typeof global.PhoneStorage.getJson === 'function'){
+          return global.PhoneStorage.getJson(CHARACTERS_KEY).catch(function(){ return null; });
+        }
+        return null;
+      })
+      .then(function(stored){
+        var next = Array.isArray(stored) ? stored : readLegacyCharacters();
+        cache.characters = Array.isArray(next) ? next : [];
+        if(!Array.isArray(stored) && cache.characters.length && global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
+          global.PhoneStorage.putJson(CHARACTERS_KEY, cache.characters).then(function(){
+            removeLegacyKey('characters');
+          }).catch(function(){});
+        }
+        return cache.characters;
+      })
+      .finally(function(){
+        pending.characters = null;
+      });
+    return pending.characters.then(cloneJson);
+  }
+
+  function loadWorldbooks(){
+    if(cache.worldbooks && typeof cache.worldbooks === 'object') return Promise.resolve(cloneJson(cache.worldbooks));
+    if(pending.worldbooks) return pending.worldbooks.then(cloneJson);
+    pending.worldbooks = Promise.resolve()
+      .then(function(){
+        if(global.PhoneStorage && typeof global.PhoneStorage.getJson === 'function'){
+          return global.PhoneStorage.getJson(WORLDBOOKS_KEY).catch(function(){ return null; });
+        }
+        return null;
+      })
+      .then(function(stored){
+        var next = (stored && typeof stored === 'object') ? stored : readLegacyWorldbooks();
+        cache.worldbooks = next && typeof next === 'object' ? next : {};
+        if((!stored || typeof stored !== 'object') && Object.keys(cache.worldbooks).length && global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
+          global.PhoneStorage.putJson(WORLDBOOKS_KEY, cache.worldbooks).then(function(){
+            removeLegacyKey('worldbooks');
+          }).catch(function(){});
+        }
+        return cache.worldbooks;
+      })
+      .finally(function(){
+        pending.worldbooks = null;
+      });
+    return pending.worldbooks.then(cloneJson);
+  }
+
+  function saveCharacters(list){
+    cache.characters = Array.isArray(list) ? cloneJson(list) : [];
+    if(global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
+      return global.PhoneStorage.putJson(CHARACTERS_KEY, cache.characters).then(function(data){
+        removeLegacyKey('characters');
+        notify('characters');
+        return cloneJson(data || cache.characters);
+      });
+    }
+    try{ global.localStorage.setItem('characters', JSON.stringify(cache.characters)); }catch(err){}
+    notify('characters');
+    return Promise.resolve(cloneJson(cache.characters));
+  }
+
+  function saveWorldbooks(data){
+    cache.worldbooks = (data && typeof data === 'object') ? cloneJson(data) : {};
+    if(global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
+      return global.PhoneStorage.putJson(WORLDBOOKS_KEY, cache.worldbooks).then(function(next){
+        removeLegacyKey('worldbooks');
+        notify('worldbooks');
+        return cloneJson(next || cache.worldbooks);
+      });
+    }
+    try{ global.localStorage.setItem('worldbooks', JSON.stringify(cache.worldbooks)); }catch(err){}
+    notify('worldbooks');
+    return Promise.resolve(cloneJson(cache.worldbooks));
+  }
+
+  function getCharactersSync(){
+    if(Array.isArray(cache.characters)) return cloneJson(cache.characters);
+    var legacy = readLegacyCharacters();
+    cache.characters = legacy;
+    return cloneJson(legacy);
+  }
+
+  function getWorldbooksSync(){
+    if(cache.worldbooks && typeof cache.worldbooks === 'object') return cloneJson(cache.worldbooks);
+    var legacy = readLegacyWorldbooks();
+    cache.worldbooks = legacy;
+    return cloneJson(legacy);
+  }
+
+  function init(){
+    return Promise.all([loadCharacters(), loadWorldbooks()]);
+  }
+
+  function subscribe(fn){
+    if(typeof fn !== 'function') return function(){};
+    listeners.push(fn);
+    return function(){
+      var idx = listeners.indexOf(fn);
+      if(idx >= 0) listeners.splice(idx, 1);
+    };
+  }
+
+  global.MetadataStore = {
+    init: init,
+    loadCharacters: loadCharacters,
+    loadWorldbooks: loadWorldbooks,
+    saveCharacters: saveCharacters,
+    saveWorldbooks: saveWorldbooks,
+    getCharactersSync: getCharactersSync,
+    getWorldbooksSync: getWorldbooksSync,
+    subscribe: subscribe
+  };
+})(window);

@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-26T12:47:00Z';
+const CACHE_VERSION = '2026-03-26T13:08:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -7,6 +7,7 @@ const CORE_URLS = [
   './main.js',
   './assetStore.js',
   './chatStorage.js',
+  './metadataStore.js',
   './presenceShared.js',
   './manifest.webmanifest',
   './version.json',
@@ -97,7 +98,7 @@ self.addEventListener('fetch', (event)=>{
   const url = new URL(event.request.url);
   const isNavigate = event.request.mode === 'navigate';
   const isDocument = event.request.destination === 'document' || /\.html?$/i.test(url.pathname) || url.pathname === '/';
-  const isShellAsset = /(?:^|\/)(?:main\.js|style\.css|assetStore\.js|chatStorage\.js|avatar-frames\.js|manifest\.webmanifest|version\.json)$/i.test(url.pathname);
+  const isShellAsset = /(?:^|\/)(?:main\.js|style\.css|assetStore\.js|chatStorage\.js|metadataStore\.js|avatar-frames\.js|manifest\.webmanifest|version\.json)$/i.test(url.pathname);
   const isImageOrFont = /(?:png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|otf)$/i.test(url.pathname);
 
   if(isNavigate || isDocument){
