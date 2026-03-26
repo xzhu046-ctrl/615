@@ -4415,7 +4415,23 @@ function normalizeChatPreviewType(type){
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
   if(type === 'family_card' || type === 'familycard') return 'familycard';
   if(type === 'money_packet' || type === 'moneypacket' || type === 'transfer') return 'moneypacket';
+  if(type === 'offline_invite' || type === 'offlineinvite') return 'offlineinvite';
   return 'text';
+}
+
+function summarizeOfflineInvitePreview(content){
+  var raw = content;
+  try{
+    if(typeof raw === 'string'){
+      raw = JSON.parse(raw);
+    }
+  }catch(e){}
+  var invite = raw && typeof raw === 'object' ? raw : null;
+  if(!invite) return '【线下邀约】';
+  var text = String(invite.content || invite.summary || '').trim();
+  var location = String(invite.location || '').trim();
+  if(text && location) return text + ' · ' + location;
+  return text || location || '【线下邀约】';
 }
 
 function normalizePreviewMessage(msg){
@@ -4435,6 +4451,9 @@ function normalizePreviewMessage(msg){
     }catch(e){
       return { content: '【红包】', type: 'text' };
     }
+  }
+  if(kind === 'offlineinvite'){
+    return { content: summarizeOfflineInvitePreview(next.content), type: 'text' };
   }
   if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
     try{
