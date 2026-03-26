@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-26T09:44:00Z';
+const APP_BUILD_ID = '2026-03-26T09:52:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2114,16 +2114,47 @@ function openPlaceholderMiniApp(idx){
   showHomeToast('占位' + idx + ' 暂未设置');
 }
 
+function resolveShellCharacterById(charId, fallback){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return fallback || null;
+  try{
+    var list = JSON.parse(localStorage.getItem('characters') || '[]');
+    if(!Array.isArray(list)) list = [];
+    var activeAcctId = getActiveAccountId();
+    var match = list.find(function(item){
+      if(!item || String(item.id || '') !== safeId) return false;
+      if(!activeAcctId) return true;
+      return !item.ownerAccountId || String(item.ownerAccountId) === activeAcctId;
+    });
+    if(!match){
+      match = list.find(function(item){
+        return item && String(item.id || '') === safeId;
+      }) || null;
+    }
+    if(match) return Object.assign({}, match, fallback && String(fallback.id || '') === safeId ? fallback : {});
+  }catch(e){}
+  return fallback || null;
+}
+
 function getActiveCharacterData(){
+  var scopedActive = null;
   try{
     var scoped = scopedKeyForAccount('activeCharacter', getActiveAccountId());
-    var scopedActive = JSON.parse(localStorage.getItem(scoped) || 'null');
-    if(scopedActive && scopedActive.id) return scopedActive;
+    scopedActive = JSON.parse(localStorage.getItem(scoped) || 'null');
   }catch(e){
   }
   try{
+    var scopedChatId = String(localStorage.getItem(scopedKeyForAccount('activeChatCharacterId', getActiveAccountId())) || '').trim();
+    var scopedResolved = resolveShellCharacterById(scopedChatId, scopedActive);
+    if(scopedResolved && scopedResolved.id) return scopedResolved;
+  }catch(e){}
+  if(scopedActive && scopedActive.id) return resolveShellCharacterById(scopedActive.id, scopedActive) || scopedActive;
+  try{
     var globalActive = JSON.parse(localStorage.getItem('activeCharacter') || 'null');
-    if(globalActive && globalActive.id) return globalActive;
+    var globalChatId = String(localStorage.getItem('activeChatCharacterId') || '').trim();
+    var globalResolved = resolveShellCharacterById(globalChatId, globalActive);
+    if(globalResolved && globalResolved.id) return globalResolved;
+    if(globalActive && globalActive.id) return resolveShellCharacterById(globalActive.id, globalActive) || globalActive;
   }catch(e){
     return null;
   }
