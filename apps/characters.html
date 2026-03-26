@@ -532,6 +532,14 @@ function saveCharsWithFallback(lastCard) {
   return false;
 }
 function save() { return saveCharsWithFallback(null); }
+
+function makeStoredCharacterCard(card) {
+  var stored = Object.assign({}, card || {});
+  if (stored.imageData) stored.imageData = '';
+  if (stored.character_book) delete stored.character_book;
+  if (stored.world_info) delete stored.world_info;
+  return stored;
+}
 function getVisibleChars(){
   if(!window.AccountManager) return chars.slice();
   var acct = window.AccountManager.getActive();
@@ -1859,9 +1867,6 @@ function parseCard(jsonStr, imageData, filename) {
       card.imageData = null;
     }
 
-    // Auto-import character_book entries as world book
-    if (charBook) autoImportWorldBook(card, charBook);
-
     function normalizeImportName(value){
       return String(value || '').trim().toLowerCase().replace(/\s+/g, '');
     }
@@ -1880,30 +1885,41 @@ function parseCard(jsonStr, imageData, filename) {
     }
 
     function doImportNow(){
+      var storedCard = makeStoredCharacterCard(card);
       var existIdx = chars.findIndex(function(c){
-        return c && c.id === card.id && c.ownerAccountId === card.ownerAccountId;
+        return c && c.id === storedCard.id && c.ownerAccountId === storedCard.ownerAccountId;
       });
       if (existIdx >= 0) {
         var existingCard = chars[existIdx];
-        if(shouldReuseImportedId(existingCard, card)){
+        if(shouldReuseImportedId(existingCard, storedCard)){
           var oldId = existingCard.id;
           card.id = oldId;
-          chars[existIdx] = card;
-          log('已更新: ' + card.name + (charBook ? ' (含世界书 ✓)' : ''));
+          storedCard.id = oldId;
+          chars[existIdx] = storedCard;
         }else{
           card.id = mintImportedCharacterId(card.id || card.name || 'c');
-          chars.push(card);
+          storedCard.id = card.id;
+          chars.push(storedCard);
           log('检测到角色卡 ID 冲突，已为 ' + card.name + ' 分配新身份');
-          log('已导入: ' + card.name + (charBook ? ' · 世界书已载入 ✓' : '') +
-            (card.alternate_greetings.length ? ' · ' + (card.alternate_greetings.length+1) + '条开场白' : ''));
         }
       } else {
-        chars.push(card);
-        log('已导入: ' + card.name + (charBook ? ' · 世界书已载入 ✓' : '') +
-          (card.alternate_greetings.length ? ' · ' + (card.alternate_greetings.length+1) + '条开场白' : ''));
+        chars.push(storedCard);
       }
-      if(card.imageData){ saveStoredAsset('char_avatar_' + card.id, card.imageData); avatarAssetCache[card.id] = card.imageData; }
-      saveCharsWithFallback(card); updateCount(); renderList();
+      if(card.imageData){
+        saveStoredAsset('char_avatar_' + card.id, card.imageData);
+        avatarAssetCache[card.id] = card.imageData;
+      }
+      if (!saveCharsWithFallback(storedCard)) {
+        chars = chars.filter(function(c){ return !(c && c.id === storedCard.id && c.ownerAccountId === storedCard.ownerAccountId); });
+        renderList();
+        updateCount();
+        log('导入失败：角色没有保存下来，请先清一点存储空间');
+        return;
+      }
+      if (charBook) autoImportWorldBook(card, charBook);
+      log('已导入: ' + card.name + (charBook ? ' · 世界书已载入 ✓' : '') +
+        (card.alternate_greetings.length ? ' · ' + (card.alternate_greetings.length+1) + '条开场白' : ''));
+      updateCount(); renderList();
       window.parent.postMessage({ type:'CHARACTER_IMPORTED', payload:card }, '*');
     }
 
