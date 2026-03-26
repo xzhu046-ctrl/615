@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-26T09:32:00Z';
+const APP_BUILD_ID = '2026-03-26T09:44:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2142,6 +2142,20 @@ function persistShellActiveCharacter(character){
   return slim;
 }
 
+function getCurrentForegroundCharacter(){
+  try{
+    var frame = document.getElementById('app-iframe');
+    var win = frame && frame.contentWindow ? frame.contentWindow : null;
+    if(win && currentApp === 'chat'){
+      var liveChar = win.character;
+      if(liveChar && liveChar.id){
+        return slimChar(liveChar);
+      }
+    }
+  }catch(e){}
+  return getActiveCharacterData();
+}
+
 function getChatUserName(charId){
   if(!charId) return 'USER';
   var activeId = getActiveAccountId();
@@ -3923,6 +3937,10 @@ async function flushCurrentAppState(){
 
 async function performCloseApp(){
   await flushCurrentAppState();
+  var foregroundChar = getCurrentForegroundCharacter();
+  if(foregroundChar && foregroundChar.id){
+    persistShellActiveCharacter(foregroundChar);
+  }
   appStack.length = 0;
   currentApp = null;
   const outer = document.querySelector('.phone-outer');
@@ -3944,7 +3962,7 @@ async function performCloseApp(){
   chatReportedKeyboardShift = 0;
   document.getElementById('home-screen').classList.remove('hidden');
   try{
-    const c = getActiveCharacterData();
+    const c = foregroundChar && foregroundChar.id ? foregroundChar : getActiveCharacterData();
     if(c) setWidgetCharacter(c);
     renderBondWidget(c);
   }catch(e){
@@ -4104,6 +4122,13 @@ function applyIframeSafeAreaOverrides(){
 function openApp(id) {
   if(!APP_MAP[id]) return Promise.resolve();
   return runAppTransition(async function(){
+    if(id === 'worldbook'){
+      var activeForWorldbook = currentApp === 'chat' ? getCurrentForegroundCharacter() : getActiveCharacterData();
+      var wbCharId = String((activeForWorldbook && activeForWorldbook.id) || '').trim();
+      if(wbCharId){
+        try{ localStorage.setItem('wbCharId', wbCharId); }catch(err){}
+      }
+    }
     if(currentApp === id){
       if(appStack[appStack.length-1] !== id) appStack.push(id);
       return;
@@ -4119,6 +4144,13 @@ function openApp(id) {
 function replaceApp(id){
   if(!APP_MAP[id]) return Promise.resolve();
   return runAppTransition(async function(){
+    if(id === 'worldbook'){
+      var activeForWorldbook = currentApp === 'chat' ? getCurrentForegroundCharacter() : getActiveCharacterData();
+      var wbCharId = String((activeForWorldbook && activeForWorldbook.id) || '').trim();
+      if(wbCharId){
+        try{ localStorage.setItem('wbCharId', wbCharId); }catch(err){}
+      }
+    }
     if(currentApp){
       await flushCurrentAppState();
     }
