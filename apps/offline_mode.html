@@ -597,6 +597,17 @@ function saveSession(){
   try{
     localStorage.setItem('offline_meet_session_' + String(character.id || '').trim(), serialized);
   }catch(e){}
+  try{
+    var snap = snapshotOfflineSessionState(session);
+    if(hasMeaningfulOfflineSession(snap)){
+      var archiveId = upsertOfflineArchive(snap, {
+        status: 'pending',
+        reason: 'autosave',
+        archiveId: session.archiveId || (snap && snap.archiveId) || ''
+      });
+      if(archiveId) session.archiveId = archiveId;
+    }
+  }catch(e){}
 }
 function loadSession(){
   if(character && character.id){
@@ -2383,10 +2394,22 @@ async function requestOfflineReply(options){
     await hydrateOfflineMemorySnippet();
     var prefs = getOfflineStoryPrefs();
     var minChars = prefs.minChars;
+    var sceneDepth = Array.isArray(session && session.entries) ? session.entries.length : 0;
+    var compactBase = sceneDepth >= 10 ? 2 : (sceneDepth >= 4 ? 1 : 0);
+    var onlineSnippet = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, compactBase, 180)) || '无';
+    var shortOfflineHistory = clipOfflinePromptText(formatOfflineHistory(compactBase >= 1 ? 3 : 4) || '无', offlinePromptLimit(isMobileOfflineRuntime() ? 760 : 1100, compactBase, 220)) || '无';
+    var safeInvite = session && session.invite && typeof session.invite === 'object'
+      ? {
+          content: String(session.invite.content || '').trim(),
+          mood: String(session.invite.mood || '').trim(),
+          weather: String(session.invite.weather || '').trim(),
+          location: String(session.invite.location || '').trim()
+        }
+      : null;
     var replyContextBase = [
       '这是一次已经开始的线下见面，请顺着当前氛围继续。',
-      session && session.invite ? ('邀约背景：' + JSON.stringify(session.invite)) : '',
-      '最近线上聊天：\n' + (getOfflineRecentOnlineSnippet() || '无'),
+      safeInvite ? ('邀约背景：' + JSON.stringify(safeInvite)) : '',
+      '最近线上聊天（压缩）：\n' + onlineSnippet,
       '用户此刻没有说新话，请角色自己顺着当前氛围继续这一幕，并且直接写够完整长度，不要偷成短回复。'
     ].filter(Boolean);
     var thoughtChain = null;
@@ -2394,7 +2417,7 @@ async function requestOfflineReply(options){
     var bestBody = null;
     for(var thoughtAttempt = 0; thoughtAttempt < 3; thoughtAttempt += 1){
       try{
-        var thoughtCompact = thoughtAttempt >= 2 ? 2 : thoughtAttempt;
+        var thoughtCompact = Math.max(compactBase, thoughtAttempt >= 2 ? 2 : thoughtAttempt);
         var thoughtRaw = await callAIWithTimeout(buildOfflineThoughtSystemPrompt({ compactLevel: thoughtCompact }), replyContextBase.join('\n\n'), Math.min(getOfflineReplyTimeoutMs(), 90000));
         var thoughtObj = parseOfflineJsonObject(thoughtRaw);
         if(hasValidOfflineThoughtPayload(thoughtObj)){
@@ -2406,10 +2429,10 @@ async function requestOfflineReply(options){
       }
     }
     for(var attempt = 0; attempt < 3; attempt += 1){
-      var compactLevel = attempt >= 2 ? 2 : (attempt >= 1 ? 1 : 0);
+      var compactLevel = Math.max(compactBase, attempt >= 2 ? 2 : (attempt >= 1 ? 1 : 0));
       try{
         var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: compactLevel }), replyContextBase.concat([
-          '最近线下记录：\n' + (clipOfflinePromptText(formatOfflineHistory(compactLevel >= 2 ? 4 : 6) || '无', offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360)) || '无')
+          '最近线下记录（压缩）：\n' + shortOfflineHistory
         ]).join('\n\n'), getOfflineReplyTimeoutMs());
         var bodyObj = parseOfflineJsonObject(bodyRaw);
         if(!hasValidOfflineBodyPayload(bodyObj)) throw new Error('正文结构不完整');
@@ -2433,10 +2456,10 @@ async function requestOfflineReply(options){
     for(var extendAttempt = 0; extendAttempt < 2; extendAttempt += 1){
       if(openingTextLength(replyText) >= minChars) break;
       var missing = minChars - openingTextLength(replyText);
-      var extendCompact = extendAttempt >= 1 ? 1 : 0;
+      var extendCompact = Math.max(compactBase, extendAttempt >= 1 ? 2 : 1);
       var extendRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: extendCompact }), [
         '这是同一幕线下见面的续写，不要重复前文。',
-        '最近线下记录：\n' + (clipOfflinePromptText(formatOfflineHistory(extendCompact >= 1 ? 4 : 6) || '无', offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, extendCompact, 360)) || '无'),
+        '最近线下记录（压缩）：\n' + shortOfflineHistory,
         '已经写好的正文：\n' + replyText,
         '现在还差至少 ' + missing + ' 个中文字符，请继续补足同一幕的动作、气氛、停顿、对话和身体反应。',
         '只返回新增内容 JSON：{"text":"...","asides":["...","..."]}'
@@ -2449,9 +2472,9 @@ async function requestOfflineReply(options){
     }
     for(var statusAttempt = 0; statusAttempt < 3; statusAttempt += 1){
       try{
-        var statusCompact = statusAttempt >= 2 ? 2 : statusAttempt;
+        var statusCompact = Math.max(compactBase + 1, statusAttempt >= 2 ? 2 : statusAttempt);
         var statusRaw = await callAIWithTimeout(buildOfflineStatusSystemPrompt({ compactLevel: statusCompact }), replyContextBase.concat([
-          '最近线下记录：\n' + (clipOfflinePromptText(formatOfflineHistory(statusCompact >= 2 ? 4 : 6) || '无', offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, statusCompact, 360)) || '无'),
+          '最近线下记录（压缩）：\n' + shortOfflineHistory,
           '这一幕已经写好的正文：\n' + replyText
         ]).join('\n\n'), Math.min(getOfflineReplyTimeoutMs(), 90000));
         var statusObj = parseOfflineJsonObject(statusRaw);
@@ -2466,9 +2489,9 @@ async function requestOfflineReply(options){
     if((!parsed.title || !parsed.quote || !String(replyText || '').trim() || !parsed.thought_chain || !parsed.status_card)){
       try{
         var combinedContext = replyContextBase.concat([
-          '最近线下记录：\n' + (clipOfflinePromptText(formatOfflineHistory(4) || '无', offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, 0, 360)) || '无')
+          '最近线下记录（压缩）：\n' + shortOfflineHistory
         ]).join('\n\n');
-        var combinedRaw = await callAIWithTimeout(buildOfflineSystemPrompt({ compactLevel: 0 }), combinedContext, Math.min(getOfflineReplyTimeoutMs(), 110000));
+        var combinedRaw = await callAIWithTimeout(buildOfflineSystemPrompt({ compactLevel: Math.max(1, compactBase + 1) }), combinedContext, Math.min(getOfflineReplyTimeoutMs(), 110000));
         var combinedObj = parseOfflineJsonObject(combinedRaw);
         if(hasValidOfflineCombinedPayload(combinedObj)){
           parsed = Object.assign({}, parsed, combinedObj);
