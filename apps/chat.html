@@ -6539,22 +6539,27 @@ function onKey(e) {
 
 // Just adds the user's message to the chat — no AI call
 async function sendOnly() {
-  if(!canSendNow()) return;
-  var input = document.getElementById('msg-input');
-  var text = input.value.trim();
-  if (!text || isTyping) return;
-  input.value = ''; input.style.height = 'auto';
-  var entry = makeChatEntry('user', text, 'text');
-  entry.replyToId = replyTargetId;
-  consumeFirstUserTurn(character && character.id);
-  chatLog.push(entry);
-  addMessage('user', text, true, 'text', entry.id);
-  markLocalChatDirty();
-  registerPresenceNudge('message');
-  clearReplyTarget();
-  await saveChat(true);
-  hideError();
-  captureUserMomentIntent(text, 'text');
+  try{
+    if(!canSendNow()) return;
+    var input = document.getElementById('msg-input');
+    var text = input.value.trim();
+    if (!text || isTyping) return;
+    input.value = ''; input.style.height = 'auto';
+    var entry = makeChatEntry('user', text, 'text');
+    entry.replyToId = replyTargetId;
+    consumeFirstUserTurn(character && character.id);
+    chatLog.push(entry);
+    addMessage('user', text, true, 'text', entry.id);
+    markLocalChatDirty();
+    registerPresenceNudge('message');
+    clearReplyTarget();
+    await saveChat(true);
+    hideError();
+    captureUserMomentIntent(text, 'text');
+  }catch(err){
+    console.error('sendOnly error:', err);
+    showError('发送失败: ' + humanizeAiError(err));
+  }
 }
 
 async function maybeHandlePresenceAutoReply(){
@@ -6580,76 +6585,90 @@ async function maybeHandlePresenceAutoReply(){
 
 // Triggers AI to reply (either to existing last message or sends+replies)
 async function triggerReply() {
-  if(!canSendNow()) return;
-  if (isTyping) return;
-  await waitForPendingChatSave();
-  skipNextStorageSync = false;
+  try{
+    if(!canSendNow()) return;
+    if (isTyping) return;
+    await waitForPendingChatSave();
+    skipNextStorageSync = false;
 
-  var input = document.getElementById('msg-input');
-  var text = input.value.trim();
-  var hasFreshFamilyCooldown = !!(character && !text && hasPendingFamilyRequestForChar(character.id) && (Date.now() - lastFamilyHandledAt < 1800));
-  if(hasFreshFamilyCooldown) return;
-  if (text) {
-    input.value = ''; input.style.height = 'auto';
-    var entry = makeChatEntry('user', text, 'text');
-    entry.replyToId = replyTargetId;
-    consumeFirstUserTurn(character && character.id);
-    chatLog.push(entry);
-    addMessage('user', text, true, 'text', entry.id);
-    markLocalChatDirty();
-    registerPresenceNudge('message-request');
-    clearReplyTarget();
-    await saveChat(true);
-    captureUserMomentIntent(text, 'text');
-  }else{
-    registerPresenceNudge('request');
-  }
-  var familyReplyId = await handlePendingFamilyCardReply();
-  if(markUserMessagesReadByChar()){
-    await saveChat(true);
-    renderChatLog(true);
-  }
-  if(familyReplyId){
-    pendingMomentsChatCue = '';
-    pendingFamilyFollowupCue = '';
-    pendingModelUserCue = '';
-    return;
-  }
-  var moneyReplyId = await handlePendingMoneyPacketReply(true);
-  if(moneyReplyId){
-    pendingMomentsChatCue = '';
-    pendingFamilyFollowupCue = '';
-    pendingModelUserCue = '';
-    return;
-  }
+    var input = document.getElementById('msg-input');
+    var text = input.value.trim();
+    var hasFreshFamilyCooldown = !!(character && !text && hasPendingFamilyRequestForChar(character.id) && (Date.now() - lastFamilyHandledAt < 1800));
+    if(hasFreshFamilyCooldown) return;
+    if (text) {
+      input.value = ''; input.style.height = 'auto';
+      var entry = makeChatEntry('user', text, 'text');
+      entry.replyToId = replyTargetId;
+      consumeFirstUserTurn(character && character.id);
+      chatLog.push(entry);
+      addMessage('user', text, true, 'text', entry.id);
+      markLocalChatDirty();
+      registerPresenceNudge('message-request');
+      clearReplyTarget();
+      await saveChat(true);
+      captureUserMomentIntent(text, 'text');
+    }else{
+      registerPresenceNudge('request');
+    }
+    var familyReplyId = await handlePendingFamilyCardReply();
+    if(markUserMessagesReadByChar()){
+      await saveChat(true);
+      renderChatLog(true);
+    }
+    if(familyReplyId){
+      pendingMomentsChatCue = '';
+      pendingFamilyFollowupCue = '';
+      pendingModelUserCue = '';
+      return;
+    }
+    var moneyReplyId = await handlePendingMoneyPacketReply(true);
+    if(moneyReplyId){
+      pendingMomentsChatCue = '';
+      pendingFamilyFollowupCue = '';
+      pendingModelUserCue = '';
+      return;
+    }
 
-  // Now get AI reply
-  if(await maybeHandlePresenceAutoReply()){
+    if(await maybeHandlePresenceAutoReply()){
+      pendingMomentsChatCue = '';
+      pendingFamilyFollowupCue = '';
+      pendingModelUserCue = '';
+      return;
+    }
+    var provider = localStorage.getItem('provider') || 'openai';
+    var key = localStorage.getItem('key_' + provider);
+    if (!key) {
+      toast('亲爱的user，请先设置api哦');
+      return;
+    }
+    hideError();
+    pendingMomentsChatCue = processMomentsInteractionsOnTrigger();
+    var familyFollowCue = familyReplyId
+      ? '你刚刚已经对亲属卡作出决定。现在请紧接着上一条亲属卡回复之后，继续发送一条自然的正文消息。不要重复卡片结论，不要输出 JSON。'
+      : '';
+    pendingModelUserCue = [pendingModelUserCue, familyFollowCue].filter(Boolean).join('\n');
+    var offlineInviteReplyHandled = await handlePendingOfflineInviteReply();
+    if(offlineInviteReplyHandled){
+      pendingMomentsChatCue = '';
+      pendingFamilyFollowupCue = '';
+      pendingModelUserCue = '';
+      return;
+    }
+    await requestAndDeliverAiReply(provider, key);
+  }catch(err){
+    console.error('triggerReply error:', err);
     pendingMomentsChatCue = '';
     pendingFamilyFollowupCue = '';
     pendingModelUserCue = '';
-    return;
+    pendingListenInviteDecision = null;
+    isTyping = false;
+    hideTyping();
+    var genBtn = document.getElementById('genBtn');
+    var sendBtn = document.getElementById('sendBtn');
+    if(genBtn) genBtn.disabled = false;
+    if(sendBtn) sendBtn.disabled = false;
+    showError('发送失败: ' + humanizeAiError(err));
   }
-  var provider = localStorage.getItem('provider') || 'openai';
-  var key = localStorage.getItem('key_' + provider);
-  if (!key) {
-    toast('亲爱的user，请先设置api哦');
-    return;
-  }
-  hideError();
-  pendingMomentsChatCue = processMomentsInteractionsOnTrigger();
-  var familyFollowCue = familyReplyId
-    ? '你刚刚已经对亲属卡作出决定。现在请紧接着上一条亲属卡回复之后，继续发送一条自然的正文消息。不要重复卡片结论，不要输出 JSON。'
-    : '';
-  pendingModelUserCue = [pendingModelUserCue, familyFollowCue].filter(Boolean).join('\n');
-  var offlineInviteReplyHandled = await handlePendingOfflineInviteReply();
-  if(offlineInviteReplyHandled){
-    pendingMomentsChatCue = '';
-    pendingFamilyFollowupCue = '';
-    pendingModelUserCue = '';
-    return;
-  }
-  await requestAndDeliverAiReply(provider, key);
 }
 
 async function requestAndDeliverAiReply(provider, key){
