@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-26T11:03:00Z';
+const APP_BUILD_ID = '2026-03-26T11:16:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -4006,6 +4006,9 @@ function buildAppFrameUrl(src){
   try{
     var url = new URL(String(src || ''), window.location.href);
     url.searchParams.set('__appBuild', APP_BUILD_ID);
+    if(/\/apps\/worldbook\.html$/i.test(url.pathname || '')){
+      url.searchParams.set('__ts', String(Date.now()));
+    }
     if(/\/apps\/chat\.html$/i.test(url.pathname || '') && pendingOpenChatCharId){
       url.searchParams.set('char', String(pendingOpenChatCharId || '').trim());
       if(pendingOpenChatNonce){

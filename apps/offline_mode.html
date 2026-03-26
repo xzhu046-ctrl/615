@@ -1282,6 +1282,10 @@ function getOfflineStoryPrefs(){
   if(!/^(first|second|third)$/.test(perspective)) perspective = 'first';
   return { minChars:minChars, maxChars:maxChars, perspective:perspective, style:style };
 }
+function getOfflineReplyMinChars(){
+  var prefs = getOfflineStoryPrefs();
+  return Math.max(180, Math.min(prefs.minChars, Math.round(prefs.minChars * 0.72)));
+}
 function getOfflineStoryPerspectiveLabel(value){
   return value === 'second' ? '第二人称' : (value === 'third' ? '第三人称' : '第一人称');
 }
@@ -2217,7 +2221,24 @@ async function generateOpeningIfNeeded(){
       '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 1800 : 2800) || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
+    try{
+      var fastCombinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingContext, Math.min(plan.mainTimeout, 90000));
+      var fastCombinedObj = parseOfflineJsonObject(fastCombinedRaw);
+      if(hasValidOfflineCombinedPayload(fastCombinedObj)){
+        openingThoughtChain = fastCombinedObj.thought_chain;
+        openingStatusCard = fastCombinedObj.status_card;
+        openingTitle = String(fastCombinedObj.title || '').trim();
+        openingQuote = String(fastCombinedObj.quote || '').trim();
+        openingText = String(fastCombinedObj.text || '').trim();
+        openingAsides = normalizeOfflineAsides(fastCombinedObj.asides);
+        bestText = openingText;
+        bestAsides = openingAsides.slice();
+      }
+    }catch(fastCombinedErr){
+      lastError = fastCombinedErr;
+    }
     for(var thoughtAttempt = 0; thoughtAttempt < 3; thoughtAttempt += 1){
+      if(openingThoughtChain) break;
       try{
         var thoughtCompact = thoughtAttempt >= 2 ? 2 : thoughtAttempt;
         var thoughtRaw = await callAIWithTimeout(buildOfflineThoughtSystemPrompt({ compactLevel: thoughtCompact }), openingContext, Math.min(plan.mainTimeout, 90000));
@@ -2231,6 +2252,7 @@ async function generateOpeningIfNeeded(){
       }
     }
     for(var attempt = 0; attempt < plan.attempts; attempt += 1){
+      if(openingTextLength(openingText) >= minChars && openingTitle && openingQuote) break;
       try{
         var compactLevel = attempt >= 3 ? 2 : (attempt >= 1 ? 1 : 0);
         var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: compactLevel }), openingContext, plan.mainTimeout);
@@ -2401,7 +2423,7 @@ async function requestOfflineReply(options){
     var replyStartedAt = Date.now();
     await hydrateOfflineMemorySnippet();
     var prefs = getOfflineStoryPrefs();
-    var minChars = prefs.minChars;
+    var minChars = getOfflineReplyMinChars();
     var sceneDepth = Array.isArray(session && session.entries) ? session.entries.length : 0;
     var compactBase = sceneDepth >= 10 ? 2 : (sceneDepth >= 4 ? 1 : 0);
     var safeInvite = session && session.invite && typeof session.invite === 'object'
@@ -2440,10 +2462,26 @@ async function requestOfflineReply(options){
           '最近线上聊天（压缩）：\n' + onlineSnippet,
           '用户此刻没有说新话，请角色自己顺着当前氛围继续这一幕，并且直接写够完整长度，不要偷成短回复。'
         ].filter(Boolean);
+        var combinedContext = replyContextBase.concat([
+          '最近线下记录（压缩）：\n' + shortOfflineHistory
+        ]).join('\n\n');
         thoughtChain = null;
         parsed = { title:'', quote:'', text:'', asides:[], heart:'♥', thought_chain:null, status_card:null };
         var bestBody = null;
+        try{
+          var fastCombinedRaw = await callAIWithTimeout(buildOfflineSystemPrompt({ compactLevel: retryCompactBase }), combinedContext, Math.min(getOfflineReplyTimeoutMs(), 90000));
+          var fastCombinedObj = parseOfflineJsonObject(fastCombinedRaw);
+          if(hasValidOfflineCombinedPayload(fastCombinedObj)){
+            parsed = Object.assign({}, parsed, fastCombinedObj);
+            thoughtChain = fastCombinedObj.thought_chain;
+            replyText = String(fastCombinedObj.text || '').trim();
+          }
+        }catch(fastCombinedErr){
+          lastError = fastCombinedErr;
+          if(isOfflineQuotaLikeError(fastCombinedErr)) throw fastCombinedErr;
+        }
         for(var thoughtAttempt = 0; thoughtAttempt < 3; thoughtAttempt += 1){
+          if(thoughtChain) break;
           var thoughtCompact = Math.min(2, Math.max(retryCompactBase, thoughtAttempt >= 1 ? 1 : 0, thoughtAttempt >= 2 ? 2 : 0));
           try{
             var thoughtRaw = await callAIWithTimeout(buildOfflineThoughtSystemPrompt({ compactLevel: thoughtCompact }), replyContextBase.join('\n\n'), Math.min(getOfflineReplyTimeoutMs(), 90000));
@@ -2458,6 +2496,7 @@ async function requestOfflineReply(options){
           }
         }
         for(var attempt = 0; attempt < 3; attempt += 1){
+          if(String(parsed.text || '').trim() && String(parsed.title || '').trim() && String(parsed.quote || '').trim()) break;
           var compactLevel = Math.min(2, Math.max(retryCompactBase, attempt >= 1 ? 1 : 0, attempt >= 2 ? 2 : 0));
           try{
             var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: compactLevel }), replyContextBase.concat([
@@ -2527,9 +2566,6 @@ async function requestOfflineReply(options){
         }
         if((!parsed.title || !parsed.quote || !String(replyText || '').trim() || !parsed.thought_chain || !parsed.status_card)){
           try{
-            var combinedContext = replyContextBase.concat([
-              '最近线下记录（压缩）：\n' + shortOfflineHistory
-            ]).join('\n\n');
             var combinedRaw = await callAIWithTimeout(buildOfflineSystemPrompt({ compactLevel: Math.min(2, Math.max(1, retryCompactBase + 1)) }), combinedContext, Math.min(getOfflineReplyTimeoutMs(), 110000));
             var combinedObj = parseOfflineJsonObject(combinedRaw);
             if(hasValidOfflineCombinedPayload(combinedObj)){
