@@ -11652,7 +11652,7 @@ async function saveChatSettings() {
       window.PresenceShared.saveCharSettings(character.id, character.livePresence);
     }
     updateHeader();
-    persistCharacter();
+    await persistCharacter();
     var slim = compactChar(character);
     persistActiveCharacterSnapshot(slim);
     postToShell({type:'SET_ACTIVE_CHARACTER', payload: slim});
@@ -11688,7 +11688,8 @@ async function saveChatSettings() {
 }
 
 function persistCharacter(){
-  if(!character) return;
+  if(!character) return Promise.resolve();
+  var slim = compactChar(character);
   try{
     var list = getStoredCharactersSnapshot();
     var activeAcctId = '';
@@ -11708,11 +11709,15 @@ function persistCharacter(){
     }else{
       list.push(nextChar);
     }
-    saveStoredCharactersSnapshot(list).catch(function(){});
-    var slim = compactChar(character);
-    if(slim && isDefaultAccountContext()) localStorage.setItem('activeCharacter', JSON.stringify(slim));
-    if(slim) localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim));
+    return saveStoredCharactersSnapshot(list).catch(function(){ return null; }).then(function(result){
+      if(slim && isDefaultAccountContext()) localStorage.setItem('activeCharacter', JSON.stringify(slim));
+      if(slim) localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim));
+      return result;
+    });
   }catch(e){}
+  if(slim && isDefaultAccountContext()) localStorage.setItem('activeCharacter', JSON.stringify(slim));
+  if(slim) localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim));
+  return Promise.resolve();
 }
 
 function sleep(ms){

@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-26T14:12:00Z';
+const APP_BUILD_ID = '2026-03-26T14:18:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -975,6 +975,10 @@ function slimChar(c){
     first_mes:c.first_mes, alternate_greetings:c.alternate_greetings,
     tags:c.tags, character_version:c.character_version, spec:c.spec, creator:c.creator,
     msgMin:c.msgMin, msgMax:c.msgMax,
+    offlineInviteMin:c.offlineInviteMin,
+    offlineInviteMax:c.offlineInviteMax,
+    offlineInvitePerspective:c.offlineInvitePerspective,
+    offlineInviteStyle:c.offlineInviteStyle,
     livePresenceWorldHint:String(c.livePresenceWorldHint||''),
     livePresence:(c.livePresence && typeof c.livePresence === 'object') ? Object.assign({}, c.livePresence) : null
   };
