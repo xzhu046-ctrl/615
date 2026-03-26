@@ -252,6 +252,7 @@ ${blockPolicy}` : ''}
       name = '角色',
       persona = '',
       worldBook = '',
+      memory = '',
       history = '',
       latestReply = ''
     } = ctx;
@@ -259,6 +260,7 @@ ${blockPolicy}` : ''}
       `角色名：${name}`,
       `角色人设：${String(persona || '').slice(0, 1200)}`,
       worldBook ? `已启用世界书：\n${String(worldBook).slice(0, 1800)}` : '已启用世界书：无',
+      memory ? `最近记忆总结：\n${String(memory || '').slice(0, 1800)}` : '最近记忆总结：无',
       history ? `最近对话：\n${history}` : '最近对话：无',
       latestReply ? `本轮角色回复：${latestReply}` : ''
     ].join('\n\n');

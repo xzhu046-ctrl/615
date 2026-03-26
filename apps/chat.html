@@ -9791,22 +9791,39 @@ function normalizeInnerVoiceSeed(seedText){
   return picked.slice(0, 48);
 }
 
-function fallbackInnerVoice(seedText){
-  var seed = normalizeInnerVoiceSeed(seedText);
-  var persona = String((character && (character.personality || character.description || '')) || '').toLowerCase();
-  if(!seed) seed = '对话继续推进';
-  var normalPrefix = '他在想';
-  if(/温柔|治愈|体贴|gentle|soft/.test(persona)) normalPrefix = '他心里一软，想着';
-  else if(/傲娇|毒舌|嘴硬|tsundere/.test(persona)) normalPrefix = '他嘴上不说，心里想着';
-  else if(/高冷|冷淡|克制|cool|cold/.test(persona)) normalPrefix = '他冷静地想着';
-  var desireLine = '他想把关系往更亲密、更有掌控感的方向推进。';
-  if(/占有|病娇|偏执|possessive|obsess/.test(persona)){
-    desireLine = '他想把主动权握在自己手里，让这段关系只朝他想要的方向发展。';
+function getLatestInnerVoiceItem(){
+  var store = loadInnerVoiceStore();
+  if(store && store.current && (String(store.current.normal || '').trim() || String(store.current.desire || '').trim())){
+    return store.current;
   }
-  return {
-    normal: normalPrefix + '：' + seed + '。',
-    desire: desireLine
-  };
+  var items = Array.isArray(store && store.items) ? store.items : [];
+  for(var i = items.length - 1; i >= 0; i -= 1){
+    var item = items[i];
+    if(item && (String(item.normal || '').trim() || String(item.desire || '').trim())){
+      return item;
+    }
+  }
+  return null;
+}
+
+function buildInnerVoiceHistoryForPrompt(limit){
+  return (chatLog || []).slice(-Math.max(10, Number(limit) || 16)).map(function(m){
+    var content = String(m && m.content || '').replace(/\s+/g, ' ').trim();
+    if(!content || (m && m.hidden)) return '';
+    var kind = normalizeMessageType(m.type || 'text');
+    if(kind === 'voice') content = '语音：' + content;
+    else if(kind === 'image') content = '图片：' + content;
+    else if(kind === 'moneypacket') content = moneyPacketSummaryText(content);
+    else if(kind === 'offlineinvite') content = offlineInviteSummaryText(content);
+    return (m.role === 'user' ? '用户' : '角色') + '：' + content;
+  }).filter(Boolean).join('\n');
+}
+
+function buildInnerVoiceMemorySnippet(limit){
+  var items = Array.isArray(memorySummaryStoreCache && memorySummaryStoreCache.items) ? memorySummaryStoreCache.items : [];
+  return items.slice(-Math.max(2, Number(limit) || 4)).map(function(it){
+    return String((it && it.text) || '').trim();
+  }).filter(Boolean).join('\n');
 }
 
 async function refreshInnerVoiceFromAi(seedText){
@@ -9817,21 +9834,22 @@ async function refreshInnerVoiceFromAi(seedText){
   var baseSys = policyBundle.innerVoiceSystem || [
     '你是角色本人的“内心独白生成器”。',
     '仅返回 JSON：{"normal":"...","desire":"..."}，不要 markdown，不要解释。',
-    'normal：写角色当下正常内心想法，简短自然。',
-    'desire：写角色不受道德约束的隐秘欲望，允许大胆直白，但仍需与当前关系和对话相关。',
+    '必须严格代入角色此刻的连续心理活动，先读懂最近对话、记忆总结、世界书和刚发出的回复，再写。',
+    'normal：写角色当下正常内心想法，要具体、连贯、像真的脑内句子，不要偷懒写空话，长度控制在 40-120 个中文字符。',
+    'desire：写角色更深一层、不会直接说出口的隐秘欲望，必须贴当前关系和上下文，长度控制在 50-160 个中文字符。',
     '不要复读用户原句，不要输出文件名，不要输出空字符串。'
   ].join('\n');
-  var shortHistory = chatLog.slice(-8).map(function(m){
-    return (m.role === 'user' ? '用户' : '角色') + '：' + String(m.content || '').replace(/\s+/g, ' ').trim();
-  }).join('\n');
+  var shortHistory = buildInnerVoiceHistoryForPrompt(16);
+  var memorySnippet = buildInnerVoiceMemorySnippet(4);
   var innerWb = getStrictPromptWorldbookEntries().map(function(e){
     return String((e && e.content) || '').trim();
-  }).filter(Boolean).join('\n\n').slice(0, 1800);
+  }).filter(Boolean).join('\n\n').slice(0, 2200);
   var userPrompt = (promptManager && typeof promptManager.innerVoiceUserPrompt === 'function')
     ? promptManager.innerVoiceUserPrompt({
       name: character.nickname || character.name || '角色',
       persona: character.personality || character.description || '',
       worldBook: innerWb,
+      memory: memorySnippet,
       history: shortHistory,
       latestReply: seedText || ''
     })
@@ -9839,27 +9857,33 @@ async function refreshInnerVoiceFromAi(seedText){
       '角色名：' + (character.nickname || character.name || '角色'),
       '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
       innerWb ? ('已启用世界书：\n' + innerWb) : '已启用世界书：无',
+      memorySnippet ? ('最近记忆总结：\n' + memorySnippet) : '最近记忆总结：无',
       shortHistory ? ('最近对话：\n' + shortHistory) : '最近对话：无',
       seedText ? ('本轮角色回复：' + seedText) : ''
     ].join('\n\n');
   try{
     var parsed = null;
-    for(var attempt = 0; attempt < 2; attempt++){
-      var strictPrompt = userPrompt + '\n\n只允许输出 JSON 对象，键名必须是 normal 与 desire。';
+    for(var attempt = 0; attempt < 3; attempt++){
+      var strictPrompt = userPrompt + '\n\n只允许输出 JSON 对象，键名必须是 normal 与 desire。两段都必须是新的、具体的、贴当前上下文的内心句子。';
       var raw = await callAIWithCustomPrompts(baseSys, strictPrompt);
       var candidate = parseInnerVoiceResult(raw);
-      if(candidate && candidate.normal && candidate.desire){
+      if(candidate && candidate.normal && candidate.desire && candidate.normal.length >= 12 && candidate.desire.length >= 16){
         parsed = candidate;
         break;
       }
     }
-    if(!parsed) parsed = fallbackInnerVoice(seedText);
+    if(!parsed) return;
     var item = {
       id: 'iv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
       normal: String(parsed.normal || '').trim(),
       desire: String(parsed.desire || '').trim(),
       at: Date.now()
     };
+    if(!item.normal || !item.desire) return;
+    var prev = getLatestInnerVoiceItem();
+    if(prev && String(prev.normal || '').trim() === item.normal && String(prev.desire || '').trim() === item.desire){
+      return;
+    }
     var store = loadInnerVoiceStore();
     store.current = item;
     store.items = (store.items || []).concat([item]).slice(-120);
@@ -9869,18 +9893,6 @@ async function refreshInnerVoiceFromAi(seedText){
       renderInnerVoiceOverlay();
     }
   }catch(e){
-    var fb = fallbackInnerVoice(seedText);
-    var item2 = {
-      id: 'iv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
-      normal: fb.normal,
-      desire: fb.desire,
-      at: Date.now()
-    };
-    var store2 = loadInnerVoiceStore();
-    store2.current = item2;
-    store2.items = (store2.items || []).concat([item2]).slice(-120);
-    saveInnerVoiceStore(store2);
-    popInnerVoiceHeart();
     if(document.getElementById('innerVoiceOverlay')?.classList.contains('open')){
       renderInnerVoiceOverlay();
     }
@@ -11490,7 +11502,6 @@ function syncActiveCharacterToShell(){
   if(!character || !character.id) return;
   var slim = compactChar(character);
   persistActiveCharacterSnapshot(slim);
-  postToShell({ type:'SET_ACTIVE_CHARACTER', payload: slim });
 }
 
 function postSettingsPreviewSync(){
