@@ -1940,6 +1940,24 @@ function parseMemeMarker(raw){
   if(!name) return null;
   return name;
 }
+function splitTextAndMemeMarkers(raw){
+  var text = String(raw || '').trim();
+  if(!text) return [];
+  var pattern = /\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\]/ig;
+  var parts = [];
+  var lastIndex = 0;
+  var match;
+  while((match = pattern.exec(text))){
+    var before = text.slice(lastIndex, match.index).trim();
+    if(before) parts.push({ text: before, t: 'text' });
+    var memeName = normalizeMemeName(match[1] || '');
+    if(memeName) parts.push({ text: memeName, t: 'meme' });
+    lastIndex = pattern.lastIndex;
+  }
+  var tail = text.slice(lastIndex).trim();
+  if(tail) parts.push({ text: tail, t: 'text' });
+  return parts;
+}
 function memeMarker(name){
   var clean = normalizeMemeName(name);
   return clean ? ('[表情包: ' + clean + ']') : '';
@@ -11244,6 +11262,9 @@ function getChatPreviewPayload(entry){
   if(!item) return { content:'', type:'text' };
   var previewType = normalizeMessageType(item.type || 'text');
   var previewContent = item.content || '';
+  if(previewType === 'text' && parseMemeMarker(previewContent)){
+    return { content: formatMemeSummaryText(previewContent), type: 'text' };
+  }
   if(previewType === 'familycard'){
     return { content: familyCardSummaryText(previewContent), type: 'text' };
   }
@@ -12910,11 +12931,15 @@ async function deliverAiReply(text, limitOverride){
   var splitPlainTextToParts = function(raw){
     var cleaned = clean(raw).replace(/\\n/g, '\n');
     if(!cleaned) return [];
+    var inlineMixedParts = splitTextAndMemeMarkers(cleaned);
+    if(inlineMixedParts.length >= 2) return inlineMixedParts;
     var msgParts = cleaned.split(/<msg>/i).map(function(p){
       var piece = p.trim();
+      var mixed = splitTextAndMemeMarkers(piece);
+      if(mixed.length >= 2) return mixed;
       var maybeMeme = parseMemeMarker(piece);
       return { text: maybeMeme || piece, t: maybeMeme ? 'meme' : 'text' };
-    }).filter(function(o){ return o.text; });
+    }).flat().filter(function(o){ return o && o.text; });
     if(msgParts.length > 1) return msgParts;
     var lines = cleaned.split(/\n+/).map(function(line){ return line.trim(); }).filter(Boolean);
     if(lines.length >= 2){
@@ -12922,9 +12947,11 @@ async function deliverAiReply(text, limitOverride){
       var totalLen = lines.reduce(function(sum, line){ return sum + line.length; }, 0);
       if(shortEnough && totalLen <= 120){
         return lines.map(function(line){
+          var mixed = splitTextAndMemeMarkers(line);
+          if(mixed.length >= 2) return mixed;
           var maybeMeme = parseMemeMarker(line);
           return { text: maybeMeme || line, t: maybeMeme ? 'meme' : 'text' };
-        });
+        }).flat();
       }
     }
     var sentenceParts = cleaned.match(/[^。！？!?…]+(?:\.{3,}|…{1,3}|[。！？!?]+)?/g) || [];
