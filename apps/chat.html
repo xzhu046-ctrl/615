@@ -6307,7 +6307,10 @@ async function handleSunnyLocalReply(){
       var intro = await askSunnyApi(userText, '用户想让你帮忙生成 user 设定。请热情回应，夸夸老板，并告诉老板你已经把选择卡片递过来了。不要直接生成 YAML。');
       if(intro) await deliverAiReply(intro, 3);
     }catch(err){
-      appendSunnyAssistantText('当然可以呀，老板，汪。我已经把选择卡片递过来啦，我们一步一步慢慢捏。');
+      var introMsg = humanizeAiError(err);
+      showError('Sunny 连接失败: ' + introMsg);
+      toast(introMsg, { sticky:true });
+      throw err;
     }
     appendSunnyProfileWizardCard();
     markSunnyAssistantMessagesReadNow();
@@ -6323,8 +6326,10 @@ async function handleSunnyLocalReply(){
     if(apiReply) await deliverAiReply(apiReply, 4);
     else throw new Error('empty sunny reply');
   }catch(err){
-    var fallback = window.SunnySupport && window.SunnySupport.defaultFallback ? window.SunnySupport.defaultFallback() : { text:'汪...Sunny不知道诶，去问老板吧！' };
-    appendSunnyAssistantText(fallback.text);
+    var sunnyErr = humanizeAiError(err);
+    showError('Sunny 回复失败: ' + sunnyErr);
+    toast(sunnyErr, { sticky:true });
+    throw err;
   }
   if(knowledge && Array.isArray(knowledge.buttons) && knowledge.buttons.length){
     appendSunnyAssistantCard({
@@ -12217,6 +12222,14 @@ async function loadPreferredStoredChatForCurrentCharacter(){
 
 function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escAttr(s) { return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escJs(s) {
+  return String(s || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/<\/script/ig, '<\\/script');
+}
 var toastTimer = null;
 function hideToast(){
   var t = document.getElementById('toast');
