@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-27T05:43:00Z';
+const APP_BUILD_ID = '2026-03-27T05:51:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -603,6 +603,16 @@ function readBuildIdFromMainJsText(text){
   }
 }
 
+function readBuildIdFromServiceWorkerUrl(url){
+  try{
+    if(!url) return '';
+    var parsed = new URL(String(url), window.location.href);
+    return String(parsed.searchParams.get('build') || '').trim();
+  }catch(err){
+    return '';
+  }
+}
+
 async function buildRemoteAppFingerprint(){
   var stamp = Date.now();
   var remoteTasks = [
@@ -720,10 +730,23 @@ function bindHostedServiceWorker(){
   if(!window.isSecureContext) return;
   navigator.serviceWorker.register(getServiceWorkerUrl()).then(function(reg){
     var triggerUpdateSignal = function(){
+      var swBuild = '';
+      if(reg){
+        swBuild =
+          readBuildIdFromServiceWorkerUrl(reg.waiting && reg.waiting.scriptURL) ||
+          readBuildIdFromServiceWorkerUrl(reg.installing && reg.installing.scriptURL) ||
+          readBuildIdFromServiceWorkerUrl(reg.active && reg.active.scriptURL) ||
+          '';
+      }
+      if(swBuild && compareHostedBuildIds(swBuild, APP_BUILD_ID) > 0){
+        pendingRemoteAppFingerprint = swBuild;
+        setLastSeenHostedRemoteBuild(swBuild);
+        shownHostedUpdateFingerprint = '';
+      }
       scheduleHostedUpdateCheck(true);
       if(reg && reg.waiting){
         lastHostedUpdateCheckStatus = '检测到新壳版本';
-        updateHostedUpdateMeta(pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '');
+        updateHostedUpdateMeta(swBuild || pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '');
         showHostedUpdateCard();
       }
     };
@@ -830,6 +853,20 @@ function bootHostedUpdateCheck(){
     setTimeout(function(){
       scheduleHostedUpdateCheck(true);
     }, delay);
+  });
+  window.addEventListener('focus', function(){
+    scheduleHostedUpdateCheck(true);
+  });
+  window.addEventListener('pageshow', function(){
+    scheduleHostedUpdateCheck(true);
+  });
+  window.addEventListener('online', function(){
+    scheduleHostedUpdateCheck(true);
+  });
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState === 'visible'){
+      scheduleHostedUpdateCheck(true);
+    }
   });
 }
 
