@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-27T05:51:00Z';
+const APP_BUILD_ID = '2026-03-27T05:58:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -613,6 +613,36 @@ function readBuildIdFromServiceWorkerUrl(url){
   }
 }
 
+function getNewestServiceWorkerBuild(reg){
+  if(!reg) return '';
+  var builds = [
+    readBuildIdFromServiceWorkerUrl(reg.waiting && reg.waiting.scriptURL),
+    readBuildIdFromServiceWorkerUrl(reg.installing && reg.installing.scriptURL),
+    readBuildIdFromServiceWorkerUrl(reg.active && reg.active.scriptURL)
+  ].filter(Boolean);
+  var newest = '';
+  builds.forEach(function(build){
+    if(!newest || compareHostedBuildIds(build, newest) > 0){
+      newest = build;
+    }
+  });
+  return newest;
+}
+
+function syncHostedUpdateFromServiceWorker(reg){
+  var swBuild = getNewestServiceWorkerBuild(reg);
+  if(!swBuild || compareHostedBuildIds(swBuild, APP_BUILD_ID) <= 0){
+    return false;
+  }
+  pendingRemoteAppFingerprint = swBuild;
+  setLastSeenHostedRemoteBuild(swBuild);
+  shownHostedUpdateFingerprint = '';
+  lastHostedUpdateCheckStatus = reg && reg.waiting ? '检测到新壳版本' : '检测到新版本';
+  updateHostedUpdateMeta(swBuild);
+  showHostedUpdateCard();
+  return true;
+}
+
 async function buildRemoteAppFingerprint(){
   var stamp = Date.now();
   var remoteTasks = [
@@ -730,27 +760,18 @@ function bindHostedServiceWorker(){
   if(!window.isSecureContext) return;
   navigator.serviceWorker.register(getServiceWorkerUrl()).then(function(reg){
     var triggerUpdateSignal = function(){
-      var swBuild = '';
-      if(reg){
-        swBuild =
-          readBuildIdFromServiceWorkerUrl(reg.waiting && reg.waiting.scriptURL) ||
-          readBuildIdFromServiceWorkerUrl(reg.installing && reg.installing.scriptURL) ||
-          readBuildIdFromServiceWorkerUrl(reg.active && reg.active.scriptURL) ||
-          '';
-      }
-      if(swBuild && compareHostedBuildIds(swBuild, APP_BUILD_ID) > 0){
-        pendingRemoteAppFingerprint = swBuild;
-        setLastSeenHostedRemoteBuild(swBuild);
-        shownHostedUpdateFingerprint = '';
-      }
+      var handledBySw = syncHostedUpdateFromServiceWorker(reg);
       scheduleHostedUpdateCheck(true);
       if(reg && reg.waiting){
-        lastHostedUpdateCheckStatus = '检测到新壳版本';
-        updateHostedUpdateMeta(swBuild || pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '');
+        if(!handledBySw){
+          lastHostedUpdateCheckStatus = '检测到新壳版本';
+          updateHostedUpdateMeta(pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '');
+        }
         showHostedUpdateCard();
       }
     };
     if(reg){
+      syncHostedUpdateFromServiceWorker(reg);
       if(reg.waiting){
         triggerUpdateSignal();
       }
@@ -765,8 +786,18 @@ function bindHostedServiceWorker(){
           });
         }
       });
+      Promise.resolve()
+        .then(function(){ return reg.update(); })
+        .then(function(){
+          syncHostedUpdateFromServiceWorker(reg);
+          scheduleHostedUpdateCheck(true);
+        })
+        .catch(function(err){
+          console.warn('[sw] update ping failed', err);
+        });
     }
     navigator.serviceWorker.addEventListener('controllerchange', function(){
+      syncHostedUpdateFromServiceWorker(reg);
       scheduleHostedUpdateCheck(true);
     });
     return reg;
