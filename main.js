@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-27T04:35:00Z';
+const APP_BUILD_ID = '2026-03-27T04:45:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -718,7 +718,36 @@ async function clearHostedUpdateCaches(){
 function bindHostedServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   if(!window.isSecureContext) return;
-  navigator.serviceWorker.register(getServiceWorkerUrl()).catch(function(err){
+  navigator.serviceWorker.register(getServiceWorkerUrl()).then(function(reg){
+    var triggerUpdateSignal = function(){
+      scheduleHostedUpdateCheck(true);
+      if(reg && reg.waiting){
+        lastHostedUpdateCheckStatus = '检测到新壳版本';
+        updateHostedUpdateMeta(pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '');
+        showHostedUpdateCard();
+      }
+    };
+    if(reg){
+      if(reg.waiting){
+        triggerUpdateSignal();
+      }
+      reg.addEventListener('updatefound', function(){
+        triggerUpdateSignal();
+        var installing = reg.installing;
+        if(installing){
+          installing.addEventListener('statechange', function(){
+            if(installing.state === 'installed' || installing.state === 'activating'){
+              triggerUpdateSignal();
+            }
+          });
+        }
+      });
+    }
+    navigator.serviceWorker.addEventListener('controllerchange', function(){
+      scheduleHostedUpdateCheck(true);
+    });
+    return reg;
+  }).catch(function(err){
     console.warn('[sw] register failed', err);
   });
 }
