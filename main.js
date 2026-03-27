@@ -31,14 +31,13 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-27T07:18:00Z';
+const APP_BUILD_ID = '2026-03-27T07:42:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
 const HOSTED_UPDATE_ACCEPTED_BUILD_KEY = 'hosted_update_accepted_build_v1';
 const HOSTED_UPDATE_ACCEPTED_AT_KEY = 'hosted_update_accepted_at_v1';
 const HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY = 'hosted_update_last_seen_remote_v1';
-const HOSTED_UPDATE_ACCEPTED_TTL_MS = 20 * 1000;
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
 const GITHUB_UPDATE_REPO = '615';
@@ -396,6 +395,20 @@ function isRenderableHomeSlotSource(value){
   ));
 }
 
+function normalizeShellAssetSrc(value){
+  var text = String(value || '').trim();
+  if(!text) return '';
+  if(text.indexOf('assets/') === 0) return 'apps/' + text;
+  if(text.indexOf('./assets/') === 0) return 'apps/' + text.slice(2);
+  if(text.indexOf('../assets/') === 0) return 'apps/' + text.slice(3);
+  return text;
+}
+
+function isRenderableShellAvatarSrc(value){
+  var text = normalizeShellAssetSrc(value);
+  return !!(text && /^(data:|https?:|blob:|\/|\.\.?\/|apps\/)/i.test(text));
+}
+
 function normalizeHeartText(value){
   return typeof value === 'string' ? value.replace(/\u2665(\uFE0E|\uFE0F)?/g, '\u2665\uFE0E') : value;
 }
@@ -470,18 +483,7 @@ function clearAcceptedHostedUpdateBuildIfCurrent(){
 function isAcceptedHostedRemoteBuild(fingerprint){
   var value = String(fingerprint || '').trim();
   if(!value) return false;
-  if(value !== getAcceptedHostedUpdateBuild()) return false;
-  var acceptedAt = 0;
-  try{ acceptedAt = Number(localStorage.getItem(HOSTED_UPDATE_ACCEPTED_AT_KEY) || 0) || 0; }catch(e){}
-  if(!acceptedAt) return false;
-  if(Date.now() - acceptedAt > HOSTED_UPDATE_ACCEPTED_TTL_MS){
-    try{
-      localStorage.removeItem(HOSTED_UPDATE_ACCEPTED_BUILD_KEY);
-      localStorage.removeItem(HOSTED_UPDATE_ACCEPTED_AT_KEY);
-    }catch(e){}
-    return false;
-  }
-  return true;
+  return value === getAcceptedHostedUpdateBuild();
 }
 
 function showHostedUpdateCard(){
@@ -1127,7 +1129,7 @@ function slimChar(c){
 
 function cacheAvatar(c){
   try{
-    if(c?.id && c.imageData && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(c.imageData || '').trim())){
+    if(c?.id && c.imageData && /^(data:|https?:|blob:|\/|\.\.?\/|assets\/)/i.test(String(c.imageData || '').trim())){
       saveStoredAsset('char_avatar_' + c.id, c.imageData);
     }
   }catch(e){}
@@ -1455,19 +1457,19 @@ function coerceBgAction(parsed, convoState){
 
 function getCharacterAvatarForBg(character){
   if(character && character.imageData){
-    var current = String(character.imageData).trim();
-    if(current && (current.startsWith('data:') || current.startsWith('http') || current.startsWith('blob:') || current.startsWith('/') || current.startsWith('./') || current.startsWith('../'))) return current;
+    var current = normalizeShellAssetSrc(character.imageData);
+    if(isRenderableShellAvatarSrc(current)) return current;
   }
   var id = character && character.id ? character.id : '';
   if(id){
     try{
-      var saved = localStorage.getItem('char_avatar_' + id) || '';
-      if(saved && (saved.startsWith('data:') || saved.startsWith('http') || saved.startsWith('blob:') || saved.startsWith('/') || saved.startsWith('./') || saved.startsWith('../'))) return saved;
+      var saved = normalizeShellAssetSrc(localStorage.getItem('char_avatar_' + id) || '');
+      if(isRenderableShellAvatarSrc(saved)) return saved;
     }catch(e){}
   }
   if(character && character.avatar){
-    var av = String(character.avatar);
-    if(av.startsWith('data:') || av.startsWith('http') || av.startsWith('blob:') || av.startsWith('/') || av.startsWith('./') || av.startsWith('../')) return av;
+    var av = normalizeShellAssetSrc(character.avatar);
+    if(isRenderableShellAvatarSrc(av)) return av;
   }
   return '';
 }
@@ -2546,10 +2548,12 @@ function renderBondWidget(character){
   if(userName) userName.textContent = getChatUserName(c && c.id);
   if(charAvatar){
     const applyCharAvatar = (override)=>{
-      const baseHtml = override && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(override || '').trim())
-        ? '<span class="bond-avatar-base"><img src="' + override + '" alt=""></span>'
-        : c && c.imageData && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(c.imageData || '').trim())
-          ? '<span class="bond-avatar-base"><img src="' + c.imageData + '" alt=""></span>'
+      const safeOverride = normalizeShellAssetSrc(override || '');
+      const safeImage = normalizeShellAssetSrc(c && c.imageData || '');
+      const baseHtml = isRenderableShellAvatarSrc(safeOverride)
+        ? '<span class="bond-avatar-base"><img src="' + safeOverride + '" alt=""></span>'
+        : isRenderableShellAvatarSrc(safeImage)
+          ? '<span class="bond-avatar-base"><img src="' + safeImage + '" alt=""></span>'
           : '<span class="bond-avatar-base">' + (c ? (c.avatar || '✿') : '✿') + '</span>';
       const frameUrl = getActiveBondAvatarFrameUrl('char');
       if(frameUrl){
@@ -4841,15 +4845,17 @@ function setWidgetCharacter(c){
     });
   }
   const avEl = document.getElementById('wgt-avatar');
-  if (c?.imageData && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(c.imageData || '').trim())) {
-    avEl.innerHTML = '<img src="'+c.imageData+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
+  var liveAvatarSrc = normalizeShellAssetSrc(c && c.imageData || '');
+  if (isRenderableShellAvatarSrc(liveAvatarSrc)) {
+    avEl.innerHTML = '<img src="'+liveAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
   } else {
     avEl.textContent = c?.avatar || '✿';
   }
   if(c?.id){
     loadStoredAsset('char_avatar_' + c.id).then((override)=>{
-      if(override && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(override).trim())){
-        avEl.innerHTML = '<img src="'+override+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
+      var safeOverride = normalizeShellAssetSrc(override || '');
+      if(isRenderableShellAvatarSrc(safeOverride)){
+        avEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
       }
     });
   }

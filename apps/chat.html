@@ -6290,11 +6290,16 @@ async function handleSunnyLocalReply(){
   var userText = getLatestSunnyUserText();
   if(!userText) return false;
   await sleep(160);
+  var typingStartedAt = Date.now();
   isTyping = true;
   var genBtn = document.getElementById('genBtn');
   var sendBtn = document.getElementById('sendBtn');
   if(genBtn) genBtn.disabled = true;
   if(sendBtn) sendBtn.disabled = true;
+  pendingMomentsChatCue = '';
+  pendingFamilyFollowupCue = '';
+  pendingModelUserCue = '';
+  momentsIntentFromUser = null;
   showTyping();
   try{
   if(window.SunnySupport && window.SunnySupport.wantsProfileBuilder(userText)){
@@ -6336,6 +6341,8 @@ async function handleSunnyLocalReply(){
   await saveChat(true);
   return true;
   } finally {
+    var typingElapsed = Date.now() - typingStartedAt;
+    if(typingElapsed < 420) await sleep(420 - typingElapsed);
     hideTyping();
     isTyping = false;
     if(genBtn) genBtn.disabled = false;
@@ -7780,7 +7787,7 @@ function renderSunnyProfileWizardCardBubble(bubble, data, msgId){
     html += '<div class="sunny-field"><label>选择角色</label><select class="sunny-select" data-sunny-action="select-character" data-sunny-msg-id="' + escAttr(msgId || '') + '"><option value="">选一个角色</option>' +
       chars.map(function(item){
         var selected = String(item.id || '') === wizard.charId ? ' selected' : '';
-        return '<option value="' + escAttr(item.id || '') + '"' + selected + '>' + esc(item.nickname || item.name || '角色') + '</option>';
+        return '<option value="' + escAttr(item.id || '') + '"' + selected + '>' + esc(item.name || item.nickname || '角色') + '</option>';
       }).join('') + '</select></div>';
     if(currentChar){
       html += '<div class="sunny-inline-note">选的是 ' + esc(currentChar.nickname || currentChar.name || '角色') + '。这个角色我会按他的全部设定来读，汪。</div>';
@@ -7800,7 +7807,7 @@ function renderSunnyProfileWizardCardBubble(bubble, data, msgId){
     if(worldbookEntries.length){
       html += '<div class="sunny-checklist">' + worldbookEntries.map(function(entry){
         var checked = wizard.selectedWorldbooks.indexOf(entry.id) >= 0;
-        return '<label class="sunny-check"><input type="checkbox" data-sunny-action="toggle-worldbook" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-worldbook-id="' + escAttr(entry.id) + '" ' + (checked ? 'checked ' : '') + '><div class="sunny-check-main"><div class="sunny-check-title">' + esc(entry.title) + '</div><div class="sunny-check-sub">' + esc(entry.bookName) + '</div></div></label>';
+        return '<label class="sunny-check"><input type="checkbox" data-sunny-action="toggle-worldbook" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-worldbook-id="' + escAttr(entry.id) + '" onchange="event.stopPropagation();toggleSunnyWizardWorldbook(\'' + escJs(msgId || '') + '\',\'' + escJs(entry.id) + '\');" ' + (checked ? 'checked ' : '') + '><div class="sunny-check-main"><div class="sunny-check-title">' + esc(entry.title) + '</div><div class="sunny-check-sub">' + esc(entry.bookName) + '</div></div></label>';
       }).join('') + '</div>';
     }else{
       html += '<div class="sunny-inline-note">这个角色暂时没有可选世界书条目，没关系，我们直接往下走也可以，汪。</div>';
@@ -7814,7 +7821,7 @@ function renderSunnyProfileWizardCardBubble(bubble, data, msgId){
     html += '<div class="sunny-form-grid full"><div class="sunny-field"><label>职业 / 身份</label><input class="sunny-input" value="' + escAttr(wizard.form.userOccupation || '') + '" data-sunny-action="field" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-field="userOccupation" placeholder="比如 插画师 / 学生 / 刑警"></div></div>';
     html += '<div class="sunny-step-title">想要什么性格呀</div><div class="sunny-traits">' + traitPool.map(function(trait){
       var active = wizard.traits.indexOf(trait) >= 0;
-      return '<button class="sunny-trait' + (active ? ' active' : '') + '" type="button" data-sunny-action="toggle-trait" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-trait="' + escAttr(trait) + '">' + esc(trait) + '</button>';
+      return '<button class="sunny-trait' + (active ? ' active' : '') + '" type="button" data-sunny-action="toggle-trait" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-trait="' + escAttr(trait) + '" onclick="event.stopPropagation();toggleSunnyWizardTrait(\'' + escJs(msgId || '') + '\',\'' + escJs(trait) + '\');return false;">' + esc(trait) + '</button>';
     }).join('') + '</div>';
     html += '<div class="sunny-form-grid full">' +
       '<div class="sunny-field"><label>样貌 / 视觉</label><textarea class="sunny-textarea" data-sunny-action="field" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-field="appearance" placeholder="比如 黑发、冷白皮、总是穿深色外套。">' + esc(wizard.form.appearance || '') + '</textarea></div>' +
@@ -7824,8 +7831,8 @@ function renderSunnyProfileWizardCardBubble(bubble, data, msgId){
     '</div>';
   }
   html += '<div class="sunny-card-actions">' +
-    '<button class="sunny-card-btn" type="button" data-sunny-action="step" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-step="-1" ' + (wizard.step === 0 ? 'disabled ' : '') + '>上一步</button>' +
-    '<button class="sunny-card-btn primary" type="button" data-sunny-action="step" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-step="1">' + (wizard.step >= 3 ? '生成 YAML' : '下一步') + '</button>' +
+    '<button class="sunny-card-btn" type="button" data-sunny-action="step" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-step="-1" onclick="event.stopPropagation();stepSunnyWizard(\'' + escJs(msgId || '') + '\',-1);return false;" ' + (wizard.step === 0 ? 'disabled ' : '') + '>上一步</button>' +
+    '<button class="sunny-card-btn primary" type="button" data-sunny-action="step" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-step="1" onclick="event.stopPropagation();stepSunnyWizard(\'' + escJs(msgId || '') + '\',1);return false;">' + (wizard.step >= 3 ? '生成 YAML' : '下一步') + '</button>' +
   '</div></div>';
   bubble.innerHTML = html;
   bubble.dataset.sunnySummary = String(data.summary || 'Sunny 正在帮老板生成人设');
@@ -7845,11 +7852,11 @@ function renderSunnyCardBubble(bubble, raw, msgId){
   var yaml = String(data.yaml || '').trim();
   var html = '<div class="sunny-card"><div class="sunny-card-head"><span class="sunny-card-badge">SUNNY</span><div class="sunny-card-title">' + esc(title) + '</div></div>';
   if(text) html += '<div class="sunny-card-copy">' + esc(text) + '</div>';
-  if(yaml) html += '<div class="sunny-card-code">' + esc(yaml) + '</div><div class="sunny-card-footer"><button class="sunny-card-copybtn" type="button" data-sunny-action="copy-yaml" data-sunny-msg-id="' + escAttr(msgId || '') + '">复制 YAML</button></div>';
+  if(yaml) html += '<div class="sunny-card-code">' + esc(yaml) + '</div><div class="sunny-card-footer"><button class="sunny-card-copybtn" type="button" data-sunny-action="copy-yaml" data-sunny-msg-id="' + escAttr(msgId || '') + '" onclick="event.stopPropagation();copySunnyYaml(\'' + escJs(msgId || '') + '\');return false;">复制 YAML</button></div>';
   if(buttons.length){
     html += '<div class="sunny-card-actions">';
     buttons.forEach(function(btn, idx){
-      html += '<button class="sunny-card-btn' + (idx === 0 ? ' primary' : '') + '" ' + (btn.disabled ? 'disabled ' : '') + 'type="button" data-sunny-action="open-app" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-button-idx="' + idx + '">' + esc(btn.disabled ? ((btn.label || '打开') + ' · 已打开') : (btn.label || '打开')) + '</button>';
+      html += '<button class="sunny-card-btn' + (idx === 0 ? ' primary' : '') + '" ' + (btn.disabled ? 'disabled ' : '') + 'type="button" data-sunny-action="open-app" data-sunny-msg-id="' + escAttr(msgId || '') + '" data-sunny-button-idx="' + idx + '" onclick="event.stopPropagation();runSunnyCardAction(\'' + escJs(msgId || '') + '\',' + idx + ');return false;">' + esc(btn.disabled ? ((btn.label || '打开') + ' · 已打开') : (btn.label || '打开')) + '</button>';
     });
     html += '</div>';
   }
@@ -7875,8 +7882,20 @@ function runSunnyCardAction(msgId, idx){
       data.buttons = (data.buttons || []).map(function(item, itemIdx){
         return Object.assign({}, item, { disabled: itemIdx === idx });
       });
+      entry.readAt = Date.now();
       entry.content = JSON.stringify(data);
       renderChatLog(false);
+      saveChat(true).catch(function(){});
+      try{
+        if(window.parent && typeof window.parent.openApp === 'function'){
+          window.parent.openApp(String(button.app));
+        }
+      }catch(ignoreErr){}
+      try{
+        if(window.top && window.top !== window.parent && typeof window.top.openApp === 'function'){
+          window.top.openApp(String(button.app));
+        }
+      }catch(ignoreErr2){}
       postToShell({ type:'OPEN_APP', payload:String(button.app) });
       toast('这就带老板过去，汪');
     }catch(err){
@@ -7912,12 +7931,14 @@ function bindSunnyCardControls(bubble){
         evt.stopPropagation();
         selectSunnyWizardCharacter(String(node.getAttribute('data-sunny-msg-id') || ''), String(node.value || ''));
       });
+      node.setAttribute('onchange', "event.stopPropagation();selectSunnyWizardCharacter('" + escJs(String(node.getAttribute('data-sunny-msg-id') || '')) + "',this.value);");
     }
     if(node.matches('select[data-sunny-action="select-opening"]')){
       node.addEventListener('change', function(evt){
         evt.stopPropagation();
         selectSunnyWizardOpening(String(node.getAttribute('data-sunny-msg-id') || ''), String(node.value || ''));
       });
+      node.setAttribute('onchange', "event.stopPropagation();selectSunnyWizardOpening('" + escJs(String(node.getAttribute('data-sunny-msg-id') || '')) + "',this.value);");
     }
     if(node.matches('input[data-sunny-action="field"],textarea[data-sunny-action="field"]')){
       node.addEventListener('input', function(evt){
@@ -7928,6 +7949,7 @@ function bindSunnyCardControls(bubble){
           String(node.value || '')
         );
       });
+      node.setAttribute('oninput', "event.stopPropagation();updateSunnyWizardField('" + escJs(String(node.getAttribute('data-sunny-msg-id') || '')) + "','" + escJs(String(node.getAttribute('data-sunny-field') || '')) + "',this.value);");
     }
   });
 }
