@@ -463,10 +463,13 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .sunny-field{display:flex;flex-direction:column;gap:5px}
 .sunny-field label{font-size:10px;font-weight:900;letter-spacing:.06em;color:#666;text-transform:uppercase}
 .sunny-input,.sunny-textarea{width:100%;border:var(--bd);border-radius:14px;background:#fff;padding:10px 12px;font-family:var(--font);font-size:12px;font-weight:700;outline:none;box-shadow:var(--sh)}
+.sunny-select{width:100%;border:var(--bd);border-radius:14px;background:#fff;padding:10px 12px;font-family:var(--font);font-size:12px;font-weight:700;outline:none;box-shadow:var(--sh);appearance:none;color:#111}
 .sunny-textarea{min-height:82px;resize:none;line-height:1.7}
 .sunny-traits{display:flex;flex-wrap:wrap;gap:8px}
 .sunny-trait{border:var(--bd);border-radius:999px;background:#fff;padding:7px 11px;font-family:var(--fontd);font-size:11px;font-weight:900;box-shadow:var(--sh);cursor:pointer}
 .sunny-trait.active{background:#111;color:#fff;box-shadow:none}
+.sunny-inline-note{font-size:11px;line-height:1.7;color:#555;font-weight:700}
+.sunny-inline-preview{border:var(--bd);border-radius:14px;background:#fff;padding:10px 11px;box-shadow:var(--sh);font-size:11px;line-height:1.7;color:#333}
 .sunny-wizard-actions{padding:12px 14px 16px;border-top:var(--bd);display:flex;gap:10px;background:linear-gradient(180deg,#fff 0%,#f8f3e7 100%)}
 .sunny-wizard-btn{flex:1;border:var(--bd);border-radius:16px;background:#fff;color:#111;padding:11px 0;font-family:var(--fontd);font-size:12px;font-weight:900;box-shadow:var(--sh);cursor:pointer}
 .sunny-wizard-btn.primary{background:#111;color:#fff}
@@ -6129,26 +6132,7 @@ function getLatestSunnyUserText(){
 }
 
 function openSunnyProfileWizard(){
-  var chars = getSunnySelectableCharacters();
-  sunnyProfileWizardState = {
-    step: 0,
-    characters: chars,
-    charId: chars[0] ? String(chars[0].id || '') : '',
-    openingKey: '',
-    selectedWorldbooks: [],
-    traits: [],
-    form: {
-      userName: '',
-      userAge: '',
-      userOccupation: '',
-      appearance: '',
-      relationshipHook: '',
-      vibe: '',
-      notes: ''
-    }
-  };
-  renderSunnyProfileWizard();
-  document.getElementById('sunnyWizardOverlay')?.classList.add('open');
+  return appendSunnyProfileWizardCard();
 }
 
 function closeSunnyProfileWizard(){
@@ -6159,159 +6143,128 @@ function handleSunnyWizardOverlayClick(evt){
   if(evt.target === evt.currentTarget) closeSunnyProfileWizard();
 }
 
-function toggleSunnyTrait(trait){
-  if(!sunnyProfileWizardState) return;
-  var list = Array.isArray(sunnyProfileWizardState.traits) ? sunnyProfileWizardState.traits.slice() : [];
-  var idx = list.indexOf(trait);
-  if(idx >= 0) list.splice(idx, 1);
-  else list.push(trait);
-  sunnyProfileWizardState.traits = list.slice(0, 6);
-  renderSunnyProfileWizard();
+function stepSunnyProfileWizard(){
+  return;
 }
 
-function selectSunnyCharacter(charId){
-  if(!sunnyProfileWizardState) return;
-  sunnyProfileWizardState.charId = String(charId || '');
-  sunnyProfileWizardState.openingKey = '';
-  sunnyProfileWizardState.selectedWorldbooks = [];
-  renderSunnyProfileWizard();
+function buildSunnySystemPrompt(extraPrompt){
+  var sunny = getSunnyCharacter() || {};
+  var knowledgeDigest = window.SunnySupport && window.SunnySupport.getKnowledgeDigest
+    ? window.SunnySupport.getKnowledgeDigest()
+    : '';
+  return [
+    String(sunny.system_prompt || '').trim(),
+    '你显示给用户的名字是“Sunny小客服”。',
+    '你要负责解答这部小手机里的功能、设置、app 入口、使用方法、运作方式。',
+    '你掌握的信息以这份手机知识库为准，不要编造不存在的功能、页面、路径或机制。',
+    knowledgeDigest ? ('【手机知识库】\n' + knowledgeDigest) : '',
+    '如果用户在问某个功能或设置在哪里，就温柔清楚地解释。系统会自行附带按钮，你不要自己伪造按钮格式。',
+    '如果用户想让你帮忙生成 user 设定、人设、档案、资料，你先热情回应，并告诉老板你已经把选择卡片递过去了；不要自己直接输出最终 YAML。',
+    '如果是你真的不清楚、知识库里也没有把握的事，就只回答：汪...Sunny不知道诶，去问老板吧！',
+    '只输出普通聊天文本。不要 JSON，不要代码块，不要语音，不要图片，不要表情包。',
+    '如果要分成多句或多条气泡，必须自己用 <msg>...</msg> 分开。',
+    String(extraPrompt || '').trim()
+  ].filter(Boolean).join('\n\n');
 }
 
-function selectSunnyOpening(key){
-  if(!sunnyProfileWizardState) return;
-  sunnyProfileWizardState.openingKey = String(key || '');
-  renderSunnyProfileWizard();
+function buildSunnyUserPrompt(userText, extraPrompt){
+  var recent = getVisibleChatForModel().slice(-10).map(function(item){
+    return (item.role === 'user' ? '老板' : 'Sunny') + '：' + String(formatMessageForModel(item) || '').replace(/\s+/g, ' ').trim();
+  }).filter(Boolean).join('\n');
+  return [
+    '老板刚刚说：' + String(userText || '').trim(),
+    recent ? ('最近对话：\n' + recent) : '',
+    String(extraPrompt || '').trim()
+  ].filter(Boolean).join('\n\n');
 }
 
-function toggleSunnyWorldbook(entryId){
-  if(!sunnyProfileWizardState) return;
-  var list = Array.isArray(sunnyProfileWizardState.selectedWorldbooks) ? sunnyProfileWizardState.selectedWorldbooks.slice() : [];
-  var idx = list.indexOf(entryId);
-  if(idx >= 0) list.splice(idx, 1);
-  else list.push(entryId);
-  sunnyProfileWizardState.selectedWorldbooks = list;
-  renderSunnyProfileWizard();
+async function askSunnyApi(userText, extraPrompt){
+  var raw = await callAIWithCustomPrompts(
+    buildSunnySystemPrompt(extraPrompt),
+    buildSunnyUserPrompt(userText, extraPrompt)
+  );
+  return String(raw || '').trim();
 }
 
-function updateSunnyFormField(key, value){
-  if(!sunnyProfileWizardState) return;
-  sunnyProfileWizardState.form[key] = value;
+function appendSunnyProfileWizardCard(){
+  var existing = getLatestSunnyWizardEntry();
+  if(existing) return existing;
+  var entry = buildSunnyCardEntry({
+    mode: 'profile_wizard',
+    title: 'Sunny 帮你生成人设',
+    text: '老板我们慢慢来，先从最想搭配的角色开始，汪。',
+    summary: 'Sunny 正在帮老板生成人设',
+    wizard: buildSunnyProfileWizardState()
+  });
+  chatLog.push(entry);
+  addMessage('assistant', entry.content, true, 'sunnycard', entry.id);
+  return entry;
 }
 
-function stepSunnyProfileWizard(delta){
-  if(!sunnyProfileWizardState) return;
-  var next = sunnyProfileWizardState.step + Number(delta || 0);
+async function stepSunnyWizard(msgId, delta){
+  var entry = getMessageById(msgId);
+  var data = parseSunnyCardPayload(entry && entry.content) || {};
+  if(data.mode !== 'profile_wizard') return;
+  var wizard = normalizeSunnyWizardState(data.wizard);
+  var next = wizard.step + Number(delta || 0);
   if(delta < 0){
-    sunnyProfileWizardState.step = Math.max(0, next);
-    renderSunnyProfileWizard();
+    mutateSunnyWizardCard(msgId, function(state){
+      state.step = Math.max(0, next);
+    }, true);
     return;
   }
-  if(sunnyProfileWizardState.step === 0 && !sunnyProfileWizardState.charId){
+  if(wizard.step === 0 && !wizard.charId){
     toast('先选一个角色吧，老板，汪');
     return;
   }
-  if(sunnyProfileWizardState.step === 1 && !sunnyProfileWizardState.openingKey){
+  if(wizard.step === 1 && !wizard.openingKey){
     toast('先挑一个开场白参考吧，老板，汪');
     return;
   }
-  if(sunnyProfileWizardState.step >= 3){
-    finishSunnyProfileWizard();
+  if(wizard.step >= 3){
+    var charObj = getSunnyCharacterById(wizard.charId);
+    var opening = getSunnyOpeningOptions(charObj).find(function(item){ return item.key === wizard.openingKey; }) || null;
+    var wbMap = {};
+    getSunnyWorldbookOptions(wizard.charId).forEach(function(item){ wbMap[item.id] = item; });
+    var selectedWb = (wizard.selectedWorldbooks || []).map(function(id){ return wbMap[id]; }).filter(Boolean);
+    var yaml = window.SunnySupport.buildUserProfileYaml({
+      characterName: charObj ? (charObj.nickname || charObj.name || '') : '',
+      openingLabel: opening ? (opening.label + '｜' + opening.text) : '',
+      worldbookTitles: selectedWb.map(function(item){ return item.title; }),
+      userName: wizard.form.userName,
+      userAge: wizard.form.userAge,
+      userOccupation: wizard.form.userOccupation,
+      personalityTraits: wizard.traits,
+      appearance: wizard.form.appearance,
+      relationshipHook: wizard.form.relationshipHook,
+      vibe: wizard.form.vibe,
+      notes: wizard.form.notes
+    });
+    mutateSunnyWizardCard(msgId, function(state, payload){
+      payload.mode = 'profile_done';
+      payload.title = 'Sunny 已经整理好啦';
+      payload.text = '我把刚刚那套选择都收好了，下面这张就是可以直接复制的 YAML，汪。';
+      payload.summary = 'Sunny 已完成 user 人设 YAML';
+      delete payload.wizard;
+    }, true);
+    try{
+      var follow = await askSunnyApi('我刚刚已经完成了 user 人设选择流程。', '请用 1 到 2 句热情、夸夸老板的话回应，告诉老板你已经整理好 YAML 了。不要重复大段说明，不要输出 YAML。');
+      if(follow) await deliverAiReply(follow, 3);
+    }catch(err){
+      appendSunnyAssistantText('老板，我给你整理好了，汪。下面这张就是可以直接复制的 YAML。');
+    }
+    appendSunnyAssistantCard({
+      title: '老板的 user 人设 YAML',
+      text: '我把它收成可直接复制的样式啦，汪。你想继续细修的话，我也还能陪你改。',
+      summary: '已生成 user 人设 YAML',
+      yaml: yaml
+    });
+    await saveChat(true);
     return;
   }
-  sunnyProfileWizardState.step = Math.min(3, next);
-  renderSunnyProfileWizard();
-}
-
-function renderSunnyProfileWizard(){
-  if(!sunnyProfileWizardState) return;
-  var body = document.getElementById('sunnyWizardBody');
-  var sub = document.getElementById('sunnyWizardSub');
-  var backBtn = document.getElementById('sunnyWizardBackBtn');
-  var nextBtn = document.getElementById('sunnyWizardNextBtn');
-  if(!body || !sub || !backBtn || !nextBtn) return;
-  var state = sunnyProfileWizardState;
-  var currentChar = getSunnyCharacterById(state.charId);
-  var openings = getSunnyOpeningOptions(currentChar);
-  var worldbookEntries = getSunnyWorldbookOptions(state.charId);
-  var traitPool = ['温柔','嘴硬','敏感','钓系','冷淡','元气','乖一点','会撒娇','克制','大胆','迟钝','黏人'];
-  if(state.step === 0){
-    sub.textContent = '老板先选一个想一起聊天的角色吧，我会按他的设定来陪你做 user 人设，汪。';
-    body.innerHTML = '<div class="sunny-step-title">Step 1 · 选择角色</div><div class="sunny-step-copy">哇，我先帮老板把可选角色都排好了。你点一个最想搭配的就行，汪。</div><div class="sunny-choice-grid">' +
-      state.characters.map(function(item){
-        var active = String(item.id || '') === state.charId;
-        return '<button class="sunny-choice' + (active ? ' active' : '') + '" type="button" onclick="selectSunnyCharacter(' + JSON.stringify(item.id || '') + ')"><div class="sunny-choice-name">' + esc(item.nickname || item.name || '角色') + '</div><div class="sunny-choice-sub">' + esc(item.description || item.personality || '这个角色还没有写很多说明。') + '</div></button>';
-      }).join('') + '</div>';
-  }else if(state.step === 1){
-    sub.textContent = '这个角色的开场白气质我已经翻出来啦，老板选一个最喜欢的参考方向就好，汪。';
-    body.innerHTML = '<div class="sunny-step-title">Step 2 · 选择开场白参考</div><div class="sunny-step-copy">我会按这个气质帮你生成更贴脸的人设，不会乱跑调的，汪。</div><div class="sunny-choice-grid">' +
-      openings.map(function(item){
-        var active = item.key === state.openingKey;
-        return '<button class="sunny-choice' + (active ? ' active' : '') + '" type="button" onclick="selectSunnyOpening(' + JSON.stringify(item.key) + ')"><div class="sunny-choice-name">' + esc(item.label) + '</div><div class="sunny-choice-sub">' + esc(item.text) + '</div></button>';
-      }).join('') + '</div>';
-  }else if(state.step === 2){
-    sub.textContent = '世界书条目我也给老板筛出来啦。你勾想关联的那些就好，越贴近你想玩的设定越香，汪。';
-    body.innerHTML = '<div class="sunny-step-title">Step 3 · 选择世界书关联条目</div><div class="sunny-step-copy">可以一个都不选，也可以选几个关键的。别贪多，我帮老板走精一点的搭配，汪。</div><div class="sunny-checklist">' +
-      (worldbookEntries.length ? worldbookEntries.map(function(entry){
-        var checked = state.selectedWorldbooks.indexOf(entry.id) >= 0;
-        return '<label class="sunny-check"><input type="checkbox" ' + (checked ? 'checked ' : '') + 'onclick="toggleSunnyWorldbook(' + JSON.stringify(entry.id) + ');event.stopPropagation();"><div class="sunny-check-main"><div class="sunny-check-title">' + esc(entry.title) + ' · ' + esc(entry.bookName) + '</div><div class="sunny-check-sub">' + esc(entry.content.slice(0, 96)) + (entry.content.length > 96 ? '…' : '') + '</div></div></label>';
-      }).join('') : '<div class="sunny-step-copy">这个角色暂时还没有可选世界书条目，没关系，我照样能继续帮老板做，汪。</div>') + '</div>';
-  }else{
-    sub.textContent = '最后这一步就写写老板想要的感觉吧。哇，这里真的会决定最后的人设有多漂亮，汪。';
-    body.innerHTML =
-      '<div class="sunny-step-title">Step 4 · 补充你的设定</div>' +
-      '<div class="sunny-step-copy">我会把这些整理成一份可以直接复制的 YAML。老板不用写得特别死，给我一个感觉就够了，汪。</div>' +
-      '<div class="sunny-form-grid">' +
-        '<div class="sunny-field"><label>名字</label><input class="sunny-input" value="' + escAttr(state.form.userName || '') + '" oninput="updateSunnyFormField(\'userName\',this.value)" placeholder="比如 念念"></div>' +
-        '<div class="sunny-field"><label>年龄 / 阶段</label><input class="sunny-input" value="' + escAttr(state.form.userAge || '') + '" oninput="updateSunnyFormField(\'userAge\',this.value)" placeholder="比如 22 / 研究生"></div>' +
-      '</div>' +
-      '<div class="sunny-form-grid full">' +
-        '<div class="sunny-field"><label>职业 / 身份</label><input class="sunny-input" value="' + escAttr(state.form.userOccupation || '') + '" oninput="updateSunnyFormField(\'userOccupation\',this.value)" placeholder="比如 插画师 / 学生 / 刑警"></div>' +
-      '</div>' +
-      '<div class="sunny-step-title">想要什么性格呀</div><div class="sunny-traits">' + traitPool.map(function(trait){
-        var active = state.traits.indexOf(trait) >= 0;
-        return '<button class="sunny-trait' + (active ? ' active' : '') + '" type="button" onclick="toggleSunnyTrait(' + JSON.stringify(trait) + ')">' + esc(trait) + '</button>';
-      }).join('') + '</div>' +
-      '<div class="sunny-form-grid full">' +
-        '<div class="sunny-field"><label>样貌 / 视觉</label><textarea class="sunny-textarea" oninput="updateSunnyFormField(\'appearance\',this.value)" placeholder="比如 黑发、冷白皮、总是穿深色外套，或者笑起来有一点坏。">' + esc(state.form.appearance || '') + '</textarea></div>' +
-        '<div class="sunny-field"><label>和对方的关系钩子</label><textarea class="sunny-textarea" oninput="updateSunnyFormField(\'relationshipHook\',this.value)" placeholder="比如 青梅竹马、前任、暧昧对象、甲方乙方、命案搭档。">' + esc(state.form.relationshipHook || '') + '</textarea></div>' +
-        '<div class="sunny-field"><label>整体氛围</label><textarea class="sunny-textarea" oninput="updateSunnyFormField(\'vibe\',this.value)" placeholder="比如 克制拉扯、甜甜的、病气一点、都市悬疑、学院恋爱。">' + esc(state.form.vibe || '') + '</textarea></div>' +
-        '<div class="sunny-field"><label>补充备注</label><textarea class="sunny-textarea" oninput="updateSunnyFormField(\'notes\',this.value)" placeholder="想避开的点、特别想保留的细节，都可以告诉我。">' + esc(state.form.notes || '') + '</textarea></div>' +
-      '</div>';
-  }
-  backBtn.disabled = state.step === 0;
-  nextBtn.textContent = state.step >= 3 ? '生成 YAML' : '下一步';
-}
-
-async function finishSunnyProfileWizard(){
-  if(!sunnyProfileWizardState) return;
-  var state = sunnyProfileWizardState;
-  var charObj = getSunnyCharacterById(state.charId);
-  var opening = getSunnyOpeningOptions(charObj).find(function(item){ return item.key === state.openingKey; }) || null;
-  var wbMap = {};
-  getSunnyWorldbookOptions(state.charId).forEach(function(entry){ wbMap[entry.id] = entry; });
-  var selectedWb = (state.selectedWorldbooks || []).map(function(id){ return wbMap[id]; }).filter(Boolean);
-  var yaml = window.SunnySupport.buildUserProfileYaml({
-    characterName: charObj ? (charObj.nickname || charObj.name || '') : '',
-    openingLabel: opening ? (opening.label + '｜' + opening.text) : '',
-    worldbookTitles: selectedWb.map(function(item){ return item.title; }),
-    userName: state.form.userName,
-    userAge: state.form.userAge,
-    userOccupation: state.form.userOccupation,
-    personalityTraits: state.traits,
-    appearance: state.form.appearance,
-    relationshipHook: state.form.relationshipHook,
-    vibe: state.form.vibe,
-    notes: state.form.notes
-  });
-  closeSunnyProfileWizard();
-  appendSunnyAssistantText('老板，我给你整理好了，汪。这个版本已经尽量贴着你刚刚选的角色气质、开场白和世界书走了。你可以先直接复制，再按口味慢慢修。');
-  appendSunnyAssistantCard({
-    title: '老板的 user 人设 YAML',
-    text: '我把它收成可直接复制的样式啦，汪。要是你还想更甜一点、坏一点、疯一点，也可以继续让我陪你改。',
-    summary: '已生成 user 人设 YAML',
-    yaml: yaml
-  });
-  await saveChat(true);
+  mutateSunnyWizardCard(msgId, function(state){
+    state.step = Math.min(3, next);
+  }, true);
 }
 
 async function handleSunnyLocalReply(){
@@ -6319,32 +6272,38 @@ async function handleSunnyLocalReply(){
   if(!userText) return false;
   await sleep(160);
   if(window.SunnySupport && window.SunnySupport.wantsProfileBuilder(userText)){
-    appendSunnyAssistantText('当然可以呀，老板，汪。你想和哪个角色一起聊天，我就按那个角色的气质来陪你把 user 设定捏漂亮。');
-    openSunnyProfileWizard();
+    try{
+      var intro = await askSunnyApi(userText, '用户想让你帮忙生成 user 设定。请热情回应，夸夸老板，并告诉老板你已经把选择卡片递过来了。不要直接生成 YAML。');
+      if(intro) await deliverAiReply(intro, 3);
+    }catch(err){
+      appendSunnyAssistantText('当然可以呀，老板，汪。我已经把选择卡片递过来啦，我们一步一步慢慢捏。');
+    }
+    appendSunnyProfileWizardCard();
     await saveChat(true);
     return true;
   }
   var knowledge = window.SunnySupport && window.SunnySupport.matchKnowledge(userText);
-  if(knowledge){
-    appendSunnyAssistantText(knowledge.text);
-    if(Array.isArray(knowledge.buttons) && knowledge.buttons.length){
-      appendSunnyAssistantCard({
-        title: '我帮老板找到了',
-        text: '点下面的小按钮就能直接过去，汪。',
-        summary: knowledge.text,
-        buttons: knowledge.buttons
-      });
-    }
+  try{
+    var extra = knowledge
+      ? ('这次最相关的知识主题是：' + knowledge.id + '。请优先按这条知识解释，口吻要温柔专业。')
+      : '如果这题超出你把握，就直接按固定兜底句回答，不要装懂。';
+    var apiReply = await askSunnyApi(userText, extra);
+    if(apiReply) await deliverAiReply(apiReply, 4);
+    else throw new Error('empty sunny reply');
+  }catch(err){
+    var fallback = window.SunnySupport && window.SunnySupport.defaultFallback ? window.SunnySupport.defaultFallback() : { text:'汪...Sunny不知道诶，去问老板吧！' };
+    appendSunnyAssistantText(fallback.text);
+  }
+  if(knowledge && Array.isArray(knowledge.buttons) && knowledge.buttons.length){
+    appendSunnyAssistantCard({
+      title: '我帮老板找到了',
+      text: '点下面的小按钮就能直接过去，汪。',
+      summary: knowledge.text,
+      buttons: knowledge.buttons
+    });
     await saveChat(true);
     return true;
   }
-  if(/(你是谁|你叫什么|sunny|小客服|小金毛)/i.test(userText)){
-    appendSunnyAssistantText('我是 Sunny，小金毛客服，老板。平时我会帮你找设置、解释 app 怎么用，也能陪你一起捏 user 人设，汪。');
-    await saveChat(true);
-    return true;
-  }
-  var fallback = window.SunnySupport && window.SunnySupport.defaultFallback ? window.SunnySupport.defaultFallback() : { text:'这个我暂时解释不稳，老板。要不去联系我的老板吧，汪。' };
-  appendSunnyAssistantText(fallback.text);
   await saveChat(true);
   return true;
 }
@@ -7717,8 +7676,132 @@ function parseSunnyCardPayload(raw){
   }
 }
 
+function normalizeSunnyWizardState(state){
+  var next = state && typeof state === 'object' ? Object.assign({}, state) : {};
+  next.step = Math.max(0, Math.min(3, Number(next.step) || 0));
+  next.charId = String(next.charId || '');
+  next.openingKey = String(next.openingKey || '');
+  next.selectedWorldbooks = Array.isArray(next.selectedWorldbooks) ? next.selectedWorldbooks.slice(0, 24) : [];
+  next.traits = Array.isArray(next.traits) ? next.traits.slice(0, 6) : [];
+  next.form = Object.assign({
+    userName: '',
+    userAge: '',
+    userOccupation: '',
+    appearance: '',
+    relationshipHook: '',
+    vibe: '',
+    notes: ''
+  }, next.form || {});
+  return next;
+}
+
+function buildSunnyProfileWizardState(){
+  var chars = getSunnySelectableCharacters();
+  return normalizeSunnyWizardState({
+    step: 0,
+    charId: chars[0] ? String(chars[0].id || '') : '',
+    openingKey: '',
+    selectedWorldbooks: [],
+    traits: [],
+    form: {}
+  });
+}
+
+function getLatestSunnyWizardEntry(){
+  for(var i = chatLog.length - 1; i >= 0; i--){
+    var item = chatLog[i];
+    if(!item || item.role !== 'assistant' || normalizeMessageType(item.type || 'text') !== 'sunnycard') continue;
+    var data = parseSunnyCardPayload(item.content);
+    if(data && data.mode === 'profile_wizard') return item;
+  }
+  return null;
+}
+
+function mutateSunnyWizardCard(msgId, mutator, rerender){
+  var entry = getMessageById(msgId);
+  if(!entry) return null;
+  var data = parseSunnyCardPayload(entry.content) || {};
+  if(data.mode !== 'profile_wizard') return null;
+  data.wizard = normalizeSunnyWizardState(data.wizard);
+  if(typeof mutator === 'function') mutator(data.wizard, data);
+  data.summary = 'Sunny 正在帮老板生成人设';
+  entry.content = JSON.stringify(data);
+  if(rerender !== false) renderChatLog(false);
+  saveChat(true).catch(function(){});
+  return data;
+}
+
+function renderSunnyProfileWizardCardBubble(bubble, data, msgId){
+  var wizard = normalizeSunnyWizardState(data && data.wizard);
+  var chars = getSunnySelectableCharacters();
+  var currentChar = getSunnyCharacterById(wizard.charId);
+  var openings = getSunnyOpeningOptions(currentChar);
+  var worldbookEntries = getSunnyWorldbookOptions(wizard.charId);
+  var chosenOpening = openings.find(function(item){ return item.key === wizard.openingKey; }) || openings[0] || null;
+  var traitPool = ['温柔','嘴硬','敏感','钓系','冷淡','元气','乖一点','会撒娇','克制','大胆','迟钝','黏人'];
+  var html = '<div class="sunny-card"><div class="sunny-card-head"><span class="sunny-card-badge">SUNNY</span><div class="sunny-card-title">Sunny 帮你生成人设</div></div>';
+  if(wizard.step === 0){
+    html += '<div class="sunny-card-copy">老板先选一个想一起聊天的角色吧，汪。我会按他的气质陪你慢慢捏。</div>';
+    html += '<div class="sunny-field"><label>选择角色</label><select class="sunny-select" onchange="selectSunnyWizardCharacter(' + JSON.stringify(msgId || '') + ',this.value)"><option value="">选一个角色</option>' +
+      chars.map(function(item){
+        var selected = String(item.id || '') === wizard.charId ? ' selected' : '';
+        return '<option value="' + escAttr(item.id || '') + '"' + selected + '>' + esc(item.nickname || item.name || '角色') + '</option>';
+      }).join('') + '</select></div>';
+    if(currentChar){
+      html += '<div class="sunny-inline-note">选的是 ' + esc(currentChar.nickname || currentChar.name || '角色') + '。这个角色我会按他的全部设定来读，汪。</div>';
+    }
+  }else if(wizard.step === 1){
+    html += '<div class="sunny-card-copy">好耶，接着挑一个开场白参考吧。这个会决定你们第一次碰面的气质，汪。</div>';
+    html += '<div class="sunny-field"><label>开场白参考</label><select class="sunny-select" onchange="selectSunnyWizardOpening(' + JSON.stringify(msgId || '') + ',this.value)"><option value="">选一个方向</option>' +
+      openings.map(function(item){
+        var selected = item.key === wizard.openingKey ? ' selected' : '';
+        return '<option value="' + escAttr(item.key) + '"' + selected + '>' + esc(item.label) + '</option>';
+      }).join('') + '</select></div>';
+    if(chosenOpening){
+      html += '<div class="sunny-inline-preview">' + esc(chosenOpening.text || '') + '</div>';
+    }
+  }else if(wizard.step === 2){
+    html += '<div class="sunny-card-copy">世界书这一步，老板可以勾最想关联的条目。选得准一点，最后的人设会更香，汪。</div>';
+    if(worldbookEntries.length){
+      html += '<div class="sunny-checklist">' + worldbookEntries.map(function(entry){
+        var checked = wizard.selectedWorldbooks.indexOf(entry.id) >= 0;
+        return '<label class="sunny-check"><input type="checkbox" ' + (checked ? 'checked ' : '') + 'onclick="toggleSunnyWizardWorldbook(' + JSON.stringify(msgId || '') + ',' + JSON.stringify(entry.id) + ');event.stopPropagation();"><div class="sunny-check-main"><div class="sunny-check-title">' + esc(entry.title) + '</div><div class="sunny-check-sub">' + esc(entry.bookName) + '</div></div></label>';
+      }).join('') + '</div>';
+    }else{
+      html += '<div class="sunny-inline-note">这个角色暂时没有可选世界书条目，没关系，我们直接往下走也可以，汪。</div>';
+    }
+  }else{
+    html += '<div class="sunny-card-copy">最后把老板想要的感觉告诉我吧。这里越贴近你心里的样子，最后那份 YAML 就越漂亮，汪。</div>';
+    html += '<div class="sunny-form-grid">' +
+      '<div class="sunny-field"><label>名字</label><input class="sunny-input" value="' + escAttr(wizard.form.userName || '') + '" oninput="updateSunnyWizardField(' + JSON.stringify(msgId || '') + ',\'userName\',this.value)" placeholder="比如 念念"></div>' +
+      '<div class="sunny-field"><label>年龄 / 阶段</label><input class="sunny-input" value="' + escAttr(wizard.form.userAge || '') + '" oninput="updateSunnyWizardField(' + JSON.stringify(msgId || '') + ',\'userAge\',this.value)" placeholder="比如 22 / 研究生"></div>' +
+    '</div>';
+    html += '<div class="sunny-form-grid full"><div class="sunny-field"><label>职业 / 身份</label><input class="sunny-input" value="' + escAttr(wizard.form.userOccupation || '') + '" oninput="updateSunnyWizardField(' + JSON.stringify(msgId || '') + ',\'userOccupation\',this.value)" placeholder="比如 插画师 / 学生 / 刑警"></div></div>';
+    html += '<div class="sunny-step-title">想要什么性格呀</div><div class="sunny-traits">' + traitPool.map(function(trait){
+      var active = wizard.traits.indexOf(trait) >= 0;
+      return '<button class="sunny-trait' + (active ? ' active' : '') + '" type="button" onclick="toggleSunnyWizardTrait(' + JSON.stringify(msgId || '') + ',' + JSON.stringify(trait) + ')">' + esc(trait) + '</button>';
+    }).join('') + '</div>';
+    html += '<div class="sunny-form-grid full">' +
+      '<div class="sunny-field"><label>样貌 / 视觉</label><textarea class="sunny-textarea" oninput="updateSunnyWizardField(' + JSON.stringify(msgId || '') + ',\'appearance\',this.value)" placeholder="比如 黑发、冷白皮、总是穿深色外套。">' + esc(wizard.form.appearance || '') + '</textarea></div>' +
+      '<div class="sunny-field"><label>和对方的关系钩子</label><textarea class="sunny-textarea" oninput="updateSunnyWizardField(' + JSON.stringify(msgId || '') + ',\'relationshipHook\',this.value)" placeholder="比如 青梅竹马、暧昧对象、案件搭档。">' + esc(wizard.form.relationshipHook || '') + '</textarea></div>' +
+      '<div class="sunny-field"><label>整体氛围</label><textarea class="sunny-textarea" oninput="updateSunnyWizardField(' + JSON.stringify(msgId || '') + ',\'vibe\',this.value)" placeholder="比如 克制拉扯、甜甜的、都市悬疑。">' + esc(wizard.form.vibe || '') + '</textarea></div>' +
+      '<div class="sunny-field"><label>补充备注</label><textarea class="sunny-textarea" oninput="updateSunnyWizardField(' + JSON.stringify(msgId || '') + ',\'notes\',this.value)" placeholder="想避开的点、特别想保留的细节，都可以告诉我。">' + esc(wizard.form.notes || '') + '</textarea></div>' +
+    '</div>';
+  }
+  html += '<div class="sunny-card-actions">' +
+    '<button class="sunny-card-btn" type="button" ' + (wizard.step === 0 ? 'disabled ' : '') + 'onclick="stepSunnyWizard(' + JSON.stringify(msgId || '') + ',-1)">上一步</button>' +
+    '<button class="sunny-card-btn primary" type="button" onclick="stepSunnyWizard(' + JSON.stringify(msgId || '') + ',1)">' + (wizard.step >= 3 ? '生成 YAML' : '下一步') + '</button>' +
+  '</div></div>';
+  bubble.innerHTML = html;
+  bubble.dataset.sunnySummary = String(data.summary || 'Sunny 正在帮老板生成人设');
+}
+
 function renderSunnyCardBubble(bubble, raw, msgId){
   var data = parseSunnyCardPayload(raw) || {};
+  if(data.mode === 'profile_wizard'){
+    renderSunnyProfileWizardCardBubble(bubble, data, msgId);
+    return;
+  }
   var title = String(data.title || 'Sunny 小卡片').trim();
   var text = String(data.text || '').trim();
   var summary = String(data.summary || text || title).trim();
@@ -7746,6 +7829,7 @@ function buildSunnyCardEntry(card){
 function runSunnyCardAction(msgId, idx){
   var entry = getMessageById(msgId);
   var data = parseSunnyCardPayload(entry && entry.content);
+  if(data && data.mode === 'profile_wizard') return;
   var button = data && Array.isArray(data.buttons) ? data.buttons[idx] : null;
   if(!button) return;
   if(button.action === 'open_app' && button.app){
@@ -7778,6 +7862,46 @@ function copySunnyYaml(msgId){
   }catch(err){
     toast('复制失败了，汪');
   }
+}
+
+function selectSunnyWizardCharacter(msgId, charId){
+  mutateSunnyWizardCard(msgId, function(wizard){
+    wizard.charId = String(charId || '');
+    wizard.openingKey = '';
+    wizard.selectedWorldbooks = [];
+  }, true);
+}
+
+function selectSunnyWizardOpening(msgId, key){
+  mutateSunnyWizardCard(msgId, function(wizard){
+    wizard.openingKey = String(key || '');
+  }, true);
+}
+
+function toggleSunnyWizardWorldbook(msgId, entryId){
+  mutateSunnyWizardCard(msgId, function(wizard){
+    var list = Array.isArray(wizard.selectedWorldbooks) ? wizard.selectedWorldbooks.slice() : [];
+    var idx = list.indexOf(entryId);
+    if(idx >= 0) list.splice(idx, 1);
+    else list.push(entryId);
+    wizard.selectedWorldbooks = list;
+  }, true);
+}
+
+function updateSunnyWizardField(msgId, key, value){
+  mutateSunnyWizardCard(msgId, function(wizard){
+    wizard.form[key] = value;
+  }, false);
+}
+
+function toggleSunnyWizardTrait(msgId, trait){
+  mutateSunnyWizardCard(msgId, function(wizard){
+    var list = Array.isArray(wizard.traits) ? wizard.traits.slice() : [];
+    var idx = list.indexOf(trait);
+    if(idx >= 0) list.splice(idx, 1);
+    else list.push(trait);
+    wizard.traits = list.slice(0, 6);
+  }, true);
 }
 
 function addMessage(role, content, doScroll, msgType, msgId) {

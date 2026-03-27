@@ -4,7 +4,7 @@
   var SUNNY_CHARACTER = {
     id: SUNNY_ID,
     name: 'Sunny',
-    nickname: '小金毛客服',
+    nickname: 'Sunny小客服',
     avatar: '🐶',
     imageData: 'assets/小金毛Sunny.jpg',
     description: '专属贴心客服，会热情帮老板处理小手机里的各种问题。',
@@ -183,12 +183,29 @@
     };
   }
 
+  function getKnowledgeEntries(){
+    return clone(KNOWLEDGE);
+  }
+
+  function getKnowledgeDigest(){
+    return KNOWLEDGE.map(function(entry, idx){
+      return [
+        (idx + 1) + '. 主题：' + String(entry.id || ''),
+        '关键词：' + (entry.keywords || []).join(' / '),
+        '回答方向：' + String(entry.text || ''),
+        '可跳转 app：' + ((entry.buttons && entry.buttons[0] && entry.buttons[0].app) || '无')
+      ].join('\n');
+    }).join('\n\n');
+  }
+
   global.SunnySupport = {
     ID: SUNNY_ID,
     getCharacter: getCharacter,
     getPinnedPreview: getPinnedPreview,
     isSunnyCharacter: isSunnyCharacter,
     matchKnowledge: matchKnowledge,
+    getKnowledgeEntries: getKnowledgeEntries,
+    getKnowledgeDigest: getKnowledgeDigest,
     wantsProfileBuilder: wantsProfileBuilder,
     buildUserProfileYaml: buildUserProfileYaml,
     defaultFallback: defaultFallback
