@@ -1936,23 +1936,25 @@ function formatMemeSummaryText(payload){
 function parseMemeMarker(raw){
   var text = String(raw || '').trim();
   if(!text) return null;
-  var match = text.match(/^\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\]$/i);
+  var match = text.match(/^\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\]$/i)
+    || text.match(/^【(?:表情包|meme)】\s*(.+)$/i)
+    || text.match(/^(?:表情包|meme)\s*[:：]\s*(.+)$/i);
   if(!match || !match[1]) return null;
-  var name = normalizeMemeName(match[1]);
+  var name = normalizeMemeName(match[1]).replace(/^【表情包】/,'').trim();
   if(!name) return null;
   return name;
 }
 function splitTextAndMemeMarkers(raw){
   var text = String(raw || '').trim();
   if(!text) return [];
-  var pattern = /\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\]/ig;
+  var pattern = /(\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\]|【(?:表情包|meme)】\s*([^\n\r]+))/ig;
   var parts = [];
   var lastIndex = 0;
   var match;
   while((match = pattern.exec(text))){
     var before = text.slice(lastIndex, match.index).trim();
     if(before) parts.push({ text: before, t: 'text' });
-    var memeName = normalizeMemeName(match[1] || '');
+    var memeName = normalizeMemeName(match[2] || match[3] || '');
     if(memeName) parts.push({ text: memeName, t: 'meme' });
     lastIndex = pattern.lastIndex;
   }
@@ -4967,6 +4969,7 @@ function buildMemeLibraryPromptBlock(){
     lines.push(cat + '：' + names.join('、'));
   });
   lines.push('如果你要发表情包，请单独输出一条消息，格式严格写成 [表情包: 名称]。');
+  lines.push('线上聊天里不要发送语音消息，也不要输出 voice_message / 语音 / 语音消息 这类类型；正常回复只发普通文字，或者单独发一条表情包。');
   lines.push('只能从上面这份表情包库里挑已经存在的名称，不许瞎编新的表情包名。');
   lines.push('当用户发表情包时，请把它理解成“用这个表情包表达情绪/态度/调情/撒娇/敷衍/安慰”，不要把名字按字面当成真的行为。比如 [表情包: 咬咬你] 只是表达方式，不是真的要咬人。');
   lines.push('只有在真的合适的时候才发表情包，仍然要服从人设、世界书、关系阶段和最近聊天。');
@@ -13045,8 +13048,10 @@ async function deliverAiReply(text, limitOverride){
         dateLabel: item.dateLabel || ''
       }));
     }
+    if(t === 'voice') t = 'text';
     if(t === 'meme'){
-      var knownMeme = findMemeByName(c);
+      var normalizedMemeName = parseMemeMarker(c) || c;
+      var knownMeme = findMemeByName(normalizedMemeName);
       if(!knownMeme) return;
       c = buildMemeEntryContent(knownMeme);
     }
@@ -13170,8 +13175,10 @@ async function deliverAiReply(text, limitOverride){
               dateLabel: obj.dateLabel || ''
             }));
           }
+          if(t === 'voice') t = 'text';
           if(t === 'meme'){
-            var knownStructuredMeme = findMemeByName(c);
+            var normalizedStructuredMemeName = parseMemeMarker(c) || c;
+            var knownStructuredMeme = findMemeByName(normalizedStructuredMemeName);
             if(!knownStructuredMeme) return;
             c = buildMemeEntryContent(knownStructuredMeme);
           }
@@ -13211,7 +13218,7 @@ async function deliverAiReply(text, limitOverride){
     }
     if(t === 'meme'){
       var parsedMeme = parseMemePayload(p.text) || {};
-      var resolvedMeme = findMemeByName(parsedMeme.name || p.text);
+      var resolvedMeme = findMemeByName(parsedMeme.name || parseMemeMarker(p.text) || p.text);
       if(!resolvedMeme) continue;
       p.text = buildMemeEntryContent(resolvedMeme);
     }
