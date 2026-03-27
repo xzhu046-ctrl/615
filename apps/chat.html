@@ -12915,6 +12915,7 @@ function sleep(ms){
 async function deliverAiReply(text, limitOverride){
   var hardMax = Number(limitOverride);
   var maxN = Number.isFinite(hardMax) ? Math.max(0, Math.floor(hardMax)) : (character && character.msgMax ? character.msgMax : 3);
+  var softMaxN = Math.max(maxN, 6);
   var minN = character && character.msgMin ? character.msgMin : 1;
   minN = Math.max(0, Math.min(minN, maxN));
   var targetRand = Math.max(minN, Math.min(maxN, Math.round(minN + Math.random()*(maxN-minN))));
@@ -13272,16 +13273,17 @@ async function deliverAiReply(text, limitOverride){
   }
   if(!rawParts.length) rawParts = [{text:String(text||'(空消息)'), t:'text'}];
   rawParts = rebalanceTextPartsToMin(rawParts, minN, maxN);
-  if(rawParts.length > maxN){
-    rawParts = rawParts.slice(0, maxN);
+  var hasExplicitMultiBubble = rawParts.length >= 2;
+  if(rawParts.length > (hasExplicitMultiBubble ? softMaxN : maxN)){
+    rawParts = rawParts.slice(0, hasExplicitMultiBubble ? softMaxN : maxN);
   }
 
   var allShortTextParts = rawParts.length >= 2 && rawParts.every(function(part){
     return part && part.t === 'text' && String(part.text || '').trim().length <= 40;
   });
   var target = allShortTextParts
-    ? Math.min(maxN, rawParts.length)
-    : Math.max(minN, Math.min(maxN, rawParts.length, targetRand));
+    ? Math.min(hasExplicitMultiBubble ? softMaxN : maxN, rawParts.length)
+    : Math.max(minN, Math.min(hasExplicitMultiBubble ? softMaxN : maxN, rawParts.length, targetRand));
   var parts = [];
   while(parts.length < target && rawParts.length){
     parts.push(rawParts.shift());
