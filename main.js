@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-27T07:10:00Z';
+const APP_BUILD_ID = '2026-03-27T07:18:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1127,7 +1127,7 @@ function slimChar(c){
 
 function cacheAvatar(c){
   try{
-    if(c?.id && c.imageData && c.imageData.startsWith('data:')){
+    if(c?.id && c.imageData && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(c.imageData || '').trim())){
       saveStoredAsset('char_avatar_' + c.id, c.imageData);
     }
   }catch(e){}
@@ -2546,9 +2546,9 @@ function renderBondWidget(character){
   if(userName) userName.textContent = getChatUserName(c && c.id);
   if(charAvatar){
     const applyCharAvatar = (override)=>{
-      const baseHtml = override && override.startsWith('data:')
+      const baseHtml = override && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(override || '').trim())
         ? '<span class="bond-avatar-base"><img src="' + override + '" alt=""></span>'
-        : c && c.imageData
+        : c && c.imageData && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(c.imageData || '').trim())
           ? '<span class="bond-avatar-base"><img src="' + c.imageData + '" alt=""></span>'
           : '<span class="bond-avatar-base">' + (c ? (c.avatar || '✿') : '✿') + '</span>';
       const frameUrl = getActiveBondAvatarFrameUrl('char');
@@ -2565,7 +2565,7 @@ function renderBondWidget(character){
   }
   if(userAvatar){
     const applyUserAvatar = (src)=>{
-      const baseHtml = src && src.startsWith('data:')
+      const baseHtml = src && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(src || '').trim())
         ? '<span class="bond-avatar-base"><img src="' + src + '" alt=""></span>'
         : '<span class="bond-avatar-base">你</span>';
       const frameUrl = getActiveBondAvatarFrameUrl('user');
