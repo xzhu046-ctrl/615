@@ -75,6 +75,12 @@
       buttons: [{ label: '打开外观', action: 'open_app', app: 'customize' }]
     },
     {
+      id: 'format',
+      keywords: ['格式化', '恢复出厂', '清空手机', '重置手机', '重置数据', '初始化手机'],
+      text: '格式化手机在设置里，老板。进去以后能找到清空整部小手机数据的入口，这个会把聊天、世界书、资源和本地记录都清掉，所以按之前一定要想清楚，汪。',
+      buttons: [{ label: '打开设置', action: 'open_app', app: 'settings' }]
+    },
+    {
       id: 'map',
       keywords: ['地图', '位置', 'app6', '定位'],
       text: '地图在 app6，老板。角色位置共享和一些生活状态联动会用到它，汪。',
@@ -143,24 +149,40 @@
   function buildUserProfileYaml(payload){
     var data = payload || {};
     var traits = Array.isArray(data.personalityTraits) ? data.personalityTraits.filter(Boolean) : [];
+    var worldbookTitles = Array.isArray(data.worldbookTitles) ? data.worldbookTitles.filter(Boolean) : [];
+    var details = String(data.appearance || '').split(/[，,\n、]/).map(function(part){
+      return String(part || '').trim();
+    }).filter(Boolean);
+    if(!details.length && data.appearance) details = [String(data.appearance).trim()];
     var lines = [
-      'user_profile:',
+      'character:',
+      '  name: ' + yamlEscape(data.userName || '未命名 user'),
+      '  nickname: ' + yamlEscape(data.userName || '未命名 user'),
+      '  role: ' + yamlEscape((data.characterName || '目标角色') + ' 的聊天搭档'),
+      '',
+      'core_identity:',
       '  target_character: ' + yamlEscape(data.characterName || ''),
       '  opening_reference: ' + yamlEscape(data.openingLabel || ''),
-      '  worldbook_links:'
+      '  summary: >',
+      '    ' + String(data.vibe || '这是 Sunny 帮老板整理的一份 user 人设。').replace(/\n+/g, '\n    '),
+      '',
+      'worldbook_links:'
     ];
-    if(Array.isArray(data.worldbookTitles) && data.worldbookTitles.length){
-      data.worldbookTitles.forEach(function(title){
-        lines.push('    - ' + yamlEscape(title));
+    if(worldbookTitles.length){
+      worldbookTitles.forEach(function(title){
+        lines.push('  - ' + yamlEscape(title));
       });
     }else{
-      lines.push('    - ""');
+      lines.push('  - ""');
     }
-    lines.push('  identity:');
-    lines.push('    name: ' + yamlEscape(data.userName || ''));
-    lines.push('    age: ' + yamlEscape(data.userAge || ''));
-    lines.push('    occupation: ' + yamlEscape(data.userOccupation || ''));
-    lines.push('  personality:');
+    lines.push('');
+    lines.push('identity:');
+    lines.push('  name: ' + yamlEscape(data.userName || ''));
+    lines.push('  age: ' + yamlEscape(data.userAge || ''));
+    lines.push('  occupation: ' + yamlEscape(data.userOccupation || ''));
+    lines.push('');
+    lines.push('personality:');
+    lines.push('  traits:');
     if(traits.length){
       traits.forEach(function(trait){
         lines.push('    - ' + yamlEscape(trait));
@@ -168,11 +190,23 @@
     }else{
       lines.push('    - ""');
     }
-    lines.push('  appearance:');
-    lines.push('    overall: ' + yamlEscape(data.appearance || ''));
-    lines.push('  relationship_hook: ' + yamlEscape(data.relationshipHook || ''));
-    lines.push('  vibe: ' + yamlEscape(data.vibe || ''));
-    lines.push('  notes: ' + yamlEscape(data.notes || ''));
+    lines.push('  description: >');
+    lines.push('    ' + String(data.relationshipHook || '和目标角色之间有明确的关系张力与互动空间。').replace(/\n+/g, '\n    '));
+    lines.push('');
+    lines.push('appearance:');
+    lines.push('  overall: ' + yamlEscape(data.appearance || ''));
+    lines.push('  details:');
+    if(details.length){
+      details.forEach(function(detail){
+        lines.push('    - ' + yamlEscape(detail));
+      });
+    }else{
+      lines.push('    - ""');
+    }
+    lines.push('');
+    lines.push('relationship_hook: ' + yamlEscape(data.relationshipHook || ''));
+    lines.push('vibe: ' + yamlEscape(data.vibe || ''));
+    lines.push('notes: ' + yamlEscape(data.notes || ''));
     return lines.join('\n');
   }
 
