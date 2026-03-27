@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-27T03:33:14Z';
+const APP_BUILD_ID = '2026-03-27T03:47:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -4526,6 +4526,7 @@ function compactCharKey(key){
 function normalizeChatPreviewType(type){
   if(type === 'voice_message' || type === 'voice') return 'voice';
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
+  if(type === 'meme_message' || type === 'meme' || type === 'sticker') return 'meme';
   if(type === 'family_card' || type === 'familycard') return 'familycard';
   if(type === 'money_packet' || type === 'moneypacket' || type === 'transfer') return 'moneypacket';
   if(type === 'offline_invite' || type === 'offlineinvite') return 'offlineinvite';
@@ -4568,11 +4569,16 @@ function normalizePreviewMessage(msg){
   if(kind === 'offlineinvite'){
     return { content: summarizeOfflineInvitePreview(next.content), type: 'text' };
   }
+  if(kind === 'meme'){
+    return { content: '【表情包】', type: 'text' };
+  }
   if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
     try{
       var parsed = JSON.parse(next.content);
       if(parsed && typeof parsed === 'object' && parsed.content){
-        return { content: parsed.content, type: normalizeChatPreviewType(parsed.type || 'text') };
+        var parsedType = normalizeChatPreviewType(parsed.type || 'text');
+        if(parsedType === 'meme') return { content: '【表情包】', type: 'text' };
+        return { content: parsed.content, type: parsedType };
       }
     }catch(e){}
   }
@@ -4611,6 +4617,9 @@ function getPreviewTextForWidget(preview){
   }
   if(kind === 'image'){
     return '【图片】';
+  }
+  if(kind === 'meme'){
+    return '【表情包】';
   }
   return next.content || '';
 }

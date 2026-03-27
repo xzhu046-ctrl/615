@@ -430,6 +430,9 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .meme-meta-preview-name{font-family:var(--fontd);font-size:14px;font-weight:900;color:#111;line-height:1.2}
 .meme-meta-preview-cat{font-size:11px;font-weight:700;color:#666;line-height:1.45}
 .meme-meta-field{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+.meme-meta-inline-row{display:flex;gap:8px;align-items:center}
+.meme-meta-select{flex:1;height:42px;border:var(--bd);border-radius:14px;background:#fff;padding:0 12px;outline:none;font-family:var(--font);font-size:13px;font-weight:700;color:#111}
+.meme-meta-select:focus{box-shadow:3px 3px 0 rgba(0,0,0,.9)}
 .meme-meta-label{font-family:var(--fontcute);font-size:12px;color:#666}
 .meme-meta-input{width:100%;height:42px;border:var(--bd);border-radius:14px;background:#fff;padding:0 12px;outline:none;font-family:var(--font);font-size:13px;font-weight:700;color:#111}
 .meme-meta-input:focus{box-shadow:3px 3px 0 rgba(0,0,0,.9)}
@@ -1317,7 +1320,10 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
     </div>
     <div class="meme-meta-field">
       <div class="meme-meta-label">分类</div>
-      <input class="meme-meta-input" id="memeMetaCategory" type="text" maxlength="40" placeholder="比如：雪狗" list="memeCategoryOptions">
+      <div class="meme-meta-inline-row">
+        <select class="meme-meta-select" id="memeMetaCategorySelect" onchange="onMemeMetaCategoryModeChange()"></select>
+      </div>
+      <input class="meme-meta-input" id="memeMetaCategory" type="text" maxlength="40" placeholder="新建分类名" style="display:none">
       <datalist id="memeCategoryOptions"></datalist>
     </div>
     <div class="meme-meta-actions">
@@ -1923,9 +1929,7 @@ function findMemeByName(name){
   return null;
 }
 function formatMemeSummaryText(payload){
-  var item = parseMemePayload(payload) || {};
-  var name = normalizeMemeName(item.name || payload);
-  return name ? ('[表情包] ' + name) : '[表情包]';
+  return '【表情包】';
 }
 function parseMemeMarker(raw){
   var text = String(raw || '').trim();
@@ -7489,6 +7493,32 @@ function syncMemeMetaCategoryOptions(){
   }).join('');
 }
 
+function syncMemeMetaCategorySelect(selectedCategory){
+  var select = document.getElementById('memeMetaCategorySelect');
+  if(!select) return;
+  var desired = normalizeMemeCategory(selectedCategory);
+  var categories = (memeLibraryCache.categories || []).slice();
+  var html = ['<option value="__new__">+ 新建分类</option>'].concat(categories.map(function(cat){
+    return '<option value="' + escAttr(cat) + '">' + esc(cat) + '</option>';
+  }));
+  select.innerHTML = html.join('');
+  if(desired && categories.indexOf(desired) >= 0) select.value = desired;
+  else select.value = '__new__';
+}
+
+function onMemeMetaCategoryModeChange(){
+  var select = document.getElementById('memeMetaCategorySelect');
+  var input = document.getElementById('memeMetaCategory');
+  if(!select || !input) return;
+  var useNew = String(select.value || '') === '__new__';
+  input.style.display = useNew ? '' : 'none';
+  if(!useNew){
+    input.value = String(select.value || '');
+  }else if(!String(input.value || '').trim()){
+    input.focus();
+  }
+}
+
 function updateMemeItem(nextItem){
   var normalized = normalizeMemeItem(nextItem);
   if(!normalized) return false;
@@ -7887,6 +7917,7 @@ function openMemeMetaOverlay(state){
   var title = document.getElementById('memeMetaTitle');
   var sub = document.getElementById('memeMetaSub');
   var nameInput = document.getElementById('memeMetaName');
+  var categorySelect = document.getElementById('memeMetaCategorySelect');
   var categoryInput = document.getElementById('memeMetaCategory');
   var preview = document.getElementById('memeMetaPreview');
   var previewThumb = document.getElementById('memeMetaPreviewThumb');
@@ -7895,6 +7926,7 @@ function openMemeMetaOverlay(state){
   var confirmBtn = document.getElementById('memeMetaConfirmBtn');
   var deleteBtn = document.getElementById('memeMetaDeleteBtn');
   syncMemeMetaCategoryOptions();
+  syncMemeMetaCategorySelect(String(pendingMemeMetaState.category || ''));
   if(title) title.textContent = pendingMemeMetaState.mode === 'batch' ? '导入这一组表情包' : (pendingMemeMetaState.mode === 'edit' ? '编辑表情包' : '导入表情包');
   if(sub) sub.textContent = pendingMemeMetaState.mode === 'batch'
     ? ('识别到 ' + ((pendingMemeMetaState.entries && pendingMemeMetaState.entries.length) || 0) + ' 张表情包，可以新建分类，也可以选已有分类。')
@@ -7904,6 +7936,7 @@ function openMemeMetaOverlay(state){
     nameInput.parentElement.style.display = pendingMemeMetaState.mode === 'batch' ? 'none' : '';
   }
   if(categoryInput) categoryInput.value = String(pendingMemeMetaState.category || '');
+  if(categorySelect) onMemeMetaCategoryModeChange();
   if(confirmBtn) confirmBtn.textContent = pendingMemeMetaState.mode === 'edit' ? '保存' : '导入';
   if(deleteBtn) deleteBtn.style.display = pendingMemeMetaState.mode === 'edit' ? '' : 'none';
   if(preview){
@@ -7932,7 +7965,10 @@ function openMemeMetaOverlay(state){
   }
   document.getElementById('memeMetaOverlay')?.classList.add('open');
   setTimeout(function(){
-    if(pendingMemeMetaState && pendingMemeMetaState.mode === 'batch') categoryInput?.focus();
+    if(pendingMemeMetaState && pendingMemeMetaState.mode === 'batch'){
+      if(categorySelect && String(categorySelect.value || '') === '__new__') categoryInput?.focus();
+      else categorySelect?.focus();
+    }
     else nameInput?.focus();
   }, 30);
 }
@@ -7953,8 +7989,11 @@ async function confirmMemeMetaImport(){
   if(!pendingMemeMetaState) return;
   var queue = Array.isArray(pendingMemeMetaState.queue) ? pendingMemeMetaState.queue.slice() : [];
   var nameInput = document.getElementById('memeMetaName');
+  var categorySelect = document.getElementById('memeMetaCategorySelect');
   var categoryInput = document.getElementById('memeMetaCategory');
-  var category = normalizeMemeCategory(categoryInput && categoryInput.value);
+  var category = normalizeMemeCategory(categorySelect && String(categorySelect.value || '') !== '__new__'
+    ? categorySelect.value
+    : (categoryInput && categoryInput.value));
   if(!category){ toast('先写一个分类名'); return; }
   if(pendingMemeMetaState.mode === 'batch'){
     var imported = 0;
