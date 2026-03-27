@@ -4320,6 +4320,7 @@ function getSignalsForMoments(text, msgType){
 }
 
 function captureUserMomentIntent(text, msgType){
+  if(isSunnyChat()) return;
   var sig = getSignalsForMoments(text, msgType);
   if(!(sig.wantsPostAny || sig.wantsLike || sig.wantsComment || sig.wantsReply || sig.emotional || sig.reflective || sig.imageHint || sig.mentionsMoments)) return;
   momentsIntentFromUser = {
@@ -4632,6 +4633,7 @@ function isBlockedMemePayload(raw){
 }
 
 async function maybeRunAiMomentsFromChat(text, msgType){
+  if(isSunnyChat()) return;
   var now = Date.now();
   var freq = getMomentsFreqProfile();
   var aiName = getMomentsAiName();
@@ -5443,6 +5445,7 @@ function bindMessageLongPress(el, msgId){
     if(evt.pointerType === 'mouse' && evt.button !== 0) return;
     if(multiSelectMode || editingMessageId) return;
     if(evt.target.closest('.msg-edit-wrap')) return;
+    if(evt.target.closest('.sunny-card button,.sunny-card input,.sunny-card select,.sunny-card textarea,.sunny-card label')) return;
     startX = evt.clientX;
     startY = evt.clientY;
     dragging = false;
@@ -5490,6 +5493,7 @@ function bindMessageLongPress(el, msgId){
   el.addEventListener('click', function(evt){
     if(!multiSelectMode) return;
     if(evt.target.closest('.msg-edit-wrap')) return;
+    if(evt.target.closest('.sunny-card button,.sunny-card input,.sunny-card select,.sunny-card textarea,.sunny-card label')) return;
     toggleMessageSelection(msgId);
   });
 }
@@ -6107,6 +6111,7 @@ function getSunnyWorldbookOptions(charId){
 
 function appendSunnyAssistantText(text){
   var entry = makeChatEntry('assistant', String(text || '').trim(), 'text');
+  entry.readAt = Date.now();
   chatLog.push(entry);
   addMessage('assistant', entry.content, true, 'text', entry.id);
   return entry;
@@ -6114,6 +6119,7 @@ function appendSunnyAssistantText(text){
 
 function appendSunnyAssistantCard(card){
   var entry = buildSunnyCardEntry(card);
+  entry.readAt = Date.now();
   chatLog.push(entry);
   addMessage('assistant', entry.content, true, 'sunnycard', entry.id);
   return entry;
@@ -6201,6 +6207,18 @@ function appendSunnyProfileWizardCard(){
   return entry;
 }
 
+function markSunnyAssistantMessagesReadNow(){
+  var now = Date.now();
+  var changed = false;
+  (chatLog || []).forEach(function(item){
+    if(!item || item.role !== 'assistant') return;
+    if(item.readAt) return;
+    item.readAt = now;
+    changed = true;
+  });
+  if(changed) renderChatLog(false);
+}
+
 async function stepSunnyWizard(msgId, delta){
   var entry = getMessageById(msgId);
   var data = parseSunnyCardPayload(entry && entry.content) || {};
@@ -6259,6 +6277,7 @@ async function stepSunnyWizard(msgId, delta){
       summary: '已生成 user 人设 YAML',
       yaml: yaml
     });
+    markSunnyAssistantMessagesReadNow();
     await saveChat(true);
     return;
   }
@@ -6271,6 +6290,13 @@ async function handleSunnyLocalReply(){
   var userText = getLatestSunnyUserText();
   if(!userText) return false;
   await sleep(160);
+  isTyping = true;
+  var genBtn = document.getElementById('genBtn');
+  var sendBtn = document.getElementById('sendBtn');
+  if(genBtn) genBtn.disabled = true;
+  if(sendBtn) sendBtn.disabled = true;
+  showTyping();
+  try{
   if(window.SunnySupport && window.SunnySupport.wantsProfileBuilder(userText)){
     try{
       var intro = await askSunnyApi(userText, '用户想让你帮忙生成 user 设定。请热情回应，夸夸老板，并告诉老板你已经把选择卡片递过来了。不要直接生成 YAML。');
@@ -6279,6 +6305,7 @@ async function handleSunnyLocalReply(){
       appendSunnyAssistantText('当然可以呀，老板，汪。我已经把选择卡片递过来啦，我们一步一步慢慢捏。');
     }
     appendSunnyProfileWizardCard();
+    markSunnyAssistantMessagesReadNow();
     await saveChat(true);
     return true;
   }
@@ -6301,11 +6328,19 @@ async function handleSunnyLocalReply(){
       summary: knowledge.text,
       buttons: knowledge.buttons
     });
+    markSunnyAssistantMessagesReadNow();
     await saveChat(true);
     return true;
   }
+  markSunnyAssistantMessagesReadNow();
   await saveChat(true);
   return true;
+  } finally {
+    hideTyping();
+    isTyping = false;
+    if(genBtn) genBtn.disabled = false;
+    if(sendBtn) sendBtn.disabled = false;
+  }
 }
 
 function getWbBookStateKey() {
@@ -7794,6 +7829,10 @@ function renderSunnyProfileWizardCardBubble(bubble, data, msgId){
   '</div></div>';
   bubble.innerHTML = html;
   bubble.dataset.sunnySummary = String(data.summary || 'Sunny 正在帮老板生成人设');
+  bubble.querySelectorAll('button,input,select,textarea,label').forEach(function(node){
+    node.addEventListener('pointerdown', function(evt){ evt.stopPropagation(); });
+    node.addEventListener('click', function(evt){ evt.stopPropagation(); });
+  });
 }
 
 function renderSunnyCardBubble(bubble, raw, msgId){
@@ -7813,13 +7852,17 @@ function renderSunnyCardBubble(bubble, raw, msgId){
   if(buttons.length){
     html += '<div class="sunny-card-actions">';
     buttons.forEach(function(btn, idx){
-      html += '<button class="sunny-card-btn' + (idx === 0 ? ' primary' : '') + '" type="button" onclick="runSunnyCardAction(' + JSON.stringify(msgId || '') + ',' + idx + ')">' + esc(btn.label || '打开') + '</button>';
+      html += '<button class="sunny-card-btn' + (idx === 0 ? ' primary' : '') + '" ' + (btn.disabled ? 'disabled ' : '') + 'type="button" onclick="runSunnyCardAction(' + JSON.stringify(msgId || '') + ',' + idx + ')">' + esc(btn.disabled ? ((btn.label || '打开') + ' · 已打开') : (btn.label || '打开')) + '</button>';
     });
     html += '</div>';
   }
   html += '</div>';
   bubble.innerHTML = html;
   bubble.dataset.sunnySummary = summary;
+  bubble.querySelectorAll('button,input,select,textarea,label').forEach(function(node){
+    node.addEventListener('pointerdown', function(evt){ evt.stopPropagation(); });
+    node.addEventListener('click', function(evt){ evt.stopPropagation(); });
+  });
 }
 
 function buildSunnyCardEntry(card){
@@ -7832,9 +7875,15 @@ function runSunnyCardAction(msgId, idx){
   if(data && data.mode === 'profile_wizard') return;
   var button = data && Array.isArray(data.buttons) ? data.buttons[idx] : null;
   if(!button) return;
+  if(button.disabled) return;
   if(button.action === 'open_app' && button.app){
     try{
-      window.parent.postMessage({ type:'OPEN_APP', payload:String(button.app) }, '*');
+      data.buttons = (data.buttons || []).map(function(item, itemIdx){
+        return Object.assign({}, item, { disabled: itemIdx === idx });
+      });
+      entry.content = JSON.stringify(data);
+      renderChatLog(false);
+      postToShell({ type:'OPEN_APP', payload:String(button.app) });
       toast('这就带老板过去，汪');
     }catch(err){
       toast('打开失败了，汪');
@@ -7956,7 +8005,7 @@ function addMessage(role, content, doScroll, msgType, msgId) {
   if (viewRole === 'ai' && character) {
     av.innerHTML = getCharAvatarHTML();
     loadStoredAsset('char_avatar_' + (character.id || '')).then(function(ovr){
-      if (ovr && ovr.startsWith('data:')) av.innerHTML = '<img src="' + ovr + '">';
+      if (isRenderableAvatarSrc(ovr)) av.innerHTML = '<img src="' + ovr + '">';
     });
     av.style.cursor = 'pointer';
     av.addEventListener('click', function(evt){
@@ -7967,7 +8016,7 @@ function addMessage(role, content, doScroll, msgType, msgId) {
   } else if (viewRole === 'user') {
     av.textContent = '+';
     resolveChatUserAvatarAsync(character && character.id).then(function(uav){
-      if (uav && uav.startsWith('data:')) av.innerHTML = '<img src="' + uav + '">';
+      if (isRenderableAvatarSrc(uav)) av.innerHTML = '<img src="' + uav + '">';
     });
   } else if(viewRole === 'system'){
     av.style.display = 'none';
@@ -9133,7 +9182,7 @@ function renderMoneyPacketBubble(bubble, raw){
 }
 
 function isRenderableAvatarSrc(src){
-  return /^(data:|https?:|blob:)/i.test(String(src || '').trim());
+  return /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(src || '').trim());
 }
 
 function familyCardAvatarHtml(src, fallback, extraClass){
@@ -12478,7 +12527,7 @@ function currentVisibleCharAvatarSrc(){
 
 function isRenderableAvatarSrc(src){
   var text = String(src || '').trim();
-  return !!(text && (text.startsWith('data:') || text.startsWith('http') || text.startsWith('blob:') || text.startsWith('/')));
+  return !!(text && (text.startsWith('data:') || text.startsWith('http') || text.startsWith('blob:') || text.startsWith('/') || text.startsWith('./') || text.startsWith('../')));
 }
 
 function resolveBestCharAvatarSource(){

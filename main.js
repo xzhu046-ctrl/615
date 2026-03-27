@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-27T06:49:00Z';
+const APP_BUILD_ID = '2026-03-27T07:03:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1414,17 +1414,20 @@ function coerceBgAction(parsed, convoState){
 }
 
 function getCharacterAvatarForBg(character){
-  if(character && character.imageData && String(character.imageData).startsWith('data:')) return String(character.imageData);
+  if(character && character.imageData){
+    var current = String(character.imageData).trim();
+    if(current && (current.startsWith('data:') || current.startsWith('http') || current.startsWith('blob:') || current.startsWith('/') || current.startsWith('./') || current.startsWith('../'))) return current;
+  }
   var id = character && character.id ? character.id : '';
   if(id){
     try{
       var saved = localStorage.getItem('char_avatar_' + id) || '';
-      if(saved && (saved.startsWith('data:') || saved.startsWith('http') || saved.startsWith('blob:') || saved.startsWith('/'))) return saved;
+      if(saved && (saved.startsWith('data:') || saved.startsWith('http') || saved.startsWith('blob:') || saved.startsWith('/') || saved.startsWith('./') || saved.startsWith('../'))) return saved;
     }catch(e){}
   }
   if(character && character.avatar){
     var av = String(character.avatar);
-    if(av.startsWith('data:') || av.startsWith('http') || av.startsWith('blob:') || av.startsWith('/')) return av;
+    if(av.startsWith('data:') || av.startsWith('http') || av.startsWith('blob:') || av.startsWith('/') || av.startsWith('./') || av.startsWith('../')) return av;
   }
   return '';
 }
@@ -4798,14 +4801,14 @@ function setWidgetCharacter(c){
     });
   }
   const avEl = document.getElementById('wgt-avatar');
-  if (c?.imageData) {
+  if (c?.imageData && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(c.imageData || '').trim())) {
     avEl.innerHTML = '<img src="'+c.imageData+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
   } else {
     avEl.textContent = c?.avatar || '✿';
   }
   if(c?.id){
     loadStoredAsset('char_avatar_' + c.id).then((override)=>{
-      if(override && override.startsWith('data:')){
+      if(override && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(override).trim())){
         avEl.innerHTML = '<img src="'+override+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
       }
     });
