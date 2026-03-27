@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-27T05:58:00Z';
+const APP_BUILD_ID = '2026-03-27T06:03:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -636,10 +636,14 @@ function syncHostedUpdateFromServiceWorker(reg){
   }
   pendingRemoteAppFingerprint = swBuild;
   setLastSeenHostedRemoteBuild(swBuild);
-  shownHostedUpdateFingerprint = '';
+  if(isAcceptedHostedRemoteBuild(swBuild)){
+    lastHostedUpdateCheckStatus = reg && reg.waiting ? '检测到新壳版本' : '检测到新版本';
+    updateHostedUpdateMeta(swBuild);
+    return true;
+  }
   lastHostedUpdateCheckStatus = reg && reg.waiting ? '检测到新壳版本' : '检测到新版本';
   updateHostedUpdateMeta(swBuild);
-  showHostedUpdateCard();
+  announceHostedUpdate(swBuild);
   return true;
 }
 
