@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-27T07:03:00Z';
+const APP_BUILD_ID = '2026-03-27T07:10:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -57,6 +57,7 @@ let lastHostedUpdateCheckAt = 0;
 let hostedUpdateLockedOpen = false;
 let hostedUpdateRetryTimer = 0;
 let swControllerRefreshPending = false;
+let pendingHostedRefreshBuild = '';
 let shownHostedUpdateFingerprint = '';
 let hostedUpdateBootstrapped = false;
 let hostedUpdateModalShown = false;
@@ -803,6 +804,25 @@ function bindHostedServiceWorker(){
     navigator.serviceWorker.addEventListener('controllerchange', function(){
       syncHostedUpdateFromServiceWorker(reg);
       scheduleHostedUpdateCheck(true);
+      if(swControllerRefreshPending){
+        swControllerRefreshPending = false;
+        var targetBuild = String(pendingHostedRefreshBuild || pendingRemoteAppFingerprint || shownHostedUpdateFingerprint || APP_BUILD_ID).trim() || APP_BUILD_ID;
+        pendingHostedRefreshBuild = '';
+        hostedUpdateLockedOpen = false;
+        pendingRemoteAppFingerprint = '';
+        shownHostedUpdateFingerprint = '';
+        hostedUpdateModalShown = false;
+        try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
+        hideHostedUpdateCard();
+        try{
+          var nextUrl = new URL(window.location.href);
+          nextUrl.searchParams.set('__appBuild', targetBuild);
+          nextUrl.searchParams.set('__ts', String(Date.now()));
+          window.location.replace(nextUrl.toString());
+          return;
+        }catch(err){}
+        window.location.reload();
+      }
     });
     return reg;
   }).catch(function(err){
@@ -910,17 +930,20 @@ function refreshInstalledApp(evt){
     try{ evt.preventDefault(); }catch(e){}
     try{ evt.stopPropagation(); }catch(e){}
   }
-  setAcceptedHostedUpdateBuild(pendingRemoteAppFingerprint || shownHostedUpdateFingerprint || '');
+  var targetBuild = String(pendingRemoteAppFingerprint || shownHostedUpdateFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
+  setAcceptedHostedUpdateBuild(targetBuild);
   var finishReload = function(){
+    swControllerRefreshPending = false;
     hostedUpdateLockedOpen = false;
     pendingRemoteAppFingerprint = '';
     shownHostedUpdateFingerprint = '';
     hostedUpdateModalShown = false;
+    pendingHostedRefreshBuild = '';
     try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
     hideHostedUpdateCard();
     try{
       var url = new URL(window.location.href);
-      url.searchParams.set('__appBuild', APP_BUILD_ID);
+      url.searchParams.set('__appBuild', String(targetBuild || APP_BUILD_ID));
       url.searchParams.set('__ts', String(Date.now()));
       window.location.replace(url.toString());
       return;
@@ -936,13 +959,30 @@ function refreshInstalledApp(evt){
       return navigator.serviceWorker.getRegistration().then(function(reg){
         if(!reg) return null;
         if(reg.waiting){
+          swControllerRefreshPending = true;
+          pendingHostedRefreshBuild = String(targetBuild || readBuildIdFromServiceWorkerUrl(reg.waiting && reg.waiting.scriptURL) || APP_BUILD_ID);
           reg.waiting.postMessage({ type:'SKIP_WAITING' });
           setTimeout(function(){
-            if(!swControllerRefreshPending) finishReload();
-          }, 1200);
+            if(swControllerRefreshPending){
+              finishReload();
+            }
+          }, 2000);
           return 'waiting';
         }
-        return reg.update().then(function(){ return 'updated'; }).catch(function(){ return null; });
+        return reg.update().then(function(){
+          if(reg.waiting){
+            swControllerRefreshPending = true;
+            pendingHostedRefreshBuild = String(targetBuild || readBuildIdFromServiceWorkerUrl(reg.waiting && reg.waiting.scriptURL) || APP_BUILD_ID);
+            reg.waiting.postMessage({ type:'SKIP_WAITING' });
+            setTimeout(function(){
+              if(swControllerRefreshPending){
+                finishReload();
+              }
+            }, 2000);
+            return 'waiting';
+          }
+          return 'updated';
+        }).catch(function(){ return null; });
       });
     })
     .then(function(result){
