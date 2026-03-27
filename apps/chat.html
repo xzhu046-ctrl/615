@@ -13025,6 +13025,35 @@ async function deliverAiReply(text, limitOverride){
     var maybeInlineMeme = parseMemeMarker(cleaned);
     return [{ text: maybeInlineMeme || cleaned, t: maybeInlineMeme ? 'meme' : 'text' }];
   };
+  var secondarySplitTextBubble = function(raw){
+    var cleaned = clean(raw).replace(/\\n/g, '\n').trim();
+    if(!cleaned) return [];
+    var direct = splitPlainTextToParts(cleaned);
+    if(direct.length >= 2) return direct;
+    var chunks = [];
+    var remaining = cleaned;
+    while(remaining.length > 72){
+      var slice = remaining.slice(0, 72);
+      var cut = Math.max(
+        slice.lastIndexOf('。'),
+        slice.lastIndexOf('！'),
+        slice.lastIndexOf('？'),
+        slice.lastIndexOf('…'),
+        slice.lastIndexOf(';'),
+        slice.lastIndexOf('；'),
+        slice.lastIndexOf('，'),
+        slice.lastIndexOf('、'),
+        slice.lastIndexOf('\n')
+      );
+      if(cut < 18) cut = 72;
+      var part = remaining.slice(0, cut).trim();
+      if(part) chunks.push({ text: part, t: 'text' });
+      remaining = remaining.slice(cut).trim();
+      if(chunks.length >= 12) break;
+    }
+    if(remaining) chunks.push({ text: remaining, t: 'text' });
+    return chunks.filter(function(part){ return part && part.text; });
+  };
   var parsed = null;
   var rawParts = [];
   var isReplyMetadataOnly = function(item){
@@ -13248,7 +13277,30 @@ async function deliverAiReply(text, limitOverride){
   if(rawParts.length > cap){
     rawParts = rawParts.slice(0, cap);
   }
-  var parts = rawParts.slice();
+  var parts = [];
+  rawParts.forEach(function(part){
+    if(!part) return;
+    if((part.t || 'text') !== 'text'){
+      parts.push(part);
+      return;
+    }
+    var splitAgain = secondarySplitTextBubble(part.text);
+    if(splitAgain.length >= 2){
+      splitAgain.forEach(function(nextPart){
+        parts.push({
+          text: nextPart.text,
+          t: nextPart.t || 'text',
+          replyTo: part.replyTo || '',
+          replyRole: part.replyRole || ''
+        });
+      });
+      return;
+    }
+    parts.push(part);
+  });
+  if(parts.length > cap){
+    parts = parts.slice(0, cap);
+  }
   if(!parts.length) parts = [{text:String(text||'(空消息)'), t:'text'}];
   var sentCount = 0;
   var sentTexts = [];
