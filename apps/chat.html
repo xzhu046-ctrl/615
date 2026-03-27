@@ -46,6 +46,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .hdr-btn{padding:7px 11px;border-radius:10px;border:var(--bd);background:var(--w);color:var(--b);font-family:var(--font);font-size:11px;font-weight:700;cursor:pointer;box-shadow:var(--sh);transition:transform .12s,box-shadow .12s;white-space:nowrap}
 .hdr-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .hdr-icon-btn{width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;font-size:17px}
+.hdr-danger-btn{display:none;background:#111;color:#fff}
+.hdr-danger-btn.show{display:flex}
 
 /* ── Messages ── */
 .messages{flex:1;min-height:0;overflow-y:auto;padding:10px 12px calc(var(--composer-height) + 16px);display:flex;flex-direction:column;gap:8px;scrollbar-width:none;position:relative;z-index:1}
@@ -954,6 +956,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
   <div class="hdr-actions">
     <button class="hdr-btn" id="memoryBtn" onclick="openMemoryPanel()" title="聊天记忆">★ 0</button>
     <button class="hdr-btn hdr-icon-btn" id="listenAlongBtn" onclick="openListenAlongModal()" title="一起听歌">♪</button>
+    <button class="hdr-btn hdr-icon-btn hdr-danger-btn" id="sunnyClearBtn" onclick="clearSunnyAllDirect()" title="清空 Sunny 会话">🗑</button>
     <button class="hdr-btn hdr-icon-btn" id="chatSettingsBtn" onclick="openChatSettings()" title="聊天设置">⚙</button>
   </div>
 </div>
@@ -6023,9 +6026,11 @@ function updateHeader() {
   var memoryBtn = document.getElementById('memoryBtn');
   var listenBtn = document.getElementById('listenAlongBtn');
   var settingsBtn = document.getElementById('chatSettingsBtn');
+  var sunnyClearBtn = document.getElementById('sunnyClearBtn');
   if(memoryBtn) memoryBtn.style.display = sunny ? 'none' : '';
   if(listenBtn) listenBtn.style.display = sunny ? 'none' : '';
   if(settingsBtn) settingsBtn.style.display = sunny ? 'none' : '';
+  if(sunnyClearBtn) sunnyClearBtn.classList.toggle('show', !!sunny);
   updateModelLabel();
 }
 
@@ -6060,6 +6065,36 @@ function getSunnySelectableCharacters(){
   return getStoredCharactersSnapshot().filter(function(item){
     return item && item.id && !(window.SunnySupport && window.SunnySupport.isSunnyCharacter(item));
   });
+}
+
+function findSunnyMentionedCharacter(text){
+  var source = String(text || '').trim();
+  if(!source) return null;
+  var chars = getSunnySelectableCharacters();
+  var hit = null;
+  chars.forEach(function(item){
+    if(hit || !item) return;
+    var names = [item.name, item.nickname].map(function(v){ return String(v || '').trim(); }).filter(Boolean);
+    if(names.some(function(name){ return name && source.indexOf(name) !== -1; })){
+      hit = item;
+    }
+  });
+  return hit;
+}
+
+function buildSunnyKnowledgeButtons(knowledge, userText){
+  var buttons = Array.isArray(knowledge && knowledge.buttons) ? knowledge.buttons.map(function(btn){ return Object.assign({}, btn); }) : [];
+  if(!knowledge || knowledge.id !== 'worldbook') return buttons;
+  var targetChar = findSunnyMentionedCharacter(userText);
+  if(targetChar && targetChar.id){
+    return [{
+      label: '打开 ' + String(targetChar.name || targetChar.nickname || '角色') + ' 的世界书',
+      action: 'open_app_with',
+      app: 'worldbook',
+      charId: String(targetChar.id)
+    }];
+  }
+  return buttons;
 }
 
 function getSunnyCharacterById(charId){
@@ -6319,11 +6354,12 @@ async function handleSunnyLocalReply(){
       throw err;
     }
     appendSunnyProfileWizardCard();
-    markSunnyAssistantMessagesReadNow();
+    markSunnyUserMessagesReadNow();
     await saveChat(true);
     return true;
   }
   var knowledge = window.SunnySupport && window.SunnySupport.matchKnowledge(userText);
+  var knowledgeButtons = buildSunnyKnowledgeButtons(knowledge, userText);
   try{
     var extra = knowledge
       ? ('这次最相关的知识主题是：' + knowledge.id + '。请优先按这条知识解释，口吻要温柔专业。')
@@ -6337,12 +6373,12 @@ async function handleSunnyLocalReply(){
     toast(sunnyErr, { sticky:true });
     throw err;
   }
-  if(knowledge && Array.isArray(knowledge.buttons) && knowledge.buttons.length){
+  if(knowledge && Array.isArray(knowledgeButtons) && knowledgeButtons.length){
     appendSunnyAssistantCard({
       title: '我帮老板找到了',
       text: '点下面的小按钮就能直接过去，汪。',
       summary: knowledge.text,
-      buttons: knowledge.buttons
+      buttons: knowledgeButtons
     });
     markSunnyUserMessagesReadNow();
     await saveChat(true);
@@ -7888,7 +7924,7 @@ function runSunnyCardAction(msgId, idx){
   var button = data && Array.isArray(data.buttons) ? data.buttons[idx] : null;
   if(!button) return;
   if(button.disabled) return;
-  if(button.action === 'open_app' && button.app){
+  if((button.action === 'open_app' || button.action === 'open_app_with') && button.app){
     try{
       data.buttons = (data.buttons || []).map(function(item, itemIdx){
         return Object.assign({}, item, { disabled: itemIdx === idx });
@@ -7899,20 +7935,38 @@ function runSunnyCardAction(msgId, idx){
       saveChat(true).catch(function(){});
       try{
         if(window.parent && typeof window.parent.openApp === 'function'){
-          window.parent.openApp(String(button.app));
+          if(button.action === 'open_app_with' && button.charId){
+            window.parent.postMessage({ type:'OPEN_APP_WITH', payload:{ app:String(button.app), charId:String(button.charId) } }, '*');
+          }else{
+            window.parent.openApp(String(button.app));
+          }
         }
       }catch(ignoreErr){}
       try{
         if(window.top && window.top !== window.parent && typeof window.top.openApp === 'function'){
-          window.top.openApp(String(button.app));
+          if(button.action === 'open_app_with' && button.charId){
+            window.top.postMessage({ type:'OPEN_APP_WITH', payload:{ app:String(button.app), charId:String(button.charId) } }, '*');
+          }else{
+            window.top.openApp(String(button.app));
+          }
         }
       }catch(ignoreErr2){}
-      postToShell({ type:'OPEN_APP', payload:String(button.app) });
+      if(button.action === 'open_app_with' && button.charId){
+        postToShell({ type:'OPEN_APP_WITH', payload:{ app:String(button.app), charId:String(button.charId) } });
+      }else{
+        postToShell({ type:'OPEN_APP', payload:String(button.app) });
+      }
       toast('这就带老板过去，汪');
     }catch(err){
       toast('打开失败了，汪');
     }
   }
+}
+
+async function clearSunnyAllDirect(){
+  if(!isSunnyChat()) return;
+  await clearChatData({ keepGreeting:false, clearMemory:true });
+  toast('Sunny 的聊天、记忆和心声已经清空了，汪');
 }
 
 function bindSunnyCardControls(bubble){
