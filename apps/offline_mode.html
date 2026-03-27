@@ -740,8 +740,8 @@ function normalizeOfflineStatusCard(raw, seedText){
   var source = raw && typeof raw === 'object' ? raw : null;
   if(!source) return null;
   var futureDate = String(source.future_date || source.date || source.futureDate || '').trim();
-  var title = String(source.future_title || source.title || '').trim();
-  var note = String(source.future_note || source.note || source.comment || '').trim();
+  var title = sanitizeOfflineForbiddenWords(String(source.future_title || source.title || '').trim());
+  var note = sanitizeOfflineForbiddenWords(String(source.future_note || source.note || source.comment || '').trim());
   if(!futureDate || !title || !note) return null;
   return {
     name: getCharDisplayName(),
@@ -775,9 +775,9 @@ function parseOfflineSummaryObject(raw){
   return null;
 }
 function normalizeOfflineSummaryText(raw, fallbackText){
-  var text = String(raw || '').replace(/\s+/g, ' ').trim();
+  var text = sanitizeOfflineForbiddenWords(String(raw || '').replace(/\s+/g, ' ').trim());
   if(!text){
-    var clean = String(fallbackText || '').replace(/\s+/g, ' ').trim();
+    var clean = sanitizeOfflineForbiddenWords(String(fallbackText || '').replace(/\s+/g, ' ').trim());
     if(clean){
       text = clean.slice(0, 90);
       if(clean.length > 90) text += '…';
@@ -1378,9 +1378,9 @@ function hasValidOfflineCombinedPayload(obj){
 function normalizeOfflineThoughtChain(raw, seedText){
   var source = raw && typeof raw === 'object' ? raw : {};
   return {
-    subtext_perception: clipOfflinePromptText(String(source.subtext_perception || '').trim() || '解析：先接住你话里的潜台词。 | 关联设定：必须贴人设和当前场景。', 120),
-    emotional_reaction: clipOfflinePromptText(String(source.emotional_reaction || '').trim() || '即时情绪：心里先动了一下。 | 适配度检查：这反应还算像我。', 110),
-    action_strategy: clipOfflinePromptText(String(source.action_strategy || '').trim() || '本轮目标：顺着这股气氛往前推一点。', 90)
+    subtext_perception: clipOfflinePromptText(sanitizeOfflineForbiddenWords(String(source.subtext_perception || '').trim() || '解析：先接住你话里的潜台词。 | 关联设定：必须贴人设和当前场景。'), 120),
+    emotional_reaction: clipOfflinePromptText(sanitizeOfflineForbiddenWords(String(source.emotional_reaction || '').trim() || '即时情绪：心里先动了一下。 | 适配度检查：这反应还算像我。'), 110),
+    action_strategy: clipOfflinePromptText(sanitizeOfflineForbiddenWords(String(source.action_strategy || '').trim() || '本轮目标：顺着这股气氛往前推一点。'), 90)
   };
 }
 function renderOfflineThoughtChain(entry){
@@ -1547,6 +1547,9 @@ function offlinePerspectiveRuleLine(value){
   }
   return '正文叙述严格使用第一人称，保持贴近当下感受的第一视角，不要突然切去第三人称旁白。';
 }
+function offlineForbiddenWordRuleLine(){
+  return '严格禁止输出“精准”“精确”这两个词，正文、标题、语录、蓝字心声、thought_chain、摘要、番外都不许出现。';
+}
 function buildOfflineOpeningFallback(){
   var prefs = getOfflineStoryPrefs();
   var charName = getCharDisplayName();
@@ -1587,9 +1590,14 @@ function normalizeOfflineAsides(raw){
   var list = [];
   if(Array.isArray(raw)) list = raw;
   else if(typeof raw === 'string' && raw.trim()) list = raw.split(/\n+/);
-  list = list.map(function(it){ return String(it || '').trim(); }).filter(Boolean);
+  list = list.map(function(it){ return sanitizeOfflineForbiddenWords(String(it || '').trim()); }).filter(Boolean);
   if(!list.length) list = buildOfflineAsideFallback();
   return list.slice(0, 2);
+}
+function sanitizeOfflineForbiddenWords(text){
+  return String(text || '')
+    .replace(/精准/g, '贴准')
+    .replace(/精确/g, '贴切');
 }
 function memorySummaryStorageKey(charId){
   return scopedKey('memory_summaries_' + String(charId || '').trim());
@@ -1911,6 +1919,7 @@ function buildOfflineSystemPrompt(options){
     'future_date 是未来某一天的具体日期与时间；future_title 要写成超级无敌搞笑、带黑色幽默网感的小标题；future_note 是 char 在未来回想这件事时写下的一小段番外感想/吐槽，可以好笑也可以伤感，但必须贴人设，不能说空话。',
     '在线下模式正文里，text 的长度严格控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间，绝对不要明显短于下限。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
+    offlineForbiddenWordRuleLine(),
     '正文的镜头和感知中心必须是 char 本人：重点写 char 看到的、听到的、想到的、做出的动作和反应。',
     '不要替 user 写内心活动，不要写 user 的主观感受，不要突然切到 user 视角；user 只能通过 char 当下能观察到的表情、动作、说话、距离变化来呈现。',
     '语气要像活人，不要模板腔，不要悬浮文艺腔，不要为了氛围硬堆华丽比喻；像真的见面时会自然注意到的小动作、小停顿、小反应。',
@@ -1977,6 +1986,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
     'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 与当前气氛。',
     'future_date 是未来某一天的具体日期与时间；future_title 要写成超级无敌搞笑、带黑色幽默网感的小标题；future_note 是 char 在未来回想这件事时写下的一小段番外感想/吐槽，可以好笑也可以伤感，但必须贴人设，不能说空话。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
+    offlineForbiddenWordRuleLine(),
     '正文的镜头和感知中心必须是 char 本人：重点写 char 看到的、听到的、想到的、做出的动作和反应。',
     '不要替 user 写内心活动，不要写 user 的主观感受，不要突然切到 user 视角；user 只能通过 char 当下能观察到的表情、动作、说话、距离变化来呈现。',
     '语气要像活人，不要模板腔，不要悬浮文艺腔，不要为了氛围硬堆华丽比喻；像真的见面时会自然注意到的小动作、小停顿、小反应。',
@@ -2575,9 +2585,9 @@ async function generateOpeningIfNeeded(){
       if(hasValidOfflineCombinedPayload(fastCombinedObj)){
         openingThoughtChain = fastCombinedObj.thought_chain;
         openingStatusCard = fastCombinedObj.status_card;
-        openingTitle = String(fastCombinedObj.title || '').trim();
-        openingQuote = String(fastCombinedObj.quote || '').trim();
-        openingText = String(fastCombinedObj.text || '').trim();
+        openingTitle = sanitizeOfflineForbiddenWords(String(fastCombinedObj.title || '').trim());
+        openingQuote = sanitizeOfflineForbiddenWords(String(fastCombinedObj.quote || '').trim());
+        openingText = sanitizeOfflineForbiddenWords(String(fastCombinedObj.text || '').trim());
         openingAsides = normalizeOfflineAsides(fastCombinedObj.asides);
         bestText = openingText;
         bestAsides = openingAsides.slice();
@@ -2606,9 +2616,9 @@ async function generateOpeningIfNeeded(){
         var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: compactLevel }), openingContext, plan.mainTimeout);
         var bodyObj = parseOfflineJsonObject(bodyRaw);
         if(!hasValidOfflineBodyPayload(bodyObj)) throw new Error('正文结构不完整');
-        openingText = String(bodyObj.text || '').trim();
-        openingTitle = String(bodyObj.title || '').trim();
-        openingQuote = String(bodyObj.quote || '').trim();
+        openingText = sanitizeOfflineForbiddenWords(String(bodyObj.text || '').trim());
+        openingTitle = sanitizeOfflineForbiddenWords(String(bodyObj.title || '').trim());
+        openingQuote = sanitizeOfflineForbiddenWords(String(bodyObj.quote || '').trim());
         openingAsides = normalizeOfflineAsides(bodyObj.asides);
         if(openingTextLength(openingText) > openingTextLength(bestText)){
           bestText = openingText;
@@ -2629,7 +2639,7 @@ async function generateOpeningIfNeeded(){
             var continueCompact = extendAttempt >= 1 ? 1 : 0;
             var continueRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: continueCompact }), continuePrompt, plan.continueTimeout);
             var continueObj = parseOfflineJsonObject(continueRaw);
-            var extraText = String(continueObj && continueObj.text || '').trim();
+            var extraText = sanitizeOfflineForbiddenWords(String(continueObj && continueObj.text || '').trim());
             if(!extraText || extraText === openingText) break;
             openingText = mergeOfflineOpeningText(openingText, extraText);
             openingAsides = mergeOfflineAsides(openingAsides, normalizeOfflineAsides(continueObj && continueObj.asides));
@@ -2674,9 +2684,9 @@ async function generateOpeningIfNeeded(){
         if(hasValidOfflineCombinedPayload(combinedObj)){
           openingThoughtChain = combinedObj.thought_chain;
           openingStatusCard = combinedObj.status_card;
-          openingTitle = String(combinedObj.title || '').trim();
-          openingQuote = String(combinedObj.quote || '').trim();
-          openingText = String(combinedObj.text || '').trim();
+          openingTitle = sanitizeOfflineForbiddenWords(String(combinedObj.title || '').trim());
+          openingQuote = sanitizeOfflineForbiddenWords(String(combinedObj.quote || '').trim());
+          openingText = sanitizeOfflineForbiddenWords(String(combinedObj.text || '').trim());
           openingAsides = normalizeOfflineAsides(combinedObj.asides);
         }
       }catch(combinedErr){
@@ -2703,9 +2713,9 @@ async function generateOpeningIfNeeded(){
     var labels = nowLabels();
     var openingEntry = {
       role:'assistant',
-      text:String(openingText || '').trim(),
-      title: openingTitle,
-      quote: openingQuote,
+      text:sanitizeOfflineForbiddenWords(String(openingText || '').trim()),
+      title: sanitizeOfflineForbiddenWords(openingTitle),
+      quote: sanitizeOfflineForbiddenWords(openingQuote),
       asides: openingAsides.length ? openingAsides : [],
       heart:'♥',
       thoughtChain: normalizeOfflineThoughtChain(openingThoughtChain, openingText),
@@ -2860,9 +2870,9 @@ async function requestOfflineReply(options){
     if(!bodyPayload){
       throw bodyError || new Error('正文生成失败');
     }
-    var replyText = String(bodyPayload.text || '').trim();
-    var replyTitle = String(bodyPayload.title || '').trim();
-    var replyQuote = String(bodyPayload.quote || '').trim();
+    var replyText = sanitizeOfflineForbiddenWords(String(bodyPayload.text || '').trim());
+    var replyTitle = sanitizeOfflineForbiddenWords(String(bodyPayload.title || '').trim());
+    var replyQuote = sanitizeOfflineForbiddenWords(String(bodyPayload.quote || '').trim());
     var replyAsides = normalizeOfflineAsides(bodyPayload.asides);
     for(var extendAttempt = 0; extendAttempt < 2; extendAttempt += 1){
       if(openingTextLength(replyText) >= minChars) break;
@@ -2876,7 +2886,7 @@ async function requestOfflineReply(options){
         '只返回新增内容 JSON：{"text":"...","asides":["...","..."]}'
       ].join('\n\n'), getOfflineReplyTimeoutMs());
       var extendParsed = parseOfflineJsonObject(extendRaw) || {};
-      var extraText = String(extendParsed.text || '').trim();
+      var extraText = sanitizeOfflineForbiddenWords(String(extendParsed.text || '').trim());
       if(!extraText) break;
       replyText = mergeOfflineOpeningText(replyText, extraText);
       replyAsides = mergeOfflineAsides(replyAsides, normalizeOfflineAsides(extendParsed.asides));
@@ -2887,9 +2897,9 @@ async function requestOfflineReply(options){
     var nextLabels = nowLabels();
     var replyEntry = {
       role:'assistant',
-      text:replyText,
-      title:replyTitle,
-      quote:replyQuote,
+      text:sanitizeOfflineForbiddenWords(replyText),
+      title:sanitizeOfflineForbiddenWords(replyTitle),
+      quote:sanitizeOfflineForbiddenWords(replyQuote),
       asides:replyAsides,
       heart:'♥',
       thoughtChain: normalizeOfflineThoughtChain(thoughtChain, replyText),
