@@ -3917,6 +3917,31 @@ function normalizeMessageType(type){
   return 'text';
 }
 
+function countRecentAssistantVoiceMessages(limit){
+  var list = Array.isArray(chatLog) ? chatLog : [];
+  var max = Math.max(1, Number(limit) || 12);
+  var seen = 0;
+  var voices = 0;
+  for(var i = list.length - 1; i >= 0; i--){
+    var item = list[i];
+    if(!item || item.role !== 'assistant') continue;
+    seen++;
+    if(normalizeMessageType(item.type || 'text') === 'voice') voices++;
+    if(seen >= max) break;
+  }
+  return voices;
+}
+
+function shouldAllowAssistantVoice(content){
+  var text = String(content || '').trim();
+  if(!text) return false;
+  if(text.length > 88) return false;
+  if(/[\n\r]/.test(text)) return false;
+  if(/[。！？!?]/.test(text) && text.length > 40) return false;
+  if(countRecentAssistantVoiceMessages(14) >= 1) return false;
+  return true;
+}
+
 function looksLikeVisualDescription(text){
   var value = String(text || '').trim();
   if(!value || value.length < 4) return false;
@@ -4969,7 +4994,7 @@ function buildMemeLibraryPromptBlock(){
     lines.push(cat + '：' + names.join('、'));
   });
   lines.push('如果你要发表情包，请单独输出一条消息，格式严格写成 [表情包: 名称]。');
-  lines.push('线上聊天里不要发送语音消息，也不要输出 voice_message / 语音 / 语音消息 这类类型；正常回复只发普通文字，或者单独发一条表情包。');
+  lines.push('线上聊天里语音要非常少用，只在很生活化、很短、很适合口头说出来的时候偶尔发一条。不要连着发语音，不要动不动就用 voice_message。大多数情况下还是发普通文字，或者单独发一条表情包。');
   lines.push('只能从上面这份表情包库里挑已经存在的名称，不许瞎编新的表情包名。');
   lines.push('当用户发表情包时，请把它理解成“用这个表情包表达情绪/态度/调情/撒娇/敷衍/安慰”，不要把名字按字面当成真的行为。比如 [表情包: 咬咬你] 只是表达方式，不是真的要咬人。');
   lines.push('只有在真的合适的时候才发表情包，仍然要服从人设、世界书、关系阶段和最近聊天。');
@@ -13048,7 +13073,7 @@ async function deliverAiReply(text, limitOverride){
         dateLabel: item.dateLabel || ''
       }));
     }
-    if(t === 'voice') t = 'text';
+    if(t === 'voice' && !shouldAllowAssistantVoice(c)) t = 'text';
     if(t === 'meme'){
       var normalizedMemeName = parseMemeMarker(c) || c;
       var knownMeme = findMemeByName(normalizedMemeName);
@@ -13175,7 +13200,7 @@ async function deliverAiReply(text, limitOverride){
               dateLabel: obj.dateLabel || ''
             }));
           }
-          if(t === 'voice') t = 'text';
+          if(t === 'voice' && !shouldAllowAssistantVoice(c)) t = 'text';
           if(t === 'meme'){
             var normalizedStructuredMemeName = parseMemeMarker(c) || c;
             var knownStructuredMeme = findMemeByName(normalizedStructuredMemeName);
@@ -13318,6 +13343,9 @@ window.addEventListener('message', async function(e) {
     if(!incoming || !incoming.id) return;
     var exists = chatLog.some(function(m){ return m && m.id === incoming.id; });
     if(exists) return;
+    if(incoming.role === 'assistant' && normalizeMessageType(incoming.type || 'text') === 'voice' && !shouldAllowAssistantVoice(incoming.content || '')){
+      incoming.type = 'text';
+    }
     if(incoming.role === 'assistant' && isBlockedMemePayload(incoming.content || '')) return;
     if(incoming.role === 'assistant' && normalizeMessageType(incoming.type || 'text') === 'text'){
       incoming.content = sanitizeAssistantTextForChat(incoming.content || '');
