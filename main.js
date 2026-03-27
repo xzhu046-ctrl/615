@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-27T03:55:00Z';
+const APP_BUILD_ID = '2026-03-27T04:06:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -4548,11 +4548,28 @@ function summarizeOfflineInvitePreview(content){
   return text || location || '【线下邀约】';
 }
 
+function summarizeMemePreview(content){
+  var raw = content;
+  try{
+    if(typeof raw === 'string'){
+      raw = JSON.parse(raw);
+    }
+  }catch(e){}
+  var name = '';
+  if(raw && typeof raw === 'object'){
+    name = String(raw.name || raw.content || raw.text || '').trim();
+  }
+  if(!name && /^\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\]$/i.test(String(content || '').trim())){
+    name = String(String(content || '').trim().match(/^\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\]$/i)[1] || '').trim();
+  }
+  return name ? ('【表情包】' + name) : '【表情包】';
+}
+
 function normalizePreviewMessage(msg){
   var next = msg && typeof msg === 'object' ? msg : { content:'', type:'text' };
   var kind = normalizeChatPreviewType(next.type || 'text');
   if(kind === 'text' && /^\[(?:表情包|meme)\s*[:：]\s*[^\]]+\]$/i.test(String(next.content || '').trim())){
-    return { content: '【表情包】', type: 'text' };
+    return { content: summarizeMemePreview(next.content), type: 'text' };
   }
   if(kind === 'familycard'){
     return { content: '【亲属卡】', type: 'text' };
@@ -4573,14 +4590,14 @@ function normalizePreviewMessage(msg){
     return { content: summarizeOfflineInvitePreview(next.content), type: 'text' };
   }
   if(kind === 'meme'){
-    return { content: '【表情包】', type: 'text' };
+    return { content: summarizeMemePreview(next.content), type: 'text' };
   }
   if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
     try{
       var parsed = JSON.parse(next.content);
       if(parsed && typeof parsed === 'object' && parsed.content){
         var parsedType = normalizeChatPreviewType(parsed.type || 'text');
-        if(parsedType === 'meme') return { content: '【表情包】', type: 'text' };
+        if(parsedType === 'meme') return { content: summarizeMemePreview(parsed.content), type: 'text' };
         return { content: parsed.content, type: parsedType };
       }
     }catch(e){}

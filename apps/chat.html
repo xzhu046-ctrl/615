@@ -1929,7 +1929,9 @@ function findMemeByName(name){
   return null;
 }
 function formatMemeSummaryText(payload){
-  return '【表情包】';
+  var item = parseMemePayload(payload) || {};
+  var name = normalizeMemeName(item.name || payload);
+  return name ? ('【表情包】' + name) : '【表情包】';
 }
 function parseMemeMarker(raw){
   var text = String(raw || '').trim();
@@ -4965,6 +4967,7 @@ function buildMemeLibraryPromptBlock(){
     lines.push(cat + '：' + names.join('、'));
   });
   lines.push('如果你要发表情包，请单独输出一条消息，格式严格写成 [表情包: 名称]。');
+  lines.push('只能从上面这份表情包库里挑已经存在的名称，不许瞎编新的表情包名。');
   lines.push('当用户发表情包时，请把它理解成“用这个表情包表达情绪/态度/调情/撒娇/敷衍/安慰”，不要把名字按字面当成真的行为。比如 [表情包: 咬咬你] 只是表达方式，不是真的要咬人。');
   lines.push('只有在真的合适的时候才发表情包，仍然要服从人设、世界书、关系阶段和最近聊天。');
   return lines.join('\n');
@@ -12954,12 +12957,20 @@ async function deliverAiReply(text, limitOverride){
         }).flat();
       }
     }
+    var breathParts = cleaned.match(/[^，、；：]+(?:[，、；：]+)?/g) || [];
+    breathParts = breathParts.map(function(part){ return String(part || '').trim(); }).filter(Boolean);
+    if(breathParts.length >= 2 && breathParts.length <= 8){
+      var breathTotalLen = breathParts.reduce(function(sum, part){ return sum + part.length; }, 0);
+      if(breathTotalLen <= 220){
+        return breathParts.map(function(part){ return { text: part, t: 'text' }; });
+      }
+    }
     var sentenceParts = cleaned.match(/[^。！？!?…]+(?:\.{3,}|…{1,3}|[。！？!?]+)?/g) || [];
     sentenceParts = sentenceParts.map(function(part){ return String(part || '').trim(); }).filter(Boolean);
-    if(sentenceParts.length >= 2 && sentenceParts.length <= 6){
-      var sentenceShortEnough = sentenceParts.every(function(part){ return part.length <= 28; });
+    if(sentenceParts.length >= 2 && sentenceParts.length <= 8){
+      var sentenceShortEnough = sentenceParts.every(function(part){ return part.length <= 44; });
       var sentenceTotalLen = sentenceParts.reduce(function(sum, part){ return sum + part.length; }, 0);
-      if(sentenceShortEnough && sentenceTotalLen <= 140){
+      if(sentenceShortEnough && sentenceTotalLen <= 240){
         return sentenceParts.map(function(part){ return { text: part, t: 'text' }; });
       }
     }
@@ -13123,7 +13134,9 @@ async function deliverAiReply(text, limitOverride){
       }));
     }
     if(t === 'meme'){
-      c = buildMemeEntryContent(findMemeByName(c) || { name: c, category: '未分类' });
+      var knownMeme = findMemeByName(c);
+      if(!knownMeme) return;
+      c = buildMemeEntryContent(knownMeme);
     }
     if(t === 'image' && !looksLikeVisualDescription(c)) t = 'text';
     if(!c) return;
@@ -13246,7 +13259,9 @@ async function deliverAiReply(text, limitOverride){
             }));
           }
           if(t === 'meme'){
-            c = buildMemeEntryContent(findMemeByName(c) || { name: c, category: '未分类' });
+            var knownStructuredMeme = findMemeByName(c);
+            if(!knownStructuredMeme) return;
+            c = buildMemeEntryContent(knownStructuredMeme);
           }
           if(t === 'image' && !looksLikeVisualDescription(c)) t = 'text';
           if(c) rawParts.push({text:c, t:t, replyTo:obj.reply_to || obj.replyTo || '', replyRole:obj.reply_role || obj.replyRole || ''});
@@ -13292,7 +13307,10 @@ async function deliverAiReply(text, limitOverride){
       if(!p.text) continue;
     }
     if(t === 'meme'){
-      p.text = buildMemeEntryContent(parseMemePayload(p.text) || findMemeByName(p.text) || { name: p.text, category: '未分类' });
+      var parsedMeme = parseMemePayload(p.text) || {};
+      var resolvedMeme = findMemeByName(parsedMeme.name || p.text);
+      if(!resolvedMeme) continue;
+      p.text = buildMemeEntryContent(resolvedMeme);
     }
     var dedupeKey = t + '::' + String(p.text || '').replace(/\s+/g, ' ').trim();
     if(dedupeKey && dedupeKey === lastSentKey) continue;
