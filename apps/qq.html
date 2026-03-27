@@ -9,6 +9,7 @@
 <script src="../assetStore.js"></script>
 <script src="../chatStorage.js"></script>
 <script src="../metadataStore.js"></script>
+<script src="../sunnySupport.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--b:#0a0a0a;--w:#fff;--off:#f7f7f7;--g:#888;--p:#eee;--bd:2px solid #0a0a0a;--sh:2px 2px 0 #0a0a0a;--font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif}
@@ -171,6 +172,12 @@ function normalizeStoredChatHistory(list){
 function loadStoredAsset(key){
   if(window.assetStore) return window.assetStore.load(key);
   try{ return Promise.resolve(localStorage.getItem(key) || ''); }catch(e){ return Promise.resolve(''); }
+}
+
+function getSunnyPreview(){
+  return window.SunnySupport && typeof window.SunnySupport.getPinnedPreview === 'function'
+    ? window.SunnySupport.getPinnedPreview()
+    : null;
 }
 
 function hydrateAvatarAssets(){
@@ -371,6 +378,15 @@ function unpinChat(id){
   setPinnedChatIds(ids);
 }
 function lastMsgOf(c){
+  if(c && c.isSunnySupport){
+    try{
+      var raw = JSON.parse(localStorage.getItem(accountScopedKey('chat_' + c.id)) || 'null');
+      var history = normalizeStoredChatHistory((raw && (raw.messages || raw.history)) || []);
+      var previewSource = getLastVisiblePreviewMessage(history);
+      if(previewSource) return normalizePreviewMessage(previewSource);
+    }catch(e){}
+    return { content:'我在呢，老板。要不要我带你找设置或者帮你生成人设呀，汪。', type:'text' };
+  }
   if(c && c.id && livePreviewCache[c.id]) return livePreviewCache[c.id];
   if(c && c.id && chatSummaryCache[c.id] && chatSummaryCache[c.id].last) return chatSummaryCache[c.id].last;
   try{
@@ -394,6 +410,9 @@ function lastMsgOf(c){
 }
 
 function unreadCountOf(c){
+  if(c && c.isSunnySupport){
+    return 0;
+  }
   if(c && c.id && chatSummaryCache[c.id]) return Number(chatSummaryCache[c.id].unread || 0) || 0;
   try{
     var saved = JSON.parse(localStorage.getItem(accountScopedKey('chat_' + c.id)) || 'null');
@@ -512,6 +531,7 @@ function normalizeChatPreviewType(type){
   if(type === 'meme_message' || type === 'meme' || type === 'sticker') return 'meme';
   if(type === 'family_card' || type === 'familycard') return 'familycard';
   if(type === 'money_packet' || type === 'moneypacket' || type === 'transfer') return 'moneypacket';
+  if(type === 'sunny_card' || type === 'sunnycard' || type === 'support_card') return 'sunnycard';
   return 'text';
 }
 
@@ -548,6 +568,14 @@ function summarizeMemePreview(content){
 function normalizePreviewMessage(msg){
   var next = msg && typeof msg === 'object' ? msg : { content:'', type:'text' };
   var kind = normalizeChatPreviewType(next.type || 'text');
+  if(kind === 'sunnycard'){
+    try{
+      var sunnyCard = typeof next.content === 'string' ? JSON.parse(next.content) : next.content;
+      return { content: String((sunnyCard && (sunnyCard.summary || sunnyCard.text || sunnyCard.title)) || 'Sunny 卡片').trim(), type: 'text' };
+    }catch(err){
+      return { content:'Sunny 卡片', type:'text' };
+    }
+  }
   if(kind === 'text' && /^\[(?:表情包|meme)\s*[:：]\s*[^\]]+\]$/i.test(String(next.content || '').trim())){
     return { content: summarizeMemePreview(next.content), type: 'text' };
   }
@@ -604,9 +632,14 @@ function chooseBetterHistoryList(best, next){
 }
 function renderList(){
   var list=document.getElementById('chatList');
-  if(!chars.length){ list.innerHTML='<li class="item" style="justify-content:center;color:var(--g)">还没有联系人，去通讯录添加吧</li>'; return; }
+  var sunny = getSunnyPreview();
+  var renderChars = chars.slice();
+  if(sunny) renderChars.unshift(sunny);
+  if(!renderChars.length){ list.innerHTML='<li class="item" style="justify-content:center;color:var(--g)">还没有联系人，去通讯录添加吧</li>'; return; }
   var pinnedIds = getPinnedChatIds();
-  var sortedChars = chars.slice().sort(function(a,b){
+  var sortedChars = renderChars.slice().sort(function(a,b){
+    if(a && a.isSunnySupport) return -1;
+    if(b && b.isSunnySupport) return 1;
     var aPinned = pinnedIds.indexOf(a.id);
     var bPinned = pinnedIds.indexOf(b.id);
     if(aPinned !== -1 || bPinned !== -1){
@@ -639,6 +672,9 @@ function renderList(){
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function openChat(id){
   var c = chars.find(function(x){return x.id===id;});
+  if(!c && window.SunnySupport && id === window.SunnySupport.ID){
+    c = window.SunnySupport.getCharacter();
+  }
   if(!c) return;
   markChatAsRead(id).catch(function(){});
   var slim = slimChar(c);

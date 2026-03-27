@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-27T06:13:00Z';
+const APP_BUILD_ID = '2026-03-27T06:27:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -4631,6 +4631,7 @@ function normalizeChatPreviewType(type){
   if(type === 'family_card' || type === 'familycard') return 'familycard';
   if(type === 'money_packet' || type === 'moneypacket' || type === 'transfer') return 'moneypacket';
   if(type === 'offline_invite' || type === 'offlineinvite') return 'offlineinvite';
+  if(type === 'sunny_card' || type === 'sunnycard' || type === 'support_card') return 'sunnycard';
   return 'text';
 }
 
@@ -4669,6 +4670,14 @@ function summarizeMemePreview(content){
 function normalizePreviewMessage(msg){
   var next = msg && typeof msg === 'object' ? msg : { content:'', type:'text' };
   var kind = normalizeChatPreviewType(next.type || 'text');
+  if(kind === 'sunnycard'){
+    try{
+      var sunnyCard = typeof next.content === 'string' ? JSON.parse(next.content) : next.content;
+      return { content: String((sunnyCard && (sunnyCard.summary || sunnyCard.text || sunnyCard.title)) || 'Sunny 卡片').trim(), type: 'text' };
+    }catch(err){
+      return { content:'Sunny 卡片', type:'text' };
+    }
+  }
   if(kind === 'text' && /^\[(?:表情包|meme)\s*[:：]\s*[^\]]+\]$/i.test(String(next.content || '').trim())){
     return { content: summarizeMemePreview(next.content), type: 'text' };
   }
