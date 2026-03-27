@@ -12,6 +12,7 @@
 <script src="../metadataStore.js"></script>
 <script src="../presenceShared.js"></script>
 <script src="offlineInvite.js"></script>
+<script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -391,8 +392,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .addon-icon img{object-fit:contain}
 .meme-suggest-panel{display:none;flex-direction:column;gap:8px;padding:2px 0 4px}
 .meme-suggest-panel.open{display:flex}
-.meme-suggest-hint{font-family:var(--fontcute);font-size:11px;color:#858585;letter-spacing:.02em;padding:0 2px}
 .meme-suggest-list{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.meme-suggest-list{touch-action:pan-x}
 .meme-suggest-list::-webkit-scrollbar{display:none}
 .meme-suggest-chip{flex:0 0 auto;min-width:72px;max-width:88px;border:var(--bd);border-radius:14px;background:#fff;box-shadow:1px 1px 0 var(--b);padding:6px 6px 7px;display:flex;flex-direction:column;gap:5px;align-items:center;cursor:pointer}
 .meme-suggest-chip:active{transform:translate(1px,1px);box-shadow:none}
@@ -933,7 +934,6 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
       <button class="reply-preview-close" type="button" onclick="clearReplyTarget()">×</button>
     </div>
     <div class="meme-suggest-panel" id="memeSuggestPanel">
-      <div class="meme-suggest-hint">点一下就能把它发出去</div>
       <div class="meme-suggest-list" id="memeSuggestList"></div>
     </div>
     <textarea id="msg-input" rows="1" placeholder="输入消息..." onkeydown="onKey(event)" oninput="autoResize(this)"></textarea>
@@ -1818,6 +1818,7 @@ var blockStateCacheMap = {};
 var memeLibraryCache = { items: [], categories: [] };
 var activeMemeCategory = 'all';
 var pendingMemeMetaState = null;
+var memeCardLongPressTimer = null;
 
 function contextWindowKey(){
   return character && character.id ? accountScopedKey('ctx_window_' + character.id) : '';
@@ -7464,6 +7465,91 @@ function refreshMemeCategoryStrip(){
   }).join('');
 }
 
+function updateMemeItem(nextItem){
+  var normalized = normalizeMemeItem(nextItem);
+  if(!normalized) return false;
+  var changed = false;
+  memeLibraryCache.items = getAllMemeItems().map(function(item){
+    if(String(item.id || '') !== String(normalized.id || '')) return item;
+    changed = true;
+    return Object.assign({}, item, normalized, { id: item.id });
+  });
+  if(changed) saveMemeLibrary().then(function(){
+    refreshMemeCategoryStrip();
+    renderMemePickerGrid();
+    refreshMemeSuggestionsForInput();
+  });
+  return changed;
+}
+
+function removeMemeItem(id){
+  var targetId = String(id || '');
+  if(!targetId) return false;
+  var removed = false;
+  memeLibraryCache.items = getAllMemeItems().filter(function(item){
+    if(String(item.id || '') !== targetId) return true;
+    removed = true;
+    return false;
+  });
+  if(removed) saveMemeLibrary().then(function(){
+    refreshMemeCategoryStrip();
+    renderMemePickerGrid();
+    refreshMemeSuggestionsForInput();
+  });
+  return removed;
+}
+
+function openMemeManagePrompt(id){
+  var item = getAllMemeItems().find(function(entry){ return String(entry.id || '') === String(id || ''); });
+  if(!item) return;
+  var nextName = window.prompt('编辑表情包名字。输入 /delete 删除它。', String(item.name || ''));
+  if(nextName === null) return;
+  nextName = normalizeMemeName(nextName);
+  if(nextName === '/delete'){
+    if(window.confirm('确定要删除这个表情包吗？')){
+      if(removeMemeItem(item.id)) toast('表情包已删除');
+    }
+    return;
+  }
+  if(!nextName){
+    toast('名字不能为空');
+    return;
+  }
+  var nextCategory = window.prompt('编辑分类', String(item.category || '未分类'));
+  if(nextCategory === null) return;
+  nextCategory = normalizeMemeCategory(nextCategory);
+  if(updateMemeItem(Object.assign({}, item, { name: nextName, category: nextCategory }))){
+    toast('表情包已更新');
+  }
+}
+
+function bindMemeCardLongPress(node, itemId){
+  if(!node || !itemId) return;
+  var start = function(e){
+    if(e && e.type === 'contextmenu'){
+      e.preventDefault();
+      openMemeManagePrompt(itemId);
+      return;
+    }
+    if(memeCardLongPressTimer) clearTimeout(memeCardLongPressTimer);
+    memeCardLongPressTimer = setTimeout(function(){
+      memeCardLongPressTimer = null;
+      openMemeManagePrompt(itemId);
+    }, 420);
+  };
+  var clear = function(){
+    if(memeCardLongPressTimer){
+      clearTimeout(memeCardLongPressTimer);
+      memeCardLongPressTimer = null;
+    }
+  };
+  node.addEventListener('pointerdown', start);
+  node.addEventListener('pointerup', clear);
+  node.addEventListener('pointerleave', clear);
+  node.addEventListener('pointercancel', clear);
+  node.addEventListener('contextmenu', start);
+}
+
 function resolveMemeThumbSource(item){
   if(!item) return Promise.resolve('');
   var inline = String(item.src || '').trim();
@@ -7489,6 +7575,8 @@ function renderMemePickerGrid(){
     return '<button class="meme-card" type="button" data-meme-id="' + escAttr(item.id) + '" onclick="sendMemeById(' + JSON.stringify(item.id) + ', false)"><div class="meme-card-thumb" data-meme-thumb-id="' + escAttr(item.id) + '">' + esc(memeFallbackGlyph(item)) + '</div><div class="meme-card-name">' + esc(item.name) + '</div></button>';
   }).join('');
   items.forEach(function(item){
+    var card = host.querySelector('[data-meme-id="' + item.id + '"]');
+    if(card) bindMemeCardLongPress(card, item.id);
     resolveMemeThumbSource(item).then(function(src){
       var node = host.querySelector('[data-meme-thumb-id="' + item.id + '"]');
       if(!node || !src) return;
@@ -7697,6 +7785,15 @@ function parseWordDocumentXml(xmlText) {
 }
 
 async function extractDocxText(buffer) {
+  if(window.mammoth && typeof window.mammoth.extractRawText === 'function'){
+    try{
+      var result = await window.mammoth.extractRawText({ arrayBuffer: buffer });
+      var mammothText = cleanupImportedDocumentText(result && result.value || '');
+      if(mammothText) return mammothText;
+    }catch(err){
+      console.warn('mammoth extractDocxText failed, fallback to unzip parser', err);
+    }
+  }
   var files = await unzipDocxEntries(buffer);
   var xml = files['word/document.xml'];
   if(!xml) throw new Error('无效的 docx 文件');
@@ -7822,7 +7919,6 @@ async function onMemeImportFilesSelected(files){
   var input = document.getElementById('memeImportInput');
   if(input) input.value = '';
   if(!list.length) return;
-  var queue = [];
   for(var i = 0; i < list.length; i++){
     var file = list[i];
     try{
@@ -7832,21 +7928,27 @@ async function onMemeImportFilesSelected(files){
         : await readFileAsBestEffortText(file);
       var entries = parseStickerEntriesFromText(text);
       if(!entries.length) throw new Error('文件里没有识别到表情包链接');
-      queue.push({
-        mode: 'batch',
-        entries: entries,
-        category: String(file.name || '').replace(/\.[^.]+$/, '').trim() || '新表情包'
+      var defaultCategory = String(file.name || '').replace(/\.[^.]+$/, '').trim() || '新表情包';
+      var chosenCategory = window.prompt('这批表情包要放进哪个分类？', defaultCategory);
+      if(chosenCategory === null) chosenCategory = defaultCategory;
+      chosenCategory = normalizeMemeCategory(chosenCategory);
+      var imported = 0;
+      entries.forEach(function(entry){
+        var item = normalizeMemeItem(Object.assign({}, entry, { category: chosenCategory }));
+        if(!item) return;
+        memeLibraryCache.items.unshift(item);
+        imported++;
       });
+      await saveMemeLibrary();
+      refreshMemeCategoryStrip();
+      renderMemePickerGrid();
+      refreshMemeSuggestionsForInput();
+      toast('已导入 ' + imported + ' 个表情包');
     }catch(err){
       console.error('meme import failed', err);
       toast((err && err.message) || '导入失败');
     }
   }
-  if(!queue.length) return;
-  var first = queue.shift();
-  first.queue = queue;
-  toast('已识别到 ' + ((first.entries && first.entries.length) || 0) + ' 个表情包，请确认分类');
-  openMemeMetaOverlay(first);
 }
 
 async function onMemeAlbumFilesSelected(files){
