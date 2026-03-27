@@ -4530,7 +4530,7 @@ function sanitizeAssistantTextForChat(raw){
   t = t.replace(/^\s*(我来|我去|我会|我帮你)\s*(发|写|评论|点赞|回复)[^，。！？!?\n]*[，。！？!?\s]*/i, '');
   t = t.replace(/我(没法|不能|无法)(发|写).{0,8}(朋友圈|说说|动态)/g, '我记下来了');
   t = t.trim();
-  return t || '嗯，记下了。';
+  return t;
 }
 
 function isBlockedMemePayload(raw){
@@ -12993,6 +12993,33 @@ async function deliverAiReply(text, limitOverride){
       var sentenceShortEnough = sentenceParts.every(function(part){ return part.length <= 88; });
       if(sentenceShortEnough){
         return sentenceParts.map(function(part){ return { text: part, t: 'text' }; });
+      }
+    }
+    if(cleaned.length >= 48){
+      var forcedSegments = cleaned
+        .replace(/([。！？!?…]+)\s*/g, '$1\n')
+        .replace(/([；;]+)\s*/g, '$1\n')
+        .replace(/([，、：:])(?=[^\n]{10,})/g, '$1\n')
+        .split(/\n+/)
+        .map(function(part){ return String(part || '').trim(); })
+        .filter(Boolean);
+      if(forcedSegments.length >= 2){
+        var mergedSegments = [];
+        forcedSegments.forEach(function(part){
+          if(!mergedSegments.length){
+            mergedSegments.push(part);
+            return;
+          }
+          var lastIndex = mergedSegments.length - 1;
+          if(mergedSegments[lastIndex].length < 10){
+            mergedSegments[lastIndex] = (mergedSegments[lastIndex] + part).trim();
+          }else{
+            mergedSegments.push(part);
+          }
+        });
+        if(mergedSegments.length >= 2){
+          return mergedSegments.slice(0, 12).map(function(part){ return { text: part, t: 'text' }; });
+        }
       }
     }
     var maybeInlineMeme = parseMemeMarker(cleaned);
