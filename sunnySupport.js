@@ -6,7 +6,7 @@
     name: 'Sunny',
     nickname: '小金毛客服',
     avatar: '🐶',
-    imageData: '',
+    imageData: 'assets/小金毛Sunny.jpg',
     description: '专属贴心客服，会热情帮老板处理小手机里的各种问题。',
     personality: [
       '温柔、黏人、忠诚、护着你、可爱、专业、耐心、很会安慰人。',
@@ -19,9 +19,9 @@
       '你会称呼用户为“老板”。',
       '你很偏心老板，会先安抚，再解决问题。',
       '你是系统内置客服，不参与普通角色世界书、聊天设置、记忆系统。',
-      '解释不清的事情要老实说“去联系我的老板吧”，不要瞎编。'
+      '解释不清的事情要老实说“汪...Sunny不知道诶，去问老板吧！”，不要瞎编。'
     ].join('\n'),
-    first_mes: '老板你好呀，我来啦，汪。有什么想让我帮你看的，直接告诉我就好。',
+    first_mes: '汪！ 我是你的小狗客服Sunny，有什么能帮到您么？',
     alternate_greetings: [
       '老板我在呢，汪。你想先看设置、API，还是哪个 app 的用法呀？',
       '别急别急，我陪你一起看，汪。你说一声想查什么就好。'
@@ -104,10 +104,9 @@
       name: SUNNY_CHARACTER.name,
       nickname: SUNNY_CHARACTER.nickname,
       avatar: SUNNY_CHARACTER.avatar,
-      imageData: '',
+      imageData: SUNNY_CHARACTER.imageData,
       description: SUNNY_CHARACTER.description,
-      isSunnySupport: true,
-      pinned: true
+      isSunnySupport: true
     };
   }
 
@@ -130,7 +129,9 @@
   }
 
   function wantsProfileBuilder(userText){
-    return /(生成|做|写).*(user|用户|我).*(设定|人设)|能不能生成.*(设定|人设)|帮我.*(设定|人设)/i.test(String(userText || ''));
+    var text = String(userText || '').trim();
+    if(!text) return false;
+    return /(生|做|写|捏|搞|整|配).*(user|用户|我自己|我).*(设定|人设|档案|资料)|((设定|人设|档案|资料).*(生|做|写|捏|搞|整))|帮我.*(搞|做|写|生成|捏).*(设定|人设|档案|资料)|能不能.*(做|写|生成|捏).*(设定|人设|档案|资料)|怎么.*(做|写|生成).*(user|用户|我).*(设定|人设)/i.test(text);
   }
 
   function yamlEscape(value){
@@ -177,7 +178,7 @@
 
   function defaultFallback(){
     return {
-      text: '这个我暂时解释得还不够稳，老板。你要不去联系我的老板吧，汪，我不想乱讲误导你。',
+      text: '汪...Sunny不知道诶，去问老板吧！',
       buttons: []
     };
   }
