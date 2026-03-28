@@ -98,6 +98,14 @@ textarea{resize:none}
 .import-mode-name{font-size:13px;font-weight:900}
 .import-mode-desc{font-size:12px;line-height:1.55;color:#555}
 .import-mode-actions{display:flex;gap:8px}
+.import-preview-list{list-style:none;display:flex;flex-direction:column;gap:8px;max-height:180px;overflow:auto;padding:10px;border:var(--border);border-radius:16px;background:#fafafa}
+.import-preview-item{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;font-weight:800;color:#222}
+.import-preview-item span:last-child{color:#666;font-weight:700}
+.settings-item{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.settings-right{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.settings-mini-btn{font-family:var(--font-d);font-weight:800;border:var(--border);border-radius:12px;padding:8px 14px;background:#fff;color:#0a0a0a;box-shadow:var(--shadow);cursor:pointer}
+.settings-mini-btn:active{transform:translate(2px,2px);box-shadow:0 0 0 #0a0a0a}
+.update-status{font-size:12px;line-height:1.6;color:#444;background:#fafafa;border:var(--border);border-radius:14px;padding:12px}
 </style>
 </head>
 <body>
@@ -289,9 +297,26 @@ textarea{resize:none}
       <div style="font-size:12px;line-height:1.6;color:#444">可以把当前小手机的全部数据打包成一个 JSON 文件，也可以从备份文件完整恢复，包括 API、角色、聊天、头像、壁纸和自定义外观。</div>
       <div class="btn-row">
         <button class="btn btn-white btn-full" type="button" onclick="exportAllData()">导出所有数据</button>
-        <button class="btn btn-white btn-full" type="button" onclick="triggerImportAllData()">导入所有数据</button>
+        <button class="btn btn-white btn-full" type="button" onclick="triggerImportAllData()">导入备份文件</button>
       </div>
       <input type="file" id="import-all-data-input" accept=".json,application/json" style="display:none" onchange="onImportAllData(event)">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h3>应用更新</h3>
+      <span style="font-size:11px;color:#666;font-weight:800">最新版本</span>
+    </div>
+    <div class="card-body" style="gap:12px">
+      <div class="settings-item">
+        <label style="margin:0;text-transform:none;letter-spacing:0;color:#222;font-size:13px;font-weight:800">检查并更新到最新版本</label>
+        <div class="settings-right">
+          <button class="settings-mini-btn" type="button" id="check-update-btn" onclick="checkAndUpdateLatestVersion()">检查更新</button>
+        </div>
+      </div>
+      <div class="update-status" id="settings-update-status">当前版本：读取中…<br>远端版本：未检查<br>状态：等待检查</div>
+      <button class="btn btn-black btn-full" type="button" id="settings-refresh-btn" onclick="refreshLatestVersionFromSettings()" style="display:none">刷新到最新版本</button>
     </div>
   </div>
 
@@ -329,6 +354,7 @@ textarea{resize:none}
   <div class="import-mode-card">
     <div class="import-kicker">Import</div>
     <div class="import-mode-title">请选择导入方式</div>
+    <ul class="import-preview-list" id="import-preview-list"></ul>
     <button class="import-mode-option" type="button" onclick="confirmImportMode('merge')">
       <div class="import-mode-name">选择性导入</div>
       <div class="import-mode-desc">尽量合并现有数据，不先清空整台手机。更适合保命和补回数据。</div>
@@ -359,6 +385,7 @@ var importOverlayLocked = false;
 var lastImportRollbackPayload = null;
 var pendingImportPayload = null;
 var pendingImportInput = null;
+var lastSettingsRemoteBuild = '';
 
 function init() {
   importOverlayLocked = false;
@@ -385,6 +412,9 @@ function init() {
   var aiBgEnabled = localStorage.getItem(AI_BG_ENABLED_KEY) === '1';
   document.getElementById('ai-bg-switch').classList.toggle('on', aiBgEnabled);
   document.getElementById('ai-bg-interval').value = localStorage.getItem(AI_BG_INTERVAL_KEY) || '6';
+  readCurrentBuildId().then(function(currentBuild){
+    updateSettingsUpdateStatus(currentBuild, '', '等待检查');
+  });
   dirty = false;
 }
 
@@ -563,6 +593,15 @@ function showToast(msg) {
   setTimeout(function(){ t.classList.remove('show'); }, 2200);
 }
 
+function escapeHtml(value){
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function openImportProgress(totalSteps){
   var overlay = document.getElementById('import-overlay');
   var fill = document.getElementById('import-progress-fill');
@@ -600,6 +639,7 @@ function unlockAndCloseImportProgress(){
 function openImportModePicker(payload, input){
   pendingImportPayload = payload || null;
   pendingImportInput = input || null;
+  renderImportPreviewList(payload);
   var overlay = document.getElementById('import-mode-overlay');
   if(overlay) overlay.classList.add('open');
 }
@@ -609,6 +649,103 @@ function closeImportModePicker(){
   pendingImportInput = null;
   var overlay = document.getElementById('import-mode-overlay');
   if(overlay) overlay.classList.remove('open');
+}
+
+function renderImportPreviewList(payload){
+  var list = document.getElementById('import-preview-list');
+  if(!list) return;
+  var userData = payload && payload.userData && typeof payload.userData === 'object' ? payload.userData : {};
+  var worldbooks = dedupeWorldbooksSnapshot(userData.worldbooks || {});
+  var worldbookCount = 0;
+  Object.keys(worldbooks || {}).forEach(function(key){
+    worldbookCount += Array.isArray(worldbooks[key]) ? worldbooks[key].length : 0;
+  });
+  var phoneStorage = payload && payload.phoneStorage && typeof payload.phoneStorage === 'object' ? payload.phoneStorage : {};
+  var chatCount = 0;
+  Object.keys(phoneStorage).forEach(function(storeName){
+    if(storeName !== 'chats') return;
+    chatCount = Array.isArray(phoneStorage[storeName]) ? phoneStorage[storeName].length : 0;
+  });
+  var assets = payload && payload.assets && typeof payload.assets === 'object' ? payload.assets : {};
+  var localStorageData = payload && payload.localStorage && typeof payload.localStorage === 'object' ? payload.localStorage : {};
+  var items = [
+    ['角色', Array.isArray(userData.characters) ? userData.characters.length + ' 个' : '0 个'],
+    ['世界书条目', worldbookCount + ' 条'],
+    ['聊天仓库', chatCount + ' 份'],
+    ['资源文件', Object.keys(assets).length + ' 个'],
+    ['本地设置', Object.keys(localStorageData).length + ' 项']
+  ];
+  list.innerHTML = items.map(function(item){
+    return '<li class="import-preview-item"><span>' + escapeHtml(item[0]) + '</span><span>' + escapeHtml(item[1]) + '</span></li>';
+  }).join('');
+}
+
+async function readCurrentBuildId(){
+  try{
+    var res = await fetch('../version.json?settingsCheck=' + Date.now(), { cache:'no-store' });
+    var data = await res.json();
+    return String(data && data.buildId || '').trim();
+  }catch(err){
+    return '';
+  }
+}
+
+function updateSettingsUpdateStatus(currentBuild, remoteBuild, statusText){
+  var box = document.getElementById('settings-update-status');
+  var refreshBtn = document.getElementById('settings-refresh-btn');
+  if(box){
+    box.innerHTML =
+      '当前版本：' + escapeHtml(currentBuild || '未读到') + '<br>' +
+      '远端版本：' + escapeHtml(remoteBuild || '未检查') + '<br>' +
+      '状态：' + escapeHtml(statusText || '等待检查');
+  }
+  if(refreshBtn){
+    refreshBtn.style.display = remoteBuild && currentBuild && remoteBuild !== currentBuild ? 'block' : 'none';
+  }
+}
+
+async function checkAndUpdateLatestVersion(){
+  var btn = document.getElementById('check-update-btn');
+  if(btn) btn.disabled = true;
+  try{
+    var currentBuild = await readCurrentBuildId();
+    updateSettingsUpdateStatus(currentBuild, '', '正在检查…');
+    var remoteBuild = '';
+    if(window.parent && typeof window.parent.buildRemoteAppFingerprint === 'function'){
+      remoteBuild = await window.parent.buildRemoteAppFingerprint();
+    }
+    lastSettingsRemoteBuild = String(remoteBuild || '').trim();
+    var compareFn = window.parent && typeof window.parent.compareHostedBuildIds === 'function'
+      ? window.parent.compareHostedBuildIds
+      : function(a, b){
+          if(a === b) return 0;
+          return String(a || '') > String(b || '') ? 1 : -1;
+        };
+    if(lastSettingsRemoteBuild && currentBuild && compareFn(lastSettingsRemoteBuild, currentBuild) > 0){
+      updateSettingsUpdateStatus(currentBuild, lastSettingsRemoteBuild, '发现新版本，可以刷新');
+      if(window.parent && typeof window.parent.announceHostedUpdate === 'function'){
+        window.parent.announceHostedUpdate(lastSettingsRemoteBuild);
+      }
+      showToast('发现新版本啦');
+      return;
+    }
+    updateSettingsUpdateStatus(currentBuild, lastSettingsRemoteBuild || currentBuild, '已经是最新版本');
+    showToast('已经是最新版本');
+  }catch(err){
+    console.error(err);
+    updateSettingsUpdateStatus(await readCurrentBuildId(), lastSettingsRemoteBuild, '检查失败');
+    showToast('检查更新失败');
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+
+function refreshLatestVersionFromSettings(){
+  if(window.parent && typeof window.parent.refreshInstalledApp === 'function'){
+    window.parent.refreshInstalledApp();
+    return;
+  }
+  window.location.reload();
 }
 
 function getPhoneStorageStoreNames(){
