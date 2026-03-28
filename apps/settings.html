@@ -1497,50 +1497,99 @@ async function onImportAllData(event){
 
 async function confirmFormat() {
   if (!confirm('将清空所有数据并重启小手机，确认继续？')) return;
-  try {
-    if(window.PhoneStorage && typeof window.PhoneStorage.deleteDatabase === 'function'){
-      await window.PhoneStorage.deleteDatabase();
-    }else if(window.PhoneStorage && typeof window.PhoneStorage.clearAll === 'function'){
-      await window.PhoneStorage.clearAll();
+  try{
+    if(window.MetadataStore){
+      if(typeof window.MetadataStore.saveCharacters === 'function'){
+        await window.MetadataStore.saveCharacters([]).catch(function(){});
+      }
+      if(typeof window.MetadataStore.saveWorldbooks === 'function'){
+        await window.MetadataStore.saveWorldbooks({}).catch(function(){});
+      }
     }
-  } catch(e) {}
-  try { localStorage.clear(); sessionStorage.clear(); } catch(e) {}
-  try { window.parent.postMessage({type:'FORMAT_EPHONE'}, '*'); } catch(e){}
+    if(window.assetStore && typeof window.assetStore.clearAll === 'function'){
+      await window.assetStore.clearAll().catch(function(){});
+    }
+    if(window.PhoneStorage && typeof window.PhoneStorage.deleteDatabase === 'function'){
+      await window.PhoneStorage.deleteDatabase().catch(function(){});
+    }else if(window.PhoneStorage && typeof window.PhoneStorage.clearAll === 'function'){
+      await window.PhoneStorage.clearAll().catch(function(){});
+    }
+    if(typeof caches !== 'undefined' && caches && typeof caches.keys === 'function'){
+      var names = await caches.keys().catch(function(){ return []; });
+      await Promise.all((names || []).map(function(name){
+        return caches.delete(name).catch(function(){ return null; });
+      }));
+    }
+  }catch(err){
+    console.error(err);
+  }
+  try { localStorage.clear(); } catch(e) {}
+  try { sessionStorage.clear(); } catch(e) {}
+  try{
+    if(window.parent && window.parent !== window){
+      if(typeof window.parent.formatEphone === 'function'){
+        await window.parent.formatEphone();
+      }else{
+        window.parent.postMessage({type:'FORMAT_EPHONE'}, '*');
+      }
+    }
+  }catch(e){}
   showToast('已格式化，正在重启…');
-  setTimeout(function(){ window.location.reload(); }, 400);
+  setTimeout(function(){
+    try{
+      if(window.parent && window.parent !== window && window.parent.location){
+        window.parent.location.reload();
+        return;
+      }
+    }catch(err){}
+    window.location.reload();
+  }, 450);
 }
 
 function saveAll() {
-  localStorage.setItem('provider', curProvider);
-  ['openai','claude','gemini','openrouter','custom'].forEach(function(p) {
-    var k = document.getElementById('key-'+p);
-    if(k && k.value) localStorage.setItem('key_'+p, k.value);
-    var m = document.getElementById('model-'+p);
-    if(m && m.value) localStorage.setItem('model_'+p, m.value);
-    var t = document.getElementById('temp-'+p);
-    if(t) localStorage.setItem('temp_'+p, t.value || '1');
-  });
-  var cu = document.getElementById('key-custom-url');
-  if(cu) localStorage.setItem('custom_url', cu.value);
-  var mm = document.getElementById('model-custom-manual');
-  if(mm && mm.value) localStorage.setItem('model_custom_manual', mm.value);
-  localStorage.setItem('sysprompt', document.getElementById('sysprompt').value);
-  localStorage.setItem(AI_BG_ENABLED_KEY, document.getElementById('ai-bg-switch').classList.contains('on') ? '1' : '0');
-  var aiBgInterval = parseInt(document.getElementById('ai-bg-interval').value || '6', 10);
-  if(Number.isNaN(aiBgInterval)) aiBgInterval = 6;
-  aiBgInterval = Math.max(1, Math.min(120, aiBgInterval));
-  localStorage.setItem(AI_BG_INTERVAL_KEY, String(aiBgInterval));
-  dirty = false;
-  showToast('设置已保存');
-  window.parent.postMessage({
-    type: 'SETTINGS_SAVED',
-    payload: {
-      provider: curProvider,
-      aiBgEnabled: document.getElementById('ai-bg-switch').classList.contains('on'),
-      aiBgIntervalMin: aiBgInterval
-    }
-  }, '*');
+  try{
+    localStorage.setItem('provider', curProvider);
+    ['openai','claude','gemini','openrouter','custom'].forEach(function(p) {
+      var k = document.getElementById('key-'+p);
+      if(k && k.value) localStorage.setItem('key_'+p, k.value);
+      var m = document.getElementById('model-'+p);
+      if(m && m.value) localStorage.setItem('model_'+p, m.value);
+      var t = document.getElementById('temp-'+p);
+      if(t) localStorage.setItem('temp_'+p, t.value || '1');
+    });
+    var cu = document.getElementById('key-custom-url');
+    if(cu) localStorage.setItem('custom_url', cu.value);
+    var mm = document.getElementById('model-custom-manual');
+    if(mm && mm.value) localStorage.setItem('model_custom_manual', mm.value);
+    localStorage.setItem('sysprompt', document.getElementById('sysprompt').value);
+    localStorage.setItem(AI_BG_ENABLED_KEY, document.getElementById('ai-bg-switch').classList.contains('on') ? '1' : '0');
+    var aiBgInterval = parseInt(document.getElementById('ai-bg-interval').value || '6', 10);
+    if(Number.isNaN(aiBgInterval)) aiBgInterval = 6;
+    aiBgInterval = Math.max(1, Math.min(120, aiBgInterval));
+    localStorage.setItem(AI_BG_INTERVAL_KEY, String(aiBgInterval));
+    dirty = false;
+    showToast('设置已保存');
+    try{
+      window.parent.postMessage({
+        type: 'SETTINGS_SAVED',
+        payload: {
+          provider: curProvider,
+          aiBgEnabled: document.getElementById('ai-bg-switch').classList.contains('on'),
+          aiBgIntervalMin: aiBgInterval
+        }
+      }, '*');
+    }catch(err){}
+  }catch(err){
+    console.error(err);
+    showToast('保存失败，请检查存储空间');
+  }
 }
+
+window.saveAll = saveAll;
+window.confirmFormat = confirmFormat;
+window.triggerImportAllData = triggerImportAllData;
+window.checkAndUpdateLatestVersion = checkAndUpdateLatestVersion;
+window.refreshLatestVersionFromSettings = refreshLatestVersionFromSettings;
 
 bindTextNormalization();
 init();
