@@ -12770,9 +12770,27 @@ function isRenderableAvatarSrc(src){
   return !!(text && (text.startsWith('data:') || text.startsWith('http') || text.startsWith('blob:') || text.startsWith('/') || text.startsWith('./') || text.startsWith('../') || text.startsWith('assets/') || text.startsWith('apps/assets/')));
 }
 
+var chatAvatarObjectUrlCache = Object.create(null);
+
+function ensureChatRenderableAvatarSrc(src){
+  var text = normalizeAvatarSrc(src);
+  if(!isRenderableAvatarSrc(text)) return Promise.resolve('');
+  if(!text.startsWith('data:')) return Promise.resolve(text);
+  if(chatAvatarObjectUrlCache[text]) return Promise.resolve(chatAvatarObjectUrlCache[text]);
+  return fetch(text).then(function(res){
+    return res.blob();
+  }).then(function(blob){
+    var blobUrl = URL.createObjectURL(blob);
+    chatAvatarObjectUrlCache[text] = blobUrl;
+    return blobUrl;
+  }).catch(function(){
+    return text;
+  });
+}
+
 function resolveBestCharAvatarSource(){
   var liveSrc = currentVisibleCharAvatarSrc();
-  if(liveSrc) return Promise.resolve(liveSrc);
+  if(liveSrc) return ensureChatRenderableAvatarSrc(liveSrc);
   return resolveCharAvatarDataUrl().then(function(src){
     if(src) return src;
     if(character && character.imageData) return String(character.imageData).trim();
@@ -12784,6 +12802,8 @@ function resolveBestCharAvatarSource(){
   }).catch(function(){
     if(character && character.imageData) return String(character.imageData).trim();
     return '';
+  }).then(function(src){
+    return ensureChatRenderableAvatarSrc(src);
   });
 }
 
