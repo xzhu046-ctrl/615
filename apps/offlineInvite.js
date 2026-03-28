@@ -383,7 +383,29 @@ function hydrateOfflineInviteAvatar(card, role){
     }).catch(function(){});
     return;
   }
-  badge.innerHTML = getCharAvatarHTML();
+  var immediateCharSrc = (typeof currentVisibleCharAvatarSrc === 'function' ? currentVisibleCharAvatarSrc() : '') || (character && character.imageData) || '';
+  if(typeof isRenderableAvatarSrc === 'function' && isRenderableAvatarSrc(immediateCharSrc)){
+    badge.innerHTML = '<img src="' + escAttr(immediateCharSrc) + '" alt="">';
+  }else{
+    badge.innerHTML = esc(getOfflineInviteAvatarFallback('assistant'));
+  }
+  if(typeof resolveBestCharAvatarSource === 'function'){
+    resolveBestCharAvatarSource().then(function(src){
+      var finalSrc = String(src || immediateCharSrc || '').trim();
+      if(typeof isRenderableAvatarSrc === 'function' && isRenderableAvatarSrc(finalSrc)){
+        badge.innerHTML = '<img src="' + escAttr(finalSrc) + '" alt="">';
+      }
+    }).catch(function(){});
+    return;
+  }
+  if(typeof loadStoredAsset === 'function' && character && character.id){
+    loadStoredAsset('char_avatar_' + character.id).then(function(src){
+      var finalSrc = String(src || immediateCharSrc || '').trim();
+      if(typeof isRenderableAvatarSrc === 'function' && isRenderableAvatarSrc(finalSrc)){
+        badge.innerHTML = '<img src="' + escAttr(finalSrc) + '" alt="">';
+      }
+    }).catch(function(){});
+  }
 }
 
 function closeOfflineInviteComposer(){
