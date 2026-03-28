@@ -8198,9 +8198,13 @@ function addMessage(role, content, doScroll, msgType, msgId) {
   av.className = 'msg-avatar';
   if (viewRole === 'ai' && character) {
     var aiFallback = String(character.avatar || character.name || 'AI');
-    setAvatarNodeFromSource(av, currentVisibleCharAvatarSrc() || character.imageData || '', aiFallback, false);
+    var immediateCharSrc = currentVisibleCharAvatarSrc() || character.imageData || '';
+    setAvatarNodeFromSource(av, immediateCharSrc, aiFallback, false);
+    debugChatAvatarState('addMessage:immediate', av, { immediateCharSrc: immediateCharSrc, msgId: msgId || '', role: viewRole });
     resolveBestCharAvatarSource().then(function(src){
-      setAvatarNodeFromSource(av, src || currentVisibleCharAvatarSrc() || character.imageData || '', aiFallback, false);
+      var finalCharSrc = src || currentVisibleCharAvatarSrc() || character.imageData || '';
+      setAvatarNodeFromSource(av, finalCharSrc, aiFallback, false);
+      debugChatAvatarState('addMessage:resolved', av, { finalCharSrc: finalCharSrc, msgId: msgId || '', role: viewRole });
     }).catch(function(){});
     av.style.cursor = 'pointer';
     av.addEventListener('click', function(evt){
@@ -10797,10 +10801,13 @@ function refreshCharAvatars(){
   document.querySelectorAll('.msg.ai .msg-avatar, #typing-ind .msg-avatar').forEach(function(el){
     setAvatarNodeFromSource(el, immediateSrc, fallback, false);
   });
+  var firstAvatar = document.querySelector('.msg.ai .msg-avatar, #typing-ind .msg-avatar');
+  debugChatAvatarState('refreshCharAvatars:immediate', firstAvatar, { immediateSrc: immediateSrc, count: document.querySelectorAll('.msg.ai .msg-avatar, #typing-ind .msg-avatar').length });
   resolveBestCharAvatarSource().then(function(src){
     document.querySelectorAll('.msg.ai .msg-avatar, #typing-ind .msg-avatar').forEach(function(el){
       setAvatarNodeFromSource(el, src || immediateSrc, fallback, false);
     });
+    debugChatAvatarState('refreshCharAvatars:resolved', document.querySelector('.msg.ai .msg-avatar, #typing-ind .msg-avatar'), { resolvedSrc: src || '', count: document.querySelectorAll('.msg.ai .msg-avatar, #typing-ind .msg-avatar').length });
   }).catch(function(){});
 }
 
@@ -12785,6 +12792,39 @@ function setAvatarNodeFromSource(targetEl, src, fallbackText, includeHint){
     targetEl.innerHTML = '<img src="' + text + '" alt="char">' + hint;
   }else{
     targetEl.innerHTML = includeHint ? getAvatarPlaceholderHtml('char', safeText) : esc(safeText);
+  }
+}
+
+function debugChatAvatarState(stage, targetEl, extra){
+  try{
+    var charId = String((character && character.id) || '').trim();
+    var localLegacy = '';
+    try{ localLegacy = String(localStorage.getItem('char_avatar_' + charId) || '').trim(); }catch(e){}
+    Promise.resolve(loadStoredAsset('char_avatar_' + charId)).then(function(assetSrc){
+      console.warn('[chat avatar debug]', {
+        stage: stage,
+        charId: charId,
+        characterImageData: String((character && character.imageData) || '').trim(),
+        currentVisibleSrc: currentVisibleCharAvatarSrc(),
+        localLegacy: localLegacy,
+        assetStoreSrc: String(assetSrc || '').trim(),
+        targetHtml: targetEl ? String(targetEl.innerHTML || '') : '',
+        extra: extra || null
+      });
+    }).catch(function(err){
+      console.warn('[chat avatar debug]', {
+        stage: stage,
+        charId: charId,
+        characterImageData: String((character && character.imageData) || '').trim(),
+        currentVisibleSrc: currentVisibleCharAvatarSrc(),
+        localLegacy: localLegacy,
+        assetStoreError: String(err && err.message || err || ''),
+        targetHtml: targetEl ? String(targetEl.innerHTML || '') : '',
+        extra: extra || null
+      });
+    });
+  }catch(err){
+    console.warn('[chat avatar debug failed]', err);
   }
 }
 
