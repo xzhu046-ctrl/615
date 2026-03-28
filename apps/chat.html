@@ -9438,6 +9438,10 @@ function resolveChatUserAvatarAsync(charId){
 }
 
 function currentCharAvatarForFamily(charId){
+  if(character && String(character.id || '') === String(charId || '')){
+    var live = String(currentVisibleCharAvatarSrc() || '').trim();
+    if(isRenderableAvatarSrc(live)) return live;
+  }
   var keys = [];
   if(charId) keys.push('char_avatar_' + charId);
   for(var i=0;i<keys.length;i++){
@@ -9485,6 +9489,13 @@ function resolveFamilyCardAvatarAsync(data, roleSide){
   var sync = familyCardResolvedAvatar(data, roleSide);
   if(isRenderableAvatarSrc(sync.src)) return Promise.resolve(sync);
   if(roleSide === 'char'){
+    if(character && String((character && character.id) || '') === String((data && data.charId) || '') && typeof resolveBestCharAvatarSource === 'function'){
+      return resolveBestCharAvatarSource().then(function(src){
+        return { src: src || currentCharAvatarForFamily(data && data.charId), fallback: sync.fallback };
+      }).catch(function(){
+        return { src: currentCharAvatarForFamily(data && data.charId), fallback: sync.fallback };
+      });
+    }
     var charKeys = [];
     if(data && data.charId) charKeys.push('char_avatar_' + data.charId);
     return loadFirstAvatarAsset(charKeys).then(function(src){
