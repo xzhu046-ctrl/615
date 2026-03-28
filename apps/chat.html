@@ -370,6 +370,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 /* ── Error notice ── */
 .err-notice{background:var(--w);border:2px solid #c00;border-radius:12px;padding:10px 14px;margin:4px 12px;font-size:12px;font-weight:600;color:#c00;text-align:center;box-shadow:2px 2px 0 #c00;display:none;cursor:pointer}
 .err-notice a{font-weight:800;cursor:pointer;text-decoration:underline;color:#c00}
+.avatar-debug-panel{position:fixed;left:10px;right:10px;bottom:calc(var(--composer-bottom) + 72px);z-index:220;display:none;padding:10px 12px;border:var(--bd);border-radius:16px;background:rgba(255,255,255,.96);box-shadow:var(--sh);font-size:11px;line-height:1.55;color:var(--b);white-space:pre-wrap;word-break:break-word;max-height:180px;overflow:auto}
+.avatar-debug-panel.show{display:block}
 .err-notice::after{content:'轻点一下关闭';display:block;margin-top:6px;font-size:10px;font-weight:800;opacity:.72}
 
 /* ── Input area ── */
@@ -973,6 +975,8 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
   <span id="errText">未设置 API key</span>
   &nbsp;<a onclick="event.stopPropagation();window.parent.postMessage({type:'OPEN_APP',payload:'settings'},'*')">去设置 →</a>
 </div>
+
+<div class="avatar-debug-panel" id="avatarDebugPanel"></div>
 
 <div class="chat-input-area">
   <button class="send-btn" id="addonBtn" title="更多" style="width:38px;height:38px;display:flex;align-items:center;justify-content:center;font-size:18px" onclick="toggleAddonPanel(event)">+</button>
@@ -9070,7 +9074,15 @@ function showTyping() {
   var div = document.createElement('div');
   div.className = 'msg ai'; div.id = 'typing-ind';
   var av = document.createElement('div'); av.className = 'msg-avatar';
-  av.innerHTML = getCharAvatarHTML();
+  var aiFallback = character && (character.avatar || character.name) ? String(character.avatar || character.name) : 'AI';
+  var immediateCharSrc = currentVisibleCharAvatarSrc() || (character && character.imageData) || '';
+  setAvatarNodeFromSource(av, immediateCharSrc, aiFallback, false);
+  debugChatAvatarState('showTyping:immediate', av, { immediateCharSrc: immediateCharSrc });
+  resolveBestCharAvatarSource().then(function(src){
+    var finalCharSrc = src || currentVisibleCharAvatarSrc() || (character && character.imageData) || '';
+    setAvatarNodeFromSource(av, finalCharSrc, aiFallback, false);
+    debugChatAvatarState('showTyping:resolved', av, { finalCharSrc: finalCharSrc });
+  }).catch(function(){});
   var b = document.createElement('div'); b.className = 'msg-bubble msg-typing';
   b.innerHTML = '<div class="typing-bubble"><span></span><span></span><span></span></div>';
   div.append(av, b);
@@ -12789,9 +12801,21 @@ function setAvatarNodeFromSource(targetEl, src, fallbackText, includeHint){
   var safeText = String(fallbackText || 'AI').slice(0, 2);
   var text = String(src || '').trim();
   if(isRenderableAvatarSrc(text)){
-    targetEl.innerHTML = '<img src="' + text + '" alt="char">' + hint;
+    targetEl.innerHTML = '<img src="' + escAttr(text) + '" alt="char" data-fallback="' + escAttr(safeText) + '" onerror="handleAvatarImgError(this)">' + hint;
   }else{
     targetEl.innerHTML = includeHint ? getAvatarPlaceholderHtml('char', safeText) : esc(safeText);
+  }
+}
+
+function handleAvatarImgError(img){
+  try{
+    if(!img || !img.parentNode) return;
+    var parent = img.parentNode;
+    var fallback = String((img.getAttribute('data-fallback') || 'AI')).slice(0, 2);
+    var hint = parent.querySelector('.avatar-pick-hint');
+    parent.innerHTML = esc(fallback) + (hint ? hint.outerHTML : '');
+  }catch(err){
+    console.warn('avatar img fallback failed', err);
   }
 }
 
@@ -12801,6 +12825,22 @@ function debugChatAvatarState(stage, targetEl, extra){
     var localLegacy = '';
     try{ localLegacy = String(localStorage.getItem('char_avatar_' + charId) || '').trim(); }catch(e){}
     Promise.resolve(loadStoredAsset('char_avatar_' + charId)).then(function(assetSrc){
+      var panel = document.getElementById('avatarDebugPanel');
+      var debugText = [
+        '[chat avatar debug]',
+        'stage: ' + String(stage || ''),
+        'charId: ' + charId,
+        'character.imageData: ' + String((character && character.imageData) || '').trim(),
+        'currentVisibleSrc: ' + currentVisibleCharAvatarSrc(),
+        'localStorage char_avatar_*: ' + localLegacy,
+        'assetStore char_avatar_*: ' + String(assetSrc || '').trim(),
+        'targetHtml: ' + (targetEl ? String(targetEl.innerHTML || '') : ''),
+        'extra: ' + JSON.stringify(extra || {})
+      ].join('\n');
+      if(panel){
+        panel.textContent = debugText;
+        panel.classList.add('show');
+      }
       console.warn('[chat avatar debug]', {
         stage: stage,
         charId: charId,
@@ -12812,6 +12852,22 @@ function debugChatAvatarState(stage, targetEl, extra){
         extra: extra || null
       });
     }).catch(function(err){
+      var panel = document.getElementById('avatarDebugPanel');
+      var debugText = [
+        '[chat avatar debug]',
+        'stage: ' + String(stage || ''),
+        'charId: ' + charId,
+        'character.imageData: ' + String((character && character.imageData) || '').trim(),
+        'currentVisibleSrc: ' + currentVisibleCharAvatarSrc(),
+        'localStorage char_avatar_*: ' + localLegacy,
+        'assetStoreError: ' + String(err && err.message || err || ''),
+        'targetHtml: ' + (targetEl ? String(targetEl.innerHTML || '') : ''),
+        'extra: ' + JSON.stringify(extra || {})
+      ].join('\n');
+      if(panel){
+        panel.textContent = debugText;
+        panel.classList.add('show');
+      }
       console.warn('[chat avatar debug]', {
         stage: stage,
         charId: charId,
