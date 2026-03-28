@@ -8,6 +8,7 @@
 <script src="../accountManager.js"></script>
 <script src="../chatStorage.js"></script>
 <script src="../assetStore.js"></script>
+<script src="../metadataStore.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:inherit;-webkit-text-fill-color:currentColor}
@@ -79,6 +80,15 @@ textarea{resize:none}
 .save-bar{position:sticky;bottom:0;left:0;right:0;padding:12px 16px calc(12px + var(--safe-bottom));background:var(--off);border-top:var(--border);margin-top:8px}
 .toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--black);color:var(--white);padding:10px 20px;border-radius:20px;font-weight:700;font-size:13px;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;z-index:999}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.import-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(247,247,247,.74);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:1200}
+.import-overlay.open{display:flex}
+.import-card{width:min(320px,100%);background:#fff;border:var(--border);border-radius:22px;box-shadow:4px 4px 0 #0a0a0a;padding:18px 16px;display:flex;flex-direction:column;gap:12px}
+.import-kicker{font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#666}
+.import-title{font-family:var(--font-d);font-size:18px;font-weight:900}
+.import-sub{font-size:12px;line-height:1.6;color:#444;min-height:38px}
+.import-progress-track{height:10px;border:var(--border);border-radius:999px;background:#f3f3f3;overflow:hidden}
+.import-progress-fill{height:100%;width:0;background:#0a0a0a;border-radius:999px;transition:width .28s ease}
+.import-meta{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:800;color:#666}
 </style>
 </head>
 <body>
@@ -294,6 +304,18 @@ textarea{resize:none}
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="import-overlay" id="import-overlay" aria-hidden="true">
+  <div class="import-card">
+    <div class="import-kicker">Restore</div>
+    <div class="import-title">正在把小手机装回来</div>
+    <div class="import-sub" id="import-progress-text">准备中…</div>
+    <div class="import-progress-track"><div class="import-progress-fill" id="import-progress-fill"></div></div>
+    <div class="import-meta">
+      <span id="import-progress-step">0 / 0</span>
+      <span>请先别退出</span>
+    </div>
+  </div>
+</div>
 
 <script>
 var dirty = false;
@@ -307,6 +329,7 @@ var PROVIDER_LABELS = {
   openrouter: 'OpenRouter',
   custom: '自定义地址'
 };
+var importOverlayLocked = false;
 
 function init() {
   switchProvider(curProvider, true);
@@ -508,6 +531,40 @@ function showToast(msg) {
   setTimeout(function(){ t.classList.remove('show'); }, 2200);
 }
 
+function openImportProgress(totalSteps){
+  var overlay = document.getElementById('import-overlay');
+  var fill = document.getElementById('import-progress-fill');
+  var text = document.getElementById('import-progress-text');
+  var step = document.getElementById('import-progress-step');
+  importOverlayLocked = true;
+  if(overlay) overlay.classList.add('open');
+  if(fill) fill.style.width = '0%';
+  if(text) text.textContent = '准备中…';
+  if(step) step.textContent = '0 / ' + Math.max(0, Number(totalSteps || 0) || 0);
+}
+
+function updateImportProgress(index, total, message){
+  var fill = document.getElementById('import-progress-fill');
+  var text = document.getElementById('import-progress-text');
+  var step = document.getElementById('import-progress-step');
+  var safeTotal = Math.max(1, Number(total || 0) || 1);
+  var safeIndex = Math.max(0, Math.min(safeTotal, Number(index || 0) || 0));
+  if(fill) fill.style.width = ((safeIndex / safeTotal) * 100).toFixed(1) + '%';
+  if(text && message) text.textContent = String(message);
+  if(step) step.textContent = safeIndex + ' / ' + safeTotal;
+}
+
+function closeImportProgress(){
+  if(importOverlayLocked) return;
+  var overlay = document.getElementById('import-overlay');
+  if(overlay) overlay.classList.remove('open');
+}
+
+function unlockAndCloseImportProgress(){
+  importOverlayLocked = false;
+  closeImportProgress();
+}
+
 function getPhoneStorageStoreNames(){
   if(window.PhoneStorage && Array.isArray(window.PhoneStorage.STORE_NAMES) && window.PhoneStorage.STORE_NAMES.length){
     return window.PhoneStorage.STORE_NAMES.slice();
@@ -620,7 +677,7 @@ function deserializeBackupValue(value){
   if(Array.isArray(value)) return value.map(deserializeBackupValue);
   if(typeof value === 'object'){
     if(value.__backupType === 'blob' && typeof value.dataUrl === 'string'){
-      return dataUrlToBlob(value.dataUrl) || value.dataUrl;
+      return value.dataUrl;
     }
     var out = {};
     Object.keys(value).forEach(function(key){
@@ -639,6 +696,28 @@ function uniqueStrings(list){
     if(!key || seen[key]) return;
     seen[key] = true;
     out.push(key);
+  });
+  return out;
+}
+
+function dedupeWorldbooksSnapshot(raw){
+  var source = raw && typeof raw === 'object' ? raw : {};
+  var out = {};
+  Object.keys(source).forEach(function(key){
+    var list = Array.isArray(source[key]) ? source[key] : [];
+    var seen = Object.create(null);
+    out[key] = list.filter(function(wb){
+      if(!wb || typeof wb !== 'object') return false;
+      var sig = JSON.stringify({
+        id: String(wb.id || ''),
+        name: String(wb.name || ''),
+        global: !!wb.global,
+        entries: Array.isArray(wb.entries) ? wb.entries : []
+      });
+      if(seen[sig]) return false;
+      seen[sig] = true;
+      return true;
+    });
   });
   return out;
 }
@@ -812,6 +891,7 @@ async function buildExplicitUserSnapshot(allStorage, allAssets, phoneStorageData
 
 async function restoreExplicitUserSnapshot(snapshot){
   if(!snapshot || typeof snapshot !== 'object') return;
+  var dedupedWorldbooks = dedupeWorldbooksSnapshot(snapshot.worldbooks || {});
 
   if(Array.isArray(snapshot.accounts)){
     try{ localStorage.setItem('qq_accounts_v1', JSON.stringify(snapshot.accounts)); }catch(err){}
@@ -828,8 +908,8 @@ async function restoreExplicitUserSnapshot(snapshot){
   if(snapshot.activeCharacter){
     try{ localStorage.setItem('activeCharacter', JSON.stringify(snapshot.activeCharacter)); }catch(err){}
   }
-  if(snapshot.worldbooks && typeof snapshot.worldbooks === 'object'){
-    try{ localStorage.setItem('worldbooks', JSON.stringify(snapshot.worldbooks)); }catch(err){}
+  if(dedupedWorldbooks && typeof dedupedWorldbooks === 'object'){
+    try{ localStorage.setItem('worldbooks', JSON.stringify(dedupedWorldbooks)); }catch(err){}
   }
   if(snapshot.wallpaper && typeof snapshot.wallpaper === 'object' && snapshot.wallpaper.mode){
     try{ localStorage.setItem('wallpaper', String(snapshot.wallpaper.mode)); }catch(err){}
@@ -848,6 +928,15 @@ async function restoreExplicitUserSnapshot(snapshot){
       await window.assetStore.set(assetKey, assetValue).catch(function(){});
     }else{
       try{ localStorage.setItem(assetKey, String(assetValue)); }catch(err){}
+    }
+  }
+
+  if(window.MetadataStore){
+    if(Array.isArray(snapshot.characters) && typeof window.MetadataStore.saveCharacters === 'function'){
+      await window.MetadataStore.saveCharacters(snapshot.characters).catch(function(){});
+    }
+    if(dedupedWorldbooks && typeof window.MetadataStore.saveWorldbooks === 'function'){
+      await window.MetadataStore.saveWorldbooks(dedupedWorldbooks).catch(function(){});
     }
   }
 }
@@ -905,15 +994,22 @@ async function onImportAllData(event){
   var input = event && event.target;
   var file = input && input.files && input.files[0];
   if(!file) return;
+  var totalSteps = 7;
   try{
+    openImportProgress(totalSteps);
+    updateImportProgress(1, totalSteps, '正在读取备份文件…');
     var text = await file.text();
     var payload = JSON.parse(text);
     payload = deserializeBackupValue(payload);
     if(!payload || typeof payload !== 'object'){
       throw new Error('备份文件无效');
     }
-    if(!confirm('导入后会覆盖当前手机上的所有数据，确认继续？')) return;
+    if(!confirm('导入后会覆盖当前手机上的所有数据，确认继续？')){
+      unlockAndCloseImportProgress();
+      return;
+    }
 
+    updateImportProgress(2, totalSteps, '正在清空当前手机数据…');
     if(window.assetStore && typeof window.assetStore.clearAll === 'function'){
       await window.assetStore.clearAll().catch(function(){});
     }
@@ -927,9 +1023,11 @@ async function onImportAllData(event){
     try{ localStorage.clear(); }catch(err){}
     try{ sessionStorage.clear(); }catch(err){}
 
+    updateImportProgress(3, totalSteps, '正在恢复本地设置与会话索引…');
     restoreStorageFromObject(window.localStorage, payload.localStorage);
     restoreStorageFromObject(window.sessionStorage, payload.sessionStorage);
 
+    updateImportProgress(4, totalSteps, '正在恢复图片、壁纸、表情包和装饰资源…');
     var assetKeys = payload.assets && typeof payload.assets === 'object' ? Object.keys(payload.assets) : [];
     for(var i = 0; i < assetKeys.length; i += 1){
       if(window.assetStore && typeof window.assetStore.set === 'function'){
@@ -939,6 +1037,7 @@ async function onImportAllData(event){
       }
     }
 
+    updateImportProgress(5, totalSteps, '正在恢复聊天、记忆和大数据仓库…');
     var stores = payload.phoneStorage && typeof payload.phoneStorage === 'object' ? Object.keys(payload.phoneStorage) : [];
     for(var s = 0; s < stores.length; s += 1){
       var storeName = stores[s];
@@ -950,8 +1049,10 @@ async function onImportAllData(event){
       }
     }
 
+    updateImportProgress(6, totalSteps, '正在整理角色、世界书和显示状态…');
     await restoreExplicitUserSnapshot(payload.userData);
 
+    updateImportProgress(7, totalSteps, '导入完成，正在重启小手机…');
     showToast('已导入，正在重启…');
     setTimeout(function(){
       try{
@@ -964,6 +1065,8 @@ async function onImportAllData(event){
     }, 450);
   }catch(err){
     console.error(err);
+    importOverlayLocked = false;
+    closeImportProgress();
     showToast('导入失败，请检查备份文件');
   }finally{
     if(input) input.value = '';
