@@ -12778,6 +12778,39 @@ function getLoadedCharAvatarTemplate(preferredSrc){
   return null;
 }
 
+function renderLoadedAvatarToObjectUrl(preferredSrc){
+  var sourceImg = getLoadedCharAvatarTemplate(preferredSrc);
+  if(!sourceImg) return Promise.resolve('');
+  var cacheKey = normalizeAvatarSrc((sourceImg.getAttribute && sourceImg.getAttribute('src')) || sourceImg.src || preferredSrc || '');
+  if(cacheKey && chatAvatarObjectUrlCache[cacheKey]) return Promise.resolve(chatAvatarObjectUrlCache[cacheKey]);
+  return new Promise(function(resolve){
+    try{
+      var width = Number(sourceImg.naturalWidth || sourceImg.width || 0);
+      var height = Number(sourceImg.naturalHeight || sourceImg.height || 0);
+      if(!width || !height){
+        resolve('');
+        return;
+      }
+      var canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(sourceImg, 0, 0, width, height);
+      canvas.toBlob(function(blob){
+        if(!blob){
+          resolve('');
+          return;
+        }
+        var blobUrl = URL.createObjectURL(blob);
+        if(cacheKey) chatAvatarObjectUrlCache[cacheKey] = blobUrl;
+        resolve(blobUrl);
+      }, 'image/png');
+    }catch(err){
+      resolve('');
+    }
+  });
+}
+
 function normalizeAvatarSrc(src){
   var text = String(src || '').trim();
   if(!text) return '';
@@ -12797,16 +12830,19 @@ var chatAvatarObjectUrlCache = Object.create(null);
 function ensureChatRenderableAvatarSrc(src){
   var text = normalizeAvatarSrc(src);
   if(!isRenderableAvatarSrc(text)) return Promise.resolve('');
-  if(!text.startsWith('data:')) return Promise.resolve(text);
-  if(chatAvatarObjectUrlCache[text]) return Promise.resolve(chatAvatarObjectUrlCache[text]);
-  return fetch(text).then(function(res){
-    return res.blob();
-  }).then(function(blob){
-    var blobUrl = URL.createObjectURL(blob);
-    chatAvatarObjectUrlCache[text] = blobUrl;
-    return blobUrl;
-  }).catch(function(){
-    return text;
+  return renderLoadedAvatarToObjectUrl(text).then(function(rendered){
+    if(rendered) return rendered;
+    if(!text.startsWith('data:')) return text;
+    if(chatAvatarObjectUrlCache[text]) return chatAvatarObjectUrlCache[text];
+    return fetch(text).then(function(res){
+      return res.blob();
+    }).then(function(blob){
+      var blobUrl = URL.createObjectURL(blob);
+      chatAvatarObjectUrlCache[text] = blobUrl;
+      return blobUrl;
+    }).catch(function(){
+      return text;
+    });
   });
 }
 
