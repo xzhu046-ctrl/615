@@ -1919,6 +1919,10 @@ var activeMemeCategory = 'all';
 var pendingMemeMetaState = null;
 var memeCardLongPressTimer = null;
 var suppressNextMemeClickId = null;
+var MEMORY_SEAM_BRIDGE_SIZE = 4;
+var MEMORY_AUTO_COMPACT_MIN_ITEMS = 20;
+var MEMORY_AUTO_COMPACT_MIN_TOKENS = 2600;
+var MEMORY_AUTO_COMPACT_BATCH = 3;
 
 function contextWindowKey(){
   return character && character.id ? accountScopedKey('ctx_window_' + character.id) : '';
@@ -2191,7 +2195,9 @@ function parseLegacyMemorySummaryStore(rawText){
         to: Number((it && it.to) || 0) || 0,
         text: text,
         tokens: Number((it && it.tokens) || 0) || approxTokenCount(text),
-        createdAt: Number((it && it.createdAt) || Date.now()) || Date.now()
+        createdAt: Number((it && it.createdAt) || Date.now()) || Date.now(),
+        manual: !!(it && it.manual),
+        pinned: !!(it && it.pinned)
       };
     }).filter(function(it){ return !!it.text; });
     var covered = computeMemoryCoveredFromItems(items);
@@ -2216,7 +2222,9 @@ function normalizeMemorySummaryStore(store){
       to: Number((it && it.to) || 0) || 0,
       text: text,
       tokens: Number((it && it.tokens) || 0) || approxTokenCount(text),
-      createdAt: Number((it && it.createdAt) || Date.now()) || Date.now()
+      createdAt: Number((it && it.createdAt) || Date.now()) || Date.now(),
+      manual: !!(it && it.manual),
+      pinned: !!(it && it.pinned)
     };
   }).filter(function(it){ return !!it.text; }) : [];
   next.covered = computeMemoryCoveredFromItems(next.items);
@@ -2523,8 +2531,17 @@ function loadMemorySummaryStore(){
   if(!character) return defaultMemorySummaryStore();
   return cloneJsonSafe(normalizeMemorySummaryStore(memorySummaryStoreCache), defaultMemorySummaryStore());
 }
+function isMemoryRangeItem(it){
+  if(!it || typeof it !== 'object') return false;
+  var from = Math.max(0, Number(it.from || 0) || 0);
+  var to = Math.max(from, Number(it.to || 0) || 0);
+  return to > from;
+}
+function isPinnedMemoryItem(it){
+  return !!(it && (it.manual || it.pinned));
+}
 function computeMemoryCoveredFromItems(items){
-  var list = Array.isArray(items) ? items.slice() : [];
+  var list = Array.isArray(items) ? items.filter(isMemoryRangeItem).slice() : [];
   list.sort(function(a, b){
     return (Number(a.from || 0) || 0) - (Number(b.from || 0) || 0);
   });
@@ -2560,14 +2577,14 @@ function fallbackSummaryText(slice){
   var lines = buildMemorySummaryPromptLines(slice).split('\n').slice(0, 12);
   var joined = lines.map(function(line){ return line.replace(/^\d+\.\s*/, ''); }).join('；');
   if(!joined) joined = '本段聊天围绕日常交流展开，没有出现可提炼的新信息。';
-  return '本段聊天记录中，' + joined;
+  return '关系状态与相处气氛继续沿着既有节奏推进；本段重点包括：' + joined;
 }
 function fallbackMetaSummaryText(items){
   var joined = (items || []).map(function(it){
     return String((it && it.text) || '').replace(/\s+/g, ' ').trim();
   }).filter(Boolean).join('；');
-  if(!joined) return '本阶段聊天围绕日常交流展开，没有新增关键事件。';
-  return '本阶段聊天记忆显示，' + joined;
+  if(!joined) return '关系状态没有出现需要额外提取的新变化，当前相处仍延续此前轨迹。';
+  return '更早阶段的聊天记忆可归并为：' + joined;
 }
 async function generateMemorySummary(slice){
   var promptLines = buildMemorySummaryPromptLines(slice);
@@ -2636,9 +2653,16 @@ async function maybeCompactMemorySummaries(store){
   if(!character) return store;
   var next = store || loadMemorySummaryStore();
   var threshold = loadMemoryMergeThreshold();
-  while((next.items || []).length >= threshold){
-    var segment = next.items.slice(0, threshold);
-    if(!segment.length) break;
+  var totalTokens = (next.items || []).reduce(function(sum, it){
+    return sum + (Number(it && it.tokens) || approxTokenCount((it && it.text) || ''));
+  }, 0);
+  var compactable = (next.items || []).filter(function(it){
+    return isMemoryRangeItem(it) && !isPinnedMemoryItem(it);
+  });
+  var effectiveThreshold = Math.max(threshold, MEMORY_AUTO_COMPACT_MIN_ITEMS);
+  while(compactable.length >= effectiveThreshold && totalTokens >= MEMORY_AUTO_COMPACT_MIN_TOKENS){
+    var segment = compactable.slice(0, MEMORY_AUTO_COMPACT_BATCH);
+    if(segment.length < 2) break;
     var mergedText = await generateMemoryMetaSummary(segment);
     var merged = {
       id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
@@ -2646,9 +2670,30 @@ async function maybeCompactMemorySummaries(store){
       to: segment[segment.length - 1].to || 0,
       text: mergedText,
       tokens: approxTokenCount(mergedText),
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      manual: false,
+      pinned: false
     };
-    next.items = [merged].concat(next.items.slice(segment.length));
+    var mergeIds = new Set(segment.map(function(it){ return String(it.id || ''); }).filter(Boolean));
+    var inserted = false;
+    next.items = (next.items || []).reduce(function(acc, it){
+      var id = String((it && it.id) || '');
+      if(mergeIds.has(id)){
+        if(!inserted){
+          acc.push(merged);
+          inserted = true;
+        }
+        return acc;
+      }
+      acc.push(it);
+      return acc;
+    }, []);
+    totalTokens = (next.items || []).reduce(function(sum, it){
+      return sum + (Number(it && it.tokens) || approxTokenCount((it && it.text) || ''));
+    }, 0);
+    compactable = (next.items || []).filter(function(it){
+      return isMemoryRangeItem(it) && !isPinnedMemoryItem(it);
+    });
   }
   saveMemorySummaryStore(next);
   return next;
@@ -2676,7 +2721,9 @@ async function maybeCreateMemorySummaries(){
         to: to,
         text: text,
         tokens: approxTokenCount(text),
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        manual: false,
+        pinned: false
       };
       store.items.push(item);
       covered = to;
@@ -2707,6 +2754,9 @@ function getVisibleChatForModel(){
   var tailStart = Math.max(0, chatLog.length - windowSize);
   var covered = Math.max(0, Math.min(chatLog.length, getMemoryCoveredCount()));
   var start = Math.max(tailStart, covered);
+  if(covered > 0 && covered <= tailStart + MEMORY_SEAM_BRIDGE_SIZE){
+    start = Math.max(0, covered - MEMORY_SEAM_BRIDGE_SIZE);
+  }
   var visible = chatLog.slice(start);
   if(Array.isArray(transientHiddenModelMsgIds) && transientHiddenModelMsgIds.length){
     var hidden = new Set(transientHiddenModelMsgIds.map(function(id){ return String(id || ''); }).filter(Boolean));
@@ -6761,12 +6811,26 @@ function buildSystemPrompt() {
   }
 
   var memItems = getMemorySummaryItems();
+  var memPinned = memItems.filter(isPinnedMemoryItem);
+  var memAuto = memItems.filter(function(it){ return !isPinnedMemoryItem(it); });
   var memText = '';
   if(memItems.length){
-    memText = memItems.map(function(it, idx){
-      return '记忆' + (idx + 1) + '：' + String(it.text || '').trim();
-    }).join('\n');
-    parts.push(['【历史记忆总结】', memText].join('\n'));
+    var memLines = [];
+    if(memPinned.length){
+      memLines.push('【手动修正 / 高优先级记忆】');
+      memLines = memLines.concat(memPinned.map(function(it, idx){
+        return '重点记忆' + (idx + 1) + '：' + String(it.text || '').trim();
+      }));
+    }
+    if(memAuto.length){
+      if(memLines.length) memLines.push('');
+      memLines.push('【历史记忆总结】');
+      memLines = memLines.concat(memAuto.map(function(it, idx){
+        return '记忆' + (idx + 1) + '：' + String(it.text || '').trim();
+      }));
+    }
+    memText = memLines.join('\n');
+    parts.push(memText);
   }
   var identityHint = getSubAccountIdentityHint();
   if(identityHint) parts.push(identityHint);
@@ -6798,7 +6862,7 @@ function buildSystemPrompt() {
 
   var wbAll = [].concat(wbBefore, wbMid, wbAfter).join('\n\n');
   var curGreeting = getPromptGreeting();
-  var recentHistoryPrompt = formatChatForModel(getVisibleChatForModel().slice(-16)).slice(0, 3600);
+  var recentHistoryPrompt = formatChatForModel(getVisibleChatForModel().slice(-20)).slice(0, 4800);
   var policyBundle = (promptManager && typeof promptManager.chatPolicyBundle === 'function')
     ? promptManager.chatPolicyBundle()
     : {};
@@ -11560,6 +11624,7 @@ async function confirmMemoryEditor(){
       store.items[idx].text = text;
       store.items[idx].tokens = approxTokenCount(text);
       store.items[idx].createdAt = Date.now();
+      store.items[idx].pinned = true;
     }
   }else{
     store.items.push({
@@ -11568,11 +11633,12 @@ async function confirmMemoryEditor(){
       to: 0,
       text: text,
       tokens: approxTokenCount(text),
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      manual: true,
+      pinned: true
     });
   }
   saveMemorySummaryStore(store);
-  store = await maybeCompactMemorySummaries(store);
   closeMemoryEditor();
   refreshMemoryUi();
   toast('记忆已保存');
