@@ -8195,10 +8195,11 @@ function addMessage(role, content, doScroll, msgType, msgId) {
   var av = document.createElement('div');
   av.className = 'msg-avatar';
   if (viewRole === 'ai' && character) {
-    av.innerHTML = getCharAvatarHTML();
-    loadStoredAsset('char_avatar_' + (character.id || '')).then(function(ovr){
-      if (isRenderableAvatarSrc(ovr)) av.innerHTML = '<img src="' + ovr + '">';
-    });
+    var aiFallback = String(character.avatar || character.name || 'AI');
+    setAvatarNodeFromSource(av, currentVisibleCharAvatarSrc() || character.imageData || '', aiFallback, false);
+    resolveBestCharAvatarSource().then(function(src){
+      setAvatarNodeFromSource(av, src || currentVisibleCharAvatarSrc() || character.imageData || '', aiFallback, false);
+    }).catch(function(){});
     av.style.cursor = 'pointer';
     av.addEventListener('click', function(evt){
       evt.stopPropagation();
@@ -10789,10 +10790,16 @@ function refreshUserAvatars(){
 }
 
 function refreshCharAvatars(){
-  var html = getCharAvatarHTML();
+  var fallback = character && (character.avatar || character.name) ? String(character.avatar || character.name) : 'AI';
+  var immediateSrc = currentVisibleCharAvatarSrc() || (character && character.imageData) || '';
   document.querySelectorAll('.msg.ai .msg-avatar, #typing-ind .msg-avatar').forEach(function(el){
-    el.innerHTML = html;
+    setAvatarNodeFromSource(el, immediateSrc, fallback, false);
   });
+  resolveBestCharAvatarSource().then(function(src){
+    document.querySelectorAll('.msg.ai .msg-avatar, #typing-ind .msg-avatar').forEach(function(el){
+      setAvatarNodeFromSource(el, src || immediateSrc, fallback, false);
+    });
+  }).catch(function(){});
 }
 
 function parseAvatarBackedPayload(raw){
