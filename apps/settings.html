@@ -89,6 +89,15 @@ textarea{resize:none}
 .import-progress-track{height:10px;border:var(--border);border-radius:999px;background:#f3f3f3;overflow:hidden}
 .import-progress-fill{height:100%;width:0;background:#0a0a0a;border-radius:999px;transition:width .28s ease}
 .import-meta{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:800;color:#666}
+.import-mode-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(247,247,247,.74);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);z-index:1190}
+.import-mode-overlay.open{display:flex}
+.import-mode-card{width:min(340px,100%);background:#fff;border:var(--border);border-radius:22px;box-shadow:4px 4px 0 #0a0a0a;padding:18px 16px;display:flex;flex-direction:column;gap:12px}
+.import-mode-title{font-family:var(--font-d);font-size:17px;font-weight:900}
+.import-mode-option{border:var(--border);border-radius:16px;background:#fff;padding:12px;display:flex;flex-direction:column;gap:6px;cursor:pointer;box-shadow:2px 2px 0 #0a0a0a}
+.import-mode-option:active{transform:translate(2px,2px);box-shadow:0 0 0 #0a0a0a}
+.import-mode-name{font-size:13px;font-weight:900}
+.import-mode-desc{font-size:12px;line-height:1.55;color:#555}
+.import-mode-actions{display:flex;gap:8px}
 </style>
 </head>
 <body>
@@ -316,6 +325,23 @@ textarea{resize:none}
     </div>
   </div>
 </div>
+<div class="import-mode-overlay" id="import-mode-overlay" aria-hidden="true">
+  <div class="import-mode-card">
+    <div class="import-kicker">Import</div>
+    <div class="import-mode-title">请选择导入方式</div>
+    <button class="import-mode-option" type="button" onclick="confirmImportMode('merge')">
+      <div class="import-mode-name">选择性导入</div>
+      <div class="import-mode-desc">尽量合并现有数据，不先清空整台手机。更适合保命和补回数据。</div>
+    </button>
+    <button class="import-mode-option" type="button" onclick="confirmImportMode('replace')">
+      <div class="import-mode-name">完全导入</div>
+      <div class="import-mode-desc">覆盖当前手机全部数据，但失败时也会自动回滚到导入前状态。</div>
+    </button>
+    <div class="import-mode-actions">
+      <button class="btn btn-white btn-full" type="button" onclick="closeImportModePicker()">取消</button>
+    </div>
+  </div>
+</div>
 
 <script>
 var dirty = false;
@@ -331,6 +357,8 @@ var PROVIDER_LABELS = {
 };
 var importOverlayLocked = false;
 var lastImportRollbackPayload = null;
+var pendingImportPayload = null;
+var pendingImportInput = null;
 
 function init() {
   importOverlayLocked = false;
@@ -567,6 +595,20 @@ function closeImportProgress(){
 function unlockAndCloseImportProgress(){
   importOverlayLocked = false;
   closeImportProgress();
+}
+
+function openImportModePicker(payload, input){
+  pendingImportPayload = payload || null;
+  pendingImportInput = input || null;
+  var overlay = document.getElementById('import-mode-overlay');
+  if(overlay) overlay.classList.add('open');
+}
+
+function closeImportModePicker(){
+  pendingImportPayload = null;
+  pendingImportInput = null;
+  var overlay = document.getElementById('import-mode-overlay');
+  if(overlay) overlay.classList.remove('open');
 }
 
 function getPhoneStorageStoreNames(){
@@ -1157,64 +1199,103 @@ async function restorePayloadIntoPhone(payload, progressBase, progressTotal){
   await restoreExplicitUserSnapshot(payload.userData);
 }
 
-function triggerImportAllData(){
-  var input = document.getElementById('import-all-data-input');
-  if(!input) return;
-  importOverlayLocked = false;
-  var overlay = document.getElementById('import-overlay');
-  if(overlay) overlay.classList.remove('open');
-  input.value = '';
-  try{
-    if(typeof input.showPicker === 'function'){
-      input.showPicker();
-      return;
+async function mergePayloadIntoPhone(payload, progressBase, progressTotal){
+  updateImportProgress(progressBase, progressTotal, '正在合并本地设置与轻量数据…');
+  restoreStorageFromObject(window.localStorage, filterStorageForImport(payload.localStorage, {}));
+  restoreStorageFromObject(window.sessionStorage, payload.sessionStorage);
+  await yieldToUi();
+
+  updateImportProgress(progressBase + 1, progressTotal, '正在合并图片、壁纸、表情包和装饰资源…');
+  var assetKeys = payload.assets && typeof payload.assets === 'object' ? Object.keys(payload.assets) : [];
+  for(var i = 0; i < assetKeys.length; i += 1){
+    if(window.assetStore && typeof window.assetStore.set === 'function'){
+      await window.assetStore.set(assetKeys[i], payload.assets[assetKeys[i]]);
+    }else{
+      try{ localStorage.setItem(assetKeys[i], payload.assets[assetKeys[i]]); }catch(err){}
     }
-  }catch(err){}
-  input.click();
+    if(i % 6 === 5) await yieldToUi();
+  }
+
+  updateImportProgress(progressBase + 2, progressTotal, '正在合并聊天、记忆和大数据仓库…');
+  var stores = payload.phoneStorage && typeof payload.phoneStorage === 'object' ? Object.keys(payload.phoneStorage) : [];
+  for(var s = 0; s < stores.length; s += 1){
+    var storeName = stores[s];
+    var records = Array.isArray(payload.phoneStorage[storeName]) ? payload.phoneStorage[storeName] : [];
+    for(var r = 0; r < records.length; r += 1){
+      if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+        await window.PhoneStorage.put(storeName, records[r]);
+      }
+      if(r % 10 === 9) await yieldToUi();
+    }
+    await yieldToUi();
+  }
+
+  updateImportProgress(progressBase + 3, progressTotal, '正在合并角色、世界书和显示状态…');
+  var userData = payload.userData && typeof payload.userData === 'object' ? payload.userData : {};
+  var nextCharacters = Array.isArray(userData.characters) ? userData.characters : [];
+  var nextWorldbooks = dedupeWorldbooksSnapshot(userData.worldbooks || {});
+  if(window.MetadataStore){
+    if(nextCharacters.length && typeof window.MetadataStore.loadCharacters === 'function' && typeof window.MetadataStore.saveCharacters === 'function'){
+      var existingChars = await window.MetadataStore.loadCharacters().catch(function(){ return []; });
+      var charMap = Object.create(null);
+      (Array.isArray(existingChars) ? existingChars : []).concat(nextCharacters).forEach(function(item){
+        if(!item || !item.id) return;
+        charMap[String(item.id)] = item;
+      });
+      await window.MetadataStore.saveCharacters(Object.keys(charMap).map(function(key){ return charMap[key]; })).catch(function(){});
+    }
+    if(typeof window.MetadataStore.loadWorldbooks === 'function' && typeof window.MetadataStore.saveWorldbooks === 'function'){
+      var existingWbs = await window.MetadataStore.loadWorldbooks().catch(function(){ return {}; });
+      var mergedWbs = {};
+      Object.keys(existingWbs || {}).forEach(function(key){
+        mergedWbs[key] = Array.isArray(existingWbs[key]) ? existingWbs[key].slice() : [];
+      });
+      Object.keys(nextWorldbooks || {}).forEach(function(key){
+        mergedWbs[key] = (mergedWbs[key] || []).concat(Array.isArray(nextWorldbooks[key]) ? nextWorldbooks[key] : []);
+      });
+      await window.MetadataStore.saveWorldbooks(dedupeWorldbooksSnapshot(mergedWbs)).catch(function(){});
+    }
+  }
 }
 
-async function onImportAllData(event){
-  var input = event && event.target;
-  var file = input && input.files && input.files[0];
-  if(!file) return;
+async function runImportPayload(payload, mode){
   var totalSteps = 8;
+  openImportProgress(totalSteps);
+  updateImportProgress(1, totalSteps, mode === 'merge' ? '正在给当前小手机做合并前回滚快照…' : '正在给当前小手机做安全回滚快照…');
+  lastImportRollbackPayload = await buildRuntimeRollbackPayload();
+  if(mode === 'merge'){
+    await mergePayloadIntoPhone(payload, 2, totalSteps);
+  }else{
+    await restorePayloadIntoPhone(payload, 2, totalSteps);
+  }
+  updateImportProgress(8, totalSteps, '导入完成，正在重启小手机…');
+  showToast('已导入，正在重启…');
+  setTimeout(function(){
+    try{
+      if(window.parent && window.parent !== window && window.parent.location){
+        window.parent.location.reload();
+        return;
+      }
+    }catch(err){}
+    window.location.reload();
+  }, 450);
+}
+
+async function confirmImportMode(mode){
+  var payload = pendingImportPayload;
+  var input = pendingImportInput;
+  closeImportModePicker();
+  if(!payload) return;
   try{
-    openImportProgress(totalSteps);
-    updateImportProgress(1, totalSteps, '正在读取备份文件…');
-    var text = await file.text();
-    var payload = JSON.parse(text);
-    payload = deserializeBackupValue(payload);
-    if(!payload || typeof payload !== 'object'){
-      throw new Error('备份文件无效');
-    }
-    if(!confirm('导入后会覆盖当前手机上的所有数据，确认继续？')){
-      unlockAndCloseImportProgress();
-      return;
-    }
-    updateImportProgress(2, totalSteps, '正在给当前小手机做安全回滚快照…');
-    lastImportRollbackPayload = await buildRuntimeRollbackPayload();
-
-    await restorePayloadIntoPhone(payload, 3, totalSteps);
-
-    updateImportProgress(8, totalSteps, '导入完成，正在重启小手机…');
-    showToast('已导入，正在重启…');
-    setTimeout(function(){
-      try{
-        if(window.parent && window.parent !== window && window.parent.location){
-          window.parent.location.reload();
-          return;
-        }
-      }catch(err){}
-      window.location.reload();
-    }, 450);
+    await runImportPayload(payload, mode === 'replace' ? 'replace' : 'merge');
   }catch(err){
     console.error(err);
     if(lastImportRollbackPayload){
       try{
-        openImportProgress(totalSteps);
-        updateImportProgress(1, totalSteps, '导入失败，正在恢复你原来的小手机…');
-        await restorePayloadIntoPhone(lastImportRollbackPayload, 2, totalSteps);
-        updateImportProgress(8, totalSteps, '已恢复原数据，正在重启…');
+        openImportProgress(8);
+        updateImportProgress(1, 8, '导入失败，正在恢复你原来的小手机…');
+        await restorePayloadIntoPhone(lastImportRollbackPayload, 2, 8);
+        updateImportProgress(8, 8, '已恢复原数据，正在重启…');
         showToast('导入失败，原数据已恢复');
         setTimeout(function(){
           try{
@@ -1236,6 +1317,44 @@ async function onImportAllData(event){
   }finally{
     lastImportRollbackPayload = null;
     if(input) input.value = '';
+  }
+}
+
+function triggerImportAllData(){
+  var input = document.getElementById('import-all-data-input');
+  if(!input) return;
+  importOverlayLocked = false;
+  var overlay = document.getElementById('import-overlay');
+  if(overlay) overlay.classList.remove('open');
+  input.value = '';
+  try{
+    if(typeof input.showPicker === 'function'){
+      input.showPicker();
+      return;
+    }
+  }catch(err){}
+  input.click();
+}
+
+async function onImportAllData(event){
+  var input = event && event.target;
+  var file = input && input.files && input.files[0];
+  if(!file) return;
+  try{
+    var text = await file.text();
+    var payload = JSON.parse(text);
+    payload = deserializeBackupValue(payload);
+    if(!payload || typeof payload !== 'object'){
+      throw new Error('备份文件无效');
+    }
+    openImportModePicker(payload, input);
+  }catch(err){
+    console.error(err);
+    importOverlayLocked = false;
+    closeImportProgress();
+    showToast('导入失败，请检查备份文件');
+  }finally{
+    if(!pendingImportPayload && input) input.value = '';
   }
 }
 
