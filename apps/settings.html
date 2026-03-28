@@ -594,6 +594,12 @@ function restoreStorageFromObject(storage, values){
   });
 }
 
+async function yieldToUi(){
+  await new Promise(function(resolve){
+    setTimeout(resolve, 0);
+  });
+}
+
 function safeJsonParse(raw, fallback){
   if(typeof raw !== 'string' || !raw) return fallback;
   try{
@@ -732,6 +738,47 @@ function looksLikeStoredAssetValue(value){
 
 function accountScopedBackupKey(base, accountId){
   return String(base || '') + '__acct_' + String(accountId || '').trim();
+}
+
+function buildSkippedLocalStorageKeySet(payload){
+  var skip = Object.create(null);
+  var userData = payload && payload.userData && typeof payload.userData === 'object' ? payload.userData : {};
+  var explicitLocalStorage = userData.explicitLocalStorage && typeof userData.explicitLocalStorage === 'object'
+    ? Object.keys(userData.explicitLocalStorage)
+    : [];
+  var explicitAssets = userData.explicitAssets && typeof userData.explicitAssets === 'object'
+    ? Object.keys(userData.explicitAssets)
+    : [];
+  var allAssets = payload && payload.assets && typeof payload.assets === 'object'
+    ? Object.keys(payload.assets)
+    : [];
+  explicitLocalStorage.concat(explicitAssets).concat(allAssets).forEach(function(key){
+    if(!key) return;
+    skip[String(key)] = true;
+  });
+  [
+    'characters',
+    'worldbooks',
+    'activeCharacter',
+    'wallpaper',
+    'wallpaper_custom',
+    'qq_accounts_v1',
+    'qq_active_account_id_v1',
+    'qq_default_account_id_v1'
+  ].forEach(function(key){
+    skip[key] = true;
+  });
+  return skip;
+}
+
+function filterStorageForImport(values, skipSet){
+  var source = values && typeof values === 'object' ? values : {};
+  var next = {};
+  Object.keys(source).forEach(function(key){
+    if(skipSet && skipSet[key]) return;
+    next[key] = source[key];
+  });
+  return next;
 }
 
 function collectExplicitUserLocalStorageKeys(allStorage){
@@ -929,6 +976,7 @@ async function restoreExplicitUserSnapshot(snapshot){
     }else{
       try{ localStorage.setItem(assetKey, String(assetValue)); }catch(err){}
     }
+    if(i % 8 === 7) await yieldToUi();
   }
 
   if(window.MetadataStore){
@@ -1024,8 +1072,10 @@ async function onImportAllData(event){
     try{ sessionStorage.clear(); }catch(err){}
 
     updateImportProgress(3, totalSteps, '正在恢复本地设置与会话索引…');
-    restoreStorageFromObject(window.localStorage, payload.localStorage);
+    var skipLocalStorageKeys = buildSkippedLocalStorageKeySet(payload);
+    restoreStorageFromObject(window.localStorage, filterStorageForImport(payload.localStorage, skipLocalStorageKeys));
     restoreStorageFromObject(window.sessionStorage, payload.sessionStorage);
+    await yieldToUi();
 
     updateImportProgress(4, totalSteps, '正在恢复图片、壁纸、表情包和装饰资源…');
     var assetKeys = payload.assets && typeof payload.assets === 'object' ? Object.keys(payload.assets) : [];
@@ -1035,6 +1085,7 @@ async function onImportAllData(event){
       }else{
         try{ localStorage.setItem(assetKeys[i], payload.assets[assetKeys[i]]); }catch(err){}
       }
+      if(i % 6 === 5) await yieldToUi();
     }
 
     updateImportProgress(5, totalSteps, '正在恢复聊天、记忆和大数据仓库…');
@@ -1046,7 +1097,9 @@ async function onImportAllData(event){
         if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
           await window.PhoneStorage.put(storeName, records[r]);
         }
+        if(r % 10 === 9) await yieldToUi();
       }
+      await yieldToUi();
     }
 
     updateImportProgress(6, totalSteps, '正在整理角色、世界书和显示状态…');
