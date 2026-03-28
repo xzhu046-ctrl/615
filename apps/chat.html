@@ -12756,6 +12756,28 @@ function currentVisibleCharAvatarSrc(){
   return '';
 }
 
+function getLoadedCharAvatarTemplate(preferredSrc){
+  var want = normalizeAvatarSrc(preferredSrc);
+  var selectors = ['#hdrAvatar img', '#csCharAvatar img', '#idcAvatar img', '#chatExportIdcAvatar img'];
+  for(var i = 0; i < selectors.length; i++){
+    var node = document.querySelector(selectors[i]);
+    if(!node) continue;
+    var nodeSrc = normalizeAvatarSrc((node.getAttribute && node.getAttribute('src')) || node.src || '');
+    if(want && nodeSrc && nodeSrc !== want) continue;
+    if(node.complete && Number(node.naturalWidth || 0) > 0){
+      return node.cloneNode(true);
+    }
+  }
+  for(var j = 0; j < selectors.length; j++){
+    var fallbackNode = document.querySelector(selectors[j]);
+    if(!fallbackNode) continue;
+    if(fallbackNode.complete && Number(fallbackNode.naturalWidth || 0) > 0){
+      return fallbackNode.cloneNode(true);
+    }
+  }
+  return null;
+}
+
 function normalizeAvatarSrc(src){
   var text = String(src || '').trim();
   if(!text) return '';
@@ -12831,6 +12853,21 @@ function setAvatarNodeFromSource(targetEl, src, fallbackText, includeHint){
   var text = normalizeAvatarSrc(src);
   targetEl.innerHTML = '';
   if(isRenderableAvatarSrc(text)){
+    var clonedImg = getLoadedCharAvatarTemplate(text);
+    if(clonedImg){
+      clonedImg.alt = 'char';
+      clonedImg.setAttribute('data-fallback', safeText);
+      clonedImg.onerror = function(){ handleAvatarImgError(clonedImg); };
+      targetEl.appendChild(clonedImg);
+      targetEl.setAttribute('data-avatar-src', text);
+      if(includeHint){
+        var clonedHintNode = document.createElement('div');
+        clonedHintNode.className = 'avatar-pick-hint';
+        clonedHintNode.textContent = '换头像';
+        targetEl.appendChild(clonedHintNode);
+      }
+      return;
+    }
     var img = document.createElement('img');
     img.alt = 'char';
     img.setAttribute('data-fallback', safeText);
