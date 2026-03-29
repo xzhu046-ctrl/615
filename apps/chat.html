@@ -536,8 +536,9 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .cs-back-heart:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .cs-back-heart svg{width:18px;height:18px;display:block;fill:var(--b)}
 .cs-title{position:absolute;left:50%;top:calc(10px + var(--safe-top) + 19px);transform:translate(-50%,-50%);font-family:var(--fontd);font-size:18px;font-weight:900;line-height:1;pointer-events:none;white-space:nowrap}
-.cs-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px;scrollbar-width:none}
+.cs-body{flex:1;overflow-y:auto;padding:14px 14px 12px;display:flex;flex-direction:column;gap:12px;scrollbar-width:none}
 .cs-body::-webkit-scrollbar{display:none}
+.cs-footer{flex-shrink:0;padding:10px 14px calc(12px + var(--safe-bottom));border-top:var(--bd);background:linear-gradient(180deg,rgba(255,255,255,.96) 0%,#fff 100%);display:flex;flex-direction:column;gap:8px}
 
 /* settings cards */
 .cs-card{background:var(--off);border:var(--bd);border-radius:16px;padding:14px;box-shadow:var(--sh)}
@@ -822,6 +823,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 
 .cs-save-btn{font-family:var(--fontd);font-weight:900;border:var(--bd);border-radius:12px;padding:12px;font-size:13px;cursor:pointer;box-shadow:none;background:var(--b);color:var(--w);width:100%;text-align:center}
 .cs-save-btn:active{transform:none;box-shadow:none}
+.cs-save-btn:disabled{opacity:.55;cursor:not-allowed}
 .cs-danger-btn{font-family:var(--fontd);font-weight:900;border:var(--bd);border-radius:12px;padding:11px;font-size:13px;cursor:pointer;box-shadow:var(--sh);background:#fff;color:#b00;width:100%;text-align:center;transition:transform .12s,box-shadow .12s}
 .cs-danger-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .cs-plain-btn{font-family:var(--fontd);font-weight:900;border:var(--bd);border-radius:12px;padding:11px;font-size:13px;cursor:pointer;box-shadow:none;background:#fff;color:var(--b);width:100%;text-align:center}
@@ -1320,7 +1322,9 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
     </div>
 
     <button class="cs-danger-btn" id="blockToggleBtn" type="button" onclick="toggleBlockFromSettings()">拉黑对方</button>
-    <button class="cs-save-btn" onclick="saveChatSettings()">保存并应用</button>
+  </div>
+  <div class="cs-footer">
+    <button class="cs-save-btn" id="chatSettingsSaveBtn" type="button" onclick="saveChatSettings()">保存并应用</button>
   </div>
 </div>
 
@@ -1878,6 +1882,7 @@ var pendingPresenceAutoReplyEnabled = null;
 var chatExportState = null;
 var memoryEditingId = '';
 var chatSettingsSavedAtLeastOnce = false;
+var chatSettingsSaving = false;
 var innerVoiceHistoryMode = false;
 var innerVoiceEditingId = '';
 var sunnyProfileWizardState = null;
@@ -13517,6 +13522,11 @@ function openChatSettings() {
   hideParentTopbarForSettings();
   document.getElementById('chatSettings').classList.add('open');
   try{
+    var saveBtn = document.getElementById('chatSettingsSaveBtn');
+    if(saveBtn && !saveBtn.dataset.bound){
+      saveBtn.addEventListener('click', function(){ saveChatSettings(); });
+      saveBtn.dataset.bound = '1';
+    }
     bindChatBackgroundUrlInput();
     var isDefault = isDefaultAccountContext();
     if (character) {
@@ -13813,6 +13823,11 @@ function postSettingsPreviewSync(){
 }
 
 async function saveChatSettings() {
+  if(chatSettingsSaving) return;
+  chatSettingsSaving = true;
+  var saveBtn = document.getElementById('chatSettingsSaveBtn');
+  if(saveBtn) saveBtn.disabled = true;
+  try{
   var isDefault = isDefaultAccountContext();
   var un = isDefault ? document.getElementById('csUserName').value.trim() : getActiveAccountProfileName();
   var up = isDefault ? document.getElementById('csUserPersona').value.trim() : '';
@@ -13924,6 +13939,13 @@ async function saveChatSettings() {
   updateModelLabel();
   postSettingsPreviewSync();
   refreshMemoryUi();
+  }catch(err){
+    console.error('saveChatSettings failed', err);
+    toast('聊天设置保存失败');
+  }finally{
+    chatSettingsSaving = false;
+    if(saveBtn) saveBtn.disabled = false;
+  }
 }
 
 function persistCharacter(){
