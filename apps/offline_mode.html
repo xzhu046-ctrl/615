@@ -336,7 +336,7 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-edit-btn:active{transform:translateY(1px)}
 .offline-status-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:132;background:rgba(255,255,255,.24);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);padding:20px}
 .offline-status-overlay.open{display:flex}
-.offline-status-card{position:relative;width:min(348px,calc(100vw - 24px));border:1.5px solid rgba(22,22,22,.78);border-radius:34px;background:linear-gradient(180deg,rgba(255,255,255,.985),rgba(243,243,243,.96));box-shadow:0 0 0 1px rgba(255,255,255,.95) inset,0 18px 38px rgba(0,0,0,.12);padding:18px 18px 16px;overflow:hidden}
+.offline-status-card{position:relative;width:min(348px,calc(100vw - 24px));height:min(72vh,620px);border:1.5px solid rgba(22,22,22,.78);border-radius:34px;background:linear-gradient(180deg,rgba(255,255,255,.985),rgba(243,243,243,.96));box-shadow:0 0 0 1px rgba(255,255,255,.95) inset,0 18px 38px rgba(0,0,0,.12);padding:18px 18px 16px;overflow:hidden;display:flex;flex-direction:column}
 .offline-status-card::before{content:'';position:absolute;left:16px;right:16px;top:16px;height:112px;border-radius:24px;background:linear-gradient(180deg,rgba(255,255,255,.18),rgba(255,255,255,.54)),url('assets/樱花在水里.jpg') center/cover no-repeat;opacity:.97;pointer-events:none}
 .offline-status-close{position:absolute;top:14px;right:14px;width:34px;height:34px;border:1.5px solid rgba(20,20,20,.78);border-radius:999px;background:rgba(255,255,255,.92);color:#111;font:900 18px/1 var(--fontd);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2}
 .offline-status-top{position:relative;z-index:1;display:flex;align-items:center;gap:12px;min-height:112px;padding:8px 38px 8px 6px}
@@ -344,12 +344,13 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-status-avatar img{width:100%;height:100%;object-fit:cover}
 .offline-status-head{min-width:0}
 .offline-status-date{display:inline-flex;align-items:center;min-height:32px;padding:6px 12px;border:1.5px solid rgba(24,24,24,.18);border-radius:999px;background:rgba(255,255,255,.88);font-family:var(--fontd);font-size:11px;font-weight:900;color:#4a4a4a;letter-spacing:.06em;text-transform:uppercase}
-.offline-status-grid{position:relative;z-index:1;margin-top:18px;display:flex;flex-direction:column;gap:12px}
+.offline-status-grid{position:relative;z-index:1;margin-top:18px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:auto;padding-right:2px}
 .offline-status-row{border:none;border-radius:22px;background:rgba(255,255,255,.82);padding:14px 14px 13px}
 .offline-status-label{font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;color:#6a6a6a;text-transform:uppercase}
 .offline-status-value{margin-top:8px;font-size:15px;font-weight:800;color:#111;line-height:1.8}
 .offline-status-future-title{font-family:'ZCOOL KuaiLe','Fredoka','Nunito',sans-serif;font-size:22px;font-weight:900;line-height:1.2;color:#111;text-shadow:0 1px 0 rgba(255,255,255,.88)}
 .offline-status-future-copy{margin-top:10px;font-size:14px;font-weight:700;line-height:1.9;color:#1f1f1f;white-space:pre-wrap;word-break:break-word}
+.offline-status-future-copy s,.offline-status-future-copy .strike{opacity:.54;text-decoration-thickness:1.6px}
 .inner-voice-overlay{display:none !important}
 @media (max-width:390px){
   :root{--offline-header-height:78px}
@@ -1027,6 +1028,12 @@ function sanitizeOfflineArtifactHtml(raw){
   html = html.replace(/javascript:/gi, '');
   return html.trim();
 }
+function renderOfflineStatusRichText(text){
+  var safe = esc(String(text || '').trim());
+  if(!safe) return '';
+  safe = safe.replace(/~~([\s\S]+?)~~/g, '<span class="strike">$1</span>');
+  return safe.replace(/\n/g, '<br>');
+}
 function buildOfflineSummarySystemPrompt(options){
   options = options || {};
   var compactLevel = Math.max(0, Number(options.compactLevel) || 0);
@@ -1361,7 +1368,7 @@ async function openOfflineStatusModal(entryIndex){
       '</div>';
   }
   grid.innerHTML =
-    '<div class="offline-status-row"><div class="offline-status-label">' + esc(String(snap.typeLabel || modalProfile.label)) + '</div><div class="offline-status-value"><div class="offline-status-future-title">' + esc(snap.futureTitle) + '</div><div class="offline-status-future-copy">' + esc(snap.futureNote) + '</div>' + artifactBlock + '</div></div>';
+    '<div class="offline-status-row"><div class="offline-status-label">' + esc(String(snap.typeLabel || modalProfile.label)) + '</div><div class="offline-status-value"><div class="offline-status-future-title">' + esc(snap.futureTitle) + '</div><div class="offline-status-future-copy">' + renderOfflineStatusRichText(snap.futureNote) + '</div>' + artifactBlock + '</div></div>';
   overlay.classList.add('open');
 }
 function closeOfflineStatusModal(){
@@ -1465,14 +1472,15 @@ function getOfflineSideStoryProfile(type){
       label: '让我们打破第四面墙吧',
       chip: '正在打破第四面墙…',
       titleRule: 'future_title 必须像超好笑的读者吐槽、避雷标题或安利标题，越好笑越好。',
-      noteRule: 'future_note 要写成 char 和 user 像观众一样一起吐槽这一幕，把它当成电视剧/小说/同人来看；可以磕 cp、吐槽台词、安利场面、骂编剧，重点是足够好笑、足够会玩梗。'
+      noteRule: 'future_note 要写成 char 和 user 像观众一样一起吐槽这一幕，把它当成一部普通电视剧在看；他们绝对不知道这是自己的故事，不要出现“我们这段故事”“我们这本书”“我们这对 cp”这种说法。可以吐槽台词、镜头、编剧、角色互动，也可以认真安利，重点是足够好笑、足够会玩梗。',
+      noteLengthRule: 'future_note 总字数不要超过 200 个中文字符。'
     },
     nogrow: {
       key: 'nogrow',
       label: '长大是件好事吗？',
       chip: '童年吐槽写作中…',
       titleRule: 'future_title 必须是黑色幽默或地狱笑话感的小标题，要一眼就很好笑。',
-      noteRule: 'future_note 要写成比现在更年幼的 char 看到这一幕后的震惊吐槽和感想：可以是“我长大这么牛逼/这么禽兽/这么离谱？”这种黑色幽默角度，重点是笑到停不下来。'
+      noteRule: 'future_note 要写成比现在更年幼的 char 看到这一幕后的震惊吐槽和感想，开头要明确标注年龄，例如【8岁】。年龄越小，语气越不能成熟；如果年纪很小，可以自然夹一点拼音、谐音、写错字。整段要保留孩子气、嘴硬和黑色幽默。还可以偶尔出现口是心非的划掉句式，例如 ~~我心甘情愿。~~ 才没有那么倒贴！重点是又好笑又能看出年龄感。'
     },
     parallelworld: {
       key: 'parallelworld',
