@@ -169,13 +169,14 @@ function addSystemNotice(text, doScroll, entryId){
   addMessage('system', String(text || '').trim(), doScroll !== false, 'text', entryId || '');
 }
 
-function persistOfflineSession(session){
-  if(!character || !character.id) return;
+function persistOfflineSession(session, charIdOverride){
+  var targetCharId = String(charIdOverride || (character && character.id) || '').trim();
+  if(!targetCharId) return;
   try{
-    localStorage.setItem(offlineSessionStorageKey(character.id), JSON.stringify(session || {}));
+    localStorage.setItem(offlineSessionStorageKey(targetCharId), JSON.stringify(session || {}));
   }catch(e){}
   try{
-    localStorage.setItem('offline_meet_session_' + String(character.id || '').trim(), JSON.stringify(session || {}));
+    localStorage.setItem('offline_meet_session_' + targetCharId, JSON.stringify(session || {}));
   }catch(e){}
 }
 
@@ -217,6 +218,7 @@ async function openOfflineSession(payload){
   try{ localStorage.removeItem(accountScopedKey('offline_resume_' + targetCharId)); }catch(e){}
   try{ localStorage.removeItem('offline_resume_' + targetCharId); }catch(e){}
   var nextSession = {
+    charId: targetCharId,
     active: true,
     invite: payload,
     entries: [],
@@ -225,7 +227,7 @@ async function openOfflineSession(payload){
     chatHistory: history,
     updatedAt: Date.now()
   };
-  persistOfflineSession(nextSession);
+  persistOfflineSession(nextSession, targetCharId);
   try{
     localStorage.setItem(pendingOfflineBootstrapStorageKey(targetCharId), JSON.stringify({
       charId: targetCharId,
