@@ -197,6 +197,10 @@ function readOfflineSession(charId){
 async function openOfflineSession(payload){
   if(!character || !character.id) return;
   var history = formatChatForModel(chatLog.slice(-10));
+  try{ localStorage.removeItem(pendingOfflineBootstrapStorageKey(character.id)); }catch(e){}
+  try{ localStorage.removeItem(pendingOfflineLaunchStorageKey(character.id)); }catch(e){}
+  try{ localStorage.removeItem(accountScopedKey('offline_resume_' + String(character.id || '').trim())); }catch(e){}
+  try{ localStorage.removeItem('offline_resume_' + String(character.id || '').trim()); }catch(e){}
   var nextSession = {
     active: true,
     invite: payload,
