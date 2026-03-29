@@ -1110,6 +1110,13 @@ function normalizeOfflineStatusCard(raw, seedText){
   if(!futureDate || !title || !note) return null;
   var profile = getOfflineSideStoryProfile(source.type || source.kind || getOfflineUiPrefs().sideStoryType);
   if(profile.artifactRule && (!artifactHtml || !artifactLabel)) return null;
+  if(profile.key === 'fourthwall'){
+    var charName = getCharDisplayName();
+    var userName = resolveUserName();
+    note = note
+      .replace(/(^|\n)\s*char\s*[：:]/gi, '$1' + charName + '：')
+      .replace(/(^|\n)\s*user\s*[：:]/gi, '$1' + userName + '：');
+  }
   return {
     name: getCharDisplayName(),
     avatar: resolveCharAvatar(),
@@ -1201,7 +1208,9 @@ async function generateOfflineStageSummary(force, overrideCount){
     return entry && String(entry.text || '').trim();
   });
   if(!allFloors.length) return null;
-  var uptoCount = allFloors.length;
+  var totalFloorCount = allFloors.length;
+  var uptoCount = force ? totalFloorCount : (totalFloorCount - (totalFloorCount % cadence));
+  if(!uptoCount) return null;
   var existing = getOfflineStageSummaries().find(function(item){
     return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) === uptoCount;
   });
@@ -1253,12 +1262,14 @@ function queueOfflineStageSummaryGeneration(){
   if(!session) return;
   var ui = getOfflineUiPrefs();
   if(!ui.summaryAuto) return;
+  var cadence = Math.max(3, Number(ui.summaryEvery) || 5);
   var floorCount = countOfflineStoryFloors();
-  if(!floorCount || floorCount % Math.max(3, Number(ui.summaryEvery) || 5) !== 0) return;
-  var key = 'stage::' + String(floorCount);
+  var targetFloor = floorCount - (floorCount % cadence);
+  if(!targetFloor) return;
+  var key = 'stage::' + String(targetFloor);
   if(offlineStageSummaryQueue[key]) return;
   if(getOfflineStageSummaries().some(function(item){
-    return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) === floorCount;
+    return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) === targetFloor;
   })) return;
   offlineStageSummaryQueue[key] = true;
   Promise.resolve().then(function(){
@@ -1629,7 +1640,7 @@ function getOfflineSideStoryProfile(type){
       label: '让我们打破第四面墙吧',
       chip: '正在打破第四面墙…',
       titleRule: 'future_title 必须像超好笑的读者吐槽、避雷标题或安利标题，越好笑越好。',
-      noteRule: 'future_note 要写成 char 和 user 像观众一样一起吐槽这一幕，把它当成一部普通电视剧在看；他们绝对不知道这是自己的故事，不要出现“我们这段故事”“我们这本书”“我们这对 cp”这种说法。全文必须严格使用对话体，一行一个人，只能写成“char：……”和“user：……”这样的形式，不要写旁白，不要写散文段落。可以吐槽台词、镜头、编剧、角色互动，也可以认真安利，重点是足够好笑、足够会玩梗。',
+      noteRule: 'future_note 要写成 char 和 user 像观众一样一起吐槽这一幕，把它当成一部普通电视剧在看；他们绝对不知道这是自己的故事，不要出现“我们这段故事”“我们这本书”“我们这对 cp”这种说法。全文必须严格使用对话体，一行一个人，只能写成真实名字加全角冒号的形式：' + getCharDisplayName() + '：…… / ' + resolveUserName() + '：……；不要写旁白，不要写散文段落。两个人的吐槽都必须严格继承各自 persona、关系、称呼习惯和说话方式，绝对不许 OOC。可以吐槽台词、镜头、编剧、角色互动，也可以认真安利，重点是足够好笑、足够会玩梗。',
       noteLengthRule: 'future_note 总字数不要超过 200 个中文字符。'
     },
     nogrow: {
