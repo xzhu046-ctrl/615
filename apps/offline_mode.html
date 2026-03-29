@@ -1119,6 +1119,7 @@ function normalizeOfflineStatusCard(raw, seedText){
   if(!futureDate || !title || !note) return null;
   var profile = getOfflineSideStoryProfile(source.type || source.kind || getOfflineUiPrefs().sideStoryType);
   if(profile.artifactRule && (!artifactHtml || !artifactLabel)) return null;
+  if(containsOfflineStyleViolation(title) || containsOfflineStyleViolation(note) || containsOfflineStyleViolation(artifactLabel) || containsOfflineStyleViolation(artifactHtml)) return null;
   if(profile.key === 'fourthwall'){
     var charName = getCharDisplayName();
     var userName = resolveUserName();
@@ -1173,7 +1174,7 @@ function buildOfflineSummarySystemPrompt(options){
 }
 function parseOfflineSummaryObject(raw){
   var obj = parseOfflineJsonObject(raw);
-  if(obj && typeof obj === 'object' && String(obj.summary || '').trim()){
+  if(obj && typeof obj === 'object' && String(obj.summary || '').trim() && !containsOfflineStyleViolation(String(obj.summary || ''))){
     return { summary: String(obj.summary || '').trim() };
   }
   return null;
@@ -3457,6 +3458,27 @@ function containsOfflineStyleViolation(text){
   var body = String(text || '');
   return offlineStyleBannedPatterns().some(function(pattern){ return pattern.test(body); });
 }
+function hasOfflineBannedContentInPayload(payload){
+  if(!payload || typeof payload !== 'object') return false;
+  var texts = [];
+  texts.push(String(payload.text || ''));
+  texts.push(String(payload.title || ''));
+  texts.push(String(payload.quote || ''));
+  if(Array.isArray(payload.asides)) texts = texts.concat(payload.asides.map(function(it){ return String(it || ''); }));
+  if(payload.thought_chain && typeof payload.thought_chain === 'object'){
+    texts.push(String(payload.thought_chain.subtext_perception || ''));
+    texts.push(String(payload.thought_chain.emotional_reaction || ''));
+    texts.push(String(payload.thought_chain.action_strategy || ''));
+  }
+  if(payload.status_card && typeof payload.status_card === 'object'){
+    texts.push(String(payload.status_card.future_title || payload.status_card.title || ''));
+    texts.push(String(payload.status_card.future_note || payload.status_card.note || payload.status_card.comment || ''));
+    texts.push(String(payload.status_card.artifact_label || payload.status_card.artifactLabel || ''));
+    texts.push(String(payload.status_card.future_date || payload.status_card.date || payload.status_card.futureDate || ''));
+    texts.push(String(payload.status_card.artifact_html || payload.status_card.artifactHtml || ''));
+  }
+  return texts.some(function(part){ return containsOfflineStyleViolation(part); });
+}
 function isMobileOfflineRuntime(){
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '') || window.innerWidth <= 820;
 }
@@ -3831,6 +3853,13 @@ async function generateOpeningIfNeeded(){
       quote: openingQuote,
       thought_chain: openingThoughtChain,
       status_card: openingStatusCard
+    }) || hasOfflineBannedContentInPayload({
+      text: openingText,
+      title: openingTitle,
+      quote: openingQuote,
+      asides: openingAsides,
+      thought_chain: openingThoughtChain,
+      status_card: openingStatusCard
     })){
       openingText = '';
     }
@@ -4019,7 +4048,13 @@ async function requestOfflineReply(options){
       replyText = mergeOfflineOpeningText(replyText, extraText);
       replyAsides = mergeOfflineAsides(replyAsides, normalizeOfflineAsides(extendParsed.asides));
     }
-    if(openingTextLength(replyText) < minChars || violatesOfflinePerspective(replyText, prefs.perspective) || containsOfflineStyleViolation(replyText) || !replyTitle || !replyQuote){
+    if(openingTextLength(replyText) < minChars || violatesOfflinePerspective(replyText, prefs.perspective) || containsOfflineStyleViolation(replyText) || !replyTitle || !replyQuote || hasOfflineBannedContentInPayload({
+      text: replyText,
+      title: replyTitle,
+      quote: replyQuote,
+      asides: replyAsides,
+      thought_chain: thoughtChain
+    })){
       throw new Error('回复字数不足或未通过线下正文校验（' + openingTextLength(replyText) + '/' + minChars + '）');
     }
     var nextLabels = nowLabels();
