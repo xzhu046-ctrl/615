@@ -31,7 +31,7 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-29T00:20:00Z';
+const APP_BUILD_ID = '2026-03-29T00:24:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -57,6 +57,7 @@ let hostedUpdateLockedOpen = false;
 let hostedUpdateRetryTimer = 0;
 let swControllerRefreshPending = false;
 let pendingHostedRefreshBuild = '';
+let hostedRefreshInFlight = false;
 let shownHostedUpdateFingerprint = '';
 let hostedUpdateBootstrapped = false;
 let hostedUpdateModalShown = false;
@@ -932,15 +933,27 @@ function refreshInstalledApp(evt){
     try{ evt.preventDefault(); }catch(e){}
     try{ evt.stopPropagation(); }catch(e){}
   }
+  if(hostedRefreshInFlight) return;
+  hostedRefreshInFlight = true;
+  var refreshBtn = document.getElementById('update-toast-btn');
+  if(refreshBtn){
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = '刷新中...';
+  }
   var targetBuild = String(pendingRemoteAppFingerprint || shownHostedUpdateFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
   setAcceptedHostedUpdateBuild(targetBuild);
   var finishReload = function(){
     swControllerRefreshPending = false;
+    hostedRefreshInFlight = false;
     hostedUpdateLockedOpen = false;
     pendingRemoteAppFingerprint = '';
     shownHostedUpdateFingerprint = '';
     hostedUpdateModalShown = false;
     pendingHostedRefreshBuild = '';
+    if(refreshBtn){
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = '刷新';
+    }
     try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
     hideHostedUpdateCard();
     try{
@@ -958,7 +971,9 @@ function refreshInstalledApp(evt){
     .then(function(){ return primeLatestCoreFiles(); })
     .then(function(){
       if(!('serviceWorker' in navigator)) return null;
-      return navigator.serviceWorker.getRegistration().then(function(reg){
+      return navigator.serviceWorker.ready.catch(function(){ return null; }).then(function(readyReg){
+        return readyReg || navigator.serviceWorker.getRegistration();
+      }).then(function(reg){
         if(!reg) return null;
         if(reg.waiting){
           swControllerRefreshPending = true;
@@ -996,6 +1011,7 @@ function refreshInstalledApp(evt){
       finishReload();
     });
 }
+window.refreshInstalledApp = refreshInstalledApp;
 
 function clearHostedRefreshParams(){
   try{
