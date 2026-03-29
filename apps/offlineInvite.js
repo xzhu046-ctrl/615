@@ -72,6 +72,8 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   var data = Object.assign({
     type: 'offline_invite',
     sourceRole: sourceRole === 'user' ? 'user' : 'assistant',
+    charId: String((character && character.id) || '').trim(),
+    charName: String((character && (character.nickname || character.name)) || '').trim(),
     content: String(text || '').trim() || (sourceRole === 'user' ? '要不要出来见我？' : '宝宝，我来找你了。'),
     mood: randomPick(OFFLINE_MOODS, '(｡･ω･｡)'),
     weather: randomPick(OFFLINE_WEATHERS, '☀︎'),
@@ -84,6 +86,8 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   }, overrides || {});
   data.type = 'offline_invite';
   data.sourceRole = data.sourceRole === 'user' ? 'user' : 'assistant';
+  data.charId = String(data.charId || (character && character.id) || '').trim();
+  data.charName = String(data.charName || (character && (character.nickname || character.name)) || '').trim();
   data.content = String(data.content || '').trim() || '想见你。';
   data.mood = String(data.mood || '').trim() || '(｡･ω･｡)';
   data.weather = normalizeOfflineWeatherIcon(data.weather);
@@ -195,12 +199,18 @@ function readOfflineSession(charId){
 }
 
 async function openOfflineSession(payload){
-  if(!character || !character.id) return;
+  var targetCharId = String(payload && payload.charId || (character && character.id) || '').trim();
+  if(!targetCharId) return;
+  var targetCharacter = null;
+  try{
+    if(typeof findCharacterById === 'function') targetCharacter = findCharacterById(targetCharId);
+  }catch(e){}
+  if(targetCharacter) character = targetCharacter;
   var history = formatChatForModel(chatLog.slice(-10));
-  try{ localStorage.removeItem(pendingOfflineBootstrapStorageKey(character.id)); }catch(e){}
-  try{ localStorage.removeItem(pendingOfflineLaunchStorageKey(character.id)); }catch(e){}
-  try{ localStorage.removeItem(accountScopedKey('offline_resume_' + String(character.id || '').trim())); }catch(e){}
-  try{ localStorage.removeItem('offline_resume_' + String(character.id || '').trim()); }catch(e){}
+  try{ localStorage.removeItem(pendingOfflineBootstrapStorageKey(targetCharId)); }catch(e){}
+  try{ localStorage.removeItem(pendingOfflineLaunchStorageKey(targetCharId)); }catch(e){}
+  try{ localStorage.removeItem(accountScopedKey('offline_resume_' + targetCharId)); }catch(e){}
+  try{ localStorage.removeItem('offline_resume_' + targetCharId); }catch(e){}
   var nextSession = {
     active: true,
     invite: payload,
@@ -212,20 +222,20 @@ async function openOfflineSession(payload){
   };
   persistOfflineSession(nextSession);
   try{
-    localStorage.setItem(pendingOfflineBootstrapStorageKey(character.id), JSON.stringify({
-      charId: String(character.id || ''),
+    localStorage.setItem(pendingOfflineBootstrapStorageKey(targetCharId), JSON.stringify({
+      charId: targetCharId,
       session: nextSession
     }));
   }catch(e){}
   try{
-    localStorage.setItem(pendingOfflineLaunchStorageKey(character.id), JSON.stringify({
-      charId: String(character.id || ''),
+    localStorage.setItem(pendingOfflineLaunchStorageKey(targetCharId), JSON.stringify({
+      charId: targetCharId,
       payload: payload,
       chatHistory: history,
       createdAt: Date.now()
     }));
   }catch(e){}
-  postToShell({ type:'OPEN_APP_WITH', payload:{ app:'offline', charId: String(character.id || '') } });
+  postToShell({ type:'OPEN_APP_WITH', payload:{ app:'offline', charId: targetCharId } });
 }
 
 function getCurrentUserDisplayName(){
