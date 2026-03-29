@@ -202,6 +202,10 @@ function pendingOfflineLaunchStorageKey(charId){
   return accountScopedKey('offline_launch_' + String(charId || '').trim());
 }
 
+function latestOfflineLaunchStorageKey(){
+  return accountScopedKey('offline_launch_latest');
+}
+
 function readOfflineSession(charId){
   if(!charId) return null;
   try{
@@ -256,6 +260,14 @@ async function openOfflineSession(payload){
   }catch(e){}
   try{
     localStorage.setItem(pendingOfflineLaunchStorageKey(targetCharId), JSON.stringify({
+      charId: targetCharId,
+      payload: payload,
+      chatHistory: history,
+      createdAt: Date.now()
+    }));
+  }catch(e){}
+  try{
+    localStorage.setItem(latestOfflineLaunchStorageKey(), JSON.stringify({
       charId: targetCharId,
       payload: payload,
       chatHistory: history,

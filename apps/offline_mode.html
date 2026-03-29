@@ -648,6 +648,9 @@ function pendingOfflineBootstrapKey(charId){
 function pendingOfflineLaunchKey(charId){
   return scopedKey('offline_launch_' + String(charId || ''));
 }
+function latestOfflineLaunchKey(){
+  return scopedKey('offline_launch_latest');
+}
 function pendingOfflineResumeKey(charId){
   return scopedKey('offline_resume_' + String(charId || ''));
 }
@@ -1045,6 +1048,20 @@ function consumePendingOfflineLaunch(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return null;
   var keys = [pendingOfflineLaunchKey(safeId), 'offline_launch_' + safeId];
+  for(var i = 0; i < keys.length; i += 1){
+    var key = keys[i];
+    try{
+      var raw = localStorage.getItem(key);
+      if(!raw) continue;
+      localStorage.removeItem(key);
+      var parsed = JSON.parse(raw);
+      if(parsed && typeof parsed === 'object') return parsed;
+    }catch(e){}
+  }
+  return null;
+}
+function consumeLatestPendingOfflineLaunch(){
+  var keys = [latestOfflineLaunchKey(), 'offline_launch_latest'];
   for(var i = 0; i < keys.length; i += 1){
     var key = keys[i];
     try{
@@ -4290,14 +4307,15 @@ function renderOfflineInviteDebugCard(finalCharId){
   card.classList.add('show');
 }
 async function init(){
+  var latestLaunch = consumeLatestPendingOfflineLaunch();
   try{
     var initUrl = new URL(window.location.href);
-    desiredOfflineCharId = String(initUrl.searchParams.get('char') || localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
+    desiredOfflineCharId = String((latestLaunch && latestLaunch.charId) || initUrl.searchParams.get('char') || localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }catch(err){
-    desiredOfflineCharId = String(localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
+    desiredOfflineCharId = String((latestLaunch && latestLaunch.charId) || localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }
   character = loadCharacter(desiredOfflineCharId);
-  var launchSeed = desiredOfflineCharId ? consumePendingOfflineLaunch(desiredOfflineCharId) : null;
+  var launchSeed = latestLaunch || (desiredOfflineCharId ? consumePendingOfflineLaunch(desiredOfflineCharId) : null);
   var resumeSession = desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null;
   var bootSession = desiredOfflineCharId ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
   if(launchSeed && launchSeed.payload){
