@@ -45,7 +45,11 @@ body{font-family:var(--font);background:#f5f1e8;color:var(--b);position:relative
 .offline-stage-drawer-head{position:relative;padding:22px 18px 14px;min-height:220px;border-bottom:1.5px solid rgba(16,16,16,.12);background:
 linear-gradient(180deg,rgba(18,18,18,0) 0%,rgba(18,18,18,0) 58%,rgba(242,242,242,.06) 70%,rgba(242,242,242,.96) 100%),
 url('assets/樱花在水里.jpg') center/cover no-repeat}
-.offline-stage-drawer-close{position:absolute;top:14px;right:14px;width:34px;height:34px;border-radius:999px;border:2px solid #111;background:#fff;color:#111;font:900 18px/1 var(--fontd);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:3px 3px 0 rgba(0,0,0,.82)}
+.offline-stage-drawer-close,.offline-stage-drawer-save{position:absolute;right:14px;width:34px;height:34px;border-radius:999px;border:2px solid #111;background:#fff;color:#111;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:3px 3px 0 rgba(0,0,0,.82)}
+.offline-stage-drawer-close{top:14px;font:900 18px/1 var(--fontd)}
+.offline-stage-drawer-save{top:56px;padding:0}
+.offline-stage-drawer-save img{width:18px;height:18px;object-fit:contain;display:block}
+.offline-stage-drawer-close:active,.offline-stage-drawer-save:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(0,0,0,.82)}
 .offline-stage-drawer-film{position:relative;height:100%;border:none;border-radius:26px;padding:18px 16px 6px;display:flex;flex-direction:column;justify-content:flex-end;background:transparent;overflow:hidden}
 .offline-stage-drawer-film::after{display:none}
 .offline-stage-drawer-film > *{position:relative;z-index:1}
@@ -402,6 +406,7 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
     <div class="offline-stage-drawer-card">
       <div class="offline-stage-drawer-head">
         <button class="offline-stage-drawer-close" type="button" onclick="closeOfflineDrawer()">×</button>
+        <button class="offline-stage-drawer-save" type="button" onclick="saveOfflineDrawerSettings()" aria-label="保存线下设置"><img src="assets/保存.png" alt="保存"></button>
         <div class="offline-stage-drawer-film">
           <div class="offline-stage-drawer-photos">
             <div class="offline-stage-drawer-polaroid char" id="offlineDrawerCharPhoto"></div>
@@ -585,6 +590,7 @@ var offlineEditingIndex = -1;
 var offlineSummaryQueue = {};
 var offlineStageSummaryQueue = {};
 var offlineDrawerBound = false;
+var offlineDrawerDraft = null;
 var offlineMemoryEditingId = '';
 var offlineStageSummaryPreviewOpen = false;
 var offlineMoodFaces = {
@@ -1625,6 +1631,42 @@ function getOfflineUiPrefs(){
     sideStoryType: sideStoryType
   };
 }
+function buildOfflineDrawerDraft(){
+  var prefs = getOfflineStoryPrefs();
+  var ui = getOfflineUiPrefs();
+  return {
+    minChars: prefs.minChars,
+    maxChars: prefs.maxChars,
+    perspective: prefs.perspective,
+    style: prefs.style,
+    summaryEvery: ui.summaryEvery,
+    summaryAuto: ui.summaryAuto,
+    sideStoryType: ui.sideStoryType
+  };
+}
+function getOfflineDrawerDraft(){
+  if(!offlineDrawerDraft) offlineDrawerDraft = buildOfflineDrawerDraft();
+  return offlineDrawerDraft;
+}
+function applyOfflineDrawerDraftToCharacter(){
+  if(!character) return;
+  var draft = getOfflineDrawerDraft();
+  character.offlineInviteMin = Math.max(10, Number(draft.minChars) || 300);
+  character.offlineInviteMax = Math.max(character.offlineInviteMin, Number(draft.maxChars) || 360);
+  character.offlineInvitePerspective = String(draft.perspective || 'first');
+  character.offlineInviteStyle = String(draft.style || '').trim();
+  character.offlineSummaryEvery = Math.max(3, Number(draft.summaryEvery) || 5);
+  character.offlineSummaryAuto = !!draft.summaryAuto;
+  character.offlineSideStoryType = String(draft.sideStoryType || 'future');
+}
+function saveOfflineDrawerSettings(){
+  if(!character) return;
+  applyOfflineDrawerDraftToCharacter();
+  persistOfflineCharacterSettings();
+  offlineDrawerDraft = buildOfflineDrawerDraft();
+  syncOfflineDrawerControls();
+  toast('线下设置已保存');
+}
 function getOfflineSideStoryProfile(type){
   var key = String(type || 'future');
   var map = {
@@ -1755,6 +1797,7 @@ function renderOfflineStageSummaryList(){
 function openOfflineDrawer(){
   var overlay = document.getElementById('offlineDrawerOverlay');
   if(!overlay) return;
+  offlineDrawerDraft = buildOfflineDrawerDraft();
   syncOfflineDrawerControls();
   overlay.classList.add('open');
   overlay.setAttribute('aria-hidden', 'false');
@@ -1766,8 +1809,7 @@ function closeOfflineDrawer(){
   overlay.setAttribute('aria-hidden', 'true');
 }
 function syncOfflineDrawerControls(){
-  var prefs = getOfflineStoryPrefs();
-  var ui = getOfflineUiPrefs();
+  var draft = getOfflineDrawerDraft();
   var minChars = document.getElementById('offlineDrawerMinChars');
   var maxChars = document.getElementById('offlineDrawerMaxChars');
   var perspective = document.getElementById('offlineDrawerPerspective');
@@ -1777,24 +1819,24 @@ function syncOfflineDrawerControls(){
   var sideStoryTrigger = document.getElementById('offlineDrawerSideStoryTrigger');
   var sideStoryDropdown = document.getElementById('offlineDrawerSideStoryDropdown');
   var range = document.getElementById('offlineDrawerCurrentRange');
-  if(minChars && document.activeElement !== minChars) minChars.value = String(prefs.minChars);
-  if(maxChars && document.activeElement !== maxChars) maxChars.value = String(prefs.maxChars);
-  if(perspective) perspective.value = prefs.perspective;
-  if(style) style.value = prefs.style;
-  if(summaryEvery && document.activeElement !== summaryEvery) summaryEvery.value = String(ui.summaryEvery);
+  if(minChars && document.activeElement !== minChars) minChars.value = String(draft.minChars);
+  if(maxChars && document.activeElement !== maxChars) maxChars.value = String(draft.maxChars);
+  if(perspective) perspective.value = draft.perspective;
+  if(style && document.activeElement !== style) style.value = draft.style;
+  if(summaryEvery && document.activeElement !== summaryEvery) summaryEvery.value = String(draft.summaryEvery);
   var manualCount = document.getElementById('offlineDrawerManualSummaryCount');
-  if(manualCount && document.activeElement !== manualCount && !String(manualCount.value || '').trim()) manualCount.value = String(ui.summaryEvery);
+  if(manualCount && document.activeElement !== manualCount && !String(manualCount.value || '').trim()) manualCount.value = String(draft.summaryEvery);
   if(summaryAuto){
-    summaryAuto.classList.toggle('is-on', !!ui.summaryAuto);
-    summaryAuto.setAttribute('aria-pressed', ui.summaryAuto ? 'true' : 'false');
+    summaryAuto.classList.toggle('is-on', !!draft.summaryAuto);
+    summaryAuto.setAttribute('aria-pressed', draft.summaryAuto ? 'true' : 'false');
   }
-  if(sideStoryTrigger) sideStoryTrigger.textContent = getOfflineSideStoryProfile(ui.sideStoryType).label;
+  if(sideStoryTrigger) sideStoryTrigger.textContent = getOfflineSideStoryProfile(draft.sideStoryType).label;
   if(sideStoryDropdown){
     sideStoryDropdown.querySelectorAll('[data-side-story]').forEach(function(btn){
-      btn.classList.toggle('is-active', String(btn.getAttribute('data-side-story') || '') === ui.sideStoryType);
+      btn.classList.toggle('is-active', String(btn.getAttribute('data-side-story') || '') === draft.sideStoryType);
     });
   }
-  if(range) range.textContent = String(prefs.minChars) + ' - ' + String(prefs.maxChars) + ' 字';
+  if(range) range.textContent = String(draft.minChars) + ' - ' + String(draft.maxChars) + ' 字';
   renderOfflineStageSummaryList();
 }
 function bindOfflineDrawerControls(){
@@ -1829,50 +1871,41 @@ function bindOfflineDrawerControls(){
   }
   if(minChars){
     bindNumericCommit(minChars, function(){
-      if(!character) return;
+      var draft = getOfflineDrawerDraft();
       var nextMin = Math.max(10, Number(minChars.value) || 300);
-      var currentMax = Math.max(nextMin, Number(character.offlineInviteMax) || 360);
-      character.offlineInviteMin = nextMin;
-      character.offlineInviteMax = Math.max(currentMax, nextMin);
-      persistOfflineCharacterSettings();
+      var currentMax = Math.max(nextMin, Number(draft.maxChars) || 360);
+      draft.minChars = nextMin;
+      draft.maxChars = Math.max(currentMax, nextMin);
     });
   }
   if(maxChars){
     bindNumericCommit(maxChars, function(){
-      if(!character) return;
-      var currentMin = Math.max(10, Number(character.offlineInviteMin) || 300);
+      var draft = getOfflineDrawerDraft();
+      var currentMin = Math.max(10, Number(draft.minChars) || 300);
       var nextMax = Math.max(currentMin, Number(maxChars.value) || 360);
-      character.offlineInviteMax = nextMax;
-      persistOfflineCharacterSettings();
+      draft.maxChars = nextMax;
     });
   }
   if(perspective){
     perspective.addEventListener('change', function(){
-      if(!character) return;
-      character.offlineInvitePerspective = String(perspective.value || 'first');
-      persistOfflineCharacterSettings();
+      getOfflineDrawerDraft().perspective = String(perspective.value || 'first');
       syncOfflineDrawerControls();
     });
   }
   if(style){
-    style.addEventListener('change', function(){
-      if(!character) return;
-      character.offlineInviteStyle = String(style.value || '').trim();
-      persistOfflineCharacterSettings();
+    style.addEventListener('input', function(){
+      getOfflineDrawerDraft().style = String(style.value || '').trim();
     });
   }
   if(summaryEvery){
     bindNumericCommit(summaryEvery, function(){
-      if(!character) return;
-      character.offlineSummaryEvery = Math.max(3, Number(summaryEvery.value) || 5);
-      persistOfflineCharacterSettings();
+      getOfflineDrawerDraft().summaryEvery = Math.max(3, Number(summaryEvery.value) || 5);
     });
   }
   if(summaryAuto){
     summaryAuto.addEventListener('click', function(){
-      if(!character) return;
-      character.offlineSummaryAuto = !(character.offlineSummaryAuto != null ? !!character.offlineSummaryAuto : true);
-      persistOfflineCharacterSettings();
+      var draft = getOfflineDrawerDraft();
+      draft.summaryAuto = !draft.summaryAuto;
       syncOfflineDrawerControls();
     });
   }
@@ -1882,9 +1915,7 @@ function bindOfflineDrawerControls(){
     });
     sideStoryDropdown.querySelectorAll('[data-side-story]').forEach(function(btn){
       btn.addEventListener('click', function(){
-        if(!character) return;
-        character.offlineSideStoryType = String(btn.getAttribute('data-side-story') || 'future');
-        persistOfflineCharacterSettings();
+        getOfflineDrawerDraft().sideStoryType = String(btn.getAttribute('data-side-story') || 'future');
         sideStoryDropdown.classList.remove('open');
         syncOfflineDrawerControls();
       });
