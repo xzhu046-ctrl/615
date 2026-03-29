@@ -367,6 +367,11 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-status-history-name{margin-top:6px;font-family:'ZCOOL KuaiLe','Nunito',sans-serif;font-size:16px;font-weight:900;line-height:1.25;color:#111}
 .offline-status-history-date{margin-top:4px;font-size:11px;font-weight:800;color:#6a6a6a}
 .offline-status-history-empty{font-size:12px;font-weight:800;line-height:1.7;color:#666;padding:8px 2px}
+.offline-invite-debug{position:fixed;left:12px;right:12px;bottom:calc(84px + var(--safe-bottom));z-index:141;padding:10px 12px;border:2px solid #111;border-radius:18px;background:rgba(255,255,255,.96);box-shadow:0 10px 24px rgba(0,0,0,.12);display:none;flex-direction:column;gap:5px}
+.offline-invite-debug.show{display:flex}
+.offline-invite-debug-title{font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;color:#111;text-transform:uppercase}
+.offline-invite-debug-line{font-size:11px;font-weight:700;line-height:1.45;color:#222;word-break:break-all}
+.offline-invite-debug-line strong{font-family:var(--fontd);font-weight:900}
 .inner-voice-overlay{display:none !important}
 @media (max-width:390px){
   :root{--offline-header-height:78px}
@@ -400,6 +405,12 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
   </div>
 </div>
 <button class="exit-btn" id="offlineExitBtn" type="button" onclick="openExitMenu()" style="display:none">×</button>
+<div class="offline-invite-debug" id="offlineInviteDebugCard">
+  <div class="offline-invite-debug-title">invite debug</div>
+  <div class="offline-invite-debug-line" id="offlineInviteDebugLine1"></div>
+  <div class="offline-invite-debug-line" id="offlineInviteDebugLine2"></div>
+  <div class="offline-invite-debug-line" id="offlineInviteDebugLine3"></div>
+</div>
 
 <div class="offline-stage-drawer-overlay" id="offlineDrawerOverlay" aria-hidden="true">
   <div class="offline-stage-drawer" role="dialog" aria-modal="true" aria-label="线下设置">
@@ -4255,6 +4266,31 @@ function hideFlightOverlay(){
     saveSession();
   }
 }
+function renderOfflineInviteDebugCard(finalCharId){
+  var card = document.getElementById('offlineInviteDebugCard');
+  var line1 = document.getElementById('offlineInviteDebugLine1');
+  var line2 = document.getElementById('offlineInviteDebugLine2');
+  var line3 = document.getElementById('offlineInviteDebugLine3');
+  if(!card || !line1 || !line2 || !line3) return;
+  var raw = '';
+  try{
+    raw = localStorage.getItem(scopedKey('offline_invite_debug_latest')) || '';
+  }catch(e){}
+  if(!raw){
+    card.classList.remove('show');
+    return;
+  }
+  var parsed = {};
+  try{
+    parsed = JSON.parse(raw) || {};
+  }catch(e){
+    parsed = {};
+  }
+  line1.innerHTML = '<strong>聊天线程：</strong> ' + esc(String(parsed.chatThreadCharId || '(empty)'));
+  line2.innerHTML = '<strong>邀约 payload：</strong> ' + esc(String(parsed.invitePayloadCharId || '(empty)'));
+  line3.innerHTML = '<strong>线下最终读取：</strong> ' + esc(String(finalCharId || '(empty)'));
+  card.classList.add('show');
+}
 async function init(){
   try{
     var initUrl = new URL(window.location.href);
@@ -4312,6 +4348,21 @@ async function init(){
     document.querySelector('.shell')?.classList.add('minimized');
     document.getElementById('offlineMiniLauncher')?.classList.add('show');
   }
+  try{
+    localStorage.setItem(scopedKey('offline_invite_debug_latest'), JSON.stringify(Object.assign({}, (function(){
+      try{
+        return JSON.parse(localStorage.getItem(scopedKey('offline_invite_debug_latest')) || '{}') || {};
+      }catch(e){
+        return {};
+      }
+    })(), {
+      offlineDesiredCharId: String(desiredOfflineCharId || '').trim(),
+      offlineFinalCharId: String((character && character.id) || '').trim(),
+      offlineInviteSessionCharId: String(session && session.charId || (session && session.invite && session.invite.charId) || '').trim(),
+      updatedAt: Date.now()
+    })));
+  }catch(e){}
+  renderOfflineInviteDebugCard(String((character && character.id) || '').trim());
   bindOfflineDrawerControls();
   syncOfflineDrawerControls();
   renderStory();

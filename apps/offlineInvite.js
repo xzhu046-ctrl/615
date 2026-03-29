@@ -169,6 +169,20 @@ function addSystemNotice(text, doScroll, entryId){
   addMessage('system', String(text || '').trim(), doScroll !== false, 'text', entryId || '');
 }
 
+function writeOfflineInviteDebug(partial){
+  try{
+    var key = accountScopedKey('offline_invite_debug_latest');
+    var current = {};
+    try{
+      current = JSON.parse(localStorage.getItem(key) || '{}') || {};
+    }catch(e){}
+    var next = Object.assign({}, current, partial || {}, {
+      updatedAt: Date.now()
+    });
+    localStorage.setItem(key, JSON.stringify(next));
+  }catch(e){}
+}
+
 function persistOfflineSession(session, charIdOverride){
   var targetCharId = String(charIdOverride || (character && character.id) || '').trim();
   if(!targetCharId) return;
@@ -207,6 +221,12 @@ async function openOfflineSession(payload){
     payload.charId = targetCharId;
     payload.charName = String((character && (character.nickname || character.name)) || payload.charName || '').trim();
   }
+  writeOfflineInviteDebug({
+    chatThreadCharId: liveCharId,
+    invitePayloadCharId: String(payload && payload.charId || '').trim(),
+    invitePayloadCharName: String(payload && payload.charName || '').trim(),
+    targetOpenCharId: targetCharId
+  });
   var targetCharacter = null;
   try{
     if(typeof findCharacterById === 'function') targetCharacter = findCharacterById(targetCharId);
@@ -495,6 +515,12 @@ async function acceptOfflineInvite(messageId){
   var entry = getMessageById(messageId);
   var payload = parseOfflineInvitePayload(entry && entry.content) || null;
   if(!entry || !payload) return;
+  writeOfflineInviteDebug({
+    chatThreadCharId: String((character && character.id) || '').trim(),
+    invitePayloadCharId: String(payload && payload.charId || '').trim(),
+    invitePayloadCharName: String(payload && payload.charName || '').trim(),
+    clickedInviteMessageId: String(messageId || '').trim()
+  });
   if(character && character.id){
     payload.charId = String(character.id || '').trim();
     payload.charName = String((character.nickname || character.name) || '').trim();
