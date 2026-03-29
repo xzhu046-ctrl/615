@@ -4004,7 +4004,20 @@ async function requestOfflineReply(options){
   }
 }
 async function rerollOfflineTurn(){
-  if(sending || !session || !Array.isArray(session.entries) || !session.entries.length) return;
+  if(sending || !session) return;
+  var canRetryOpening = !!(session && session.invite && (session.pendingOpening || shouldBootOpeningFlow()));
+  if((!Array.isArray(session.entries) || !session.entries.length) && canRetryOpening){
+    session.active = true;
+    session.pendingOpening = true;
+    session.pendingAnimation = true;
+    saveSession();
+    renderStory();
+    showFlightIfNeeded();
+    await generateOpeningIfNeeded();
+    renderStory();
+    return;
+  }
+  if(!Array.isArray(session.entries) || !session.entries.length) return;
   var lastAssistantIndex = -1;
   for(var i = session.entries.length - 1; i >= 0; i -= 1){
     if(session.entries[i] && session.entries[i].role === 'assistant'){
