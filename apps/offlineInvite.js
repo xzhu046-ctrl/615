@@ -199,8 +199,13 @@ function readOfflineSession(charId){
 }
 
 async function openOfflineSession(payload){
-  var targetCharId = String(payload && payload.charId || (character && character.id) || '').trim();
+  var liveCharId = String((character && character.id) || '').trim();
+  var targetCharId = String(liveCharId || (payload && payload.charId) || '').trim();
   if(!targetCharId) return;
+  if(payload && typeof payload === 'object'){
+    payload.charId = targetCharId;
+    payload.charName = String((character && (character.nickname || character.name)) || payload.charName || '').trim();
+  }
   var targetCharacter = null;
   try{
     if(typeof findCharacterById === 'function') targetCharacter = findCharacterById(targetCharId);
@@ -488,6 +493,10 @@ async function acceptOfflineInvite(messageId){
   var entry = getMessageById(messageId);
   var payload = parseOfflineInvitePayload(entry && entry.content) || null;
   if(!entry || !payload) return;
+  if(character && character.id){
+    payload.charId = String(character.id || '').trim();
+    payload.charName = String((character.nickname || character.name) || '').trim();
+  }
   payload.status = 'accepted';
   entry.content = JSON.stringify(payload);
   await saveChat(true);
