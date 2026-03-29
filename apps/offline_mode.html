@@ -1092,43 +1092,53 @@ async function generateOfflineStageSummary(force, overrideCount){
   if(!session) return null;
   var ui = getOfflineUiPrefs();
   var cadence = Math.max(3, Number(overrideCount || ui.summaryEvery) || 5);
-  var assistantEntries = (Array.isArray(session && session.entries) ? session.entries : []).filter(function(entry){
-    return entry && entry.role === 'assistant' && String(entry.text || '').trim();
+  var allFloors = (Array.isArray(session && session.entries) ? session.entries : []).filter(function(entry){
+    return entry && String(entry.text || '').trim();
   });
-  if(!assistantEntries.length) return null;
-  var uptoCount = assistantEntries.length;
-  var existing = getOfflineStageSummaries().find(function(item){ return Number(item && item.uptoAssistantCount || 0) === uptoCount; });
+  if(!allFloors.length) return null;
+  var uptoCount = allFloors.length;
+  var existing = getOfflineStageSummaries().find(function(item){
+    return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) === uptoCount;
+  });
   if(existing && !force) return existing;
   var currentSummaries = getOfflineStageSummaries();
   var lastCovered = currentSummaries.reduce(function(max, item){
-    return Math.max(max, Number(item && item.uptoAssistantCount || 0));
+    return Math.max(max, Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0));
   }, 0);
-  var startIndex = force ? Math.max(0, uptoCount - cadence) : lastCovered;
-  var sourceEntries = assistantEntries.slice(startIndex, uptoCount);
-  if(sourceEntries.length < Math.min(cadence, uptoCount) && !force) return null;
+  var startFloor = force ? Math.max(1, uptoCount - cadence + 1) : (lastCovered + 1);
+  if((uptoCount - startFloor + 1) < Math.min(cadence, uptoCount) && !force) return null;
+  var sourceEntries = allFloors.filter(function(entry){
+    var floor = getOfflineSceneNumber(entry);
+    return entry && entry.role === 'assistant' && floor >= startFloor && floor <= uptoCount;
+  });
+  if(!sourceEntries.length) return null;
   for(var i = 0; i < sourceEntries.length; i += 1){
     if(!String(sourceEntries[i].summaryText || '').trim()){
       try{ await ensureOfflineSummaryForEntry(sourceEntries[i]); }catch(e){}
     }
   }
-  var summaryLines = sourceEntries.map(function(entry, idx){
-    return '第' + String(startIndex + idx + 1) + '幕摘要：' + String(entry.summaryText || '').trim();
+  var summaryLines = sourceEntries.map(function(entry){
+    return '第' + String(getOfflineSceneNumber(entry)) + '幕摘要：' + String(entry.summaryText || '').trim();
   }).filter(Boolean);
   if(!summaryLines.length) return null;
-  var label = '第' + String(startIndex + 1) + '-' + String(uptoCount) + '幕阶段总结';
+  var label = '第' + String(startFloor) + '-' + String(uptoCount) + '幕阶段总结';
   var raw = await callAIWithTimeout(buildOfflineStageSummarySystemPrompt(label), summaryLines.join('\n'), Math.min(getOfflineReplyTimeoutMs(), 50000));
   var parsed = parseOfflineSummaryObject(raw);
   var text = normalizeOfflineSummaryText(parsed && parsed.summary || '', summaryLines.join(' '));
   if(!text) return null;
   var nextItem = {
-    uptoAssistantCount: uptoCount,
+    uptoFloorCount: uptoCount,
     label: label,
     summary: text,
     createdAt: Date.now()
   };
-  var nextList = currentSummaries.filter(function(item){ return Number(item && item.uptoAssistantCount || 0) !== uptoCount; });
+  var nextList = currentSummaries.filter(function(item){
+    return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) !== uptoCount;
+  });
   nextList.push(nextItem);
-  nextList.sort(function(a, b){ return Number(a && a.uptoAssistantCount || 0) - Number(b && b.uptoAssistantCount || 0); });
+  nextList.sort(function(a, b){
+    return Number(a && (a.uptoFloorCount || a.uptoAssistantCount) || 0) - Number(b && (b.uptoFloorCount || b.uptoAssistantCount) || 0);
+  });
   session.stageSummaries = nextList;
   saveSession();
   renderOfflineStageSummaryList();
@@ -1138,11 +1148,13 @@ function queueOfflineStageSummaryGeneration(){
   if(!session) return;
   var ui = getOfflineUiPrefs();
   if(!ui.summaryAuto) return;
-  var assistantCount = countOfflineAssistantScenes();
-  if(!assistantCount || assistantCount % Math.max(3, Number(ui.summaryEvery) || 5) !== 0) return;
-  var key = 'stage::' + String(assistantCount);
+  var floorCount = countOfflineStoryFloors();
+  if(!floorCount || floorCount % Math.max(3, Number(ui.summaryEvery) || 5) !== 0) return;
+  var key = 'stage::' + String(floorCount);
   if(offlineStageSummaryQueue[key]) return;
-  if(getOfflineStageSummaries().some(function(item){ return Number(item && item.uptoAssistantCount || 0) === assistantCount; })) return;
+  if(getOfflineStageSummaries().some(function(item){
+    return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) === floorCount;
+  })) return;
   offlineStageSummaryQueue[key] = true;
   Promise.resolve().then(function(){
     return generateOfflineStageSummary(false);
@@ -2076,12 +2088,18 @@ function getOfflineSceneNumber(entry){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   var sceneNo = 0;
   for(var i = 0; i < list.length; i += 1){
-    if(list[i] && list[i].role !== 'user'){
+    if(list[i] && String(list[i].text || '').trim()){
       sceneNo += 1;
     }
     if(list[i] === entry) break;
   }
   return Math.max(1, sceneNo || 1);
+}
+function countOfflineStoryFloors(){
+  var list = Array.isArray(session && session.entries) ? session.entries : [];
+  return list.reduce(function(sum, entry){
+    return sum + (entry && String(entry.text || '').trim() ? 1 : 0);
+  }, 0);
 }
 function normalizeOfflineSummaryText(raw, fallbackText){
   var text = String(raw || '').replace(/\s+/g, ' ').trim();
@@ -2159,31 +2177,31 @@ function formatOfflineHistoryForPrompt(detailLimit, summaryLimit){
   var older = list.slice(0, splitIndex);
   var recent = list.slice(splitIndex);
   var lines = [];
-  var olderAssistantCount = older.reduce(function(sum, entry){
-    return sum + (entry && entry.role === 'assistant' && String(entry.text || '').trim() ? 1 : 0);
+  var olderFloorCount = older.reduce(function(sum, entry){
+    return sum + (entry && String(entry.text || '').trim() ? 1 : 0);
   }, 0);
   var stageSummaries = getOfflineStageSummaries().filter(function(item){
-    return Number(item && item.uptoAssistantCount || 0) > 0 && Number(item && item.uptoAssistantCount || 0) <= olderAssistantCount;
+    return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) > 0 && Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) <= olderFloorCount;
   });
-  var coveredAssistantCount = 0;
+  var coveredFloorCount = 0;
   if(stageSummaries.length){
     stageSummaries.slice(-Math.min(2, stageSummaries.length)).forEach(function(item){
       lines.push('阶段总结（' + String(item.label || '') + '）：' + clipOfflinePromptText(String(item.summary || '').trim(), 160));
     });
-    coveredAssistantCount = stageSummaries.reduce(function(max, item){
-      return Math.max(max, Number(item && item.uptoAssistantCount || 0));
+    coveredFloorCount = stageSummaries.reduce(function(max, item){
+      return Math.max(max, Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0));
     }, 0);
   }
-  var seenAssistantCount = 0;
+  var seenFloorCount = 0;
   older.forEach(function(entry){
     if(!entry) return;
+    if(String(entry.text || '').trim()) seenFloorCount += 1;
+    if(coveredFloorCount && seenFloorCount <= coveredFloorCount) return;
     if(entry.role === 'user'){
       var userText = String(entry.text || '').replace(/\s+/g, ' ').trim();
       if(userText) lines.push('用户：' + clipOfflinePromptText(userText, 88));
       return;
     }
-    if(String(entry.text || '').trim()) seenAssistantCount += 1;
-    if(coveredAssistantCount && seenAssistantCount <= coveredAssistantCount) return;
     var summary = String(entry.summaryText || '').replace(/\s+/g, ' ').trim();
     if(summary) lines.push('角色（旧幕摘要）：' + clipOfflinePromptText(summary, 120));
   });
@@ -2708,6 +2726,7 @@ function buildOfflineStatusSystemPrompt(options){
     '不要正文，不要 thought_chain，不要 title，不要 quote。',
     'status_card 必须和这幕正文一起构成同一件事的番外侧页，严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt。',
     '这次番外类型是：' + profile.label + '。',
+    'future_title、future_note、artifact_label、artifact_html 里的所有可见文字都必须是中文，不许输出英文、日文、韩文或其他外语；必要时把概念也翻成自然中文。',
     'future_date 必须是未来某一天的具体日期与时间。',
     profile.titleRule,
     profile.noteRule,
@@ -2772,6 +2791,7 @@ function buildOfflineSystemPrompt(options){
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个中文字符，不要太正经，但必须贴人设。',
     'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个中文字符。',
     'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 与当前气氛。',
+    'status_card 里的所有可见文字必须是中文，不许输出英文、日文、韩文或其他外语。',
     '这次番外类型是：' + sideStoryProfile.label + '。',
     'future_date 是未来某一天的具体日期与时间。',
     sideStoryProfile.titleRule,
@@ -2849,6 +2869,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个中文字符，不要太正经，但必须贴人设。',
     'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个中文字符。',
     'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 与当前气氛。',
+    'status_card 里的所有可见文字必须是中文，不许输出英文、日文、韩文或其他外语。',
     '这次番外类型是：' + sideStoryProfile.label + '。',
     'future_date 是未来某一天的具体日期与时间。',
     sideStoryProfile.titleRule,
