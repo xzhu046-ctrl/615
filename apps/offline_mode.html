@@ -690,27 +690,108 @@ function upsertOfflineArchive(snapshot, options){
   saveOfflineArchives(list);
   return archiveId;
 }
-function queueOfflineEndArtifacts(targetCharId, snapshot){
+async function queueOfflineEndArtifacts(targetCharId, snapshot){
   if(!targetCharId || !snapshot) return;
   localStorage.setItem(pendingOfflineNoticeKey(targetCharId), JSON.stringify({
     text: '[系统提示：这次线下见面结束了，你们回到了线上聊天。]',
     createdAt: Date.now()
   }));
   try{
-    var memoryText = summarizeOfflineMemoryLocally(snapshot);
-    if(memoryText){
-      localStorage.setItem(pendingOfflineMemoryKey(targetCharId), JSON.stringify({
-        text: memoryText,
-        createdAt: Date.now()
-      }));
+    await mergeOfflineStageSummariesIntoOnlineMemoryStore(targetCharId, snapshot);
+    localStorage.removeItem(pendingOfflineMemoryKey(targetCharId));
+  }catch(e){}
+}
+function defaultOnlineMemorySummaryStore(){
+  return { covered: 0, progress: 0, items: [] };
+}
+function normalizeOnlineMemorySummaryStore(store){
+  var next = store && typeof store === 'object' ? store : defaultOnlineMemorySummaryStore();
+  next.items = Array.isArray(next.items) ? next.items.map(function(it){
+    var text = String((it && it.text) || '').trim();
+    return {
+      id: String((it && it.id) || ('ms_' + Date.now())),
+      from: Number((it && it.from) || 0) || 0,
+      to: Number((it && it.to) || 0) || 0,
+      text: text,
+      tokens: Number((it && it.tokens) || 0) || approxOfflineTokenCount(text),
+      createdAt: Number((it && it.createdAt) || Date.now()) || Date.now(),
+      manual: !!(it && it.manual),
+      pinned: !!(it && it.pinned),
+      label: String((it && it.label) || '').trim()
+    };
+  }).filter(function(it){ return !!it.text; }) : [];
+  next.covered = Math.max(0, Number(next.covered || 0) || 0);
+  next.progress = Math.max(next.covered, Number(next.progress || 0) || 0);
+  return next;
+}
+async function loadOnlineMemorySummaryStoreByCharId(charId){
+  var key = memorySummaryStorageKey(charId);
+  try{
+    var raw = localStorage.getItem(key) || '';
+    if(raw){
+      return normalizeOnlineMemorySummaryStore(JSON.parse(raw));
     }
   }catch(e){}
+  var source = null;
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.get === 'function'){
+      source = await window.parent.PhoneStorage.get('memorySummaries', key);
+    }else if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+      source = await window.PhoneStorage.get('memorySummaries', key);
+    }
+  }catch(e){}
+  return normalizeOnlineMemorySummaryStore(source && source.data ? source.data : null);
+}
+async function persistOnlineMemorySummaryStoreByCharId(charId, store){
+  var key = memorySummaryStorageKey(charId);
+  var safeStore = normalizeOnlineMemorySummaryStore(store);
+  localStorage.setItem(key, JSON.stringify(safeStore));
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.put === 'function'){
+      await window.parent.PhoneStorage.put('memorySummaries', { id:key, charId:String(charId || ''), updatedAt:Date.now(), data:safeStore });
+    }else if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+      await window.PhoneStorage.put('memorySummaries', { id:key, charId:String(charId || ''), updatedAt:Date.now(), data:safeStore });
+    }
+  }catch(e){}
+}
+function buildOfflineStageSummaryMemoryText(item){
+  var label = String(item && item.label || '').trim();
+  var summary = String(item && item.summary || '').trim();
+  if(!summary) return '';
+  return (label ? ('【线下见面 ' + label + '】') : '【线下见面阶段总结】') + summary;
+}
+async function mergeOfflineStageSummariesIntoOnlineMemoryStore(targetCharId, snapshot){
+  var items = Array.isArray(snapshot && snapshot.stageSummaries) ? snapshot.stageSummaries.slice() : [];
+  var valid = items.filter(function(item){ return !!String(item && item.summary || '').trim(); });
+  if(!targetCharId || !valid.length) return;
+  var store = await loadOnlineMemorySummaryStoreByCharId(targetCharId);
+  var existingItems = Array.isArray(store.items) ? store.items.slice() : [];
+  valid.forEach(function(item){
+    var text = buildOfflineStageSummaryMemoryText(item);
+    if(!text) return;
+    var duplicate = existingItems.some(function(existing){
+      return String(existing && existing.text || '').trim() === text;
+    });
+    if(duplicate) return;
+    existingItems.push({
+      id: 'offline_stage_' + String(item && (item.createdAt || Date.now()) || Date.now()) + '_' + Math.random().toString(36).slice(2, 7),
+      from: 0,
+      to: 0,
+      text: text,
+      tokens: approxOfflineTokenCount(text),
+      createdAt: Number(item && item.createdAt || Date.now()) || Date.now(),
+      manual: true,
+      pinned: true,
+      label: String(item && item.label || '').trim()
+    });
+  });
+  await persistOnlineMemorySummaryStoreByCharId(targetCharId, Object.assign({}, store, { items: existingItems }));
 }
 function clearLiveOfflineSession(targetCharId){
   if(!targetCharId) return;
   try{ localStorage.removeItem(offlineSessionKey(targetCharId)); }catch(e){}
 }
-function archiveCurrentOfflineMeet(status, reason){
+async function archiveCurrentOfflineMeet(status, reason){
   if(archivingOfflineMeet) return '';
   if(!session || !character || !character.id) return '';
   var snapshot = snapshotOfflineSessionState(session);
@@ -726,7 +807,7 @@ function archiveCurrentOfflineMeet(status, reason){
       session.archiveId = archiveId;
     }
     if(status === 'ended'){
-      queueOfflineEndArtifacts(character.id, snapshot);
+      await queueOfflineEndArtifacts(character.id, snapshot);
       clearLiveOfflineSession(character.id);
       session = { active:false, entries:[], minimized:false, archiveId:archiveId || '' };
     }else{
@@ -742,7 +823,7 @@ function autoArchiveOfflineMeetIfNeeded(reason){
   if(offlineCloseIntent || exitingOfflineMeet || archivingOfflineMeet) return;
   if(!session || !character || !character.id) return;
   if(session.minimized) return;
-  archiveCurrentOfflineMeet('pending', reason || 'interrupted');
+  archiveCurrentOfflineMeet('pending', reason || 'interrupted').catch(function(){});
 }
 function loadStoredAsset(key){
   if(window.assetStore && typeof window.assetStore.load === 'function'){
@@ -3923,7 +4004,7 @@ async function exitOfflineMeet(){
     }, 120);
     return;
   }
-  archiveCurrentOfflineMeet('ended', 'goodbye');
+  await archiveCurrentOfflineMeet('ended', 'goodbye');
   try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
   window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*');
   setTimeout(function(){
