@@ -1777,13 +1777,13 @@ function syncOfflineDrawerControls(){
   var sideStoryTrigger = document.getElementById('offlineDrawerSideStoryTrigger');
   var sideStoryDropdown = document.getElementById('offlineDrawerSideStoryDropdown');
   var range = document.getElementById('offlineDrawerCurrentRange');
-  if(minChars) minChars.value = String(prefs.minChars);
-  if(maxChars) maxChars.value = String(prefs.maxChars);
+  if(minChars && document.activeElement !== minChars) minChars.value = String(prefs.minChars);
+  if(maxChars && document.activeElement !== maxChars) maxChars.value = String(prefs.maxChars);
   if(perspective) perspective.value = prefs.perspective;
   if(style) style.value = prefs.style;
-  if(summaryEvery) summaryEvery.value = String(ui.summaryEvery);
+  if(summaryEvery && document.activeElement !== summaryEvery) summaryEvery.value = String(ui.summaryEvery);
   var manualCount = document.getElementById('offlineDrawerManualSummaryCount');
-  if(manualCount && !String(manualCount.value || '').trim()) manualCount.value = String(ui.summaryEvery);
+  if(manualCount && document.activeElement !== manualCount && !String(manualCount.value || '').trim()) manualCount.value = String(ui.summaryEvery);
   if(summaryAuto){
     summaryAuto.classList.toggle('is-on', !!ui.summaryAuto);
     summaryAuto.setAttribute('aria-pressed', ui.summaryAuto ? 'true' : 'false');
@@ -1812,25 +1812,38 @@ function bindOfflineDrawerControls(){
   var memoryBtn = document.getElementById('offlineDrawerMemoryBtn');
   var statusHistoryBtn = document.getElementById('offlineDrawerStatusHistoryBtn');
   var manualCount = document.getElementById('offlineDrawerManualSummaryCount');
+  function bindNumericCommit(input, onCommit){
+    if(!input) return;
+    function commit(){
+      onCommit();
+      syncOfflineDrawerControls();
+    }
+    input.addEventListener('change', commit);
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', function(evt){
+      if(evt.key === 'Enter'){
+        evt.preventDefault();
+        input.blur();
+      }
+    });
+  }
   if(minChars){
-    minChars.addEventListener('input', function(){
+    bindNumericCommit(minChars, function(){
       if(!character) return;
       var nextMin = Math.max(10, Number(minChars.value) || 300);
       var currentMax = Math.max(nextMin, Number(character.offlineInviteMax) || 360);
       character.offlineInviteMin = nextMin;
       character.offlineInviteMax = Math.max(currentMax, nextMin);
       persistOfflineCharacterSettings();
-      syncOfflineDrawerControls();
     });
   }
   if(maxChars){
-    maxChars.addEventListener('input', function(){
+    bindNumericCommit(maxChars, function(){
       if(!character) return;
       var currentMin = Math.max(10, Number(character.offlineInviteMin) || 300);
       var nextMax = Math.max(currentMin, Number(maxChars.value) || 360);
       character.offlineInviteMax = nextMax;
       persistOfflineCharacterSettings();
-      syncOfflineDrawerControls();
     });
   }
   if(perspective){
@@ -1849,11 +1862,10 @@ function bindOfflineDrawerControls(){
     });
   }
   if(summaryEvery){
-    summaryEvery.addEventListener('input', function(){
+    bindNumericCommit(summaryEvery, function(){
       if(!character) return;
       character.offlineSummaryEvery = Math.max(3, Number(summaryEvery.value) || 5);
       persistOfflineCharacterSettings();
-      syncOfflineDrawerControls();
     });
   }
   if(summaryAuto){
