@@ -124,9 +124,9 @@ url('assets/樱花在水里.jpg') center/cover no-repeat}
 .offline-memory-editor-title{font-family:'ZCOOL KuaiLe','Nunito',sans-serif;font-size:17px;font-weight:900;color:#111}
 .offline-memory-editor-input{min-height:180px;border:2px solid #111;border-radius:18px;background:#fff;padding:12px 12px;font:700 13px/1.7 var(--font);color:#111;resize:none;outline:none}
 .offline-memory-editor-actions{display:flex;justify-content:flex-end;gap:8px}
-.offline-artifact-card{margin-top:10px;padding:0;border:none;border-radius:18px;background:transparent}
+.offline-artifact-card{margin-top:14px;padding:0;border:none;border-radius:0;background:transparent}
 .offline-artifact-label{font-size:10px;font-weight:900;letter-spacing:.08em;color:#6a6a6a;text-transform:uppercase;margin-bottom:8px}
-.offline-artifact-preview{border:1.5px solid rgba(17,17,17,.16);border-radius:16px;background:#fff;padding:10px;overflow:auto}
+.offline-artifact-preview{border:none;border-radius:0;background:transparent;padding:0;overflow:visible}
 .story-wrap{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:calc(var(--offline-header-height) + env(safe-area-inset-top) - 6px) 14px calc(var(--offline-composer-height) + 2px) 14px;display:flex;flex-direction:column;gap:6px;scrollbar-width:none;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
 .story-wrap::-webkit-scrollbar{display:none}
 .story-card{position:relative;min-height:320px;border:var(--bd);border-radius:34px;background:rgba(255,255,255,.82);box-shadow:3px 4px 0 #0a0a0a;padding:22px 18px 20px;overflow:hidden}
@@ -1184,10 +1184,10 @@ function buildOfflineStageSummarySystemPrompt(rangeLabel){
   return [
     '你现在只负责生成一条阶段总结。',
     '只返回 JSON：{"summary":"..."}',
-    '输入只会给你若干幕的已有摘要，不会给你正文。',
-    '请把这些幕摘要压成一条更长期可读的阶段总结，供后续上下文读取。',
+    '输入会给你若干幕的已有摘要，以及 user 在这些幕里亲口说过的话。',
+    '请把这些幕摘要和 user 输入一起压成一条更长期可读的阶段总结，供后续上下文读取。',
     '总结必须包含三层：这几幕推进了什么、关系或情绪怎么变、还有什么悬着没落地。',
-    '不要抒情空话，不要复述每句摘要，更不要编造正文之外的新事实。',
+    '不要抒情空话，不要复述每句摘要，更不要编造正文之外的新事实；user 说过的重要信息、态度和推进也要一起算进总结里。',
     '长度控制在 80-180 个中文字符之间。',
     rangeLabel ? ('这次要总结的范围：' + rangeLabel) : ''
   ].filter(Boolean).join('\n');
@@ -1231,8 +1231,15 @@ async function generateOfflineStageSummary(force, overrideCount){
       try{ await ensureOfflineSummaryForEntry(sourceEntries[i]); }catch(e){}
     }
   }
-  var summaryLines = sourceEntries.map(function(entry){
-    return '第' + String(getOfflineSceneNumber(entry)) + '幕摘要：' + String(entry.summaryText || '').trim();
+  var summaryLines = allFloors.map(function(entry){
+    var floor = getOfflineSceneNumber(entry);
+    if(floor < startFloor || floor > uptoCount) return '';
+    if(entry.role === 'assistant'){
+      return '第' + String(floor) + '幕摘要：' + String(entry.summaryText || '').trim();
+    }
+    var userText = String(entry.text || '').replace(/\s+/g, ' ').trim();
+    if(!userText) return '';
+    return '第' + String(floor) + '幕用户输入：' + userText;
   }).filter(Boolean);
   if(!summaryLines.length) return null;
   var label = '第' + String(startFloor) + '-' + String(uptoCount) + '幕阶段总结';
@@ -2893,6 +2900,7 @@ function buildOfflineStatusSystemPrompt(options){
     '任何番外都绝对不许 OOC：关系、称呼、身份、性格、世界观、性别、取向、亲疏距离都必须严格继承当前设定，不许乱改。',
     '这次番外类型是：' + profile.label + '。',
     'future_title、future_note、artifact_label、artifact_html 里的所有可见文字都必须是中文，不许输出英文、日文、韩文或其他外语；必要时把概念也翻成自然中文。',
+    '所有番外类型都允许自然使用 ~~划掉的嘴硬句子~~ 来表现口是心非、临时反悔或自己打自己脸；如果用了，就必须真正贴合人设与语气，不要乱用。',
     dateRule,
     profile.titleRule,
     profile.noteRule,
@@ -2962,6 +2970,7 @@ function buildOfflineSystemPrompt(options){
     'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 与当前气氛。',
     '任何番外都绝对不许 OOC：关系、称呼、身份、性格、世界观、性别、取向、亲疏距离都必须严格继承当前设定，不许乱改。',
     'status_card 里的所有可见文字必须是中文，不许输出英文、日文、韩文或其他外语。',
+    '所有番外类型都允许自然使用 ~~划掉的嘴硬句子~~ 来表现口是心非、临时反悔或自己打自己脸；如果用了，就必须真正贴合人设与语气，不要乱用。',
     '这次番外类型是：' + sideStoryProfile.label + '。',
     sideStoryDateRule,
     sideStoryProfile.titleRule,
