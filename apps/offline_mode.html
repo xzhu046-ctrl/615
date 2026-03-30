@@ -863,6 +863,20 @@ function persistOfflineResumeSnapshot(targetCharId, snapshot){
   try{ localStorage.setItem(pendingOfflineResumeKey(safeId), payload); }catch(e){}
   try{ localStorage.setItem('offline_resume_' + safeId, payload); }catch(e){}
 }
+function syncCurrentSessionToArchive(status, reason){
+  if(!session || !character || !character.id) return '';
+  var snapshot = snapshotOfflineSessionState(session);
+  if(!hasMeaningfulOfflineSession(snapshot)) return '';
+  var archiveId = upsertOfflineArchive(snapshot, {
+    status: status || 'pending',
+    reason: reason || 'autosave',
+    archiveId: snapshot && snapshot.archiveId
+  });
+  if(archiveId){
+    session.archiveId = archiveId;
+  }
+  return archiveId;
+}
 async function archiveCurrentOfflineMeet(status, reason){
   if(archivingOfflineMeet) return '';
   if(!session || !character || !character.id) return '';
@@ -1042,14 +1056,9 @@ function saveSession(){
     localStorage.setItem('offline_meet_session_' + String(character.id || '').trim(), serialized);
   }catch(e){}
   try{
-    var snap = snapshotOfflineSessionState(session);
-    if(hasMeaningfulOfflineSession(snap)){
-      var archiveId = upsertOfflineArchive(snap, {
-        status: 'pending',
-        reason: 'autosave',
-        archiveId: session.archiveId || (snap && snap.archiveId) || ''
-      });
-      if(archiveId) session.archiveId = archiveId;
+    var resumeSnap = snapshotOfflineSessionState(session);
+    if(hasMeaningfulOfflineSession(resumeSnap)){
+      persistOfflineResumeSnapshot(character.id, resumeSnap);
     }
   }catch(e){}
 }
@@ -4326,6 +4335,7 @@ function minimizeOfflineMeet(){
   if(session){
     session.minimized = true;
     saveSession();
+    try{ syncCurrentSessionToArchive('pending', 'minimized'); }catch(e){}
   }
   try{
     window.parent.postMessage({ type:'OFFLINE_MINIMIZED', payload:{ charId: character && character.id } }, '*');
