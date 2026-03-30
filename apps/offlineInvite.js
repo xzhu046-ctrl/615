@@ -274,7 +274,7 @@ async function openOfflineSession(payload){
       createdAt: Date.now()
     }));
   }catch(e){}
-  postToShell({ type:'OPEN_APP_WITH', payload:{ app:'offline', charId: targetCharId } });
+  postToShell({ type:'OPEN_APP_WITH', payload:{ app:'offline', charId: targetCharId, launchMode:'invite' } });
 }
 
 function getCurrentUserDisplayName(){

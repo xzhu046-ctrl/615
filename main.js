@@ -32,7 +32,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-03-29T01:10:00Z';
+const APP_BUILD_ID = '2026-03-29T01:24:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -160,6 +160,7 @@ function ensureOfflineMiniLauncher(){
     try{ localStorage.setItem('activeOfflineCharacterId', charId); }catch(e){}
     pendingOpenOfflineCharId = String(charId || '').trim();
     pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+    pendingOpenOfflineLaunchMode = 'resume';
     replaceApp('offline');
   });
   document.body.appendChild(btn);
@@ -4153,6 +4154,7 @@ let pendingOpenChatCharId='';
 let pendingOpenChatNonce='';
 let pendingOpenOfflineCharId='';
 let pendingOpenOfflineNonce='';
+let pendingOpenOfflineLaunchMode='';
 let appTransitionPromise = Promise.resolve();
 
 function runAppTransition(task){
@@ -4239,6 +4241,9 @@ function buildAppFrameUrl(src){
       if(pendingOpenOfflineNonce){
         url.searchParams.set('__offlineNav', String(pendingOpenOfflineNonce || ''));
       }
+      if(pendingOpenOfflineLaunchMode){
+        url.searchParams.set('__offlineSource', String(pendingOpenOfflineLaunchMode || '').trim());
+      }
     }
     return url.toString();
   }catch(err){
@@ -4291,6 +4296,7 @@ function renderApp(id){
   if(id === 'offline'){
     pendingOpenOfflineCharId = '';
     pendingOpenOfflineNonce = '';
+    pendingOpenOfflineLaunchMode = '';
   }
   document.getElementById('app-container').classList.add('open');
   document.getElementById('home-screen').classList.add('hidden');
@@ -4539,6 +4545,7 @@ window.addEventListener('message',(e)=>{
     if(appId === 'offline' && payload.charId){
       pendingOpenOfflineCharId = String(payload.charId || '').trim();
       pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+      pendingOpenOfflineLaunchMode = String(payload.launchMode || '').trim();
       try{ localStorage.setItem(scopedKeyForAccount('activeOfflineCharacterId', getActiveAccountId()), pendingOpenOfflineCharId); }catch(err){}
       try{ localStorage.setItem('activeOfflineCharacterId', pendingOpenOfflineCharId); }catch(err){}
       replaceApp(appId);
