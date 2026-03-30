@@ -1074,6 +1074,12 @@ function consumeLatestPendingOfflineLaunch(){
   }
   return null;
 }
+function isFreshOfflineLaunchSeed(seed){
+  if(!seed || typeof seed !== 'object') return false;
+  var createdAt = Number(seed.createdAt || 0) || 0;
+  if(!createdAt) return false;
+  return Math.abs(Date.now() - createdAt) <= 15000;
+}
 function consumePendingOfflineResume(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return null;
@@ -3956,6 +3962,7 @@ async function sendOfflineTurn(){
   keepOfflineComposerVisible();
   setOfflineComposerBusy(false);
   await waitForOfflineStoryPaint();
+  await new Promise(function(resolve){ setTimeout(resolve, 48); });
   await requestOfflineReply({ fromUserSend:true });
 }
 async function requestOfflineReply(options){
@@ -4308,6 +4315,7 @@ function renderOfflineInviteDebugCard(finalCharId){
 }
 async function init(){
   var latestLaunch = consumeLatestPendingOfflineLaunch();
+  if(!isFreshOfflineLaunchSeed(latestLaunch)) latestLaunch = null;
   try{
     var initUrl = new URL(window.location.href);
     desiredOfflineCharId = String((latestLaunch && latestLaunch.charId) || initUrl.searchParams.get('char') || localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
