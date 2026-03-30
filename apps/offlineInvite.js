@@ -219,7 +219,7 @@ function readOfflineSession(charId){
 
 async function openOfflineSession(payload){
   var liveCharId = String((character && character.id) || '').trim();
-  var targetCharId = String((payload && payload.charId) || liveCharId || '').trim();
+  var targetCharId = String(liveCharId || (payload && payload.charId) || '').trim();
   if(!targetCharId) return;
   if(payload && typeof payload === 'object'){
     payload.charId = targetCharId;
@@ -533,7 +533,7 @@ async function acceptOfflineInvite(messageId){
     invitePayloadCharName: String(payload && payload.charName || '').trim(),
     clickedInviteMessageId: String(messageId || '').trim()
   });
-  if(character && character.id && !String(payload.charId || '').trim()){
+  if(character && character.id){
     payload.charId = String(character.id || '').trim();
     payload.charName = String((character.nickname || character.name) || '').trim();
   }

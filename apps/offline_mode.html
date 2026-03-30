@@ -686,6 +686,20 @@ function hasMeaningfulOfflineSession(snapshot){
   if(snapshot.invite && snapshot.active !== false) return true;
   return false;
 }
+function hasOfflineStatusCard(entry){
+  return !!(entry && entry.statusCard && entry.statusCard.futureDate && entry.statusCard.futureTitle && entry.statusCard.futureNote);
+}
+function normalizeOfflineStatusPendingFlags(){
+  var list = Array.isArray(session && session.entries) ? session.entries : [];
+  var dirty = false;
+  list.forEach(function(entry){
+    if(entry && entry.statusPending && hasOfflineStatusCard(entry)){
+      entry.statusPending = false;
+      dirty = true;
+    }
+  });
+  return dirty;
+}
 function buildOfflineArchivePreview(snapshot){
   var list = Array.isArray(snapshot && snapshot.entries) ? snapshot.entries.slice().reverse() : [];
   for(var i = 0; i < list.length; i += 1){
@@ -2380,7 +2394,7 @@ function renderOfflineSummary(entry){
 }
 function renderOfflineStatusChip(entry, idx){
   if(!entry || entry.role === 'user') return '';
-  var hasStatus = !!(entry.statusCard && entry.statusCard.futureDate && entry.statusCard.futureTitle && entry.statusCard.futureNote);
+  var hasStatus = hasOfflineStatusCard(entry);
   var isPending = !!entry.statusPending && !hasStatus;
   if(!isPending) return '';
   return '<div class="offline-status-chip pending" aria-live="polite">' + esc(getOfflineSideStoryProfile((entry.statusCard && entry.statusCard.type) || getOfflineUiPrefs().sideStoryType).chip) + '</div>';
@@ -4328,7 +4342,9 @@ async function init(){
     desiredOfflineCharId = String(localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }
   character = loadCharacter(desiredOfflineCharId);
-  var launchSeed = latestLaunch || (desiredOfflineCharId ? consumePendingOfflineLaunch(desiredOfflineCharId) : null);
+  var launchSeed = offlineLaunchSource === 'invite'
+    ? (latestLaunch || (desiredOfflineCharId ? consumePendingOfflineLaunch(desiredOfflineCharId) : null))
+    : null;
   var resumeSession = desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null;
   var bootSession = desiredOfflineCharId ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
   if(launchSeed && launchSeed.payload){
@@ -4376,6 +4392,9 @@ async function init(){
   if(session && session.minimized){
     document.querySelector('.shell')?.classList.add('minimized');
     document.getElementById('offlineMiniLauncher')?.classList.add('show');
+  }
+  if(normalizeOfflineStatusPendingFlags() && character && character.id){
+    saveSession();
   }
   try{
     localStorage.setItem(scopedKey('offline_invite_debug_latest'), JSON.stringify(Object.assign({}, (function(){
