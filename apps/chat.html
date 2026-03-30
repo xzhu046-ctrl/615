@@ -14152,6 +14152,67 @@ async function deliverAiReply(text, limitOverride){
     list.forEach(appendRawPart);
     return rawParts.length > 0;
   };
+  var normalizeJsonishReplyText = function(raw){
+    var s = String(raw || '');
+    if(!s) return '';
+    return s
+      .replace(/[｛﹛]/g, '{')
+      .replace(/[｝﹜]/g, '}')
+      .replace(/[“”„‟＂]/g, '"')
+      .replace(/[‘’‚‛＇]/g, "'")
+      .replace(/[：﹕]/g, ':')
+      .replace(/[，﹐]/g, ',')
+      .replace(/[！﹗]/g, '!')
+      .replace(/[．。｡]/g, '.');
+  };
+  var extractLooseJsonishObjects = function(raw){
+    var s = normalizeJsonishReplyText(raw);
+    if(!s || s.indexOf('{') === -1 || s.indexOf('}') === -1) return [];
+    var results = [];
+    var depth = 0;
+    var start = -1;
+    for(var i = 0; i < s.length; i += 1){
+      var ch = s.charAt(i);
+      if(ch === '{'){
+        if(depth === 0) start = i;
+        depth += 1;
+      }else if(ch === '}'){
+        if(depth > 0){
+          depth -= 1;
+          if(depth === 0 && start >= 0){
+            results.push(s.slice(start, i + 1));
+            start = -1;
+          }
+        }
+      }
+    }
+    return results;
+  };
+  var parseLooseJsonishObject = function(fragment){
+    var s = normalizeJsonishReplyText(fragment);
+    if(!s) return null;
+    var readField = function(names){
+      var arr = Array.isArray(names) ? names : [names];
+      for(var i = 0; i < arr.length; i += 1){
+        var key = String(arr[i] || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var re = new RegExp('(?:^|[,{])\\s*["\\\']?' + key + '["\\\']?\\s*[:.]\\s*["\\\']([\\s\\S]*?)["\\\'](?=\\s*(?:[,}]|$))', 'i');
+        var match = s.match(re);
+        if(match && match[1] != null) return String(match[1] || '').trim();
+      }
+      return '';
+    };
+    var type = readField('type');
+    var content = readField(['content', 'reply_content', 'description', 'text']);
+    var replyTo = readField(['reply_to', 'replyTo']);
+    var replyRole = readField(['reply_role', 'replyRole']);
+    if(!type && !content) return null;
+    return {
+      type: type || 'text',
+      content: content || '',
+      reply_to: replyTo,
+      reply_role: replyRole
+    };
+  };
 
   // If API already returned structured content
   if(Array.isArray(text)) {
@@ -14249,6 +14310,15 @@ async function deliverAiReply(text, limitOverride){
           if(c) rawParts.push({text:c, t:t, replyTo:obj.reply_to || obj.replyTo || '', replyRole:obj.reply_role || obj.replyRole || ''});
         }
       }catch(e){}
+    });
+  }
+
+  // Try loose JSON-ish object list with full-width punctuation / broken separators
+  if(!rawParts.length && text){
+    extractLooseJsonishObjects(text).forEach(function(fragment){
+      if(rawParts.length >= maxN) return;
+      var loose = parseLooseJsonishObject(fragment);
+      if(loose) appendRawPart(loose);
     });
   }
 
