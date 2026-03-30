@@ -31,7 +31,8 @@ const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
-const APP_BUILD_ID = '2026-03-29T00:56:00Z';
+const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
+const APP_BUILD_ID = '2026-03-29T01:04:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -104,6 +105,9 @@ function syncChatKeyboardShift(){
 function offlineMinimizedStorageKey(){
   return mainScopedKey(OFFLINE_MINIMIZED_CHAR_KEY);
 }
+function latestOfflineLaunchStorageKeyMain(){
+  return mainScopedKey(OFFLINE_LAUNCH_LATEST_KEY);
+}
 
 function getMinimizedOfflineCharId(){
   try{ return String(localStorage.getItem(offlineMinimizedStorageKey()) || '').trim(); }catch(e){ return ''; }
@@ -149,8 +153,14 @@ function ensureOfflineMiniLauncher(){
         }
       }
     }catch(e){}
+    try{ localStorage.removeItem(latestOfflineLaunchStorageKeyMain()); }catch(e){}
+    try{ localStorage.removeItem('offline_launch_latest'); }catch(e){}
     setMinimizedOfflineCharId('');
-    openApp('offline');
+    try{ localStorage.setItem(scopedKeyForAccount('activeOfflineCharacterId', getActiveAccountId()), charId); }catch(e){}
+    try{ localStorage.setItem('activeOfflineCharacterId', charId); }catch(e){}
+    pendingOpenOfflineCharId = String(charId || '').trim();
+    pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+    replaceApp('offline');
   });
   document.body.appendChild(btn);
   return btn;
