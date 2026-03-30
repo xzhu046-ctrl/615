@@ -850,10 +850,19 @@ async function mergeOfflineStageSummariesIntoOnlineMemoryStore(targetCharId, sna
 function clearLiveOfflineSession(targetCharId){
   if(!targetCharId) return;
   try{ localStorage.removeItem(offlineSessionKey(targetCharId)); }catch(e){}
+  try{ localStorage.removeItem('offline_meet_session_' + String(targetCharId || '').trim()); }catch(e){}
+}
+function persistOfflineResumeSnapshot(targetCharId, snapshot){
+  var safeId = String(targetCharId || '').trim();
+  if(!safeId || !snapshot) return;
+  var payload = JSON.stringify({ charId: safeId, session: snapshot });
+  try{ localStorage.setItem(pendingOfflineResumeKey(safeId), payload); }catch(e){}
+  try{ localStorage.setItem('offline_resume_' + safeId, payload); }catch(e){}
 }
 async function archiveCurrentOfflineMeet(status, reason){
   if(archivingOfflineMeet) return '';
   if(!session || !character || !character.id) return '';
+  saveSession();
   var snapshot = snapshotOfflineSessionState(session);
   if(!hasMeaningfulOfflineSession(snapshot)) return '';
   archivingOfflineMeet = true;
@@ -883,6 +892,24 @@ function autoArchiveOfflineMeetIfNeeded(reason){
   if(offlineCloseIntent || exitingOfflineMeet || archivingOfflineMeet) return;
   if(!session || !character || !character.id) return;
   if(session.minimized) return;
+  saveSession();
+  var snapshot = snapshotOfflineSessionState(session);
+  if(!hasMeaningfulOfflineSession(snapshot)) return;
+  persistOfflineResumeSnapshot(character.id, snapshot);
+  if(sending || offlineStatusGenerating || session.pendingOpening || session.pendingAnimation){
+    try{
+      var archiveId = upsertOfflineArchive(snapshot, {
+        status: 'pending',
+        reason: reason || 'interrupted',
+        archiveId: snapshot && snapshot.archiveId
+      });
+      if(archiveId){
+        session.archiveId = archiveId;
+        saveSession();
+      }
+    }catch(e){}
+    return;
+  }
   archiveCurrentOfflineMeet('pending', reason || 'interrupted').catch(function(){});
 }
 function loadStoredAsset(key){
@@ -4507,6 +4534,11 @@ window.addEventListener('pagehide', function(){
 });
 window.addEventListener('beforeunload', function(){
   autoArchiveOfflineMeetIfNeeded('beforeunload');
+});
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden'){
+    autoArchiveOfflineMeetIfNeeded('hidden');
+  }
 });
 window.addEventListener('resize', syncOfflineViewport);
 window.addEventListener('orientationchange', syncOfflineViewport);
