@@ -5771,13 +5771,14 @@ async function init() {
     try {
       var pendingParsed = JSON.parse(pending);
       var pendingId = String((pendingParsed && pendingParsed.id) || '').trim();
+      if(!desiredChatCharId && pendingId){
+        desiredChatCharId = pendingId;
+      }
       if(!desiredChatCharId || (pendingId && pendingId === desiredChatCharId)){
         character = pendingParsed;
       }
     } catch(e){}
-    localStorage.removeItem('pendingChatChar');
   }
-  try{ localStorage.removeItem('pendingChatCharId'); }catch(err){}
   // 2. Fall back to activeCharacter
   if (!character) {
     if(isDefaultAccountContext()){
@@ -5809,6 +5810,8 @@ async function init() {
     var rosterCharacter = resolveCharacterFromRoster(desiredChatCharId, character);
     if(rosterCharacter) character = rosterCharacter;
   }
+  try{ localStorage.removeItem('pendingChatChar'); }catch(err){}
+  try{ localStorage.removeItem('pendingChatCharId'); }catch(err){}
   if(character && character.id){
     syncActiveCharacterToShell();
   }
@@ -14420,7 +14423,10 @@ window.addEventListener('message', async function(e) {
   if (d.type === 'SET_ACTIVE_CHARACTER' || d.type === 'OPEN_CHAT_WITH') {
     var incoming = d.payload || {};
     var incomingId = String((incoming && incoming.id) || '').trim();
-    if(desiredChatCharId && incomingId && incomingId !== desiredChatCharId){
+    if(d.type === 'OPEN_CHAT_WITH' && incomingId){
+      desiredChatCharId = incomingId;
+    }
+    if(d.type !== 'OPEN_CHAT_WITH' && desiredChatCharId && incomingId && incomingId !== desiredChatCharId){
       return;
     }
     incoming = resolveCharacterFromRoster(incomingId, incoming) || incoming;
