@@ -1029,6 +1029,38 @@ function loadCharacter(charIdOverride){
     return forcedId ? null : null;
   }
 }
+function collectOfflineCharacterCandidates(forcedId){
+  var safeId = String(forcedId || '').trim();
+  var items = [];
+  for(var i = 1; i < arguments.length; i += 1){
+    var source = arguments[i];
+    if(!source || typeof source !== 'object') continue;
+    var snapshot = source && source.charSnapshot && typeof source.charSnapshot === 'object'
+      ? source.charSnapshot
+      : source;
+    var snapshotId = String(snapshot && snapshot.id || '').trim();
+    if(!snapshotId) continue;
+    if(safeId && snapshotId !== safeId) continue;
+    items.push(snapshot);
+  }
+  return items;
+}
+function resolveOfflineCharacter(forcedId){
+  var safeId = String(forcedId || '').trim();
+  if(!safeId) return character || null;
+  var rosterCharacter = findCharacterById(safeId);
+  var merged = rosterCharacter ? Object.assign({}, rosterCharacter) : null;
+  var candidates = collectOfflineCharacterCandidates.apply(null, arguments);
+  candidates.forEach(function(snapshot){
+    var normalized = buildOfflineCharacterFromSnapshot(snapshot);
+    if(!normalized) return;
+    merged = Object.assign({}, merged || {}, normalized);
+  });
+  if(merged && String(merged.id || '').trim() === safeId){
+    return merged;
+  }
+  return null;
+}
 function buildOfflineCharacterFromSnapshot(snapshot){
   if(!snapshot || typeof snapshot !== 'object') return null;
   var safeId = String(snapshot.id || '').trim();
@@ -3900,6 +3932,7 @@ function shouldBootOpeningFlow(){
   if(!session) return false;
   if(session.active === false) return false;
   if(!session.invite) return false;
+  if(session.openingFailed) return false;
   return !hasAssistantOpeningEntry();
 }
 async function generateOpeningIfNeeded(){
@@ -4085,6 +4118,7 @@ async function generateOpeningIfNeeded(){
       generationMs: Date.now() - openingStartedAt
     }));
     session.entries.push(openingEntry);
+    session.openingFailed = false;
     session.pendingOpening = false;
     saveSession();
     queueOfflineSummaryGeneration(openingEntry);
@@ -4092,7 +4126,8 @@ async function generateOpeningIfNeeded(){
     setTimeout(function(){ queueOfflineStatusCardGeneration(openingEntry); }, 120);
   }catch(e){
     toast('线下首幕生成失败：' + summarizeOfflineError(e), { sticky:true });
-    session.pendingOpening = true;
+    session.openingFailed = true;
+    session.pendingOpening = false;
     session.pendingAnimation = false;
     saveSession();
   }
@@ -4298,9 +4333,10 @@ async function requestOfflineReply(options){
 }
 async function rerollOfflineTurn(){
   if(sending || !session) return;
-  var canRetryOpening = !!(session && session.invite && (session.pendingOpening || shouldBootOpeningFlow()));
+  var canRetryOpening = !!(session && session.invite && (session.pendingOpening || shouldBootOpeningFlow() || session.openingFailed));
   if((!Array.isArray(session.entries) || !session.entries.length) && canRetryOpening){
     session.active = true;
+    session.openingFailed = false;
     session.pendingOpening = true;
     session.pendingAnimation = true;
     saveSession();
@@ -4328,6 +4364,7 @@ async function rerollOfflineTurn(){
   });
   if(!hasAnyAssistant && session.invite){
     session.active = true;
+    session.openingFailed = false;
     session.pendingOpening = true;
     session.pendingAnimation = true;
   }
@@ -4500,11 +4537,12 @@ async function init(){
     explicitOfflineCharId = String(initUrl.searchParams.get('char') || '').trim();
     offlineLaunchSource = String(initUrl.searchParams.get('__offlineSource') || '').trim();
     if(offlineLaunchSource === 'invite'){
-      latestLaunch = consumeLatestPendingOfflineLaunch();
-      if(!isFreshOfflineLaunchSeed(latestLaunch)) latestLaunch = null;
       if(explicitOfflineCharId){
         scopedLaunch = consumePendingOfflineLaunch(explicitOfflineCharId);
         if(!isFreshOfflineLaunchSeed(scopedLaunch)) scopedLaunch = null;
+      }else{
+        latestLaunch = consumeLatestPendingOfflineLaunch();
+        if(!isFreshOfflineLaunchSeed(latestLaunch)) latestLaunch = null;
       }
       if(scopedLaunch){
         launchSeed = scopedLaunch;
@@ -4516,7 +4554,6 @@ async function init(){
   }catch(err){
     desiredOfflineCharId = String(localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }
-  character = loadCharacter(desiredOfflineCharId);
   if(!launchSeed && offlineLaunchSource === 'invite' && desiredOfflineCharId){
     launchSeed = consumePendingOfflineLaunch(desiredOfflineCharId);
   }
@@ -4526,18 +4563,15 @@ async function init(){
     desiredOfflineCharId ||
     ''
   ).trim();
-  if(launchCharId && launchCharId !== desiredOfflineCharId){
-    desiredOfflineCharId = launchCharId;
-    character = loadCharacter(desiredOfflineCharId);
-  }
-  if((!character || !character.id) && launchSeed && launchSeed.charSnapshot){
-    character = buildOfflineCharacterFromSnapshot(launchSeed.charSnapshot);
-  }
+  if(launchCharId && launchCharId !== desiredOfflineCharId) desiredOfflineCharId = launchCharId;
   var resumeSession = desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null;
   var bootSession = desiredOfflineCharId ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
-  if((!character || !character.id) && bootSession && bootSession.charSnapshot){
-    character = buildOfflineCharacterFromSnapshot(bootSession.charSnapshot);
-  }
+  character = resolveOfflineCharacter(
+    desiredOfflineCharId,
+    launchSeed && launchSeed.charSnapshot,
+    resumeSession && resumeSession.charSnapshot,
+    bootSession && bootSession.charSnapshot
+  ) || loadCharacter(desiredOfflineCharId);
   if(launchSeed && launchSeed.payload){
     session = {
       charId: String(launchCharId || desiredOfflineCharId || '').trim(),
@@ -4550,6 +4584,7 @@ async function init(){
       chatHistory: String(launchSeed.chatHistory || ''),
       updatedAt: Date.now()
     };
+    session.openingFailed = false;
     if(character && character.id) saveSession();
   }else if(resumeSession && hasMeaningfulOfflineSession(resumeSession)){
     session = resumeSession;
@@ -4562,7 +4597,7 @@ async function init(){
   await hydrateOfflineMemorySnippet();
   refreshOfflineAvatarAssets();
   if((!character || !character.id) && session && session.charSnapshot){
-    character = buildOfflineCharacterFromSnapshot(session.charSnapshot);
+    character = resolveOfflineCharacter(String(session.charId || desiredOfflineCharId || '').trim(), session.charSnapshot) || buildOfflineCharacterFromSnapshot(session.charSnapshot);
   }
   if((!character || !character.id) && session && session.invite && !desiredOfflineCharId){
     var fallbackRecord = findLatestOfflineSessionRecord();

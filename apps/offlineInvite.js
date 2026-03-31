@@ -111,9 +111,25 @@ function getOfflineInviteThreadCharacter(){
   return character || null;
 }
 
+function coerceOfflineInvitePayloadToThread(payload, sourceRole){
+  var next = payload && typeof payload === 'object' ? Object.assign({}, payload) : {};
+  var safeRole = sourceRole === 'user' ? 'user' : 'assistant';
+  if(safeRole === 'user') return next;
+  var threadCharId = getOfflineInviteThreadCharId();
+  var threadCharacter = getOfflineInviteThreadCharacter();
+  if(threadCharId){
+    next.charId = String(threadCharId || '').trim();
+  }
+  if(threadCharacter){
+    next.charName = String((threadCharacter.nickname || threadCharacter.name) || next.charName || '').trim();
+  }
+  return next;
+}
+
 function buildOfflineInvitePayload(sourceRole, text, overrides){
   var labels = currentDateLabels(sourceRole === 'user' ? 'user' : 'char');
   var threadCharacter = getOfflineInviteThreadCharacter();
+  var safeOverrides = coerceOfflineInvitePayloadToThread(overrides || {}, sourceRole);
   var data = Object.assign({
     type: 'offline_invite',
     sourceRole: sourceRole === 'user' ? 'user' : 'assistant',
@@ -128,7 +144,7 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
     dateLabel: labels.dateLabel,
     createdAt: Date.now(),
     status: 'pending'
-  }, overrides || {});
+  }, safeOverrides);
   data.type = 'offline_invite';
   data.sourceRole = data.sourceRole === 'user' ? 'user' : 'assistant';
   data.charId = String(data.charId || (threadCharacter && threadCharacter.id) || '').trim();
@@ -579,7 +595,8 @@ async function appendOfflineInviteToChat(role, payload, doScroll){
   var notice = makeSystemNoticeEntry(appendOfflineInviteNoticeText(role));
   chatLog.push(notice);
   addSystemNotice(notice.content, doScroll !== false, notice.id);
-  var finalPayload = buildOfflineInvitePayload(role === 'user' ? 'user' : 'assistant', payload && payload.content, payload || {});
+  var safePayload = coerceOfflineInvitePayloadToThread(payload || {}, role === 'user' ? 'user' : 'assistant');
+  var finalPayload = buildOfflineInvitePayload(role === 'user' ? 'user' : 'assistant', safePayload && safePayload.content, safePayload || {});
   if(role === 'user') finalPayload.aside = '';
   var entry = makeChatEntry(role === 'user' ? 'user' : 'assistant', JSON.stringify(finalPayload), 'offline_invite');
   chatLog.push(entry);
@@ -606,6 +623,7 @@ async function acceptOfflineInvite(messageId){
   var entry = getMessageById(messageId);
   var payload = parseOfflineInvitePayload(entry && entry.content) || null;
   if(!entry || !payload) return;
+  payload = coerceOfflineInvitePayloadToThread(payload, 'assistant');
   writeOfflineInviteDebug({
     chatThreadCharId: String((character && character.id) || '').trim(),
     invitePayloadCharId: String(payload && payload.charId || '').trim(),
@@ -841,7 +859,7 @@ function importPendingOfflineArtifacts(){
 }
 
 function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
-  var data = buildOfflineInvitePayload(viewRole === 'user' ? 'user' : 'assistant', '', parseOfflineInvitePayload(raw) || {});
+  var data = buildOfflineInvitePayload(viewRole === 'user' ? 'user' : 'assistant', '', coerceOfflineInvitePayloadToThread(parseOfflineInvitePayload(raw) || {}, viewRole === 'user' ? 'user' : 'assistant'));
   var canRespond = viewRole !== 'user';
   var status = String(data.status || 'pending');
   var sideClass = viewRole === 'user' ? ' from-user' : ' from-ai';
