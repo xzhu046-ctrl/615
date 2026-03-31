@@ -273,6 +273,15 @@ function primeOfflineLaunchCharacterSnapshot(charSnapshot){
   }catch(e){}
   try{ localStorage.setItem('activeCharacter', serialized); }catch(e){}
 }
+function persistOfflineLaunchTokenRecord(token, record){
+  var safeToken = String(token || '').trim();
+  if(!safeToken) return;
+  var serialized = '';
+  try{ serialized = JSON.stringify(record || {}); }catch(e){ serialized = ''; }
+  if(!serialized) return;
+  try{ localStorage.setItem(offlineLaunchTokenStorageKey(safeToken), serialized); }catch(e){}
+  try{ localStorage.setItem('offline_launch_token_' + safeToken, serialized); }catch(e){}
+}
 
 function pendingOfflineBootstrapStorageKey(charId){
   return accountScopedKey('offline_bootstrap_' + String(charId || '').trim());
@@ -284,6 +293,9 @@ function pendingOfflineLaunchStorageKey(charId){
 
 function latestOfflineLaunchStorageKey(){
   return accountScopedKey('offline_launch_latest');
+}
+function offlineLaunchTokenStorageKey(token){
+  return accountScopedKey('offline_launch_token_' + String(token || '').trim());
 }
 
 function readOfflineSession(charId){
@@ -355,6 +367,7 @@ async function openOfflineSession(payload){
   }
   primeOfflineLaunchCharacterSnapshot(charSnapshot);
   var history = formatChatForModel(chatLog.slice(-10));
+  var launchToken = 'ol_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
   try{ localStorage.removeItem(pendingOfflineBootstrapStorageKey(targetCharId)); }catch(e){}
   try{ localStorage.removeItem(pendingOfflineLaunchStorageKey(targetCharId)); }catch(e){}
   try{ localStorage.removeItem(accountScopedKey('offline_resume_' + targetCharId)); }catch(e){}
@@ -389,6 +402,7 @@ async function openOfflineSession(payload){
   }catch(e){}
   try{
     localStorage.setItem(latestOfflineLaunchStorageKey(), JSON.stringify({
+      launchToken: launchToken,
       charId: targetCharId,
       charSnapshot: charSnapshot,
       payload: payload,
@@ -396,7 +410,16 @@ async function openOfflineSession(payload){
       createdAt: Date.now()
     }));
   }catch(e){}
-  postToShell({ type:'OPEN_APP_WITH', payload:{ app:'offline', charId: targetCharId, launchMode:'invite' } });
+  persistOfflineLaunchTokenRecord(launchToken, {
+    mode: 'invite',
+    launchToken: launchToken,
+    charId: targetCharId,
+    charSnapshot: charSnapshot,
+    payload: payload,
+    chatHistory: history,
+    createdAt: Date.now()
+  });
+  postToShell({ type:'OPEN_APP_WITH', payload:{ app:'offline', charId: targetCharId, launchMode:'invite', launchToken: launchToken } });
 }
 
 function getCurrentUserDisplayName(){

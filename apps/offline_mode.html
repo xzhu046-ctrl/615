@@ -658,6 +658,9 @@ function pendingOfflineLaunchKey(charId){
 function latestOfflineLaunchKey(){
   return scopedKey('offline_launch_latest');
 }
+function offlineLaunchTokenKey(token){
+  return scopedKey('offline_launch_token_' + String(token || '').trim());
+}
 function pendingOfflineResumeKey(charId){
   return scopedKey('offline_resume_' + String(charId || ''));
 }
@@ -1224,6 +1227,22 @@ function consumePendingOfflineLaunch(charId){
 }
 function consumeLatestPendingOfflineLaunch(){
   var keys = [latestOfflineLaunchKey(), 'offline_launch_latest'];
+  for(var i = 0; i < keys.length; i += 1){
+    var key = keys[i];
+    try{
+      var raw = localStorage.getItem(key);
+      if(!raw) continue;
+      localStorage.removeItem(key);
+      var parsed = JSON.parse(raw);
+      if(parsed && typeof parsed === 'object') return parsed;
+    }catch(e){}
+  }
+  return null;
+}
+function consumeOfflineLaunchToken(token){
+  var safeToken = String(token || '').trim();
+  if(!safeToken) return null;
+  var keys = [offlineLaunchTokenKey(safeToken), 'offline_launch_token_' + safeToken];
   for(var i = 0; i < keys.length; i += 1){
     var key = keys[i];
     try{
@@ -4529,13 +4548,20 @@ async function init(){
   }catch(err){}
   var latestLaunch = null;
   var scopedLaunch = null;
+  var tokenLaunch = null;
   var explicitOfflineCharId = '';
+  var explicitLaunchToken = '';
   var launchSeed = null;
   var offlineLaunchSource = '';
   try{
     var initUrl = new URL(window.location.href);
     explicitOfflineCharId = String(initUrl.searchParams.get('char') || '').trim();
+    explicitLaunchToken = String(initUrl.searchParams.get('__offlineLaunchToken') || '').trim();
     offlineLaunchSource = String(initUrl.searchParams.get('__offlineSource') || '').trim();
+    if(explicitLaunchToken){
+      tokenLaunch = consumeOfflineLaunchToken(explicitLaunchToken);
+      if(tokenLaunch && !isFreshOfflineLaunchSeed(tokenLaunch)) tokenLaunch = null;
+    }
     if(explicitOfflineCharId){
       scopedLaunch = consumePendingOfflineLaunch(explicitOfflineCharId);
       if(!isFreshOfflineLaunchSeed(scopedLaunch)) scopedLaunch = null;
@@ -4546,14 +4572,17 @@ async function init(){
         if(!isFreshOfflineLaunchSeed(latestLaunch)) latestLaunch = null;
       }
     }
-    if(scopedLaunch){
+    if(tokenLaunch){
+      launchSeed = tokenLaunch;
+      offlineLaunchSource = String(tokenLaunch.mode || offlineLaunchSource || 'invite').trim() || 'invite';
+    }else if(scopedLaunch){
       launchSeed = scopedLaunch;
       offlineLaunchSource = 'invite';
     }else if(latestLaunch && (!explicitOfflineCharId || String(latestLaunch.charId || '').trim() === explicitOfflineCharId)){
       launchSeed = latestLaunch;
       offlineLaunchSource = 'invite';
     }
-    desiredOfflineCharId = String(explicitOfflineCharId || (launchSeed && launchSeed.charId) || localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
+    desiredOfflineCharId = String(explicitOfflineCharId || (tokenLaunch && tokenLaunch.charId) || (launchSeed && launchSeed.charId) || localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }catch(err){
     desiredOfflineCharId = String(localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }
@@ -4572,7 +4601,7 @@ async function init(){
     ''
   ).trim();
   if(launchCharId && launchCharId !== desiredOfflineCharId) desiredOfflineCharId = launchCharId;
-  var resumeSession = desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null;
+  var resumeSession = tokenLaunch && tokenLaunch.session ? tokenLaunch.session : (desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null);
   var bootSession = desiredOfflineCharId ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
   character = resolveOfflineCharacter(
     desiredOfflineCharId,
