@@ -37,7 +37,11 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 
 /* ── Header ── */
 .chat-header{background:rgba(255,255,255,.94);border-bottom:var(--bd);padding:6px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0;z-index:10;position:relative}
-.chat-route-debug{position:fixed;top:56px;right:10px;z-index:80;width:min(230px,calc(100vw - 20px));padding:8px 10px;border:2px solid #111;border-radius:14px;background:rgba(255,255,255,.97);box-shadow:3px 3px 0 rgba(0,0,0,.18);font-size:10px;font-weight:800;line-height:1.45;color:#2f2f2f;white-space:pre-wrap;word-break:break-word;pointer-events:none}
+.chat-route-debug{position:fixed;top:56px;right:10px;z-index:80;width:min(238px,calc(100vw - 20px));padding:8px 10px;border:2px solid #111;border-radius:14px;background:rgba(255,255,255,.97);box-shadow:3px 3px 0 rgba(0,0,0,.18);font-size:10px;font-weight:800;line-height:1.45;color:#2f2f2f;white-space:pre-wrap;word-break:break-word}
+.chat-route-debug-copy{position:absolute;top:8px;right:8px;min-width:42px;height:24px;padding:0 8px;border:2px solid #111;border-radius:999px;background:#111;color:#fff;font:900 10px/1 var(--fontd);display:flex;align-items:center;justify-content:center;box-shadow:2px 2px 0 rgba(0,0,0,.14);cursor:pointer}
+.chat-route-debug-copy:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(0,0,0,.14)}
+.chat-route-debug-copy.done{background:#fff;color:#111}
+.chat-route-debug-body{padding-top:24px;pointer-events:none}
 .hdr-avatar{width:40px;height:40px;border-radius:12px;border:var(--bd);background:var(--pale);display:flex;align-items:center;justify-content:center;font-size:19px;overflow:hidden;flex-shrink:0;box-shadow:var(--sh);cursor:pointer}
 .hdr-avatar img{width:100%;height:100%;object-fit:cover}
 .hdr-info{flex:1;min-width:0;cursor:pointer}
@@ -964,10 +968,13 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
     <button class="hdr-btn hdr-icon-btn" id="chatSettingsBtn" onclick="openChatSettings()" title="聊天设置">⚙</button>
   </div>
 </div>
-<div class="chat-route-debug" id="chatRouteDebug">URL char: (empty)
+<div class="chat-route-debug" id="chatRouteDebug">
+  <button class="chat-route-debug-copy" id="chatRouteDebugCopy" type="button" onclick="copyChatRouteDebug(event)">复制</button>
+  <div class="chat-route-debug-body" id="chatRouteDebugBody">URL char: (empty)
 desiredChatCharId: (empty)
 pendingChatCharId: (empty)
 final character.id: (empty)</div>
+</div>
 
 <div class="messages" id="messages">
   <div class="welcome" id="welcomeMsg">
@@ -6110,7 +6117,7 @@ function updateHeader() {
 }
 
 function updateChatRouteDebug(){
-  var node = document.getElementById('chatRouteDebug');
+  var node = document.getElementById('chatRouteDebugBody');
   if(!node) return;
   var urlChar = '';
   try{
@@ -6125,6 +6132,40 @@ function updateChatRouteDebug(){
     'pendingChatCharId: ' + (pendingId || '(empty)'),
     'final character.id: ' + (String((character && character.id) || '').trim() || '(empty)')
   ].join('\n');
+}
+
+async function copyChatRouteDebug(event){
+  if(event && event.stopPropagation) event.stopPropagation();
+  var body = document.getElementById('chatRouteDebugBody');
+  var btn = document.getElementById('chatRouteDebugCopy');
+  var text = String((body && body.textContent) || '').trim();
+  if(!text) return;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+    }else{
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', 'readonly');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    if(btn){
+      btn.textContent = '已复制';
+      btn.classList.add('done');
+      setTimeout(function(){
+        btn.textContent = '复制';
+        btn.classList.remove('done');
+      }, 1200);
+    }
+    if(typeof toast === 'function') toast('已复制真值');
+  }catch(err){
+    if(typeof toast === 'function') toast('复制失败');
+  }
 }
 
 function getCurrentPresenceSnapshot(){
