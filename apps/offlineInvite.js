@@ -219,11 +219,13 @@ function readOfflineSession(charId){
 
 async function openOfflineSession(payload){
   var liveCharId = String((character && character.id) || '').trim();
-  var targetCharId = String(liveCharId || (payload && payload.charId) || '').trim();
+  var targetCharId = String((payload && payload.charId) || liveCharId || '').trim();
   if(!targetCharId) return;
   if(payload && typeof payload === 'object'){
     payload.charId = targetCharId;
-    payload.charName = String(payload.charName || (character && (character.nickname || character.name)) || '').trim();
+    if(!String(payload.charName || '').trim()){
+      payload.charName = String((character && (character.nickname || character.name)) || '').trim();
+    }
   }
   writeOfflineInviteDebug({
     chatThreadCharId: liveCharId,
@@ -533,7 +535,7 @@ async function acceptOfflineInvite(messageId){
     invitePayloadCharName: String(payload && payload.charName || '').trim(),
     clickedInviteMessageId: String(messageId || '').trim()
   });
-  if(character && character.id){
+  if((!payload.charId || !String(payload.charId).trim()) && character && character.id){
     payload.charId = String(character.id || '').trim();
     payload.charName = String((character.nickname || character.name) || '').trim();
   }
