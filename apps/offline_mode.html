@@ -4329,18 +4329,19 @@ function openExitMenu(){
 function closeExitMenu(){
   document.getElementById('exitMenu')?.classList.remove('open');
 }
-function minimizeOfflineMeet(){
+async function minimizeOfflineMeet(){
+  if(exitingOfflineMeet || archivingOfflineMeet) return;
   closeExitMenu();
   offlineCloseIntent = 'minimize';
-  if(session){
-    session.minimized = true;
-    saveSession();
-    try{ syncCurrentSessionToArchive('pending', 'minimized'); }catch(e){}
-  }
   try{
-    window.parent.postMessage({ type:'OFFLINE_MINIMIZED', payload:{ charId: character && character.id } }, '*');
+    if(session && character && character.id){
+      session.minimized = false;
+      saveSession();
+      await archiveCurrentOfflineMeet('pending', 'minimized');
+    }
   }catch(e){}
-  window.parent.postMessage({ type:'OPEN_APP', payload:'chat' }, '*');
+  try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
+  window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*');
 }
 function restoreOfflineMeet(){
   offlineCloseIntent = '';
@@ -4428,10 +4429,21 @@ async function init(){
   if(!launchSeed && offlineLaunchSource === 'invite' && desiredOfflineCharId){
     launchSeed = consumePendingOfflineLaunch(desiredOfflineCharId);
   }
+  var launchCharId = String(
+    (launchSeed && launchSeed.charId) ||
+    (launchSeed && launchSeed.payload && launchSeed.payload.charId) ||
+    desiredOfflineCharId ||
+    ''
+  ).trim();
+  if(launchCharId && launchCharId !== desiredOfflineCharId){
+    desiredOfflineCharId = launchCharId;
+    character = loadCharacter(desiredOfflineCharId);
+  }
   var resumeSession = desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null;
   var bootSession = desiredOfflineCharId ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
   if(launchSeed && launchSeed.payload){
     session = {
+      charId: String(launchCharId || desiredOfflineCharId || '').trim(),
       active: true,
       invite: launchSeed.payload || null,
       entries: [],
@@ -4473,8 +4485,10 @@ async function init(){
     saveSession();
   }
   if(session && session.minimized){
-    document.querySelector('.shell')?.classList.add('minimized');
-    document.getElementById('offlineMiniLauncher')?.classList.add('show');
+    session.minimized = false;
+    saveSession();
+    document.querySelector('.shell')?.classList.remove('minimized');
+    document.getElementById('offlineMiniLauncher')?.classList.remove('show');
   }
   if(normalizeOfflineStatusPendingFlags() && character && character.id){
     saveSession();
