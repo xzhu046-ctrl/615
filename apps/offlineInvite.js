@@ -68,6 +68,10 @@ function currentDateLabels(role){
 }
 
 function getOfflineInviteThreadCharId(){
+  var currentCharacterId = '';
+  try{
+    currentCharacterId = String((character && character.id) || '').trim();
+  }catch(e){}
   var scopedActiveId = '';
   try{
     if(typeof accountScopedKey === 'function'){
@@ -77,10 +81,11 @@ function getOfflineInviteThreadCharId(){
   var desiredId = '';
   try{ desiredId = String(typeof desiredChatCharId !== 'undefined' ? desiredChatCharId : '').trim(); }catch(e){}
   return String(
+    currentCharacterId ||
     desiredId ||
     scopedActiveId ||
     localStorage.getItem('activeChatCharacterId') ||
-    ((character && character.id) || '')
+    ''
   ).trim();
 }
 
@@ -699,6 +704,8 @@ async function handlePendingOfflineInviteReply(){
     if(decision && decision.accept){
       var charWeather = await resolveOfflineInviteWeather('char', decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'));
       var replyPayload = buildOfflineInvitePayload('assistant', normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面'), {
+        charId: String((character && character.id) || '').trim(),
+        charName: String((character && (character.nickname || character.name)) || '').trim(),
         mood: decision.mood || randomPick(OFFLINE_MOODS, '(///v///)'),
         weather: charWeather.icon,
         location: decision.location || pending.payload.location,
@@ -742,6 +749,8 @@ async function sendOfflineInviteFromUser(){
   closeOfflineInviteComposer();
   var userWeather = await resolveOfflineInviteWeather('user', '☀︎');
   var payload = buildOfflineInvitePayload('user', text, {
+    charId: String((character && character.id) || '').trim(),
+    charName: String((character && (character.nickname || character.name)) || '').trim(),
     weather: userWeather.icon,
     location: location || (((character && (character.nickname || character.name)) || '对方') + '方便出现的地方')
   });
