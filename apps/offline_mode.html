@@ -860,7 +860,11 @@ function clearLiveOfflineSession(targetCharId){
 function persistOfflineResumeSnapshot(targetCharId, snapshot){
   var safeId = String(targetCharId || '').trim();
   if(!safeId || !snapshot) return;
-  var payload = JSON.stringify({ charId: safeId, session: snapshot });
+  var nextSnapshot = snapshotOfflineSessionState(snapshot) || snapshot;
+  if((!nextSnapshot.charSnapshot || !nextSnapshot.charSnapshot.id) && character && String(character.id || '').trim() === safeId){
+    nextSnapshot.charSnapshot = buildOfflineCharacterFromSnapshot(character);
+  }
+  var payload = JSON.stringify({ charId: safeId, session: nextSnapshot });
   try{ localStorage.setItem(pendingOfflineResumeKey(safeId), payload); }catch(e){}
   try{ localStorage.setItem('offline_resume_' + safeId, payload); }catch(e){}
 }
@@ -970,6 +974,24 @@ function loadCharacter(charIdOverride){
     var forcedCharacter = findCharacterById(forcedId);
     if(forcedCharacter) return Object.assign({}, forcedCharacter);
   }
+  var pendingRaw = '';
+  try{ pendingRaw = localStorage.getItem('pendingChatChar') || ''; }catch(e){}
+  if(forcedId && pendingRaw){
+    try{
+      var pendingParsed = JSON.parse(pendingRaw);
+      if(pendingParsed && String(pendingParsed.id || '').trim() === forcedId){
+        return Object.assign({}, pendingParsed, {
+          offlineInviteMin: Number(pendingParsed.offlineInviteMin || 300),
+          offlineInviteMax: Number(pendingParsed.offlineInviteMax || 360),
+          offlineInvitePerspective: String(pendingParsed.offlineInvitePerspective || 'first'),
+          offlineInviteStyle: String(pendingParsed.offlineInviteStyle || '').trim(),
+          offlineSummaryEvery: Number(pendingParsed.offlineSummaryEvery || 5),
+          offlineSummaryAuto: pendingParsed.offlineSummaryAuto != null ? !!pendingParsed.offlineSummaryAuto : true,
+          offlineSideStoryType: String(pendingParsed.offlineSideStoryType || 'future')
+        });
+      }
+    }catch(e){}
+  }
   var raw = localStorage.getItem(activeCharacterKey()) || localStorage.getItem('activeCharacter') || '';
   if(!raw) return forcedId ? null : null;
   try{
@@ -988,6 +1010,17 @@ function loadCharacter(charIdOverride){
           offlineSummaryEvery: Number(latest.offlineSummaryEvery || parsed.offlineSummaryEvery || 5),
           offlineSummaryAuto: latest.offlineSummaryAuto != null ? latest.offlineSummaryAuto : (parsed.offlineSummaryAuto != null ? parsed.offlineSummaryAuto : true),
           offlineSideStoryType: String(latest.offlineSideStoryType || parsed.offlineSideStoryType || 'future')
+        });
+      }
+      if(forcedId && String(parsed.id || '').trim() === forcedId){
+        return Object.assign({}, parsed, {
+          offlineInviteMin: Number(parsed.offlineInviteMin || 300),
+          offlineInviteMax: Number(parsed.offlineInviteMax || 360),
+          offlineInvitePerspective: String(parsed.offlineInvitePerspective || 'first'),
+          offlineInviteStyle: String(parsed.offlineInviteStyle || '').trim(),
+          offlineSummaryEvery: Number(parsed.offlineSummaryEvery || 5),
+          offlineSummaryAuto: parsed.offlineSummaryAuto != null ? !!parsed.offlineSummaryAuto : true,
+          offlineSideStoryType: String(parsed.offlineSideStoryType || 'future')
         });
       }
     }
@@ -1088,6 +1121,8 @@ function findLatestOfflineSessionRecord(){
 }
 function saveSession(){
   if(!session || !character || !character.id) return;
+  session.charId = String(character.id || '').trim();
+  session.charSnapshot = buildOfflineCharacterFromSnapshot(character);
   session.updatedAt = Date.now();
   var serialized = JSON.stringify(session);
   localStorage.setItem(offlineSessionKey(character.id), serialized);
