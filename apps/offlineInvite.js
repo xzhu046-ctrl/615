@@ -259,6 +259,20 @@ function persistOfflineSession(session, charIdOverride){
     localStorage.setItem('offline_meet_session_' + targetCharId, JSON.stringify(session || {}));
   }catch(e){}
 }
+function primeOfflineLaunchCharacterSnapshot(charSnapshot){
+  if(!charSnapshot || !String(charSnapshot.id || '').trim()) return;
+  var serialized = '';
+  try{ serialized = JSON.stringify(charSnapshot); }catch(e){ serialized = ''; }
+  if(!serialized) return;
+  try{ localStorage.setItem('pendingChatChar', serialized); }catch(e){}
+  try{ localStorage.setItem('pendingChatCharId', String(charSnapshot.id || '').trim()); }catch(e){}
+  try{
+    if(typeof accountScopedKey === 'function'){
+      localStorage.setItem(accountScopedKey('activeCharacter'), serialized);
+    }
+  }catch(e){}
+  try{ localStorage.setItem('activeCharacter', serialized); }catch(e){}
+}
 
 function pendingOfflineBootstrapStorageKey(charId){
   return accountScopedKey('offline_bootstrap_' + String(charId || '').trim());
@@ -339,6 +353,7 @@ async function openOfflineSession(payload){
   if(payload && (!payload.charSnapshot || !String(payload.charSnapshot.id || '').trim())){
     payload.charSnapshot = Object.assign({}, charSnapshot || {});
   }
+  primeOfflineLaunchCharacterSnapshot(charSnapshot);
   var history = formatChatForModel(chatLog.slice(-10));
   try{ localStorage.removeItem(pendingOfflineBootstrapStorageKey(targetCharId)); }catch(e){}
   try{ localStorage.removeItem(pendingOfflineLaunchStorageKey(targetCharId)); }catch(e){}
