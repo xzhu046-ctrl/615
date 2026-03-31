@@ -332,6 +332,23 @@ function buildOfflineLaunchCharSnapshot(source){
   };
 }
 
+function mergeOfflineLaunchCharSnapshots(){
+  var merged = {};
+  for(var i = 0; i < arguments.length; i += 1){
+    var source = arguments[i];
+    if(!source || typeof source !== 'object') continue;
+    Object.keys(source).forEach(function(key){
+      var value = source[key];
+      if(value == null) return;
+      if(typeof value === 'string'){
+        if(!value.trim()) return;
+      }
+      merged[key] = value;
+    });
+  }
+  return Object.keys(merged).length ? merged : null;
+}
+
 async function openOfflineSession(payload){
   var liveCharId = getOfflineInviteThreadCharId();
   var targetCharId = String(liveCharId || (payload && payload.charId) || '').trim();
@@ -353,17 +370,52 @@ async function openOfflineSession(payload){
   try{
     if(typeof findCharacterById === 'function') targetCharacter = findCharacterById(targetCharId);
   }catch(e){}
-  if(!targetCharacter){
-    targetCharacter = getOfflineInviteThreadCharacter();
+  var threadCharacter = getOfflineInviteThreadCharacter();
+  if(!targetCharacter && threadCharacter && String(threadCharacter.id || '').trim() === targetCharId){
+    targetCharacter = threadCharacter;
+  }
+  if(!targetCharacter && character && String(character.id || '').trim() === targetCharId){
+    targetCharacter = character;
   }
   if(targetCharacter) character = targetCharacter;
   var payloadSnapshot = payload && payload.charSnapshot && typeof payload.charSnapshot === 'object' ? payload.charSnapshot : null;
-  var charSnapshot = buildOfflineLaunchCharSnapshot(targetCharacter || payloadSnapshot || character || {});
-  if(charSnapshot && !charSnapshot.id){
-    charSnapshot.id = targetCharId;
+  var activeRaw = '';
+  try{ activeRaw = localStorage.getItem('activeCharacter') || ''; }catch(e){}
+  var activeSnapshot = null;
+  if(activeRaw){
+    try{ activeSnapshot = JSON.parse(activeRaw) || null; }catch(e){}
+  }
+  var pendingRaw = '';
+  try{ pendingRaw = localStorage.getItem('pendingChatChar') || ''; }catch(e){}
+  var pendingSnapshot = null;
+  if(pendingRaw){
+    try{ pendingSnapshot = JSON.parse(pendingRaw) || null; }catch(e){}
+  }
+  var charSnapshot = mergeOfflineLaunchCharSnapshots(
+    buildOfflineLaunchCharSnapshot(payloadSnapshot || {}),
+    buildOfflineLaunchCharSnapshot(activeSnapshot || {}),
+    buildOfflineLaunchCharSnapshot(pendingSnapshot || {}),
+    buildOfflineLaunchCharSnapshot(targetCharacter || {}),
+    buildOfflineLaunchCharSnapshot(threadCharacter || {}),
+    buildOfflineLaunchCharSnapshot(character || {}),
+    {
+      id: targetCharId,
+      name: String((targetCharacter && targetCharacter.name) || (threadCharacter && threadCharacter.name) || (character && character.name) || (payload && payload.charName) || '').trim(),
+      nickname: String((targetCharacter && targetCharacter.nickname) || (threadCharacter && threadCharacter.nickname) || (character && character.nickname) || (payload && payload.charName) || '').trim()
+    }
+  ) || { id: targetCharId };
+  if(!String(charSnapshot.id || '').trim()) charSnapshot.id = targetCharId;
+  if(!String(charSnapshot.name || '').trim()){
+    charSnapshot.name = String(charSnapshot.nickname || (payload && payload.charName) || 'CHAR').trim() || 'CHAR';
+  }
+  if(!String(charSnapshot.nickname || '').trim() && payload && payload.charName){
+    charSnapshot.nickname = String(payload.charName || '').trim();
   }
   if(payload && (!payload.charSnapshot || !String(payload.charSnapshot.id || '').trim())){
     payload.charSnapshot = Object.assign({}, charSnapshot || {});
+  }
+  if(payload && !String(payload.charName || '').trim()){
+    payload.charName = String(charSnapshot.nickname || charSnapshot.name || '').trim();
   }
   primeOfflineLaunchCharacterSnapshot(charSnapshot);
   var history = formatChatForModel(chatLog.slice(-10));

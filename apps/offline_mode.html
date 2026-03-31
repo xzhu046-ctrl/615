@@ -691,10 +691,18 @@ function snapshotOfflineSessionState(source){
 }
 function hasMeaningfulOfflineSession(snapshot){
   if(!snapshot || typeof snapshot !== 'object') return false;
-  if(Array.isArray(snapshot.entries) && snapshot.entries.length) return true;
+  if(Array.isArray(snapshot.entries) && snapshot.entries.some(function(entry){
+    return !isOfflinePlaceholderEntry(entry) && String(entry && entry.text || '').trim();
+  })) return true;
   if(snapshot.pendingOpening || snapshot.pendingAnimation) return true;
   if(snapshot.invite && snapshot.active !== false) return true;
   return false;
+}
+function isOfflinePlaceholderEntry(entry){
+  if(!entry || typeof entry !== 'object') return false;
+  if(String(entry.role || '').trim() !== 'assistant') return false;
+  var text = String(entry.text || '').trim();
+  return !text || text === '这场线下见面还没正式开始。';
 }
 function hasOfflineStatusCard(entry){
   return !!(entry && entry.statusCard && entry.statusCard.futureDate && entry.statusCard.futureTitle && entry.statusCard.futureNote);
@@ -1068,10 +1076,12 @@ function buildOfflineCharacterFromSnapshot(snapshot){
   if(!snapshot || typeof snapshot !== 'object') return null;
   var safeId = String(snapshot.id || '').trim();
   if(!safeId) return null;
+  var resolvedName = String(snapshot.name || snapshot.charName || '').trim();
+  var resolvedNickname = String(snapshot.nickname || snapshot.charName || '').trim();
   return {
     id: safeId,
-    name: String(snapshot.name || '').trim() || 'CHAR',
-    nickname: String(snapshot.nickname || '').trim(),
+    name: resolvedName || resolvedNickname || 'CHAR',
+    nickname: resolvedNickname,
     avatar: String(snapshot.avatar || '').trim() || '🌸',
     imageData: String(snapshot.imageData || '').trim(),
     description: String(snapshot.description || '').trim(),
@@ -1157,7 +1167,7 @@ function findLatestOfflineSessionRecord(){
 function saveSession(){
   if(!session || !character || !character.id) return;
   session.charId = String(character.id || '').trim();
-  session.charSnapshot = buildOfflineCharacterFromSnapshot(character);
+  session.charSnapshot = Object.assign({}, session.charSnapshot || {}, buildOfflineCharacterFromSnapshot(character));
   session.updatedAt = Date.now();
   var serialized = JSON.stringify(session);
   localStorage.setItem(offlineSessionKey(character.id), serialized);
@@ -3750,8 +3760,62 @@ function getOfflineReplyTimeoutMs(){
 function hasAssistantOpeningEntry(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   return list.some(function(entry){
-    return entry && entry.role === 'assistant' && String(entry.text || '').trim();
+    return entry && entry.role === 'assistant' && !isOfflinePlaceholderEntry(entry) && String(entry.text || '').trim();
   });
+}
+function sanitizeOfflineSessionState(){
+  if(!session || typeof session !== 'object') return false;
+  var dirty = false;
+  var rosterCharacter = desiredOfflineCharId ? findCharacterById(desiredOfflineCharId) : null;
+  var inviteSnapshot = session.invite && session.invite.charSnapshot && typeof session.invite.charSnapshot === 'object'
+    ? session.invite.charSnapshot
+    : null;
+  var mergedSnapshot = Object.assign(
+    {},
+    buildOfflineCharacterFromSnapshot(inviteSnapshot || {}) || {},
+    buildOfflineCharacterFromSnapshot(session.charSnapshot || {}) || {},
+    buildOfflineCharacterFromSnapshot(rosterCharacter || {}) || {}
+  );
+  if(session.invite && String(session.invite.charName || '').trim()){
+    if(!String(mergedSnapshot.nickname || '').trim()) mergedSnapshot.nickname = String(session.invite.charName || '').trim();
+    if(!String(mergedSnapshot.name || '').trim()) mergedSnapshot.name = String(session.invite.charName || '').trim();
+  }
+  if(desiredOfflineCharId && !String(mergedSnapshot.id || '').trim()){
+    mergedSnapshot.id = desiredOfflineCharId;
+  }
+  if(mergedSnapshot && String(mergedSnapshot.id || '').trim()){
+    session.charId = String(mergedSnapshot.id || '').trim();
+    session.charSnapshot = Object.assign({}, session.charSnapshot || {}, mergedSnapshot);
+    if((!character || !String(character.id || '').trim()) || String(character.id || '').trim() === String(session.charId || '').trim()){
+      character = Object.assign({}, character || {}, mergedSnapshot);
+    }
+    dirty = true;
+  }
+  if(Array.isArray(session.entries)){
+    var before = session.entries.length;
+    session.entries = session.entries.filter(function(entry){
+      return !isOfflinePlaceholderEntry(entry);
+    });
+    if(session.entries.length !== before) dirty = true;
+  }else{
+    session.entries = [];
+    dirty = true;
+  }
+  if(session.invite && session.active !== false && !hasAssistantOpeningEntry()){
+    if(!session.pendingOpening){
+      session.pendingOpening = true;
+      dirty = true;
+    }
+    if(!session.pendingAnimation){
+      session.pendingAnimation = true;
+      dirty = true;
+    }
+    if(session.openingFailed){
+      session.openingFailed = false;
+      dirty = true;
+    }
+  }
+  return dirty;
 }
 function ensureFlightGameState(){
   if(flightGameState) return flightGameState;
@@ -4646,6 +4710,9 @@ async function init(){
   }
   if(!session){
     session = { active:false, entries:[] };
+  }
+  if(sanitizeOfflineSessionState() && character && character.id){
+    saveSession();
   }
   if(session && session.invite && (!Array.isArray(session.entries) || !session.entries.length)){
     session.active = true;
