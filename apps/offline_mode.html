@@ -2559,6 +2559,10 @@ function getOfflineStoryPrefs(){
   if(!/^(first|second|third)$/.test(perspective)) perspective = 'first';
   return { minChars:minChars, maxChars:maxChars, perspective:perspective, style:style };
 }
+function getOfflineSoftMaxChars(){
+  var prefs = getOfflineStoryPrefs();
+  return Math.max(prefs.maxChars, prefs.maxChars + 100);
+}
 function getOfflineReplyMinChars(){
   var prefs = getOfflineStoryPrefs();
   return prefs.minChars;
@@ -3009,7 +3013,7 @@ function buildOfflineBodySystemPrompt(options){
     '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"..."}',
     '不要 thought_chain，不要 status_card，不要解释。',
     'title 是这一幕标题，6-16 个中文字符；要搞笑、有网感、像会被拿来当小标题吐槽的那种，允许轻微口语化和坏笑感，但必须贴人设；quote 是可爱圆润但贴人设的小语录，12-30 个中文字符。',
-    'text 必须写成足量的线下面对面正文，长度严格控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
+    'text 必须写成足量的线下面对面正文，长度优先写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个中文字符之间；超过原上限一点点也可以接受，但绝对不要明显短于下限。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     '镜头和感知中心必须是 char 本人，优先写动作、停顿、语气、眼神和现场变化。',
     '至少 3 个自然段，每段都用完整句子收尾。',
@@ -3033,7 +3037,7 @@ function buildOfflineBodyTextSystemPrompt(options){
   return [
     '你现在只负责生成线下模式这一幕的正文文本。',
     '只返回纯文本正文，不要 JSON，不要标题，不要 quote，不要解释。',
-    '正文长度严格控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
+    '正文长度优先写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个中文字符之间，允许比原上限自然上浮一小段。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     '镜头和感知中心必须是 char 本人，优先写动作、停顿、语气、眼神和现场变化。',
     '至少 3 个自然段，每段都用完整句子收尾。',
@@ -3147,7 +3151,7 @@ function buildOfflineSystemPrompt(options){
     sideStoryProfile.artifactRule || '',
     sideStoryProfile.artifactRule ? '如果 status_card 里包含 artifact_html，重点必须放在小物件本体的设计感和完成度上，文字只是陪衬，不要写太长。' : '',
     '如果 status_card 里包含 artifact_html：只能用简单安全的 HTML/CSS，小物件要能直接展示；不许 script，不许外链，不许 iframe，不许事件属性。整个小物件必须严格适配手机弹窗宽度，不许任何文字、边角、贴纸、标题、装饰超出容器。',
-    '在线下模式正文里，text 的长度严格控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间，绝对不要明显短于下限。',
+    '在线下模式正文里，text 优先写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个中文字符之间，允许比原上限自然上浮一小段，但绝对不要明显短于下限。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     offlineForbiddenWordRuleLine(),
     '正文的镜头和感知中心必须是 char 本人：重点写 char 看到的、听到的、想到的、做出的动作和反应。',
@@ -3180,7 +3184,7 @@ function buildOfflineSystemPrompt(options){
   ];
   if(options.opening){
     lines.push('现在要写的是线下模式的第一幕正文。');
-    lines.push('第一幕正文严格不少于 ' + storyPrefs.minChars + ' 个中文字符，尽量不要超过 ' + storyPrefs.maxChars + ' 个中文字符。');
+    lines.push('第一幕正文不少于 ' + storyPrefs.minChars + ' 个中文字符，尽量写在 ' + getOfflineSoftMaxChars() + ' 个中文字符以内；超过原上限一点点也是允许的。');
     lines.push('第一幕要直接写完整正文，不要偷懒，不要短段落，不要概述，不要分章节标题。');
     lines.push(offlineOpeningBanRules());
   }
@@ -3216,7 +3220,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '你在生成“线下见面模式”的第一幕正文。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["...","..."]}，不要代码块，不要解释。',
-    '这次直接写完整第一幕正文，长度尽量控制在 ' + storyPrefs.minChars + ' 到 ' + storyPrefs.maxChars + ' 个中文字符之间。',
+    '这次直接写完整第一幕正文，长度尽量写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个中文字符之间。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个中文字符，不要太正经，但必须贴人设。',
     'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个中文字符。',
@@ -3982,7 +3986,10 @@ async function generateOpeningIfNeeded(){
     }
     if(!String(openingText || '').trim()){
       var currentLen = openingTextLength(bestText || openingText);
-      throw new Error(lastError ? (summarizeOfflineError(lastError) + '，当前字数 ' + currentLen + '/' + minChars) : ('首幕未达到目标字数（' + currentLen + '/' + minChars + '）'));
+      var openingLenHint = currentLen < minChars
+        ? ('当前字数 ' + currentLen + '/' + minChars)
+        : ('当前字数 ' + currentLen + '，字数其实已经够了，但正文校验没过');
+      throw new Error(lastError ? (summarizeOfflineError(lastError) + '，' + openingLenHint) : ('首幕未通过校验（' + openingLenHint + '）'));
     }
     var labels = nowLabels();
     var openingEntry = {
@@ -4173,7 +4180,11 @@ async function requestOfflineReply(options){
       asides: replyAsides,
       thought_chain: thoughtChain
     })){
-      throw new Error('回复字数不足或未通过线下正文校验（' + openingTextLength(replyText) + '/' + minChars + '）');
+      var replyLen = openingTextLength(replyText);
+      var replyLenHint = replyLen < minChars
+        ? ('当前字数 ' + replyLen + '/' + minChars)
+        : ('当前字数 ' + replyLen + '，字数其实已经够了，但正文校验没过');
+      throw new Error('回复未通过线下正文校验（' + replyLenHint + '）');
     }
     var nextLabels = nowLabels();
     var replyEntry = {
