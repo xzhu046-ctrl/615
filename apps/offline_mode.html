@@ -1060,13 +1060,16 @@ function resolveOfflineCharacter(forcedId){
   var safeId = String(forcedId || '').trim();
   if(!safeId) return character || null;
   var rosterCharacter = findCharacterById(safeId);
-  var merged = rosterCharacter ? Object.assign({}, rosterCharacter) : null;
+  var merged = null;
   var candidates = collectOfflineCharacterCandidates.apply(null, arguments);
   candidates.forEach(function(snapshot){
     var normalized = buildOfflineCharacterFromSnapshot(snapshot);
     if(!normalized) return;
     merged = Object.assign({}, merged || {}, normalized);
   });
+  if(rosterCharacter){
+    merged = Object.assign({}, merged || {}, rosterCharacter);
+  }
   if(merged && String(merged.id || '').trim() === safeId){
     return merged;
   }
@@ -4675,6 +4678,10 @@ async function init(){
     resumeSession && resumeSession.charSnapshot,
     bootSession && bootSession.charSnapshot
   ) || loadCharacter(desiredOfflineCharId);
+  var rosterResolvedCharacter = desiredOfflineCharId ? findCharacterById(desiredOfflineCharId) : null;
+  if(rosterResolvedCharacter && String(rosterResolvedCharacter.id || '').trim() === String(desiredOfflineCharId || '').trim()){
+    character = Object.assign({}, character || {}, rosterResolvedCharacter);
+  }
   if(launchSeed && launchSeed.payload){
     session = {
       charId: String(launchCharId || desiredOfflineCharId || '').trim(),
@@ -4704,6 +4711,12 @@ async function init(){
   }
   if((!character || !character.id) && tokenLaunch && tokenLaunch.threadCharSnapshot){
     character = buildOfflineCharacterFromSnapshot(tokenLaunch.threadCharSnapshot);
+  }
+  if(character && desiredOfflineCharId){
+    var rosterFinalCharacter = findCharacterById(desiredOfflineCharId);
+    if(rosterFinalCharacter && String(rosterFinalCharacter.id || '').trim() === String(desiredOfflineCharId || '').trim()){
+      character = Object.assign({}, character || {}, rosterFinalCharacter);
+    }
   }
   if(character && session && session.charSnapshot){
     character = Object.assign({}, buildOfflineCharacterFromSnapshot(session.charSnapshot) || {}, character || {});
