@@ -68,6 +68,15 @@ function currentDateLabels(role){
 }
 
 function getOfflineInviteThreadCharId(){
+  var routeCharId = '';
+  try{
+    var routeUrl = new URL(window.location.href);
+    routeCharId = String(routeUrl.searchParams.get('char') || '').trim();
+  }catch(e){}
+  var desiredId = '';
+  try{ desiredId = String(typeof desiredChatCharId !== 'undefined' ? desiredChatCharId : '').trim(); }catch(e){}
+  var pendingId = '';
+  try{ pendingId = String(localStorage.getItem('pendingChatCharId') || '').trim(); }catch(e){}
   var currentCharacterId = '';
   try{
     currentCharacterId = String((character && character.id) || '').trim();
@@ -78,11 +87,11 @@ function getOfflineInviteThreadCharId(){
       scopedActiveId = String(localStorage.getItem(accountScopedKey('activeChatCharacterId')) || '').trim();
     }
   }catch(e){}
-  var desiredId = '';
-  try{ desiredId = String(typeof desiredChatCharId !== 'undefined' ? desiredChatCharId : '').trim(); }catch(e){}
   return String(
-    currentCharacterId ||
+    routeCharId ||
     desiredId ||
+    pendingId ||
+    currentCharacterId ||
     scopedActiveId ||
     localStorage.getItem('activeChatCharacterId') ||
     ''
@@ -255,7 +264,7 @@ function readOfflineSession(charId){
 
 async function openOfflineSession(payload){
   var liveCharId = getOfflineInviteThreadCharId();
-  var targetCharId = String((payload && payload.charId) || liveCharId || '').trim();
+  var targetCharId = String(liveCharId || (payload && payload.charId) || '').trim();
   if(!targetCharId) return;
   if(payload && typeof payload === 'object'){
     payload.charId = targetCharId;
