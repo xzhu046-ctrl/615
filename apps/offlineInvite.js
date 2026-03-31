@@ -67,17 +67,48 @@ function currentDateLabels(role){
   };
 }
 
+function getOfflineInviteThreadCharId(){
+  var scopedActiveId = '';
+  try{
+    if(typeof accountScopedKey === 'function'){
+      scopedActiveId = String(localStorage.getItem(accountScopedKey('activeChatCharacterId')) || '').trim();
+    }
+  }catch(e){}
+  var desiredId = '';
+  try{ desiredId = String(typeof desiredChatCharId !== 'undefined' ? desiredChatCharId : '').trim(); }catch(e){}
+  return String(
+    desiredId ||
+    scopedActiveId ||
+    localStorage.getItem('activeChatCharacterId') ||
+    ((character && character.id) || '')
+  ).trim();
+}
+
+function getOfflineInviteThreadCharacter(){
+  var targetId = getOfflineInviteThreadCharId();
+  if(!targetId) return character || null;
+  try{
+    if(typeof findCharacterById === 'function'){
+      var found = findCharacterById(targetId);
+      if(found) return found;
+    }
+  }catch(e){}
+  if(character && String(character.id || '').trim() === targetId) return character;
+  return character || null;
+}
+
 function buildOfflineInvitePayload(sourceRole, text, overrides){
   var labels = currentDateLabels(sourceRole === 'user' ? 'user' : 'char');
+  var threadCharacter = getOfflineInviteThreadCharacter();
   var data = Object.assign({
     type: 'offline_invite',
     sourceRole: sourceRole === 'user' ? 'user' : 'assistant',
-    charId: String((character && character.id) || '').trim(),
-    charName: String((character && (character.nickname || character.name)) || '').trim(),
+    charId: String((threadCharacter && threadCharacter.id) || '').trim(),
+    charName: String((threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '').trim(),
     content: String(text || '').trim() || (sourceRole === 'user' ? '要不要出来见我？' : '宝宝，我来找你了。'),
     mood: randomPick(OFFLINE_MOODS, '(｡･ω･｡)'),
     weather: randomPick(OFFLINE_WEATHERS, '☀︎'),
-    location: ((character && (character.nickname || character.name)) || '对方') + '想和你见面的地方',
+    location: ((threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '对方') + '想和你见面的地方',
     aside: sourceRole === 'user' ? '' : '好想见你',
     timeLabel: labels.timeLabel,
     dateLabel: labels.dateLabel,
@@ -86,8 +117,8 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   }, overrides || {});
   data.type = 'offline_invite';
   data.sourceRole = data.sourceRole === 'user' ? 'user' : 'assistant';
-  data.charId = String(data.charId || (character && character.id) || '').trim();
-  data.charName = String(data.charName || (character && (character.nickname || character.name)) || '').trim();
+  data.charId = String(data.charId || (threadCharacter && threadCharacter.id) || '').trim();
+  data.charName = String(data.charName || (threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '').trim();
   data.content = String(data.content || '').trim() || '想见你。';
   data.mood = String(data.mood || '').trim() || '(｡･ω･｡)';
   data.weather = normalizeOfflineWeatherIcon(data.weather);
@@ -218,13 +249,14 @@ function readOfflineSession(charId){
 }
 
 async function openOfflineSession(payload){
-  var liveCharId = String((character && character.id) || '').trim();
+  var liveCharId = getOfflineInviteThreadCharId();
   var targetCharId = String((payload && payload.charId) || liveCharId || '').trim();
   if(!targetCharId) return;
   if(payload && typeof payload === 'object'){
     payload.charId = targetCharId;
     if(!String(payload.charName || '').trim()){
-      payload.charName = String((character && (character.nickname || character.name)) || '').trim();
+      var threadCharacter = getOfflineInviteThreadCharacter();
+      payload.charName = String((threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '').trim();
     }
   }
   writeOfflineInviteDebug({
@@ -535,9 +567,13 @@ async function acceptOfflineInvite(messageId){
     invitePayloadCharName: String(payload && payload.charName || '').trim(),
     clickedInviteMessageId: String(messageId || '').trim()
   });
-  if((!payload.charId || !String(payload.charId).trim()) && character && character.id){
-    payload.charId = String(character.id || '').trim();
-    payload.charName = String((character.nickname || character.name) || '').trim();
+  if(!payload.charId || !String(payload.charId).trim()){
+    var threadCharId = getOfflineInviteThreadCharId();
+    var threadCharacter = getOfflineInviteThreadCharacter();
+    if(threadCharId){
+      payload.charId = String(threadCharId || '').trim();
+      payload.charName = String((threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '').trim();
+    }
   }
   payload.status = 'accepted';
   entry.content = JSON.stringify(payload);
