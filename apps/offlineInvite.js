@@ -130,6 +130,7 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   var labels = currentDateLabels(sourceRole === 'user' ? 'user' : 'char');
   var threadCharacter = getOfflineInviteThreadCharacter();
   var safeOverrides = coerceOfflineInvitePayloadToThread(overrides || {}, sourceRole);
+  var snapshotSource = threadCharacter || (safeOverrides && safeOverrides.charSnapshot) || character || {};
   var data = Object.assign({
     type: 'offline_invite',
     sourceRole: sourceRole === 'user' ? 'user' : 'assistant',
@@ -143,7 +144,8 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
     timeLabel: labels.timeLabel,
     dateLabel: labels.dateLabel,
     createdAt: Date.now(),
-    status: 'pending'
+    status: 'pending',
+    charSnapshot: buildOfflineLaunchCharSnapshot(snapshotSource)
   }, safeOverrides);
   data.type = 'offline_invite';
   data.sourceRole = data.sourceRole === 'user' ? 'user' : 'assistant';
@@ -159,6 +161,9 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   data.timeLabel = String(data.timeLabel || labels.timeLabel);
   data.dateLabel = String(data.dateLabel || labels.dateLabel);
   data.status = String(data.status || 'pending');
+  if(!data.charSnapshot || typeof data.charSnapshot !== 'object'){
+    data.charSnapshot = buildOfflineLaunchCharSnapshot(snapshotSource);
+  }
   return data;
 }
 
@@ -326,7 +331,14 @@ async function openOfflineSession(payload){
     targetCharacter = getOfflineInviteThreadCharacter();
   }
   if(targetCharacter) character = targetCharacter;
-  var charSnapshot = buildOfflineLaunchCharSnapshot(targetCharacter || character || {});
+  var payloadSnapshot = payload && payload.charSnapshot && typeof payload.charSnapshot === 'object' ? payload.charSnapshot : null;
+  var charSnapshot = buildOfflineLaunchCharSnapshot(targetCharacter || payloadSnapshot || character || {});
+  if(charSnapshot && !charSnapshot.id){
+    charSnapshot.id = targetCharId;
+  }
+  if(payload && (!payload.charSnapshot || !String(payload.charSnapshot.id || '').trim())){
+    payload.charSnapshot = Object.assign({}, charSnapshot || {});
+  }
   var history = formatChatForModel(chatLog.slice(-10));
   try{ localStorage.removeItem(pendingOfflineBootstrapStorageKey(targetCharId)); }catch(e){}
   try{ localStorage.removeItem(pendingOfflineLaunchStorageKey(targetCharId)); }catch(e){}

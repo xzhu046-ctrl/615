@@ -4536,26 +4536,34 @@ async function init(){
     var initUrl = new URL(window.location.href);
     explicitOfflineCharId = String(initUrl.searchParams.get('char') || '').trim();
     offlineLaunchSource = String(initUrl.searchParams.get('__offlineSource') || '').trim();
-    if(offlineLaunchSource === 'invite'){
-      if(explicitOfflineCharId){
-        scopedLaunch = consumePendingOfflineLaunch(explicitOfflineCharId);
-        if(!isFreshOfflineLaunchSeed(scopedLaunch)) scopedLaunch = null;
-      }else{
+    if(explicitOfflineCharId){
+      scopedLaunch = consumePendingOfflineLaunch(explicitOfflineCharId);
+      if(!isFreshOfflineLaunchSeed(scopedLaunch)) scopedLaunch = null;
+    }
+    if(!scopedLaunch && offlineLaunchSource === 'invite'){
+      if(!explicitOfflineCharId){
         latestLaunch = consumeLatestPendingOfflineLaunch();
         if(!isFreshOfflineLaunchSeed(latestLaunch)) latestLaunch = null;
       }
-      if(scopedLaunch){
-        launchSeed = scopedLaunch;
-      }else if(latestLaunch && (!explicitOfflineCharId || String(latestLaunch.charId || '').trim() === explicitOfflineCharId)){
-        launchSeed = latestLaunch;
-      }
+    }
+    if(scopedLaunch){
+      launchSeed = scopedLaunch;
+      offlineLaunchSource = 'invite';
+    }else if(latestLaunch && (!explicitOfflineCharId || String(latestLaunch.charId || '').trim() === explicitOfflineCharId)){
+      launchSeed = latestLaunch;
+      offlineLaunchSource = 'invite';
     }
     desiredOfflineCharId = String(explicitOfflineCharId || (launchSeed && launchSeed.charId) || localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }catch(err){
     desiredOfflineCharId = String(localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }
-  if(!launchSeed && offlineLaunchSource === 'invite' && desiredOfflineCharId){
+  if(!launchSeed && desiredOfflineCharId){
     launchSeed = consumePendingOfflineLaunch(desiredOfflineCharId);
+    if(launchSeed && isFreshOfflineLaunchSeed(launchSeed)){
+      offlineLaunchSource = 'invite';
+    }else{
+      launchSeed = null;
+    }
   }
   var launchCharId = String(
     (launchSeed && launchSeed.charId) ||
@@ -4568,6 +4576,7 @@ async function init(){
   var bootSession = desiredOfflineCharId ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
   character = resolveOfflineCharacter(
     desiredOfflineCharId,
+    launchSeed && launchSeed.payload && launchSeed.payload.charSnapshot,
     launchSeed && launchSeed.charSnapshot,
     resumeSession && resumeSession.charSnapshot,
     bootSession && bootSession.charSnapshot
