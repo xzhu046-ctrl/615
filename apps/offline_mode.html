@@ -996,6 +996,30 @@ function loadCharacter(charIdOverride){
     return forcedId ? null : null;
   }
 }
+function buildOfflineCharacterFromSnapshot(snapshot){
+  if(!snapshot || typeof snapshot !== 'object') return null;
+  var safeId = String(snapshot.id || '').trim();
+  if(!safeId) return null;
+  return {
+    id: safeId,
+    name: String(snapshot.name || '').trim() || 'CHAR',
+    nickname: String(snapshot.nickname || '').trim(),
+    avatar: String(snapshot.avatar || '').trim() || '🌸',
+    imageData: String(snapshot.imageData || '').trim(),
+    description: String(snapshot.description || '').trim(),
+    personality: String(snapshot.personality || '').trim(),
+    scenario: String(snapshot.scenario || '').trim(),
+    system_prompt: String(snapshot.system_prompt || '').trim(),
+    first_mes: String(snapshot.first_mes || '').trim(),
+    offlineInviteMin: Number(snapshot.offlineInviteMin || 300),
+    offlineInviteMax: Number(snapshot.offlineInviteMax || 360),
+    offlineInvitePerspective: String(snapshot.offlineInvitePerspective || 'first'),
+    offlineInviteStyle: String(snapshot.offlineInviteStyle || '').trim(),
+    offlineSummaryEvery: Number(snapshot.offlineSummaryEvery || 5),
+    offlineSummaryAuto: snapshot.offlineSummaryAuto != null ? !!snapshot.offlineSummaryAuto : true,
+    offlineSideStoryType: String(snapshot.offlineSideStoryType || 'future')
+  };
+}
 function loadCharactersList(){
   if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
     try{
@@ -4471,11 +4495,18 @@ async function init(){
     desiredOfflineCharId = launchCharId;
     character = loadCharacter(desiredOfflineCharId);
   }
+  if((!character || !character.id) && launchSeed && launchSeed.charSnapshot){
+    character = buildOfflineCharacterFromSnapshot(launchSeed.charSnapshot);
+  }
   var resumeSession = desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null;
   var bootSession = desiredOfflineCharId ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
+  if((!character || !character.id) && bootSession && bootSession.charSnapshot){
+    character = buildOfflineCharacterFromSnapshot(bootSession.charSnapshot);
+  }
   if(launchSeed && launchSeed.payload){
     session = {
       charId: String(launchCharId || desiredOfflineCharId || '').trim(),
+      charSnapshot: launchSeed.charSnapshot || null,
       active: true,
       invite: launchSeed.payload || null,
       entries: [],
@@ -4495,7 +4526,10 @@ async function init(){
   }
   await hydrateOfflineMemorySnippet();
   refreshOfflineAvatarAssets();
-  if((!character || !character.id) && session && session.invite){
+  if((!character || !character.id) && session && session.charSnapshot){
+    character = buildOfflineCharacterFromSnapshot(session.charSnapshot);
+  }
+  if((!character || !character.id) && session && session.invite && !desiredOfflineCharId){
     var fallbackRecord = findLatestOfflineSessionRecord();
     if(fallbackRecord && fallbackRecord.charId){
       var fallbackChar = findCharacterById(fallbackRecord.charId);

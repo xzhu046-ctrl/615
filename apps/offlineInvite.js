@@ -262,6 +262,29 @@ function readOfflineSession(charId){
   }
 }
 
+function buildOfflineLaunchCharSnapshot(source){
+  if(!source || typeof source !== 'object') return null;
+  return {
+    id: String(source.id || '').trim(),
+    name: String(source.name || '').trim(),
+    nickname: String(source.nickname || '').trim(),
+    avatar: String(source.avatar || '').trim(),
+    imageData: String(source.imageData || '').trim(),
+    description: String(source.description || '').trim(),
+    personality: String(source.personality || '').trim(),
+    scenario: String(source.scenario || '').trim(),
+    system_prompt: String(source.system_prompt || '').trim(),
+    first_mes: String(source.first_mes || '').trim(),
+    offlineInviteMin: Number(source.offlineInviteMin || 300),
+    offlineInviteMax: Number(source.offlineInviteMax || 360),
+    offlineInvitePerspective: String(source.offlineInvitePerspective || 'first'),
+    offlineInviteStyle: String(source.offlineInviteStyle || '').trim(),
+    offlineSummaryEvery: Number(source.offlineSummaryEvery || 5),
+    offlineSummaryAuto: source.offlineSummaryAuto != null ? !!source.offlineSummaryAuto : true,
+    offlineSideStoryType: String(source.offlineSideStoryType || 'future')
+  };
+}
+
 async function openOfflineSession(payload){
   var liveCharId = getOfflineInviteThreadCharId();
   var targetCharId = String(liveCharId || (payload && payload.charId) || '').trim();
@@ -283,7 +306,11 @@ async function openOfflineSession(payload){
   try{
     if(typeof findCharacterById === 'function') targetCharacter = findCharacterById(targetCharId);
   }catch(e){}
+  if(!targetCharacter){
+    targetCharacter = getOfflineInviteThreadCharacter();
+  }
   if(targetCharacter) character = targetCharacter;
+  var charSnapshot = buildOfflineLaunchCharSnapshot(targetCharacter || character || {});
   var history = formatChatForModel(chatLog.slice(-10));
   try{ localStorage.removeItem(pendingOfflineBootstrapStorageKey(targetCharId)); }catch(e){}
   try{ localStorage.removeItem(pendingOfflineLaunchStorageKey(targetCharId)); }catch(e){}
@@ -291,6 +318,7 @@ async function openOfflineSession(payload){
   try{ localStorage.removeItem('offline_resume_' + targetCharId); }catch(e){}
   var nextSession = {
     charId: targetCharId,
+    charSnapshot: charSnapshot,
     active: true,
     invite: payload,
     entries: [],
@@ -303,12 +331,14 @@ async function openOfflineSession(payload){
   try{
     localStorage.setItem(pendingOfflineBootstrapStorageKey(targetCharId), JSON.stringify({
       charId: targetCharId,
+      charSnapshot: charSnapshot,
       session: nextSession
     }));
   }catch(e){}
   try{
     localStorage.setItem(pendingOfflineLaunchStorageKey(targetCharId), JSON.stringify({
       charId: targetCharId,
+      charSnapshot: charSnapshot,
       payload: payload,
       chatHistory: history,
       createdAt: Date.now()
@@ -317,6 +347,7 @@ async function openOfflineSession(payload){
   try{
     localStorage.setItem(latestOfflineLaunchStorageKey(), JSON.stringify({
       charId: targetCharId,
+      charSnapshot: charSnapshot,
       payload: payload,
       chatHistory: history,
       createdAt: Date.now()
