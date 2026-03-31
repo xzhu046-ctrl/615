@@ -32,7 +32,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-03-31T04:28:00Z';
+const APP_BUILD_ID = '2026-03-31T04:42:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -749,11 +749,15 @@ async function primeLatestCoreFiles(){
     'main.js',
     'assetStore.js',
     'chatStorage.js',
+    'promptManager.js',
+    'accountManager.js',
     'presenceShared.js',
+    'sunnySupport.js',
     'manifest.webmanifest',
     'version.json',
     'apps/qq.html',
     'apps/chat.html',
+    'apps/offlineInvite.js',
     'apps/map6.html',
     'apps/offline_mode.html'
   ];

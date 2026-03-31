@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-03-31T04:28:00Z';
+const CACHE_VERSION = '2026-03-31T04:42:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -56,6 +56,21 @@ function shouldBypassShellAssetCache(url){
   }
 }
 
+async function shouldBypassViaClientBuild(event){
+  try{
+    const clientId = String(event && event.clientId || '').trim();
+    if(!clientId || !self.clients || typeof self.clients.get !== 'function') return false;
+    const client = await self.clients.get(clientId);
+    if(!client || !client.url) return false;
+    const clientUrl = new URL(client.url, self.location.href);
+    return clientUrl.searchParams.has('__appBuild')
+      || clientUrl.searchParams.has('refreshBuild')
+      || clientUrl.searchParams.has('__ts');
+  }catch(err){
+    return false;
+  }
+}
+
 self.addEventListener('install', (event)=>{
   event.waitUntil(
     caches.open(CACHE_NAME)
@@ -101,6 +116,7 @@ self.addEventListener('fetch', (event)=>{
   const isNavigate = event.request.mode === 'navigate';
   const isDocument = event.request.destination === 'document' || /\.html?$/i.test(url.pathname) || url.pathname === '/';
   const isShellAsset = /(?:^|\/)(?:main\.js|style\.css|assetStore\.js|chatStorage\.js|metadataStore\.js|avatar-frames\.js|manifest\.webmanifest|version\.json)$/i.test(url.pathname);
+  const isCodeAsset = /(?:^|\/).+\.(?:js|css|json)$/i.test(url.pathname);
   const isImageOrFont = /(?:png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|otf)$/i.test(url.pathname);
 
   if(isNavigate || isDocument){
@@ -133,8 +149,9 @@ self.addEventListener('fetch', (event)=>{
 
   if(isShellAsset){
     event.respondWith(
-      Promise.resolve().then(()=>{
-        if(shouldBypassShellAssetCache(url)){
+      Promise.resolve().then(async ()=>{
+        const bypass = shouldBypassShellAssetCache(url) || await shouldBypassViaClientBuild(event);
+        if(bypass){
           return fetch(event.request, { cache:'reload' }).then((response)=>{
             if(response && response.ok){
               const copy = response.clone();
@@ -155,6 +172,33 @@ self.addEventListener('fetch', (event)=>{
             });
         });
       }).catch(()=>fetch(event.request, { cache:'no-store' }))
+    );
+    return;
+  }
+
+  if(isCodeAsset){
+    event.respondWith(
+      Promise.resolve().then(async ()=>{
+        const bypass = shouldBypassShellAssetCache(url) || await shouldBypassViaClientBuild(event);
+        if(bypass){
+          return fetch(event.request, { cache:'reload' }).then((response)=>{
+            if(response && response.ok){
+              const copy = response.clone();
+              caches.open(CACHE_NAME).then((cache)=>cache.put(new Request(url.pathname, { method:'GET' }), copy)).catch(()=>null);
+            }
+            return response;
+          });
+        }
+        return fetch(event.request, { cache:'no-store' })
+          .then((response)=>{
+            if(response && response.ok){
+              const copy = response.clone();
+              caches.open(CACHE_NAME).then((cache)=>cache.put(event.request, copy)).catch(()=>null);
+            }
+            return response;
+          })
+          .catch(()=>caches.match(event.request, { ignoreSearch:true }));
+      })
     );
     return;
   }
