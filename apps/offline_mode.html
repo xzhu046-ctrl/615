@@ -4399,22 +4399,35 @@ function renderOfflineInviteDebugCard(finalCharId){
 }
 async function init(){
   var latestLaunch = null;
+  var scopedLaunch = null;
+  var explicitOfflineCharId = '';
+  var launchSeed = null;
   var offlineLaunchSource = '';
   try{
     var initUrl = new URL(window.location.href);
+    explicitOfflineCharId = String(initUrl.searchParams.get('char') || '').trim();
     offlineLaunchSource = String(initUrl.searchParams.get('__offlineSource') || '').trim();
     if(offlineLaunchSource === 'invite'){
       latestLaunch = consumeLatestPendingOfflineLaunch();
       if(!isFreshOfflineLaunchSeed(latestLaunch)) latestLaunch = null;
+      if(explicitOfflineCharId){
+        scopedLaunch = consumePendingOfflineLaunch(explicitOfflineCharId);
+        if(!isFreshOfflineLaunchSeed(scopedLaunch)) scopedLaunch = null;
+      }
+      if(scopedLaunch){
+        launchSeed = scopedLaunch;
+      }else if(latestLaunch && (!explicitOfflineCharId || String(latestLaunch.charId || '').trim() === explicitOfflineCharId)){
+        launchSeed = latestLaunch;
+      }
     }
-    desiredOfflineCharId = String((latestLaunch && latestLaunch.charId) || initUrl.searchParams.get('char') || localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
+    desiredOfflineCharId = String(explicitOfflineCharId || (launchSeed && launchSeed.charId) || localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }catch(err){
     desiredOfflineCharId = String(localStorage.getItem(scopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
   }
   character = loadCharacter(desiredOfflineCharId);
-  var launchSeed = offlineLaunchSource === 'invite'
-    ? (latestLaunch || (desiredOfflineCharId ? consumePendingOfflineLaunch(desiredOfflineCharId) : null))
-    : null;
+  if(!launchSeed && offlineLaunchSource === 'invite' && desiredOfflineCharId){
+    launchSeed = consumePendingOfflineLaunch(desiredOfflineCharId);
+  }
   var resumeSession = desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null;
   var bootSession = desiredOfflineCharId ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
   if(launchSeed && launchSeed.payload){
