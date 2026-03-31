@@ -332,6 +332,22 @@ function buildOfflineLaunchCharSnapshot(source){
   };
 }
 
+function snapshotMatchesOfflineTarget(snapshot, targetCharId){
+  var safeTargetId = String(targetCharId || '').trim();
+  if(!snapshot || typeof snapshot !== 'object') return false;
+  if(!safeTargetId) return true;
+  var snapshotId = String(snapshot.id || '').trim();
+  return !snapshotId || snapshotId === safeTargetId;
+}
+
+function sanitizeOfflineLaunchSnapshotForTarget(source, targetCharId){
+  if(!snapshotMatchesOfflineTarget(source, targetCharId)) return null;
+  var snapshot = buildOfflineLaunchCharSnapshot(source);
+  if(!snapshot) return null;
+  if(targetCharId) snapshot.id = String(targetCharId || '').trim();
+  return snapshot;
+}
+
 function mergeOfflineLaunchCharSnapshots(){
   var merged = {};
   for(var i = 0; i < arguments.length; i += 1){
@@ -350,6 +366,7 @@ function mergeOfflineLaunchCharSnapshots(){
 }
 
 function buildOfflineThreadLaunchSnapshot(targetCharId, payload){
+  var safeTargetCharId = String(targetCharId || '').trim();
   var payloadSnapshot = payload && payload.charSnapshot && typeof payload.charSnapshot === 'object' ? payload.charSnapshot : null;
   var activeRaw = '';
   try{ activeRaw = localStorage.getItem('activeCharacter') || ''; }catch(e){}
@@ -375,14 +392,14 @@ function buildOfflineThreadLaunchSnapshot(targetCharId, payload){
     targetCharacter = character;
   }
   var merged = mergeOfflineLaunchCharSnapshots(
-    buildOfflineLaunchCharSnapshot(payloadSnapshot || {}),
-    buildOfflineLaunchCharSnapshot(activeSnapshot || {}),
-    buildOfflineLaunchCharSnapshot(pendingSnapshot || {}),
-    buildOfflineLaunchCharSnapshot(targetCharacter || {}),
-    buildOfflineLaunchCharSnapshot(threadCharacter || {}),
-    buildOfflineLaunchCharSnapshot(character || {}),
+    sanitizeOfflineLaunchSnapshotForTarget(targetCharacter || {}, safeTargetCharId),
+    sanitizeOfflineLaunchSnapshotForTarget(threadCharacter || {}, safeTargetCharId),
+    sanitizeOfflineLaunchSnapshotForTarget(character || {}, safeTargetCharId),
+    sanitizeOfflineLaunchSnapshotForTarget(activeSnapshot || {}, safeTargetCharId),
+    sanitizeOfflineLaunchSnapshotForTarget(pendingSnapshot || {}, safeTargetCharId),
+    sanitizeOfflineLaunchSnapshotForTarget(payloadSnapshot || {}, safeTargetCharId),
     {
-      id: String(targetCharId || '').trim(),
+      id: safeTargetCharId,
       name: String(
         (targetCharacter && targetCharacter.name) ||
         (threadCharacter && threadCharacter.name) ||
@@ -398,8 +415,8 @@ function buildOfflineThreadLaunchSnapshot(targetCharId, payload){
         ''
       ).trim()
     }
-  ) || { id: String(targetCharId || '').trim() };
-  if(!String(merged.id || '').trim()) merged.id = String(targetCharId || '').trim();
+  ) || { id: safeTargetCharId };
+  if(!String(merged.id || '').trim()) merged.id = safeTargetCharId;
   if(!String(merged.name || '').trim()){
     merged.name = String(merged.nickname || (payload && payload.charName) || 'CHAR').trim() || 'CHAR';
   }

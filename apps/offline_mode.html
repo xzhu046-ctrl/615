@@ -1101,6 +1101,31 @@ function buildOfflineCharacterFromSnapshot(snapshot){
     offlineSideStoryType: String(snapshot.offlineSideStoryType || 'future')
   };
 }
+function buildOfflineInvitePromptSeed(invite){
+  if(!invite || typeof invite !== 'object') return null;
+  var next = {
+    type: 'offline_invite',
+    sourceRole: String(invite.sourceRole || '').trim() || 'assistant',
+    charId: String(invite.charId || '').trim(),
+    charName: String(invite.charName || '').trim(),
+    content: String(invite.content || '').trim(),
+    mood: String(invite.mood || '').trim(),
+    weather: String(invite.weather || '').trim(),
+    location: String(invite.location || '').trim(),
+    aside: String(invite.aside || '').trim(),
+    timeLabel: String(invite.timeLabel || '').trim(),
+    dateLabel: String(invite.dateLabel || '').trim(),
+    status: String(invite.status || '').trim()
+  };
+  Object.keys(next).forEach(function(key){
+    if(!String(next[key] || '').trim()) delete next[key];
+  });
+  return Object.keys(next).length ? next : null;
+}
+function buildOfflineInvitePromptLine(label){
+  var seed = buildOfflineInvitePromptSeed(session && session.invite);
+  return seed ? (String(label || '邀约背景：') + JSON.stringify(seed)) : '';
+}
 function loadCharactersList(){
   if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
     try{
@@ -1558,7 +1583,7 @@ async function ensureOfflineSummaryForEntry(entry){
     return (item && item.role === 'user' ? '用户：' : '角色：') + String(item && item.text || '').replace(/\s+/g, ' ').trim();
   }).join('\n');
   var baseContext = [
-    session && session.invite ? ('邀约背景：' + JSON.stringify(session.invite)) : '',
+    buildOfflineInvitePromptLine('邀约背景：'),
     '最近线上聊天：\n' + (getOfflineRecentOnlineSnippetByBudget(680) || '无'),
     '相关线下记录：\n' + (historyText || '无'),
     entry.title ? ('这一幕标题：' + String(entry.title || '').trim()) : '',
@@ -1599,7 +1624,7 @@ async function ensureOfflineStatusCardForEntry(entry){
   }).join('\n');
   var baseContext = [
     '这是一次已经发生过的线下见面，请根据已经写好的这一幕正文补生成对应的番外侧页。',
-    session && session.invite ? ('邀约背景：' + JSON.stringify(session.invite)) : '',
+    buildOfflineInvitePromptLine('邀约背景：'),
     '最近线上聊天：\n' + (getOfflineRecentOnlineSnippet() || '无'),
     '相关线下记录：\n' + (historyText || '无'),
     entry.title ? ('这一幕标题：' + String(entry.title || '').trim()) : '',
@@ -3408,7 +3433,7 @@ function buildOfflineUserPrompt(userText){
   var compactLevel = Math.max(0, Number(arguments[1]) || 0);
   return [
     '这是一次已经开始的线下见面，请顺着当前氛围继续。',
-    session && session.invite ? ('邀约背景：' + JSON.stringify(session.invite)) : '',
+    buildOfflineInvitePromptLine('邀约背景：'),
     '最近线下记录：\n' + (clipOfflinePromptText(formatOfflineHistoryForPrompt(compactLevel >= 2 ? 3 : 4, compactLevel >= 2 ? 4 : 6) || '无', offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360)) || '无'),
     '用户刚刚线下说：' + String(userText || '').trim()
   ].filter(Boolean).join('\n\n');
@@ -3792,6 +3817,21 @@ function sanitizeOfflineSessionState(){
     if((!character || !String(character.id || '').trim()) || String(character.id || '').trim() === String(session.charId || '').trim()){
       character = Object.assign({}, character || {}, mergedSnapshot);
     }
+    if(session.invite && typeof session.invite === 'object'){
+      var resolvedInviteName = String(mergedSnapshot.nickname || mergedSnapshot.name || session.invite.charName || '').trim();
+      if(String(session.invite.charId || '').trim() !== session.charId){
+        session.invite.charId = session.charId;
+        dirty = true;
+      }
+      if(resolvedInviteName && String(session.invite.charName || '').trim() !== resolvedInviteName){
+        session.invite.charName = resolvedInviteName;
+        dirty = true;
+      }
+      if((!session.invite.charSnapshot || !String(session.invite.charSnapshot.id || '').trim()) && session.charSnapshot){
+        session.invite.charSnapshot = Object.assign({}, session.charSnapshot || {});
+        dirty = true;
+      }
+    }
     dirty = true;
   }
   if(Array.isArray(session.entries)){
@@ -4039,7 +4079,7 @@ async function generateOpeningIfNeeded(){
     var openingStartedAt = Date.now();
     var openingContext = [
       '请写这场线下见面的第一个场景。',
-      session && session.invite ? ('邀约信息：' + JSON.stringify(session.invite)) : '',
+      buildOfflineInvitePromptLine('邀约信息：'),
       '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 1800 : 2800) || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
@@ -4265,14 +4305,7 @@ async function requestOfflineReply(options){
     var minChars = getOfflineReplyMinChars();
     var sceneDepth = Array.isArray(session && session.entries) ? session.entries.length : 0;
     var compactBase = sceneDepth >= 10 ? 2 : (sceneDepth >= 4 ? 1 : 0);
-    var safeInvite = session && session.invite && typeof session.invite === 'object'
-      ? {
-          content: String(session.invite.content || '').trim(),
-          mood: String(session.invite.mood || '').trim(),
-          weather: String(session.invite.weather || '').trim(),
-          location: String(session.invite.location || '').trim()
-        }
-      : null;
+    var safeInvite = buildOfflineInvitePromptSeed(session && session.invite);
     var retryCompactBase = compactBase;
     var onlineSnippet = getOfflineRecentOnlineSnippetByBudget(
       offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, retryCompactBase, 180)
