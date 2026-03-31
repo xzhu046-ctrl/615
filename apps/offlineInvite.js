@@ -349,6 +349,66 @@ function mergeOfflineLaunchCharSnapshots(){
   return Object.keys(merged).length ? merged : null;
 }
 
+function buildOfflineThreadLaunchSnapshot(targetCharId, payload){
+  var payloadSnapshot = payload && payload.charSnapshot && typeof payload.charSnapshot === 'object' ? payload.charSnapshot : null;
+  var activeRaw = '';
+  try{ activeRaw = localStorage.getItem('activeCharacter') || ''; }catch(e){}
+  var activeSnapshot = null;
+  if(activeRaw){
+    try{ activeSnapshot = JSON.parse(activeRaw) || null; }catch(e){}
+  }
+  var pendingRaw = '';
+  try{ pendingRaw = localStorage.getItem('pendingChatChar') || ''; }catch(e){}
+  var pendingSnapshot = null;
+  if(pendingRaw){
+    try{ pendingSnapshot = JSON.parse(pendingRaw) || null; }catch(e){}
+  }
+  var threadCharacter = getOfflineInviteThreadCharacter();
+  var targetCharacter = null;
+  try{
+    if(typeof findCharacterById === 'function') targetCharacter = findCharacterById(targetCharId);
+  }catch(e){}
+  if(!targetCharacter && threadCharacter && String(threadCharacter.id || '').trim() === String(targetCharId || '').trim()){
+    targetCharacter = threadCharacter;
+  }
+  if(!targetCharacter && character && String(character.id || '').trim() === String(targetCharId || '').trim()){
+    targetCharacter = character;
+  }
+  var merged = mergeOfflineLaunchCharSnapshots(
+    buildOfflineLaunchCharSnapshot(payloadSnapshot || {}),
+    buildOfflineLaunchCharSnapshot(activeSnapshot || {}),
+    buildOfflineLaunchCharSnapshot(pendingSnapshot || {}),
+    buildOfflineLaunchCharSnapshot(targetCharacter || {}),
+    buildOfflineLaunchCharSnapshot(threadCharacter || {}),
+    buildOfflineLaunchCharSnapshot(character || {}),
+    {
+      id: String(targetCharId || '').trim(),
+      name: String(
+        (targetCharacter && targetCharacter.name) ||
+        (threadCharacter && threadCharacter.name) ||
+        (character && character.name) ||
+        (payload && payload.charName) ||
+        ''
+      ).trim(),
+      nickname: String(
+        (targetCharacter && targetCharacter.nickname) ||
+        (threadCharacter && threadCharacter.nickname) ||
+        (character && character.nickname) ||
+        (payload && payload.charName) ||
+        ''
+      ).trim()
+    }
+  ) || { id: String(targetCharId || '').trim() };
+  if(!String(merged.id || '').trim()) merged.id = String(targetCharId || '').trim();
+  if(!String(merged.name || '').trim()){
+    merged.name = String(merged.nickname || (payload && payload.charName) || 'CHAR').trim() || 'CHAR';
+  }
+  if(!String(merged.nickname || '').trim() && payload && payload.charName){
+    merged.nickname = String(payload.charName || '').trim();
+  }
+  return merged;
+}
+
 async function openOfflineSession(payload){
   var liveCharId = getOfflineInviteThreadCharId();
   var targetCharId = String(liveCharId || (payload && payload.charId) || '').trim();
@@ -366,11 +426,11 @@ async function openOfflineSession(payload){
     invitePayloadCharName: String(payload && payload.charName || '').trim(),
     targetOpenCharId: targetCharId
   });
+  var threadCharacter = getOfflineInviteThreadCharacter();
   var targetCharacter = null;
   try{
     if(typeof findCharacterById === 'function') targetCharacter = findCharacterById(targetCharId);
   }catch(e){}
-  var threadCharacter = getOfflineInviteThreadCharacter();
   if(!targetCharacter && threadCharacter && String(threadCharacter.id || '').trim() === targetCharId){
     targetCharacter = threadCharacter;
   }
@@ -378,44 +438,11 @@ async function openOfflineSession(payload){
     targetCharacter = character;
   }
   if(targetCharacter) character = targetCharacter;
-  var payloadSnapshot = payload && payload.charSnapshot && typeof payload.charSnapshot === 'object' ? payload.charSnapshot : null;
-  var activeRaw = '';
-  try{ activeRaw = localStorage.getItem('activeCharacter') || ''; }catch(e){}
-  var activeSnapshot = null;
-  if(activeRaw){
-    try{ activeSnapshot = JSON.parse(activeRaw) || null; }catch(e){}
-  }
-  var pendingRaw = '';
-  try{ pendingRaw = localStorage.getItem('pendingChatChar') || ''; }catch(e){}
-  var pendingSnapshot = null;
-  if(pendingRaw){
-    try{ pendingSnapshot = JSON.parse(pendingRaw) || null; }catch(e){}
-  }
-  var charSnapshot = mergeOfflineLaunchCharSnapshots(
-    buildOfflineLaunchCharSnapshot(payloadSnapshot || {}),
-    buildOfflineLaunchCharSnapshot(activeSnapshot || {}),
-    buildOfflineLaunchCharSnapshot(pendingSnapshot || {}),
-    buildOfflineLaunchCharSnapshot(targetCharacter || {}),
-    buildOfflineLaunchCharSnapshot(threadCharacter || {}),
-    buildOfflineLaunchCharSnapshot(character || {}),
-    {
-      id: targetCharId,
-      name: String((targetCharacter && targetCharacter.name) || (threadCharacter && threadCharacter.name) || (character && character.name) || (payload && payload.charName) || '').trim(),
-      nickname: String((targetCharacter && targetCharacter.nickname) || (threadCharacter && threadCharacter.nickname) || (character && character.nickname) || (payload && payload.charName) || '').trim()
-    }
-  ) || { id: targetCharId };
-  if(!String(charSnapshot.id || '').trim()) charSnapshot.id = targetCharId;
-  if(!String(charSnapshot.name || '').trim()){
-    charSnapshot.name = String(charSnapshot.nickname || (payload && payload.charName) || 'CHAR').trim() || 'CHAR';
-  }
-  if(!String(charSnapshot.nickname || '').trim() && payload && payload.charName){
-    charSnapshot.nickname = String(payload.charName || '').trim();
-  }
-  if(payload && (!payload.charSnapshot || !String(payload.charSnapshot.id || '').trim())){
+  var charSnapshot = buildOfflineThreadLaunchSnapshot(targetCharId, payload);
+  if(payload){
+    payload.charId = targetCharId;
     payload.charSnapshot = Object.assign({}, charSnapshot || {});
-  }
-  if(payload && !String(payload.charName || '').trim()){
-    payload.charName = String(charSnapshot.nickname || charSnapshot.name || '').trim();
+    payload.charName = String((charSnapshot && (charSnapshot.nickname || charSnapshot.name)) || payload.charName || '').trim();
   }
   primeOfflineLaunchCharacterSnapshot(charSnapshot);
   var history = formatChatForModel(chatLog.slice(-10));
@@ -467,8 +494,10 @@ async function openOfflineSession(payload){
     launchToken: launchToken,
     charId: targetCharId,
     charSnapshot: charSnapshot,
+    threadCharSnapshot: charSnapshot,
     payload: payload,
     chatHistory: history,
+    session: nextSession,
     createdAt: Date.now()
   });
   postToShell({ type:'OPEN_APP_WITH', payload:{ app:'offline', charId: targetCharId, launchMode:'invite', launchToken: launchToken } });
