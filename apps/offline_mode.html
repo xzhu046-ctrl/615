@@ -2231,6 +2231,8 @@ async function ensureOfflineStatusCardForEntry(entry){
         if(normalized){
           entry.statusCard = normalized;
           entry.statusPending = false;
+          entry.statusPendingAt = 0;
+          entry.statusError = '';
           entry.statusFreshAt = Date.now();
           saveSession();
           renderStory();
@@ -2269,6 +2271,8 @@ function queueOfflineStatusCardGeneration(entry, options){
   if(!key || offlineStatusQueue[key]) return;
   var shouldToastOnReady = !opts.silent;
   entry.statusPending = true;
+  entry.statusPendingAt = Date.now();
+  entry.statusError = '';
   entry.statusToastOnReady = shouldToastOnReady;
   saveSession();
   renderStory();
@@ -2278,6 +2282,8 @@ function queueOfflineStatusCardGeneration(entry, options){
   }).catch(function(err){
     console.warn('offline side story generation failed', err);
     entry.statusPending = false;
+    entry.statusPendingAt = 0;
+    entry.statusError = summarizeOfflineError(err);
     entry.statusToastOnReady = false;
     saveSession();
     renderStory();
@@ -3142,7 +3148,7 @@ function renderOfflineInlineTranslationControl(targetEntryIndex, key, closedLabe
   }
   var isOpen = !!(item && item.visible && String(item.text || '').trim());
   var label = item && item.loading ? '译中' : (isOpen ? '收起' : (String(closedLabel || '').trim() || '译'));
-  return '<span class="offline-inline-translate-wrap"><button class="offline-inline-translate-btn' + (isOpen ? ' is-open' : '') + '" type="button" onclick="toggleOfflineInlineTranslation(' + Number(targetEntryIndex) + ',' + quoteJsString(key) + ')"' + ((item && item.loading) ? ' disabled' : '') + '>' + esc(label) + '</button></span>';
+  return '<span class="offline-inline-translate-wrap"><button class="offline-inline-translate-btn' + (isOpen ? ' is-open' : '') + '" type="button" data-entry-index="' + Number(targetEntryIndex) + '" data-translation-key="' + esc(String(key || '')) + '"' + ((item && item.loading) ? ' disabled' : '') + '>' + esc(label) + '</button></span>';
 }
 function renderCharSheetBody(text, asides, entryIndex){
   var body = String(text || '').trim();
@@ -3677,13 +3683,33 @@ function renderOfflineSummary(entry){
 function renderOfflineStatusChip(entry, idx){
   if(!entry || entry.role === 'user') return '';
   var hasStatus = hasOfflineStatusCard(entry);
+  var key = offlineStatusEntryKey(entry);
+  var pendingAge = Math.max(0, Date.now() - (Number(entry.statusPendingAt || 0) || 0));
+  var queueActive = !!(key && offlineStatusQueue[key]);
   if(hasStatus && entry.statusPending){
     entry.statusPending = false;
+    entry.statusPendingAt = 0;
+    entry.statusError = '';
     entry.statusToastOnReady = false;
   }
+  if(!hasStatus && entry.statusPending && !queueActive && pendingAge > 4000){
+    entry.statusPending = false;
+    entry.statusPendingAt = 0;
+    entry.statusError = String(entry.statusError || '番外这次没补写出来').trim() || '番外这次没补写出来';
+  }
+  if(!hasStatus && entry.statusPending && pendingAge > 45000){
+    entry.statusPending = false;
+    entry.statusPendingAt = 0;
+    entry.statusError = '番外补写超时了';
+  }
   var isPending = !!entry.statusPending && !hasStatus;
-  if(!isPending) return '';
-  return '<div class="offline-status-chip pending" aria-live="polite">' + esc(getOfflineSideStoryProfile((entry.statusCard && entry.statusCard.type) || getOfflineUiPrefs().sideStoryType).chip) + '</div>';
+  if(isPending){
+    return '<button class="offline-status-chip pending" type="button" aria-live="polite" data-status-entry-index="' + Number(idx) + '" data-status-action="open">' + esc(getOfflineSideStoryProfile((entry.statusCard && entry.statusCard.type) || getOfflineUiPrefs().sideStoryType).chip) + '</button>';
+  }
+  if(!hasStatus && String(entry.statusError || '').trim()){
+    return '<button class="offline-status-chip" type="button" data-status-entry-index="' + Number(idx) + '" data-status-action="retry">补写番外</button>';
+  }
+  return '';
 }
 function shouldOfferOfflineStatusTranslation(){
   return shouldOfferOfflineTranslation() && getOfflineReplyLanguage() !== 'zh';
@@ -6580,6 +6606,28 @@ window.addEventListener('orientationchange', syncOfflineViewport);
 window.addEventListener('focusin', function(e){
   if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')){
     keepOfflineComposerVisible();
+  }
+});
+document.addEventListener('click', function(evt){
+  var inlineBtn = evt.target && evt.target.closest ? evt.target.closest('.offline-inline-translate-btn[data-entry-index][data-translation-key]') : null;
+  if(inlineBtn){
+    evt.preventDefault();
+    var entryIndex = Number(inlineBtn.getAttribute('data-entry-index'));
+    var translationKey = String(inlineBtn.getAttribute('data-translation-key') || '').trim();
+    if(Number.isInteger(entryIndex) && translationKey){
+      toggleOfflineInlineTranslation(entryIndex, translationKey);
+    }
+    return;
+  }
+  var statusBtn = evt.target && evt.target.closest ? evt.target.closest('.offline-status-chip[data-status-entry-index]') : null;
+  if(statusBtn){
+    evt.preventDefault();
+    var statusIndex = Number(statusBtn.getAttribute('data-status-entry-index'));
+    if(Number.isInteger(statusIndex) && statusIndex >= 0){
+      openOfflineStatusModal(statusIndex).catch(function(err){
+        toast('番外生成失败：' + summarizeOfflineError(err));
+      });
+    }
   }
 });
 window.addEventListener('load', syncOfflineViewport);
