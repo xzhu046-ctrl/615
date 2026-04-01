@@ -6,6 +6,7 @@
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-01T23:03:00Z"></script>
 <script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../promptManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
@@ -714,11 +715,51 @@ var offlineMoodFaces = {
 };
 
 function activeAccountId(){
-  try{ return window.AccountManager && window.AccountManager.getActive ? ((window.AccountManager.getActive() || {}).id || '') : ''; }catch(e){ return ''; }
+  try{
+    var localId = window.AccountManager && window.AccountManager.getActive ? ((window.AccountManager.getActive() || {}).id || '') : '';
+    if(localId) return String(localId);
+  }catch(e){}
+  try{
+    if(window.parent && window.parent !== window && window.parent.AccountManager && window.parent.AccountManager.getActive){
+      return String((window.parent.AccountManager.getActive() || {}).id || '');
+    }
+  }catch(e){}
+  return '';
 }
 function scopedKey(base){
   var accountId = activeAccountId();
   return accountId ? (base + '__acct_' + accountId) : base;
+}
+function archiveStorageApi(){
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.getJson === 'function'){
+      return window.parent.PhoneStorage;
+    }
+  }catch(e){}
+  try{
+    if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
+      return window.PhoneStorage;
+    }
+  }catch(e){}
+  return null;
+}
+function loadArchiveJsonFromStorage(key){
+  var safeKey = String(key || '').trim();
+  var api = archiveStorageApi();
+  if(!safeKey || !api || typeof api.getJson !== 'function') return Promise.resolve(null);
+  return api.getJson(safeKey).catch(function(){ return null; });
+}
+function saveArchiveJsonToStorage(key, data){
+  var safeKey = String(key || '').trim();
+  var api = archiveStorageApi();
+  if(!safeKey || !api || typeof api.putJson !== 'function') return Promise.resolve(false);
+  return api.putJson(safeKey, data).then(function(){ return true; }).catch(function(){ return false; });
+}
+function removeArchiveJsonFromStorage(key){
+  var safeKey = String(key || '').trim();
+  var api = archiveStorageApi();
+  if(!safeKey || !api || typeof api.removeJson !== 'function') return Promise.resolve(false);
+  return api.removeJson(safeKey).then(function(){ return true; }).catch(function(){ return false; });
 }
 function activeCharacterKey(){
   return scopedKey('activeCharacter');
@@ -786,7 +827,7 @@ function loadOfflineArchiveIndexEntries(){
   }catch(e){}
   return [];
 }
-function loadOfflineArchiveRecord(archiveId){
+async function loadOfflineArchiveRecord(archiveId){
   var safeId = String(archiveId || '').trim();
   if(!safeId) return null;
   var candidates = [offlineArchiveRecordKey(safeId), offlineArchiveLegacyRecordKey(safeId)];
@@ -797,6 +838,10 @@ function loadOfflineArchiveRecord(archiveId){
       var parsed = JSON.parse(raw);
       if(parsed && typeof parsed === 'object') return parsed;
     }catch(e){}
+  }
+  for(var j = 0; j < candidates.length; j += 1){
+    var stored = await loadArchiveJsonFromStorage(candidates[j]);
+    if(stored && typeof stored === 'object') return stored;
   }
   return null;
 }
@@ -850,41 +895,86 @@ function buildOfflineArchiveSessionSnapshot(snapshot){
   }) : [];
   return source;
 }
-function loadOfflineArchives(){
+async function loadOfflineArchives(){
   var parsed = loadOfflineArchiveIndexEntries();
-  return parsed.map(function(item){
-    if(!(item && typeof item === 'object')) return null;
-    var safeId = String(item.id || '').trim();
-    if(!safeId) return null;
-    var record = loadOfflineArchiveRecord(safeId);
-    if(record && typeof record === 'object'){
-      return Object.assign({}, item, record, { id: safeId });
+  if(!parsed.length){
+    var storedParsed = await loadArchiveJsonFromStorage(offlineArchiveListKey());
+    if(Array.isArray(storedParsed) && storedParsed.length){
+      parsed = storedParsed;
+    }else{
+      var legacyParsed = await loadArchiveJsonFromStorage(offlineArchiveLegacyListKey());
+      if(Array.isArray(legacyParsed) && legacyParsed.length) parsed = legacyParsed;
     }
+  }
+  return parsed.map(function(item){
     return item;
   }).filter(Boolean);
 }
-function saveOfflineArchives(list){
+async function hydrateOfflineArchives(){
+  var parsed = await loadOfflineArchives();
+  var hydrated = [];
+  for(var i = 0; i < parsed.length; i += 1){
+    var item = parsed[i];
+    if(!(item && typeof item === 'object')) continue;
+    var safeId = String(item.id || '').trim();
+    if(!safeId) continue;
+    var record = await loadOfflineArchiveRecord(safeId);
+    if(record && typeof record === 'object'){
+      hydrated.push(Object.assign({}, item, record, { id: safeId }));
+    }else{
+      hydrated.push(item);
+    }
+  }
+  return hydrated.filter(Boolean);
+}
+async function saveOfflineArchives(list){
   var nextList = Array.isArray(list) ? list.filter(Boolean) : [];
   var previous = loadOfflineArchiveIndexEntries();
   var previousIds = previous.map(function(item){ return String(item && item.id || '').trim(); }).filter(Boolean);
   var nextIds = nextList.map(function(item){ return String(item && item.id || '').trim(); }).filter(Boolean);
+  var safeIndexList = nextList.map(buildOfflineArchiveListEntry);
+  var localSucceeded = false;
   try{
-    localStorage.setItem(offlineArchiveListKey(), JSON.stringify(nextList.map(buildOfflineArchiveListEntry)));
+    localStorage.setItem(offlineArchiveListKey(), JSON.stringify(safeIndexList));
+    localSucceeded = true;
   }catch(e){}
+  var safeRecords = [];
   nextList.forEach(function(entry){
     var safeId = String(entry && entry.id || '').trim();
     if(!safeId) return;
     var safeEntry = Object.assign({}, entry);
     safeEntry.characterSnapshot = buildOfflineArchiveCharacterSnapshot(safeEntry.characterSnapshot || {}) || safeEntry.characterSnapshot || null;
     safeEntry.snapshot = buildOfflineArchiveSessionSnapshot(safeEntry.snapshot);
-    var serialized = JSON.stringify(safeEntry);
-    try{ localStorage.setItem(offlineArchiveRecordKey(safeId), serialized); }catch(e){}
+    safeRecords.push({ id:safeId, entry:safeEntry, serialized:JSON.stringify(safeEntry) });
+    try{
+      localStorage.setItem(offlineArchiveRecordKey(safeId), safeRecords[safeRecords.length - 1].serialized);
+      localSucceeded = true;
+    }catch(e){}
   });
   previousIds.forEach(function(id){
     if(nextIds.indexOf(id) !== -1) return;
     try{ localStorage.removeItem(offlineArchiveRecordKey(id)); }catch(e){}
     try{ localStorage.removeItem(offlineArchiveLegacyRecordKey(id)); }catch(e){}
   });
+  var remoteSucceeded = false;
+  if(await saveArchiveJsonToStorage(offlineArchiveListKey(), safeIndexList)){
+    remoteSucceeded = true;
+  }
+  for(var i = 0; i < safeRecords.length; i += 1){
+    var record = safeRecords[i];
+    if(await saveArchiveJsonToStorage(offlineArchiveRecordKey(record.id), record.entry)){
+      remoteSucceeded = true;
+    }
+  }
+  for(var j = 0; j < previousIds.length; j += 1){
+    var prevId = previousIds[j];
+    if(nextIds.indexOf(prevId) !== -1) continue;
+    await removeArchiveJsonFromStorage(offlineArchiveRecordKey(prevId));
+    await removeArchiveJsonFromStorage(offlineArchiveLegacyRecordKey(prevId));
+  }
+  if(!localSucceeded && !remoteSucceeded){
+    throw new Error('archive persistence failed');
+  }
 }
 function snapshotOfflineSessionState(source){
   var base = source || session || null;
@@ -933,10 +1023,10 @@ function buildOfflineArchivePreview(snapshot){
   }
   return '这次约会还没有写下太多内容。';
 }
-function upsertOfflineArchive(snapshot, options){
+async function upsertOfflineArchive(snapshot, options){
   if(!snapshot || !character || !character.id) return '';
   var opts = options || {};
-  var list = loadOfflineArchives();
+  var list = await hydrateOfflineArchives();
   var now = Date.now();
   var archiveId = String(opts.archiveId || snapshot.archiveId || ('offline_archive_' + now + '_' + Math.random().toString(36).slice(2, 8)));
   var existingIndex = list.findIndex(function(item){ return item && item.id === archiveId; });
@@ -969,7 +1059,7 @@ function upsertOfflineArchive(snapshot, options){
   }
   if(existingIndex >= 0) list.splice(existingIndex, 1);
   list.unshift(entry);
-  saveOfflineArchives(list);
+  await saveOfflineArchives(list);
   return archiveId;
 }
 async function queueOfflineEndArtifacts(targetCharId, snapshot){
@@ -1136,11 +1226,11 @@ function persistOfflineResumeSnapshot(targetCharId, snapshot){
   try{ localStorage.setItem(pendingOfflineResumeKey(safeId), payload); }catch(e){}
   try{ localStorage.setItem('offline_resume_' + safeId, payload); }catch(e){}
 }
-function syncCurrentSessionToArchive(status, reason){
+async function syncCurrentSessionToArchive(status, reason){
   if(!session || !character || !character.id) return '';
   var snapshot = snapshotOfflineSessionState(session);
   if(!hasMeaningfulOfflineSession(snapshot)) return '';
-  var archiveId = upsertOfflineArchive(snapshot, {
+  var archiveId = await upsertOfflineArchive(snapshot, {
     status: status || 'pending',
     reason: reason || 'autosave',
     archiveId: snapshot && snapshot.archiveId
@@ -1158,7 +1248,7 @@ async function archiveCurrentOfflineMeet(status, reason){
   if(!hasMeaningfulOfflineSession(snapshot)) return '';
   archivingOfflineMeet = true;
   try{
-    var archiveId = upsertOfflineArchive(snapshot, {
+    var archiveId = await upsertOfflineArchive(snapshot, {
       status: status,
       reason: reason,
       archiveId: snapshot && snapshot.archiveId
@@ -1189,15 +1279,16 @@ function autoArchiveOfflineMeetIfNeeded(reason){
   persistOfflineResumeSnapshot(character.id, snapshot);
   if(sending || offlineStatusGenerating || session.pendingOpening || session.pendingAnimation){
     try{
-      var archiveId = upsertOfflineArchive(snapshot, {
+      upsertOfflineArchive(snapshot, {
         status: 'pending',
         reason: reason || 'interrupted',
         archiveId: snapshot && snapshot.archiveId
-      });
-      if(archiveId){
-        session.archiveId = archiveId;
-        saveSession();
-      }
+      }).then(function(archiveId){
+        if(archiveId){
+          session.archiveId = archiveId;
+          saveSession();
+        }
+      }).catch(function(){});
     }catch(e){}
     return;
   }
@@ -5897,7 +5988,15 @@ async function exitOfflineMeet(){
     }, 120);
     return;
   }
-  await archiveCurrentOfflineMeet('ended', 'goodbye');
+  try{
+    await archiveCurrentOfflineMeet('ended', 'goodbye');
+  }catch(err){
+    toast('退出失败：这次约会还没存进档案馆');
+    exitingOfflineMeet = false;
+    offlineCloseIntent = '';
+    setExitMenuBusy(false);
+    return;
+  }
   try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
   window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*');
   setTimeout(function(){
@@ -5922,7 +6021,11 @@ async function minimizeOfflineMeet(){
       saveSession();
       await archiveCurrentOfflineMeet('pending', 'minimized');
     }
-  }catch(e){}
+  }catch(e){
+    offlineCloseIntent = '';
+    toast('暂时退出失败：还没成功存进档案馆');
+    return;
+  }
   try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
   window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*');
 }

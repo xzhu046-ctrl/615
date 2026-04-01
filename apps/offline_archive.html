@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover">
 <title>档案馆</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
-<script src="../accountManager.js"></script>
+<script src="../chatStorage.js?v=2026-04-01T23:03:00Z"></script>
+<script src="../accountManager.js?v=2026-04-01T23:03:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--b:#0a0a0a;--w:#fff;--off:#f6f6f3;--g:#6b6b6b;--bd:2px solid #0a0a0a;--sh:2px 2px 0 #0a0a0a;--font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif}
@@ -125,11 +126,51 @@ var selectedArchiveIds = [];
 var archiveLongPressTimer = null;
 
 function activeAccountId(){
-  try{ return window.AccountManager && window.AccountManager.getActive ? ((window.AccountManager.getActive() || {}).id || '') : ''; }catch(e){ return ''; }
+  try{
+    var localId = window.AccountManager && window.AccountManager.getActive ? ((window.AccountManager.getActive() || {}).id || '') : '';
+    if(localId) return String(localId);
+  }catch(e){}
+  try{
+    if(window.parent && window.parent !== window && window.parent.AccountManager && window.parent.AccountManager.getActive){
+      return String((window.parent.AccountManager.getActive() || {}).id || '');
+    }
+  }catch(e){}
+  return '';
 }
 function scopedKey(base){
   var accountId = activeAccountId();
   return accountId ? (base + '__acct_' + accountId) : base;
+}
+function archiveStorageApi(){
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.getJson === 'function'){
+      return window.parent.PhoneStorage;
+    }
+  }catch(e){}
+  try{
+    if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
+      return window.PhoneStorage;
+    }
+  }catch(e){}
+  return null;
+}
+function loadArchiveJsonFromStorage(key){
+  var safeKey = String(key || '').trim();
+  var api = archiveStorageApi();
+  if(!safeKey || !api || typeof api.getJson !== 'function') return Promise.resolve(null);
+  return api.getJson(safeKey).catch(function(){ return null; });
+}
+function saveArchiveJsonToStorage(key, data){
+  var safeKey = String(key || '').trim();
+  var api = archiveStorageApi();
+  if(!safeKey || !api || typeof api.putJson !== 'function') return Promise.resolve(false);
+  return api.putJson(safeKey, data).then(function(){ return true; }).catch(function(){ return false; });
+}
+function removeArchiveJsonFromStorage(key){
+  var safeKey = String(key || '').trim();
+  var api = archiveStorageApi();
+  if(!safeKey || !api || typeof api.removeJson !== 'function') return Promise.resolve(false);
+  return api.removeJson(safeKey).then(function(){ return true; }).catch(function(){ return false; });
 }
 function activeCharacterKey(){
   return scopedKey('activeCharacter');
@@ -188,7 +229,7 @@ function loadArchiveIndexEntries(){
   }catch(e){}
   return [];
 }
-function loadArchiveRecord(archiveId){
+async function loadArchiveRecord(archiveId){
   var safeId = String(archiveId || '').trim();
   if(!safeId) return null;
   var candidates = [offlineArchiveRecordKey(safeId), offlineArchiveLegacyRecordKey(safeId)];
@@ -199,6 +240,10 @@ function loadArchiveRecord(archiveId){
       var parsed = JSON.parse(raw);
       if(parsed && typeof parsed === 'object') return parsed;
     }catch(e){}
+  }
+  for(var j = 0; j < candidates.length; j += 1){
+    var stored = await loadArchiveJsonFromStorage(candidates[j]);
+    if(stored && typeof stored === 'object') return stored;
   }
   return null;
 }
@@ -282,38 +327,78 @@ function formatTime(ts){
   var d = new Date(value);
   return d.getFullYear() + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + String(d.getDate()).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
-function loadArchives(){
+async function loadArchives(){
   var parsed = loadArchiveIndexEntries();
-  archives = parsed.map(function(item){
-    if(!(item && typeof item === 'object')) return null;
-    var safeId = String(item.id || '').trim();
-    if(!safeId) return null;
-    var record = loadArchiveRecord(safeId);
-    if(record && typeof record === 'object'){
-      return Object.assign({}, item, record, { id: safeId });
+  if(!parsed.length){
+    var storedParsed = await loadArchiveJsonFromStorage(offlineArchiveListKey());
+    if(Array.isArray(storedParsed) && storedParsed.length){
+      parsed = storedParsed;
+    }else{
+      var legacyParsed = await loadArchiveJsonFromStorage(offlineArchiveLegacyListKey());
+      if(Array.isArray(legacyParsed) && legacyParsed.length) parsed = legacyParsed;
     }
-    return item;
-  }).filter(Boolean);
+  }
+  var nextArchives = [];
+  for(var i = 0; i < parsed.length; i += 1){
+    var item = parsed[i];
+    if(!(item && typeof item === 'object')) continue;
+    var safeId = String(item.id || '').trim();
+    if(!safeId) continue;
+    var record = await loadArchiveRecord(safeId);
+    if(record && typeof record === 'object'){
+      nextArchives.push(Object.assign({}, item, record, { id: safeId }));
+    }else{
+      nextArchives.push(item);
+    }
+  }
+  archives = nextArchives.filter(Boolean);
 }
-function saveArchives(){
+async function saveArchives(){
   var nextList = Array.isArray(archives) ? archives.filter(Boolean) : [];
   var previous = loadArchiveIndexEntries();
   var previousIds = previous.map(function(item){ return String(item && item.id || '').trim(); }).filter(Boolean);
   var nextIds = nextList.map(function(item){ return String(item && item.id || '').trim(); }).filter(Boolean);
-  try{ localStorage.setItem(offlineArchiveListKey(), JSON.stringify(nextList.map(buildArchiveListEntry))); }catch(e){}
+  var safeIndexList = nextList.map(buildArchiveListEntry);
+  var localSucceeded = false;
+  try{
+    localStorage.setItem(offlineArchiveListKey(), JSON.stringify(safeIndexList));
+    localSucceeded = true;
+  }catch(e){}
+  var safeRecords = [];
   nextList.forEach(function(entry){
     var safeId = String(entry && entry.id || '').trim();
     if(!safeId) return;
     var safeEntry = Object.assign({}, entry);
     safeEntry.characterSnapshot = buildArchiveCharacterSnapshot(safeEntry.characterSnapshot || {}) || safeEntry.characterSnapshot || null;
     safeEntry.snapshot = buildArchiveSessionSnapshot(safeEntry.snapshot);
-    try{ localStorage.setItem(offlineArchiveRecordKey(safeId), JSON.stringify(safeEntry)); }catch(e){}
+    safeRecords.push({ id:safeId, entry:safeEntry, serialized:JSON.stringify(safeEntry) });
+    try{
+      localStorage.setItem(offlineArchiveRecordKey(safeId), safeRecords[safeRecords.length - 1].serialized);
+      localSucceeded = true;
+    }catch(e){}
   });
   previousIds.forEach(function(id){
     if(nextIds.indexOf(id) !== -1) return;
     try{ localStorage.removeItem(offlineArchiveRecordKey(id)); }catch(e){}
     try{ localStorage.removeItem(offlineArchiveLegacyRecordKey(id)); }catch(e){}
   });
+  var remoteSucceeded = false;
+  if(await saveArchiveJsonToStorage(offlineArchiveListKey(), safeIndexList)){
+    remoteSucceeded = true;
+  }
+  for(var i = 0; i < safeRecords.length; i += 1){
+    var record = safeRecords[i];
+    if(await saveArchiveJsonToStorage(offlineArchiveRecordKey(record.id), record.entry)){
+      remoteSucceeded = true;
+    }
+  }
+  for(var j = 0; j < previousIds.length; j += 1){
+    var prevId = previousIds[j];
+    if(nextIds.indexOf(prevId) !== -1) continue;
+    await removeArchiveJsonFromStorage(offlineArchiveRecordKey(prevId));
+    await removeArchiveJsonFromStorage(offlineArchiveLegacyRecordKey(prevId));
+  }
+  return localSucceeded || remoteSucceeded;
 }
 function summarizeOfflineMemoryLocally(snapshot){
   var list = Array.isArray(snapshot && snapshot.entries) ? snapshot.entries : [];
@@ -476,14 +561,14 @@ function confirmArchiveDelete(){
   if(!selectedArchiveIds.length) return;
   var removeSet = new Set(selectedArchiveIds.slice());
   archives = archives.filter(function(item){ return item && !removeSet.has(String(item.id || '')); });
-  saveArchives();
+  saveArchives().catch(function(){});
   selectedArchiveIds = [];
   archiveSelectMode = false;
   closeArchiveDeleteConfirm();
   closeArchiveModal();
   renderFolders();
 }
-function markArchiveEnded(entry){
+async function markArchiveEnded(entry){
   if(!entry || !entry.charId) return;
   try{
     localStorage.setItem(pendingOfflineNoticeKey(entry.charId), JSON.stringify({
@@ -511,7 +596,7 @@ function markArchiveEnded(entry){
     entry.snapshot.minimized = false;
     entry.snapshot.archiveId = entry.id;
   }
-  saveArchives();
+  await saveArchives();
 }
 function continueArchiveDate(){
   var entry = getArchiveById(activeArchiveId);
@@ -566,34 +651,35 @@ function continueArchiveDate(){
   }catch(e){}
   entry.updatedAt = Date.now();
   entry.snapshot = sessionSnapshot;
-  saveArchives();
+  saveArchives().catch(function(){});
   try{ window.parent.postMessage({ type:'SET_ACTIVE_CHARACTER', payload: charSnapshot }, '*'); }catch(e){}
   try{ window.parent.postMessage({ type:'OPEN_APP_WITH', payload:{ app:'offline', charId:String(entry.charId), launchMode:'resume', launchToken: launchToken } }, '*'); }catch(e){}
 }
-function endArchiveDate(){
+async function endArchiveDate(){
   var entry = getArchiveById(activeArchiveId);
   if(!entry) return;
-  markArchiveEnded(entry);
+  await markArchiveEnded(entry);
   closeArchiveModal();
   renderFolders();
   try{ window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*'); }catch(e){}
 }
+async function refreshArchivesView(closeModal){
+  await loadArchives();
+  renderFolders();
+  if(closeModal) closeArchiveModal();
+}
 window.addEventListener('message', function(e){
   var data = e.data || {};
   if(data.type === 'ACCOUNT_CHANGED' || data.type === 'CHARACTER_IMPORTED'){
-    loadArchives();
-    renderFolders();
-    closeArchiveModal();
+    refreshArchivesView(true).catch(function(){});
   }
 });
 window.addEventListener('pageshow', function(){
-  loadArchives();
-  renderFolders();
+  refreshArchivesView(false).catch(function(){});
 });
 document.addEventListener('visibilitychange', function(){
   if(document.hidden) return;
-  loadArchives();
-  renderFolders();
+  refreshArchivesView(false).catch(function(){});
 });
 document.addEventListener('click', function(e){
   if(archiveSelectMode){
@@ -604,8 +690,7 @@ document.addEventListener('click', function(e){
     }
   }
 });
-loadArchives();
-renderFolders();
+refreshArchivesView(false).catch(function(){});
 </script>
 </body>
 </html>
