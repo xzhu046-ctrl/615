@@ -364,17 +364,18 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-story-translate-btn.is-open{background:#161616;color:#fff}
 .offline-story-translate-btn:disabled{opacity:.58;cursor:default}
 .offline-story-translate-btn:active{transform:translateY(1px)}
-.offline-inline-translate-wrap{display:inline-flex;flex-direction:column;align-items:flex-start;gap:8px;vertical-align:middle;margin-left:10px;margin-top:4px;max-width:min(78vw,268px)}
-.offline-inline-translate-btn{min-width:34px;height:28px;padding:0 10px;border:1.5px solid rgba(18,18,18,.82);border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;box-shadow:1px 1px 0 rgba(0,0,0,.18);cursor:pointer;flex:0 0 auto}
+.offline-inline-translate-wrap{display:inline-block;position:relative;vertical-align:baseline;margin-left:8px;line-height:1}
+.offline-inline-translate-btn{min-width:34px;height:27px;padding:0 10px;border:1.5px solid rgba(18,18,18,.88);border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;box-shadow:1px 1px 0 rgba(0,0,0,.18);cursor:pointer;vertical-align:baseline}
 .offline-inline-translate-btn.is-open{background:#111;color:#fff}
 .offline-inline-translate-btn:disabled{opacity:.58;cursor:default}
 .offline-inline-translate-btn:active{transform:translateY(1px);box-shadow:0 0 0}
-.offline-inline-translation-card{width:min(100%,248px);min-width:168px;max-width:min(72vw,248px);padding:10px 11px 9px;border:2px solid #111;border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.995),rgba(243,243,240,.97));box-shadow:3px 3px 0 rgba(0,0,0,.14),0 0 0 1px rgba(255,255,255,.84) inset}
-.offline-inline-translation-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}
-.offline-inline-translation-pill{display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:0 9px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
-.offline-inline-translation-sub{font-size:10px;font-weight:800;color:#666;letter-spacing:.08em;text-transform:uppercase}
-.offline-inline-translation-body{padding-top:8px;border-top:2px dashed rgba(17,17,17,.24);font-size:12px;font-weight:700;line-height:1.74;color:#111;white-space:pre-wrap;word-break:break-word}
-.offline-inline-aside-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:10px}
+.offline-inline-translation-card{position:absolute;right:0;top:calc(100% + 10px);z-index:8;width:min(248px,calc(100vw - 88px));padding:11px 12px 10px;border:1.5px solid #111;border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.995),rgba(244,244,241,.98));box-shadow:0 12px 24px rgba(0,0,0,.12),2px 2px 0 rgba(0,0,0,.14),0 0 0 1px rgba(255,255,255,.86) inset}
+.offline-inline-translation-card::before{content:'';position:absolute;right:12px;top:-8px;width:14px;height:14px;border-top:1.5px solid #111;border-left:1.5px solid #111;background:rgba(255,255,255,.99);transform:rotate(45deg)}
+.offline-inline-translation-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px;position:relative;z-index:1}
+.offline-inline-translation-pill{display:inline-flex;align-items:center;justify-content:center;min-height:20px;padding:0 8px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:8px;font-weight:900;letter-spacing:.14em;text-transform:uppercase}
+.offline-inline-translation-sub{font-size:9px;font-weight:800;color:#7a7a7a;letter-spacing:.1em;text-transform:uppercase}
+.offline-inline-translation-body{position:relative;z-index:1;padding-top:8px;border-top:1px solid rgba(17,17,17,.16);font-size:12px;font-weight:700;line-height:1.8;color:#111;white-space:pre-wrap;word-break:break-word}
+.offline-inline-aside-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:10px;position:relative}
 .offline-edit-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:130;background:rgba(255,255,255,.22);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);padding:20px}
 .offline-edit-overlay.open{display:flex}
 .offline-edit-card{width:min(340px,calc(100vw - 28px));border:2px solid #1f1f1f;border-radius:30px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(244,244,241,.95));box-shadow:0 0 0 1px rgba(255,255,255,.95) inset,0 16px 36px rgba(0,0,0,.12);padding:18px 18px 16px;display:flex;flex-direction:column;gap:14px}
@@ -2721,6 +2722,29 @@ function extractOfflineQuotedSpeechTexts(sourceText){
     return stripOfflineQuoteMarks(part);
   }).filter(Boolean);
 }
+function hashOfflineInlineSource(text){
+  var input = String(text || '');
+  var hash = 2166136261;
+  for(var i = 0; i < input.length; i += 1){
+    hash ^= input.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return String((hash >>> 0).toString(36));
+}
+function buildOfflineInlineTranslationKey(kind, sourceText, index){
+  var safeKind = String(kind || '').trim() === 'aside' ? 'aside' : 'quote';
+  var safeIndex = Math.max(0, Number(index) || 0);
+  var safeText = String(sourceText || '').trim();
+  return safeKind + ':' + String(safeIndex) + ':' + hashOfflineInlineSource(safeText);
+}
+function parseOfflineInlineTranslationKey(key){
+  var parts = String(key || '').trim().split(':');
+  return {
+    kind: String(parts[0] || '').trim() === 'aside' ? 'aside' : 'quote',
+    index: Math.max(0, Number(parts[1]) || 0),
+    fingerprint: String(parts[2] || '').trim()
+  };
+}
 function normalizeOfflineInlineTranslationItem(source){
   if(!(source && typeof source === 'object')) return null;
   var text = String(source.text || '').trim();
@@ -2753,9 +2777,9 @@ function getOfflineInlineSource(entry, key){
   if(!entry) return '';
   var safeKey = String(key || '').trim();
   if(!safeKey) return '';
-  var partsKey = safeKey.split(':');
-  var kind = String(partsKey[0] || '').trim();
-  var index = Math.max(0, Number(partsKey[1]) || 0);
+  var parsedKey = parseOfflineInlineTranslationKey(safeKey);
+  var kind = parsedKey.kind;
+  var index = parsedKey.index;
   if(kind === 'aside'){
     return Array.isArray(entry.asides) ? String(entry.asides[index] || '').trim() : '';
   }
@@ -2785,23 +2809,25 @@ function requestOfflineInlineTranslation(entryIndex, key, options){
   if(!String(sourceText || '').trim()) return;
   var store = ensureOfflineInlineTranslationStore(entry);
   var current = normalizeOfflineInlineTranslationItem(store.items[safeKey]) || {};
+  var parsedKey = parseOfflineInlineTranslationKey(safeKey);
   store.loadingKey = safeKey;
   store.items[safeKey] = Object.assign({}, current, {
     visible: opts.showOnReady !== false,
     loading: true,
     sourceText: String(sourceText || '').trim(),
-    kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
+    kind: parsedKey.kind
   });
   saveSession();
   renderStory();
   var systemPrompt = [
     '你是翻译器。',
     '请把下面这句角色原文翻译成自然流畅的简体中文。',
+    '只翻译当前这一句，不要参考别句，不要复用上一句译文。',
     '只返回纯译文，不要解释，不要原文，不要括号前后缀，不要代码块。'
   ].join('\n');
   var userPrompt = JSON.stringify({
     sourceLanguage: getReplyLanguageOption(getOfflineReplyLanguage()).nativeLabel,
-    kind: safeKey.indexOf('aside:') === 0 ? '蓝字心声' : '角色台词',
+    kind: parsedKey.kind === 'aside' ? '蓝字心声' : '角色台词',
     text: String(sourceText || '').trim()
   });
   callAI(systemPrompt, userPrompt).then(function(raw){
@@ -2818,7 +2844,7 @@ function requestOfflineInlineTranslation(entryIndex, key, options){
       loading: false,
       sourceLanguage: getOfflineReplyLanguage(),
       sourceText: String(sourceText || '').trim(),
-      kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
+      kind: parsedKey.kind
     };
     saveSession();
     renderStory();
@@ -2832,7 +2858,7 @@ function requestOfflineInlineTranslation(entryIndex, key, options){
       visible: false,
       loading: false,
       sourceText: String(sourceText || '').trim(),
-      kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
+      kind: parsedKey.kind
     });
     saveSession();
     renderStory();
@@ -2845,8 +2871,14 @@ function toggleOfflineInlineTranslation(entryIndex, key){
   var entry = Number.isInteger(safeIndex) && safeIndex >= 0 ? session.entries[safeIndex] : null;
   var safeKey = String(key || '').trim();
   if(!entry || !safeKey || !shouldOfferOfflineTranslation()) return;
+  var currentSourceText = getOfflineInlineSource(entry, safeKey);
+  if(!String(currentSourceText || '').trim()) return;
   var store = ensureOfflineInlineTranslationStore(entry);
   var item = normalizeOfflineInlineTranslationItem(store.items[safeKey]);
+  if(item && String(item.sourceText || '').trim() !== String(currentSourceText || '').trim()){
+    delete store.items[safeKey];
+    item = null;
+  }
   if(!(item && String(item.text || '').trim())){
     requestOfflineInlineTranslation(safeIndex, safeKey);
     return;
@@ -2861,8 +2893,12 @@ function queueOfflineInlineTranslationsPrefetch(entry){
   if(!entry || entry.role === 'user' || !shouldPrefetchOfflineTranslations()) return;
   var entryIndex = Array.isArray(session && session.entries) ? session.entries.indexOf(entry) : -1;
   if(entryIndex < 0) return;
-  var keys = extractOfflineQuotedSegments(String(entry.text || '')).map(function(_, idx){ return 'quote:' + String(idx); })
-    .concat((Array.isArray(entry.asides) ? entry.asides : []).map(function(_, idx){ return 'aside:' + String(idx); }))
+  var keys = extractOfflineQuotedSegments(String(entry.text || '')).map(function(part, idx){
+      return buildOfflineInlineTranslationKey('quote', stripOfflineQuoteMarks(part), idx);
+    })
+    .concat((Array.isArray(entry.asides) ? entry.asides : []).map(function(part, idx){
+      return buildOfflineInlineTranslationKey('aside', part, idx);
+    }))
     .slice(0, 6);
   var store = ensureOfflineInlineTranslationStore(entry);
   keys.forEach(function(key){
@@ -2880,6 +2916,10 @@ function renderOfflineInlineTranslationControl(targetEntryIndex, key){
   if(!String(sourceText || '').trim()) return '';
   var store = ensureOfflineInlineTranslationStore(entry);
   var item = normalizeOfflineInlineTranslationItem(store.items[key]);
+  if(item && String(item.sourceText || '').trim() !== String(sourceText || '').trim()){
+    delete store.items[key];
+    item = null;
+  }
   var isOpen = !!(item && item.visible && String(item.text || '').trim());
   var label = item && item.loading ? '译中' : (isOpen ? '收起' : '译');
   return '<span class="offline-inline-translate-wrap"><button class="offline-inline-translate-btn' + (isOpen ? ' is-open' : '') + '" type="button" onclick="toggleOfflineInlineTranslation(' + Number(targetEntryIndex) + ',' + quoteJsString(key) + ')"' + ((item && item.loading) ? ' disabled' : '') + '>' + esc(label) + '</button>' + (isOpen ? renderOfflineInlineTranslationCard(item) : '') + '</span>';
@@ -2918,7 +2958,9 @@ function renderCharSheetBody(text, asides, entryIndex){
       if(match.index > lastIndex){
         htmlParts.push(esc(source.slice(lastIndex, match.index)));
       }
-      htmlParts.push('<span class="sheet-quote-inline">' + esc(match[0]) + '</span>' + renderOfflineInlineTranslationControl(targetEntryIndex, 'quote:' + String(quoteIndex)));
+      var quoteSource = stripOfflineQuoteMarks(match[0]);
+      var quoteKey = buildOfflineInlineTranslationKey('quote', quoteSource, quoteIndex);
+      htmlParts.push('<span class="sheet-quote-inline">' + esc(match[0]) + '</span>' + renderOfflineInlineTranslationControl(targetEntryIndex, quoteKey));
       lastIndex = match.index + match[0].length;
       quoteIndex += 1;
     }
@@ -2936,7 +2978,8 @@ function renderCharSheetBody(text, asides, entryIndex){
     html += '<p>' + renderQuotedInline(trimmedPart, entryIndex) + '</p>';
     insertSlots.forEach(function(slot, noteIdx){
       if(idx === slot && notes[noteIdx]){
-        html += '<div class="offline-inline-aside-wrap"><p class="char-sheet-aside">' + esc(notes[noteIdx]) + renderOfflineInlineTranslationControl(entryIndex, 'aside:' + String(noteIdx)) + '</p></div>';
+        var asideKey = buildOfflineInlineTranslationKey('aside', notes[noteIdx], noteIdx);
+        html += '<div class="offline-inline-aside-wrap"><p class="char-sheet-aside">' + esc(notes[noteIdx]) + renderOfflineInlineTranslationControl(entryIndex, asideKey) + '</p></div>';
       }
     });
   });
@@ -3675,9 +3718,7 @@ function buildOfflineSpeechFallbackLine(){
 }
 function ensureOfflineSpeechPresence(text){
   var body = String(text || '').trim();
-  if(!body) return buildOfflineSpeechFallbackLine();
-  if(hasOfflineSpeechQuote(body)) return body;
-  return (body + '\n\n' + buildOfflineSpeechFallbackLine()).trim();
+  return body;
 }
 function violatesOfflinePerspective(text, perspective){
   var body = stripOfflineQuotedSpeech(text);
@@ -3769,6 +3810,79 @@ function normalizeOfflineAsides(raw){
   list = list.map(function(it){ return String(it || '').trim(); }).filter(Boolean);
   if(!list.length) list = buildOfflineAsideFallback();
   return list.slice(0, 2);
+}
+function collectOfflineBodyValidationIssues(payload, options){
+  var opts = options || {};
+  var reasons = [];
+  if(!(payload && typeof payload === 'object')) return ['正文结构不完整'];
+  var text = String(payload.text || '').trim();
+  var title = String(payload.title || '').trim();
+  var quote = String(payload.quote || '').trim();
+  if(!text) reasons.push('正文为空');
+  if(!title) reasons.push('标题为空');
+  if(!quote) reasons.push('顶部语录为空');
+  if(Number(opts.minChars) > 0 && openingTextLength(text) < Number(opts.minChars)){
+    reasons.push('正文长度不足');
+  }
+  if(opts.perspective && violatesOfflinePerspective(text, opts.perspective)){
+    reasons.push('视角不对');
+  }
+  if(violatesOfflineBodyDisplayLanguage({ title:title, quote:quote, text:text })){
+    reasons.push('中文旁白或标题语录混入外语');
+  }
+  if(violatesOfflineTargetLanguagePayload({ text:text, asides:payload.asides })){
+    reasons.push('心声或引号台词没有按角色语言输出');
+  }
+  var bodyTexts = [text, title, quote].concat(Array.isArray(payload.asides) ? payload.asides : []);
+  if(bodyTexts.some(function(part){ return containsOfflineStyleViolation(part); })){
+    reasons.push('踩中了禁用文风');
+  }
+  if(opts.requireSpeech && !hasOfflineSpeechQuote(text)){
+    reasons.push('正文缺少引号台词');
+  }
+  return reasons;
+}
+async function repairOfflineBodyPayload(draft, options){
+  var source = draft && typeof draft === 'object' ? draft : {};
+  var opts = options || {};
+  if(!String(source.text || '').trim()) return null;
+  var lang = getOfflineReplyLanguage();
+  var langOption = getReplyLanguageOption(lang);
+  var systemPrompt = [
+    '你是“线下正文修正文案器”。',
+    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."]}。',
+    '不要解释，不要代码块，不要 thought_chain，不要 status_card。',
+    '保持原草稿这幕的情境、关系、推进和情绪，不要重写成另一场戏。',
+    'title 与 quote 必须是简体中文。',
+    '正文旁白、动作、环境描写必须是简体中文。',
+    lang && lang !== 'zh'
+      ? ('只有蓝字心声 asides 和引号里的角色台词使用' + (langOption.nativeLabel || langOption.label || lang) + '原文。')
+      : '蓝字心声和引号里的角色台词默认使用简体中文。',
+    '正文里必须至少保留 1 句角色真正说出口的引号台词。',
+    '不要使用占位句，不要写 fallback，不要偷懒写成模板句。'
+  ].join('\n');
+  var userPrompt = JSON.stringify({
+    task: opts.opening ? '修正线下首幕正文' : '修正线下续写正文',
+    issues: Array.isArray(opts.issues) ? opts.issues : [],
+    minChars: Math.max(0, Number(opts.minChars) || 0),
+    perspective: getOfflineStoryPerspectiveLabel(opts.perspective || getOfflineStoryPrefs().perspective),
+    context: String(opts.context || '').trim(),
+    draft: {
+      title: String(source.title || '').trim(),
+      quote: String(source.quote || '').trim(),
+      text: String(source.text || '').trim(),
+      asides: Array.isArray(source.asides) ? source.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : []
+    }
+  });
+  var raw = await callAIWithTimeout(systemPrompt, userPrompt, Math.min(isMobileOfflineRuntime() ? 65000 : 50000, Number(opts.timeoutMs) || 50000));
+  var parsed = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(raw) || {});
+  if(!hasValidOfflineBodyPayload(parsed)) return null;
+  return {
+    title: String(parsed.title || '').trim(),
+    quote: String(parsed.quote || '').trim(),
+    text: String(parsed.text || '').trim(),
+    asides: normalizeOfflineAsides(parsed.asides)
+  };
 }
 function memorySummaryStorageKey(charId){
   return scopedKey('memory_summaries_' + String(charId || '').trim());
@@ -4790,15 +4904,17 @@ function getOfflineOpeningAttemptPlan(){
     return {
       mainTimeout: 90000,
       continueTimeout: 45000,
-      attempts: 2,
-      extendAttempts: 1
+      repairTimeout: 50000,
+      attempts: 3,
+      extendAttempts: 2
     };
   }
   return {
     mainTimeout: 70000,
     continueTimeout: 35000,
-    attempts: 2,
-    extendAttempts: 1
+    repairTimeout: 42000,
+    attempts: 3,
+    extendAttempts: 2
   };
 }
 function getOfflineReplyTimeoutMs(){
@@ -5103,6 +5219,7 @@ async function generateOpeningIfNeeded(){
   var lastError = null;
   var bestText = '';
   var bestAsides = [];
+  var bestDraft = null;
   try{
     var openingStartedAt = Date.now();
     var openingContext = [
@@ -5123,6 +5240,12 @@ async function generateOpeningIfNeeded(){
         openingAsides = normalizeOfflineAsides(fastCombinedObj.asides);
         bestText = openingText;
         bestAsides = openingAsides.slice();
+        bestDraft = {
+          title: openingTitle,
+          quote: openingQuote,
+          text: openingText,
+          asides: openingAsides.slice()
+        };
       }
     }catch(fastCombinedErr){
       lastError = fastCombinedErr;
@@ -5141,6 +5264,12 @@ async function generateOpeningIfNeeded(){
         if(openingTextLength(openingText) > openingTextLength(bestText)){
           bestText = openingText;
           bestAsides = openingAsides.slice();
+          bestDraft = {
+            title: openingTitle,
+            quote: openingQuote,
+            text: openingText,
+            asides: openingAsides.slice()
+          };
         }
         for(var extendAttempt = 0; extendAttempt < plan.extendAttempts; extendAttempt += 1){
           if(openingTextLength(openingText) >= minChars) break;
@@ -5164,6 +5293,12 @@ async function generateOpeningIfNeeded(){
             if(openingTextLength(openingText) > openingTextLength(bestText)){
               bestText = openingText;
               bestAsides = openingAsides.slice();
+              bestDraft = {
+                title: openingTitle,
+                quote: openingQuote,
+                text: openingText,
+                asides: openingAsides.slice()
+              };
             }
           }catch(continueErr){
             lastError = continueErr;
@@ -5188,6 +5323,12 @@ async function generateOpeningIfNeeded(){
           openingQuote = String(combinedObj.quote || '').trim();
           openingText = ensureOfflineSpeechPresence(String(combinedObj.text || '').trim());
           openingAsides = normalizeOfflineAsides(combinedObj.asides);
+          bestDraft = {
+            title: openingTitle,
+            quote: openingQuote,
+            text: openingText,
+            asides: openingAsides.slice()
+          };
         }
       }catch(combinedErr){
         lastError = combinedErr;
@@ -5197,23 +5338,57 @@ async function generateOpeningIfNeeded(){
       openingText = bestText;
       openingAsides = bestAsides.slice();
     }
-    var openingInvalid = violatesOfflinePerspective(openingText, storyPrefs.perspective)
-      || violatesOfflineBodyDisplayLanguage({ title: openingTitle, quote: openingQuote, text: openingText })
-      || violatesOfflineTargetLanguagePayload({ text: openingText, asides: openingAsides })
-      || containsOpeningViolation(openingText)
-      || openingTextLength(openingText) < minChars
-      || !String(openingTitle || '').trim()
-      || !String(openingQuote || '').trim()
-      || hasOfflineBannedContentInPayload({
-      text: openingText,
+    var openingIssues = collectOfflineBodyValidationIssues({
       title: openingTitle,
       quote: openingQuote,
+      text: openingText,
       asides: openingAsides,
       thought_chain: openingThoughtChain,
       status_card: openingStatusCard || {}
+    }, {
+      minChars: minChars,
+      perspective: storyPrefs.perspective,
+      requireSpeech: true
     });
-    if(openingInvalid){
-      throw lastError || new Error('首幕未通过线下正文校验');
+    if(openingIssues.length){
+      try{
+        var repairedOpening = await repairOfflineBodyPayload(bestDraft || {
+          title: openingTitle,
+          quote: openingQuote,
+          text: openingText,
+          asides: openingAsides
+        }, {
+          opening: true,
+          issues: openingIssues,
+          minChars: minChars,
+          perspective: storyPrefs.perspective,
+          context: openingContext,
+          timeoutMs: plan.repairTimeout
+        });
+        if(repairedOpening){
+          openingTitle = repairedOpening.title;
+          openingQuote = repairedOpening.quote;
+          openingText = repairedOpening.text;
+          openingAsides = repairedOpening.asides;
+          openingIssues = collectOfflineBodyValidationIssues({
+            title: openingTitle,
+            quote: openingQuote,
+            text: openingText,
+            asides: openingAsides,
+            thought_chain: openingThoughtChain,
+            status_card: openingStatusCard || {}
+          }, {
+            minChars: minChars,
+            perspective: storyPrefs.perspective,
+            requireSpeech: true
+          });
+        }
+      }catch(repairErr){
+        lastError = repairErr;
+      }
+    }
+    if(openingIssues.length){
+      throw lastError || new Error('首幕未通过线下正文校验：' + openingIssues.join('、'));
     }
     if(!openingThoughtChain){
       openingThoughtChain = normalizeOfflineThoughtChain(null, openingText);
@@ -5407,18 +5582,59 @@ async function requestOfflineReply(options){
       replyText = ensureOfflineSpeechPresence(mergeOfflineOpeningText(replyText, extraText));
       replyAsides = mergeOfflineAsides(replyAsides, normalizeOfflineAsides(extendParsed.asides));
     }
-    if(openingTextLength(replyText) < minChars || violatesOfflinePerspective(replyText, prefs.perspective) || containsOfflineStyleViolation(replyText) || violatesOfflineBodyDisplayLanguage({ title: replyTitle, quote: replyQuote, text: replyText }) || violatesOfflineTargetLanguagePayload({ text: replyText, asides: replyAsides }) || !replyTitle || !replyQuote || hasOfflineBannedContentInPayload({
+    var replyIssues = collectOfflineBodyValidationIssues({
       text: replyText,
       title: replyTitle,
       quote: replyQuote,
       asides: replyAsides,
       thought_chain: thoughtChain
-    })){
+    }, {
+      minChars: minChars,
+      perspective: prefs.perspective,
+      requireSpeech: true
+    });
+    if(replyIssues.length){
+      try{
+        var repairedReply = await repairOfflineBodyPayload({
+          text: replyText,
+          title: replyTitle,
+          quote: replyQuote,
+          asides: replyAsides
+        }, {
+          opening: false,
+          issues: replyIssues,
+          minChars: minChars,
+          perspective: prefs.perspective,
+          context: bodyContext,
+          timeoutMs: Math.min(getOfflineReplyTimeoutMs(), 45000)
+        });
+        if(repairedReply){
+          replyText = repairedReply.text;
+          replyTitle = repairedReply.title;
+          replyQuote = repairedReply.quote;
+          replyAsides = repairedReply.asides;
+          replyIssues = collectOfflineBodyValidationIssues({
+            text: replyText,
+            title: replyTitle,
+            quote: replyQuote,
+            asides: replyAsides,
+            thought_chain: thoughtChain
+          }, {
+            minChars: minChars,
+            perspective: prefs.perspective,
+            requireSpeech: true
+          });
+        }
+      }catch(repairErr){
+        bodyError = repairErr;
+      }
+    }
+    if(replyIssues.length){
       var replyLen = openingTextLength(replyText);
       var replyLenHint = replyLen < minChars
         ? ('当前字数 ' + replyLen + '/' + minChars)
         : ('当前字数 ' + replyLen + '，字数其实已经够了，但正文校验没过');
-      throw new Error('回复未通过线下正文校验（' + replyLenHint + '）');
+      throw new Error('回复未通过线下正文校验（' + replyLenHint + '；' + replyIssues.join('、') + '）');
     }
     var nextLabels = nowLabels();
     var replyEntry = {
