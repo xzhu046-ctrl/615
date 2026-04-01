@@ -669,6 +669,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .toggle-sub{font-size:11px;color:var(--g)}
 .toggle-switch{width:40px;height:22px;border:var(--bd);border-radius:20px;position:relative;cursor:pointer;flex-shrink:0;background:var(--off);transition:background .2s}
 .toggle-switch.on{background:var(--b)}
+.toggle-switch.disabled{opacity:.42;filter:grayscale(1)}
 .toggle-switch::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--b);transition:transform .2s,background .2s}
 .toggle-switch.on::after{transform:translateX(18px);background:var(--w)}
 .wb-book-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
@@ -4159,6 +4160,14 @@ function loadCharBgEnabled(charId){
   }
 }
 
+function isGlobalAiBgEnabled(){
+  try{
+    return localStorage.getItem('ai_bg_activity_enabled') === '1';
+  }catch(e){
+    return false;
+  }
+}
+
 function saveCharBgEnabled(charId, enabled){
   if(!charId) return;
   var raw = enabled ? '1' : '0';
@@ -4192,8 +4201,10 @@ function saveCharMomentsFreq(charId, level){
 function renderCharBgToggle(){
   var toggle = document.getElementById('charBgToggle');
   if(!toggle) return;
+  var globalEnabled = isGlobalAiBgEnabled();
   var enabled = pendingCharBgEnabled === null ? !!(character && loadCharBgEnabled(character.id)) : !!pendingCharBgEnabled;
   toggle.classList.toggle('on', enabled);
+  toggle.classList.toggle('disabled', !globalEnabled);
 }
 
 function toggleCharBgSwitch(){
@@ -4205,6 +4216,10 @@ function toggleCharBgSwitch(){
   var next = !now;
   pendingCharBgEnabled = next;
   renderCharBgToggle();
+  if(!isGlobalAiBgEnabled()){
+    toast(next ? '已暂存：角色后台活动开启，但全局后台活动仍关闭' : '已暂存：角色进入 Dormant');
+    return;
+  }
   toast(next ? '已暂存：允许后台活动' : '已暂存：角色进入 Dormant');
 }
 
@@ -7905,6 +7920,7 @@ function clearPresenceNudgeState(charId){
 
 function registerPresenceNudge(kind){
   if(!(character && character.id && window.PresenceShared)) return;
+  if(!isGlobalAiBgEnabled()) return;
   if(!loadCharBgEnabled(character.id)) return;
   var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
   if(!snapshot || !snapshot.char || snapshot.char.shareEnabled === false) return;
@@ -7935,6 +7951,7 @@ function registerPresenceNudge(kind){
 
 function maybeWakePresenceByNudge(snapshot){
   if(!(character && character.id && snapshot && snapshot.char)) return false;
+  if(!isGlobalAiBgEnabled()) return false;
   if(!loadCharBgEnabled(character.id)) return false;
   var state = loadPresenceNudgeState(character.id);
   if(!state.score) return false;
@@ -7990,6 +8007,7 @@ async function sendOnly() {
 
 async function maybeHandlePresenceAutoReply(){
   if(!(window.PresenceShared && character && character.id)) return false;
+  if(!isGlobalAiBgEnabled()) return false;
   if(!loadCharBgEnabled(character.id)) return false;
   var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
   if(!snapshot || !snapshot.char || snapshot.char.shareEnabled === false) return false;
