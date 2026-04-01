@@ -695,8 +695,7 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
       if(actionBtn.classList.contains('disabled') || !msgId) return;
       var action = actionBtn.getAttribute('data-offline-action');
       closeOfflineInviteModal();
-      if(action === 'accept') acceptOfflineInvite(msgId);
-      if(action === 'reject') rejectOfflineInvite(msgId);
+      runOfflineInviteAction(action, msgId);
       return;
     }
     var closeBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-modal-close]') : null;
@@ -748,6 +747,22 @@ function hydrateOfflineInviteAvatar(card, role){
 function closeOfflineInviteComposer(){
   var overlay = document.getElementById('offlineInviteOverlay');
   if(overlay) overlay.classList.remove('open');
+}
+
+function runOfflineInviteAction(action, msgId){
+  var safeAction = String(action || '').trim();
+  var safeMsgId = String(msgId || '').trim();
+  if(!safeAction || !safeMsgId) return;
+  var runner = safeAction === 'accept' ? acceptOfflineInvite : (safeAction === 'reject' ? rejectOfflineInvite : null);
+  if(typeof runner !== 'function') return;
+  Promise.resolve()
+    .then(function(){ return runner(safeMsgId); })
+    .catch(function(err){
+      console.error('offline invite action failed:', safeAction, safeMsgId, err);
+      if(typeof toast === 'function'){
+        toast('线下邀约启动失败：' + String(err && (err.message || err) || '未知错误'));
+      }
+    });
 }
 
 function openOfflineInviteComposer(){
@@ -829,8 +844,24 @@ async function acceptOfflineInvite(messageId){
   }
   payload.status = 'accepted';
   entry.content = JSON.stringify(payload);
-  await saveChat(true);
   rerenderChat();
+  try{
+    var threadCharacter = getOfflineInviteThreadCharacter();
+    var shellCharacter = null;
+    if(threadCharacter && typeof compactChar === 'function'){
+      shellCharacter = compactChar(threadCharacter);
+    }else if(character && typeof compactChar === 'function'){
+      shellCharacter = compactChar(character);
+    }
+    if(shellCharacter) postToShell({ type:'SET_ACTIVE_CHARACTER', payload: shellCharacter });
+  }catch(e){}
+  try{
+    if(typeof saveChat === 'function'){
+      Promise.resolve(saveChat(true)).catch(function(err){
+        console.error('save accepted offline invite failed:', err);
+      });
+    }
+  }catch(e){}
   await openOfflineSession(payload);
 }
 
@@ -1076,8 +1107,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
       evt.stopPropagation();
       if(actionBtn.classList.contains('disabled') || !msgId) return;
       var action = actionBtn.getAttribute('data-offline-action');
-      if(action === 'accept') acceptOfflineInvite(msgId);
-      if(action === 'reject') rejectOfflineInvite(msgId);
+      runOfflineInviteAction(action, msgId);
       return;
     }
     openOfflineInviteModal(msgId, data, viewRole, canRespond);
