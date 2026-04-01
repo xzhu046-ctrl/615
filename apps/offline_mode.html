@@ -707,6 +707,8 @@ var offlineDrawerBound = false;
 var offlineDrawerDraft = null;
 var offlineMemoryEditingId = '';
 var offlineStageSummaryPreviewOpen = false;
+var offlineInitInProgress = true;
+var offlineInitCompleted = false;
 var offlineMoodFaces = {
   soft:['(˶ᵔ ᵕ ᵔ˶)','(◍•ᴗ•◍)','(˵¯͒〰¯͒˵)','(｡•ㅅ•｡)'],
   moody:['(¬_¬ )','(◔_◔)','( －з)','(눈_눈)'],
@@ -2104,7 +2106,7 @@ async function ensureOfflineSummaryForEntry(entry){
     '这一幕已经写好的正文：\n' + String(entry.text || '').trim()
   ].filter(Boolean).join('\n\n');
   var lastSummaryError = null;
-  for(var attempt = 0; attempt < 3; attempt += 1){
+  for(var attempt = 0; attempt < 2; attempt += 1){
     try{
       var compact = attempt >= 2 ? 2 : attempt;
       var raw = await callAIWithTimeout(buildOfflineSummarySystemPrompt({ compactLevel: compact }), baseContext, Math.min(getOfflineReplyTimeoutMs(), 50000));
@@ -5218,23 +5220,23 @@ function isMobileOfflineRuntime(){
 function getOfflineOpeningAttemptPlan(){
   if(isMobileOfflineRuntime()){
     return {
-      mainTimeout: 90000,
-      continueTimeout: 45000,
-      repairTimeout: 50000,
-      attempts: 3,
-      extendAttempts: 2
+      mainTimeout: 55000,
+      continueTimeout: 24000,
+      repairTimeout: 28000,
+      attempts: 2,
+      extendAttempts: 1
     };
   }
   return {
-    mainTimeout: 70000,
-    continueTimeout: 35000,
-    repairTimeout: 42000,
-    attempts: 3,
-    extendAttempts: 2
+    mainTimeout: 42000,
+    continueTimeout: 20000,
+    repairTimeout: 24000,
+    attempts: 2,
+    extendAttempts: 1
   };
 }
 function getOfflineReplyTimeoutMs(){
-  return isMobileOfflineRuntime() ? 90000 : 60000;
+  return isMobileOfflineRuntime() ? 45000 : 32000;
 }
 function hasAssistantOpeningEntry(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
@@ -5813,7 +5815,7 @@ async function requestOfflineReply(options){
     ].filter(Boolean).join('\n\n');
     var thoughtChain = null;
     var thoughtErr = null;
-    for(var thoughtAttempt = 0; thoughtAttempt < 3; thoughtAttempt += 1){
+    for(var thoughtAttempt = 0; thoughtAttempt < 2; thoughtAttempt += 1){
       var thoughtCompact = Math.min(2, Math.max(retryCompactBase, thoughtAttempt >= 1 ? 1 : 0, thoughtAttempt >= 2 ? 2 : 0));
       try{
         var thoughtRaw = await callAIWithTimeout(buildOfflineThoughtSystemPrompt({ compactLevel: thoughtCompact }), thoughtContext, Math.min(getOfflineReplyTimeoutMs(), 90000));
@@ -6230,6 +6232,8 @@ function reportOfflineStartupFailure(stage, err){
 }
 async function init(){
   try{
+    offlineInitInProgress = true;
+    offlineInitCompleted = false;
     try{
       if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
         runOfflineInitTask(function(){ return window.MetadataStore.init(); }, 2200);
@@ -6408,6 +6412,8 @@ async function init(){
   await generateOpeningIfNeeded();
   renderStory();
   syncOfflineViewport();
+  offlineInitCompleted = true;
+  offlineInitInProgress = false;
   var input = document.getElementById('offlineInput');
   if(input && !input.dataset.boundEnter){
     input.dataset.boundEnter = '1';
@@ -6431,6 +6437,8 @@ async function init(){
     input.addEventListener('input', keepOfflineComposerVisible);
   }
   }catch(err){
+    offlineInitCompleted = false;
+    offlineInitInProgress = false;
     reportOfflineStartupFailure('init', err);
   }
 }
@@ -6491,10 +6499,24 @@ if(window.visualViewport){
   window.visualViewport.addEventListener('scroll', syncOfflineViewport);
 }
 window.addEventListener('error', function(evt){
-  reportOfflineStartupFailure('window.error', evt && evt.error ? evt.error : (evt && evt.message) || '未知错误');
+  var err = evt && evt.error ? evt.error : (evt && evt.message) || '未知错误';
+  if(offlineInitInProgress || !offlineInitCompleted){
+    reportOfflineStartupFailure('window.error', err);
+    return;
+  }
+  try{
+    console.error('offline runtime error', err);
+  }catch(e){}
 });
 window.addEventListener('unhandledrejection', function(evt){
-  reportOfflineStartupFailure('unhandledrejection', evt && evt.reason ? evt.reason : 'Promise rejected');
+  var reason = evt && evt.reason ? evt.reason : 'Promise rejected';
+  if(offlineInitInProgress || !offlineInitCompleted){
+    reportOfflineStartupFailure('unhandledrejection', reason);
+    return;
+  }
+  try{
+    console.error('offline runtime rejection', reason);
+  }catch(e){}
 });
 init();
 </script>
