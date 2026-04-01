@@ -897,6 +897,60 @@ function buildOfflineArchiveSessionSnapshot(snapshot){
   }) : [];
   return source;
 }
+function buildOfflineArchiveFallbackRecord(entry){
+  var source = entry && typeof entry === 'object' ? entry : {};
+  return {
+    id: String(source.id || '').trim(),
+    charId: String(source.charId || '').trim(),
+    charName: String(source.charName || '').trim(),
+    charAvatar: String(source.charAvatar || '').trim(),
+    userName: String(source.userName || '').trim(),
+    status: String(source.status || 'pending').trim() || 'pending',
+    statusLabel: String(source.statusLabel || '').trim() || (String(source.status || 'pending').trim() === 'ended' ? '已结束' : '待续'),
+    reason: String(source.reason || '').trim(),
+    createdAt: Number(source.createdAt || 0) || Date.now(),
+    updatedAt: Number(source.updatedAt || 0) || Date.now(),
+    preview: String(source.preview || '').trim(),
+    entryCount: Number(source.entryCount || 0) || 0,
+    endedAt: Number(source.endedAt || 0) || 0,
+    characterSnapshot: source.characterSnapshot && typeof source.characterSnapshot === 'object'
+      ? Object.assign({}, source.characterSnapshot)
+      : null,
+    snapshot: null,
+    resumeFallback: true
+  };
+}
+async function saveOfflineArchiveFallbackRecord(entry){
+  var safeEntry = buildOfflineArchiveFallbackRecord(entry);
+  var safeId = String(safeEntry.id || '').trim();
+  if(!safeId) throw new Error('archive fallback missing id');
+  var list = await loadOfflineArchives();
+  var nextList = list.filter(function(item){
+    return String(item && item.id || '').trim() !== safeId;
+  });
+  nextList.unshift(safeEntry);
+  var safeIndexList = nextList.map(buildOfflineArchiveListEntry);
+  var localSucceeded = false;
+  try{
+    localStorage.setItem(offlineArchiveListKey(), JSON.stringify(safeIndexList));
+    localSucceeded = true;
+  }catch(e){}
+  try{
+    localStorage.setItem(offlineArchiveRecordKey(safeId), JSON.stringify(safeEntry));
+    localSucceeded = true;
+  }catch(e){}
+  var remoteSucceeded = false;
+  if(await saveArchiveJsonToStorage(offlineArchiveListKey(), safeIndexList)){
+    remoteSucceeded = true;
+  }
+  if(await saveArchiveJsonToStorage(offlineArchiveRecordKey(safeId), safeEntry)){
+    remoteSucceeded = true;
+  }
+  if(!localSucceeded && !remoteSucceeded){
+    throw new Error('archive fallback persistence failed');
+  }
+  return safeId;
+}
 async function loadOfflineArchives(){
   var parsed = loadOfflineArchiveIndexEntries();
   if(!parsed.length){
@@ -1061,7 +1115,13 @@ async function upsertOfflineArchive(snapshot, options){
   }
   if(existingIndex >= 0) list.splice(existingIndex, 1);
   list.unshift(entry);
-  await saveOfflineArchives(list);
+  persistOfflineResumeSnapshot(character.id, archiveSnapshot);
+  try{
+    await saveOfflineArchives(list);
+  }catch(saveErr){
+    if(opts.status === 'ended') throw saveErr;
+    await saveOfflineArchiveFallbackRecord(entry);
+  }
   return archiveId;
 }
 async function queueOfflineEndArtifacts(targetCharId, snapshot){
@@ -2147,11 +2207,25 @@ async function ensureOfflineStatusCardForEntry(entry){
     '这一幕已经写好的正文：\n' + String(entry.text || '').trim()
   ].filter(Boolean).join('\n\n');
   var lastStatusError = null;
-  for(var statusAttempt = 0; statusAttempt < 4; statusAttempt += 1){
+  for(var statusAttempt = 0; statusAttempt < 3; statusAttempt += 1){
     try{
-      var statusCompact = statusAttempt >= 3 ? 2 : statusAttempt;
-      var statusRaw = await callAIWithTimeout(buildOfflineStatusSystemPrompt({ compactLevel: statusCompact }), baseContext, Math.min(getOfflineReplyTimeoutMs(), 90000));
+      var statusCompact = statusAttempt >= 2 ? 2 : statusAttempt;
+      var statusRaw = await callAIWithTimeout(buildOfflineStatusSystemPrompt({ compactLevel: statusCompact }), baseContext, Math.min(getOfflineReplyTimeoutMs(), 36000));
       var statusObj = parseOfflineJsonObject(statusRaw);
+      if(!hasValidOfflineStatusPayload(statusObj) && String(statusRaw || '').trim()){
+        try{
+          var repairedStatusRaw = await callAIWithTimeout([
+            '你是 JSON 修正文员。',
+            '请把下面这段番外草稿修成合法 JSON。',
+            '只返回 JSON：{"status_card":{"type":"...","future_date":"...","future_title":"...","future_note":"...","artifact_label":"...","artifact_html":"..."}}。',
+            '如果原草稿没有 artifact，就把 artifact_label 和 artifact_html 留空字符串。',
+            '不要解释，不要代码块。'
+          ].join('\n'), '原草稿：\n' + String(statusRaw || '').trim(), Math.min(getOfflineReplyTimeoutMs(), 18000));
+          statusObj = parseOfflineJsonObject(repairedStatusRaw);
+        }catch(repairErr){
+          lastStatusError = repairErr;
+        }
+      }
       if(hasValidOfflineStatusPayload(statusObj)){
         var normalized = normalizeOfflineStatusCard(statusObj.status_card, entry.text || '');
         if(normalized){
@@ -2204,8 +2278,10 @@ function queueOfflineStatusCardGeneration(entry, options){
   }).catch(function(err){
     console.warn('offline side story generation failed', err);
     entry.statusPending = false;
+    entry.statusToastOnReady = false;
     saveSession();
     renderStory();
+    if(!opts.silent) toast(getOfflineSideStoryProfile((entry.statusCard && entry.statusCard.type) || getOfflineUiPrefs().sideStoryType).label + '生成失败：' + summarizeOfflineError(err));
   }).finally(function(){
     if(shouldToastOnReady && entry && entry.statusCard){
       entry.statusToastOnReady = false;
@@ -2992,7 +3068,7 @@ function requestOfflineInlineTranslation(entryIndex, key, options){
     };
     saveSession();
     renderStory();
-  }).catch(function(){
+  }).catch(function(err){
     if(!session || !Array.isArray(session.entries)) return;
     var latestEntry = session.entries[safeIndex];
     if(!latestEntry) return;
@@ -5237,6 +5313,22 @@ function getOfflineOpeningAttemptPlan(){
 }
 function getOfflineReplyTimeoutMs(){
   return isMobileOfflineRuntime() ? 45000 : 32000;
+}
+function loadPendingOfflineResumeSnapshot(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return null;
+  var keys = [pendingOfflineResumeKey(safeId), 'offline_resume_' + safeId];
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var raw = localStorage.getItem(keys[i]) || '';
+      if(!raw) continue;
+      var parsed = JSON.parse(raw);
+      if(parsed && parsed.session && typeof parsed.session === 'object'){
+        return parsed.session;
+      }
+    }catch(e){}
+  }
+  return null;
 }
 function hasAssistantOpeningEntry(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];

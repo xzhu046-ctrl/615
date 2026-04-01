@@ -196,6 +196,22 @@ function pendingOfflineLaunchKey(charId){
 function pendingOfflineResumeKey(charId){
   return scopedKey('offline_resume_' + String(charId || ''));
 }
+function loadPendingResumeSnapshotForChar(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return null;
+  var keys = [pendingOfflineResumeKey(safeId), 'offline_resume_' + safeId];
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var raw = localStorage.getItem(keys[i]) || '';
+      if(!raw) continue;
+      var parsed = JSON.parse(raw);
+      if(parsed && parsed.session && typeof parsed.session === 'object'){
+        return parsed.session;
+      }
+    }catch(e){}
+  }
+  return null;
+}
 function latestOfflineLaunchKey(){
   return scopedKey('offline_launch_latest');
 }
@@ -603,6 +619,10 @@ function continueArchiveDate(){
   if(!entry || entry.status !== 'pending' || !entry.charId) return;
   var charSnapshot = Object.assign({}, entry.characterSnapshot || {}, { id: entry.charId });
   var sessionSnapshot = entry.snapshot ? JSON.parse(JSON.stringify(entry.snapshot)) : null;
+  if(!sessionSnapshot){
+    var resumeSnapshot = loadPendingResumeSnapshotForChar(entry.charId);
+    sessionSnapshot = resumeSnapshot ? JSON.parse(JSON.stringify(resumeSnapshot)) : null;
+  }
   if(!sessionSnapshot) return;
   sessionSnapshot.charId = String(entry.charId || '').trim();
   sessionSnapshot.charSnapshot = Object.assign({}, charSnapshot);
