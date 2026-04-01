@@ -328,6 +328,7 @@ function buildOfflineLaunchCharSnapshot(source){
     offlineInviteStyle: String(source.offlineInviteStyle || '').trim(),
     offlineSummaryEvery: Number(source.offlineSummaryEvery || 5),
     offlineSummaryAuto: source.offlineSummaryAuto != null ? !!source.offlineSummaryAuto : true,
+    offlineMemoryReadCount: Number(source.offlineMemoryReadCount || 4),
     offlineSideStoryType: String(source.offlineSideStoryType || 'future'),
     translationEnabled: !!source.translationEnabled,
     replyLanguage: String(source.replyLanguage || source.language || 'zh').trim() || 'zh',

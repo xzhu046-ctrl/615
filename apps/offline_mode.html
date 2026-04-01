@@ -522,6 +522,10 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
               <span class="offline-setting-label">自动生成阶段总结</span>
               <button class="offline-setting-toggle" id="offlineDrawerSummaryAuto" type="button" aria-pressed="true"></button>
             </div>
+            <div class="offline-setting-row">
+              <span class="offline-setting-label">生成时读取最近几条记忆摘要</span>
+              <input class="offline-setting-input" id="offlineDrawerMemoryReadCount" type="number" min="1" max="12" step="1" style="max-width:120px">
+            </div>
             <div class="offline-setting-actions">
               <input class="offline-setting-input" id="offlineDrawerManualSummaryCount" type="number" min="2" max="99" step="1" style="max-width:120px" placeholder="幕数">
               <button class="offline-setting-btn primary" id="offlineDrawerSummarizeBtn" type="button">手动总结</button>
@@ -2169,11 +2173,13 @@ function getCharDisplayName(){
 function getOfflineUiPrefs(){
   var summaryEvery = Math.max(3, Number(character && character.offlineSummaryEvery) || 5);
   var summaryAuto = character && character.offlineSummaryAuto != null ? !!character.offlineSummaryAuto : true;
+  var memoryReadCount = Math.max(1, Math.min(12, Number(character && character.offlineMemoryReadCount) || 4));
   var sideStoryType = String(character && character.offlineSideStoryType || 'future');
   if(!/^(future|be|fourthwall|nogrow|parallelworld|dropped|gossip|divination)$/.test(sideStoryType)) sideStoryType = 'future';
   return {
     summaryEvery: summaryEvery,
     summaryAuto: summaryAuto,
+    memoryReadCount: memoryReadCount,
     sideStoryType: sideStoryType
   };
 }
@@ -2190,6 +2196,7 @@ function buildOfflineDrawerDraft(){
     translationMode: normalizeTranslationMode(character && character.translationMode || 'ondemand'),
     summaryEvery: ui.summaryEvery,
     summaryAuto: ui.summaryAuto,
+    memoryReadCount: ui.memoryReadCount,
     sideStoryType: ui.sideStoryType
   };
 }
@@ -2209,6 +2216,7 @@ function applyOfflineDrawerDraftToCharacter(){
   character.translationMode = normalizeTranslationMode(draft.translationMode || 'ondemand');
   character.offlineSummaryEvery = Math.max(3, Number(draft.summaryEvery) || 5);
   character.offlineSummaryAuto = !!draft.summaryAuto;
+  character.offlineMemoryReadCount = Math.max(1, Math.min(12, Number(draft.memoryReadCount) || 4));
   character.offlineSideStoryType = String(draft.sideStoryType || 'future');
 }
 function saveOfflineDrawerSettings(){
@@ -2403,6 +2411,7 @@ function syncOfflineDrawerControls(){
   var style = document.getElementById('offlineDrawerStyle');
   var summaryEvery = document.getElementById('offlineDrawerSummaryEvery');
   var summaryAuto = document.getElementById('offlineDrawerSummaryAuto');
+  var memoryReadCount = document.getElementById('offlineDrawerMemoryReadCount');
   var translationEnabled = document.getElementById('offlineDrawerTranslationEnabled');
   var languageGrid = document.getElementById('offlineDrawerLanguageGrid');
   var translationModeGrid = document.getElementById('offlineDrawerTranslationModeGrid');
@@ -2414,6 +2423,7 @@ function syncOfflineDrawerControls(){
   if(perspective) perspective.value = draft.perspective;
   if(style && document.activeElement !== style) style.value = draft.style;
   if(summaryEvery && document.activeElement !== summaryEvery) summaryEvery.value = String(draft.summaryEvery);
+  if(memoryReadCount && document.activeElement !== memoryReadCount) memoryReadCount.value = String(draft.memoryReadCount);
   var manualCount = document.getElementById('offlineDrawerManualSummaryCount');
   if(manualCount && document.activeElement !== manualCount && !String(manualCount.value || '').trim()) manualCount.value = String(draft.summaryEvery);
   if(summaryAuto){
@@ -2454,6 +2464,7 @@ function bindOfflineDrawerControls(){
   var maxChars = document.getElementById('offlineDrawerMaxChars');
   var summaryEvery = document.getElementById('offlineDrawerSummaryEvery');
   var summaryAuto = document.getElementById('offlineDrawerSummaryAuto');
+  var memoryReadCount = document.getElementById('offlineDrawerMemoryReadCount');
   var translationEnabled = document.getElementById('offlineDrawerTranslationEnabled');
   var languageGrid = document.getElementById('offlineDrawerLanguageGrid');
   var translationModeGrid = document.getElementById('offlineDrawerTranslationModeGrid');
@@ -2523,6 +2534,12 @@ function bindOfflineDrawerControls(){
         queueOfflineStageSummaryGeneration();
       }
       syncOfflineDrawerControls();
+    });
+  }
+  if(memoryReadCount){
+    bindNumericCommit(memoryReadCount, function(){
+      getOfflineDrawerDraft().memoryReadCount = Math.max(1, Math.min(12, Number(memoryReadCount.value) || 4));
+      persistOfflineDrawerSettings({ silent:true });
     });
   }
   if(translationEnabled){
@@ -3645,6 +3662,9 @@ function normalizeOfflineAsides(raw){
 function memorySummaryStorageKey(charId){
   return scopedKey('memory_summaries_' + String(charId || '').trim());
 }
+function getOfflineMemoryReadCount(){
+  return Math.max(1, Math.min(12, Number(character && character.offlineMemoryReadCount) || 4));
+}
 function getOfflineMemorySnippet(){
   if(offlineMemorySnippetCache) return offlineMemorySnippetCache;
   if(!character || !character.id) return '';
@@ -3655,7 +3675,7 @@ function getOfflineMemorySnippet(){
     var items = sortOfflineMemoryItemsForPrompt(parsed && parsed.items).map(function(it){
       return String((it && it.text) || '').trim();
     }).filter(Boolean);
-    offlineMemorySnippetCache = items.slice(-3).join('\n');
+    offlineMemorySnippetCache = items.slice(-getOfflineMemoryReadCount()).join('\n');
     return offlineMemorySnippetCache;
   }catch(e){
     return '';
@@ -3677,7 +3697,7 @@ async function hydrateOfflineMemorySnippet(){
   var items = sortOfflineMemoryItemsForPrompt(normalized && normalized.items);
   offlineMemorySnippetCache = items.map(function(it){
     return String((it && it.text) || '').trim();
-  }).filter(Boolean).slice(-3).join('\n');
+  }).filter(Boolean).slice(-getOfflineMemoryReadCount()).join('\n');
   return offlineMemorySnippetCache;
 }
 async function loadOfflineMemoryStore(){
@@ -3817,7 +3837,7 @@ async function deleteOfflineMemoryItem(id){
   toast('这条记忆已经删掉了');
 }
 function getOfflineRecentOnlineSnippet(){
-  return clipOfflinePromptText(session && session.chatHistory ? session.chatHistory : '', isMobileOfflineRuntime() ? 1200 : 1800);
+  return clipOfflinePromptText(session && session.chatHistory ? session.chatHistory : '', isMobileOfflineRuntime() ? 1800 : 2800);
 }
 function getOfflineRecentOnlineSnippetByBudget(maxChars){
   return clipOfflinePromptText(session && session.chatHistory ? session.chatHistory : '', maxChars);
@@ -3868,12 +3888,12 @@ function getOfflineHistorySnippetByBudget(limit, maxChars){
 }
 function buildOfflineCoreSettingSummary(compactLevel){
   var level = Math.max(0, Number(compactLevel) || 0);
-  var persona = clipOfflinePromptText(character ? (character.personality || character.description || '') : '', offlinePromptLimit(isMobileOfflineRuntime() ? 980 : 1500, level, 420));
-  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, level, 220));
-  var scenario = clipOfflinePromptText(character ? String(character.scenario || '').trim() : '', offlinePromptLimit(360, level, 160));
-  var systemPrompt = clipOfflinePromptText(character ? String(character.system_prompt || '').trim() : '', offlinePromptLimit(isMobileOfflineRuntime() ? 720 : 980, level, 260));
-  var worldBook = getOfflineWorldbookSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 980 : 1460, level, 360));
-  var memoryText = getOfflineMemorySnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, level, 240));
+  var persona = clipOfflinePromptText(character ? (character.personality || character.description || '') : '', offlinePromptLimit(isMobileOfflineRuntime() ? 1450 : 2200, level, 620));
+  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, level, 280));
+  var scenario = clipOfflinePromptText(character ? String(character.scenario || '').trim() : '', offlinePromptLimit(520, level, 220));
+  var systemPrompt = clipOfflinePromptText(character ? String(character.system_prompt || '').trim() : '', offlinePromptLimit(isMobileOfflineRuntime() ? 1050 : 1500, level, 360));
+  var worldBook = getOfflineWorldbookSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 1500 : 2200, level, 560));
+  var memoryText = getOfflineMemorySnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 1100 : 1600, level, 420));
   var charWeather = buildWeatherMoodPrompt(getOfflineWeatherSnapshot('char'));
   var userWeather = buildWeatherMoodPrompt(getOfflineWeatherSnapshot('user'));
   var inviteWeather = String(session && session.invite && session.invite.weather || '').trim();
@@ -3979,9 +3999,9 @@ function parseOfflineJsonObject(raw){
 function buildOfflineThoughtSystemPrompt(options){
   options = options || {};
   var compactLevel = Math.max(0, Number(options.compactLevel) || 0);
-  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 560 : 820, compactLevel, 200));
-  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, compactLevel, 160));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, compactLevel, 160));
+  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 800 : 1200, compactLevel, 260));
+  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 700 : 1000, compactLevel, 220));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 700 : 1000, compactLevel, 220));
   return [
     '你现在只负责生成线下模式这一幕的 thought_chain。',
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."}}',
@@ -4001,9 +4021,9 @@ function buildOfflineThoughtSystemPrompt(options){
 function buildOfflineBodySystemPrompt(options){
   options = options || {};
   var compactLevel = Math.max(0, Number(options.compactLevel) || 0);
-  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, compactLevel, 220));
-  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 480 : 720, compactLevel, 180));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 500 : 760, compactLevel, 180));
+  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, compactLevel, 280));
+  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 820 : 1200, compactLevel, 260));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 2 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 820 : 1200, compactLevel, 260));
   var storyPrefs = getOfflineStoryPrefs();
   return [
     '你现在只负责生成线下模式这一幕的正文内容。',
@@ -4031,9 +4051,9 @@ function buildOfflineBodySystemPrompt(options){
 function buildOfflineBodyTextSystemPrompt(options){
   options = options || {};
   var compactLevel = Math.max(0, Number(options.compactLevel) || 0);
-  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, compactLevel, 220));
-  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 480 : 720, compactLevel, 180));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 500 : 760, compactLevel, 180));
+  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, compactLevel, 280));
+  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 820 : 1200, compactLevel, 260));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 2 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 820 : 1200, compactLevel, 260));
   var storyPrefs = getOfflineStoryPrefs();
   var thoughtChain = options.thoughtChain || null;
   return [
@@ -4063,8 +4083,8 @@ function buildOfflineStatusSystemPrompt(options){
   var dateRule = profile.key === 'nogrow'
     ? 'future_date 必须是过去某一天的具体日期与时间，要明显早于当前正文时间。'
     : 'future_date 必须是未来某一天的具体日期与时间。';
-  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, compactLevel, 160));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, compactLevel, 160));
+  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 700 : 1000, compactLevel, 220));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 700 : 1000, compactLevel, 220));
   var jsonShape = profile.artifactRule
     ? '{"status_card":{"type":"' + profile.key + '","future_date":"...","future_title":"...","future_note":"...","artifact_label":"...","artifact_html":"..."}}'
     : '{"status_card":{"type":"' + profile.key + '","future_date":"...","future_title":"...","future_note":"..."}}';
@@ -4121,16 +4141,16 @@ function buildOfflineSystemPrompt(options){
   var scenario = character ? String(character.scenario || '').trim() : '';
   var systemPrompt = character ? String(character.system_prompt || '').trim() : '';
   var storyPrefs = getOfflineStoryPrefs();
-  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 960 : 1420, compactLevel, 360));
-  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 640 : 920, compactLevel, 240));
+  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1500 : 2200, compactLevel, 520));
+  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 420));
   var onlineChatText = getOfflineRecentOnlineSnippet();
-  onlineChatText = clipOfflinePromptText(onlineChatText, offlinePromptLimit(isMobileOfflineRuntime() ? 660 : 960, compactLevel, 220));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 660 : 960, compactLevel, 220));
-  var compactPersona = clipOfflinePromptText(persona, offlinePromptLimit(isMobileOfflineRuntime() ? 980 : 1480, compactLevel, 360));
-  var compactUserPersona = clipOfflinePromptText(userPersona, offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, compactLevel, 220));
-  var compactScenario = clipOfflinePromptText(scenario, offlinePromptLimit(360, compactLevel, 150));
-  var compactSystemPrompt = clipOfflinePromptText(systemPrompt, offlinePromptLimit(isMobileOfflineRuntime() ? 720 : 980, compactLevel, 240));
-  var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), offlinePromptLimit(320, compactLevel, 130));
+  onlineChatText = clipOfflinePromptText(onlineChatText, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
+  var compactPersona = clipOfflinePromptText(persona, offlinePromptLimit(isMobileOfflineRuntime() ? 1400 : 2200, compactLevel, 520));
+  var compactUserPersona = clipOfflinePromptText(userPersona, offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, compactLevel, 280));
+  var compactScenario = clipOfflinePromptText(scenario, offlinePromptLimit(500, compactLevel, 180));
+  var compactSystemPrompt = clipOfflinePromptText(systemPrompt, offlinePromptLimit(isMobileOfflineRuntime() ? 1000 : 1600, compactLevel, 320));
+  var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), offlinePromptLimit(500, compactLevel, 180));
   var sideStoryProfile = getOfflineSideStoryProfile(getOfflineUiPrefs().sideStoryType);
   var sideStoryDateRule = sideStoryProfile.key === 'nogrow'
     ? 'future_date 是过去某一天的具体日期与时间，要明显早于当前正文时间。'
@@ -4211,16 +4231,16 @@ function buildOfflineOpeningChunkSystemPrompt(){
   var scenario = character ? String(character.scenario || '').trim() : '';
   var systemPrompt = character ? String(character.system_prompt || '').trim() : '';
   var storyPrefs = getOfflineStoryPrefs();
-  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 960 : 1420, compactLevel, 360));
-  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 640 : 920, compactLevel, 240));
+  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1500 : 2200, compactLevel, 520));
+  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 420));
   var onlineChatText = getOfflineRecentOnlineSnippet();
-  onlineChatText = clipOfflinePromptText(onlineChatText, offlinePromptLimit(isMobileOfflineRuntime() ? 660 : 960, compactLevel, 220));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 660 : 960, compactLevel, 220));
-  var compactPersona = clipOfflinePromptText(persona, offlinePromptLimit(isMobileOfflineRuntime() ? 980 : 1480, compactLevel, 360));
-  var compactUserPersona = clipOfflinePromptText(userPersona, offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, compactLevel, 220));
-  var compactScenario = clipOfflinePromptText(scenario, offlinePromptLimit(360, compactLevel, 150));
-  var compactSystemPrompt = clipOfflinePromptText(systemPrompt, offlinePromptLimit(isMobileOfflineRuntime() ? 720 : 980, compactLevel, 240));
-  var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), offlinePromptLimit(320, compactLevel, 130));
+  onlineChatText = clipOfflinePromptText(onlineChatText, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
+  var compactPersona = clipOfflinePromptText(persona, offlinePromptLimit(isMobileOfflineRuntime() ? 1400 : 2200, compactLevel, 520));
+  var compactUserPersona = clipOfflinePromptText(userPersona, offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, compactLevel, 280));
+  var compactScenario = clipOfflinePromptText(scenario, offlinePromptLimit(500, compactLevel, 180));
+  var compactSystemPrompt = clipOfflinePromptText(systemPrompt, offlinePromptLimit(isMobileOfflineRuntime() ? 1000 : 1600, compactLevel, 320));
+  var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), offlinePromptLimit(500, compactLevel, 180));
   var sideStoryProfile = getOfflineSideStoryProfile(getOfflineUiPrefs().sideStoryType);
   var sideStoryDateRule = sideStoryProfile.key === 'nogrow'
     ? 'future_date 是过去某一天的具体日期与时间，要明显早于当前正文时间。'
@@ -4959,7 +4979,7 @@ async function generateOpeningIfNeeded(){
     var openingContext = [
       '请写这场线下见面的第一个场景。',
       buildOfflineInvitePromptLine('见面起点：'),
-      '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 720 : 980) || '无'),
+      '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 1800 : 2800) || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
     try{
@@ -5192,11 +5212,11 @@ async function requestOfflineReply(options){
     var compactBase = sceneDepth >= 10 ? 2 : (sceneDepth >= 4 ? 1 : 0);
     var retryCompactBase = compactBase;
     var onlineSnippet = getOfflineRecentOnlineSnippetByBudget(
-      offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, retryCompactBase, 160)
+      offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, retryCompactBase, 180)
     ) || '无';
     var shortOfflineHistory = clipOfflinePromptText(
-      formatOfflineHistoryForPrompt(retryCompactBase >= 1 ? 2 : 3, retryCompactBase >= 1 ? 4 : 5) || '无',
-      offlinePromptLimit(isMobileOfflineRuntime() ? 500 : 760, retryCompactBase, 180)
+      formatOfflineHistoryForPrompt(retryCompactBase >= 1 ? 3 : 4, retryCompactBase >= 1 ? 5 : 7) || '无',
+      offlinePromptLimit(isMobileOfflineRuntime() ? 760 : 1100, retryCompactBase, 220)
     ) || '无';
     var lastUserEntry = Array.isArray(session.entries) ? session.entries[session.entries.length - 1] : null;
     var thoughtContext = [
