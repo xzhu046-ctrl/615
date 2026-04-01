@@ -3270,6 +3270,7 @@ function buildInviteTranslationCardHtml(inviteTranslation){
   if(!(inviteTranslation && typeof inviteTranslation === 'object')) return '';
   var lines = [];
   if(String(inviteTranslation.opening || '').trim()) lines.push('<div class="msg-translation-section"><span class="msg-translation-label">邀请正文</span><div class="msg-translation-copy">' + esc(String(inviteTranslation.opening || '').trim()) + '</div></div>');
+  if(String(inviteTranslation.aside || '').trim()) lines.push('<div class="msg-translation-section"><span class="msg-translation-label">小心思</span><div class="msg-translation-copy">' + esc(String(inviteTranslation.aside || '').trim()) + '</div></div>');
   if(String(inviteTranslation.location || '').trim()) lines.push('<div class="msg-translation-section"><span class="msg-translation-label">地点</span><div class="msg-translation-copy">' + esc(String(inviteTranslation.location || '').trim()) + '</div></div>');
   if(!lines.length) return '';
   return '<div class="msg-translation-card"><div class="msg-translation-kicker"><span class="msg-translation-pill">TRANSLATION</span><span class="msg-translation-sub">线下邀约</span></div><div class="msg-translation-list">' + lines.join('') + '</div></div>';
@@ -3394,18 +3395,20 @@ async function requestChatMessageTranslation(msgId){
       var inviteSystemPrompt = [
         '你是翻译器。',
         '请把下面这张线下邀约里的原文内容翻译成自然流畅的简体中文。',
-        '只返回 JSON：{"opening":"...","location":"..."}',
-        'opening 对应邀约正文，location 对应地点显示。没有的字段可以留空。'
+        '只返回 JSON：{"opening":"...","aside":"...","location":"..."}',
+        'opening 对应邀约正文，aside 对应点击浮出来的小心思，location 对应地点显示。没有的字段可以留空。'
       ].join('\n');
       var inviteRaw = await callAIWithCustomPrompts(inviteSystemPrompt, JSON.stringify({
         sourceLanguage: getReplyLanguageOption(getCharacterReplyLanguage()).nativeLabel,
         opening: String(invite.content || '').trim(),
+        aside: String(invite.aside || '').trim(),
         location: String(invite.location || '').trim()
       }));
       var inviteParsed = JSON.parse(String(inviteRaw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim() || '{}');
       if(!inviteParsed || typeof inviteParsed !== 'object') throw new Error('empty translation');
       entry.inviteTranslation = {
         opening: String(inviteParsed.opening || '').trim(),
+        aside: String(inviteParsed.aside || '').trim(),
         location: String(inviteParsed.location || '').trim()
       };
     }else{
@@ -3438,7 +3441,7 @@ function toggleMessageTranslation(msgId){
   if(!shouldOfferMessageTranslation(entry)) return;
   var kind = normalizeMessageType(entry.type || 'text');
   if(kind === 'offlineinvite'){
-    if(!(entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.location))){
+    if(!(entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.aside || entry.inviteTranslation.location))){
       return requestChatMessageTranslation(msgId);
     }
   }else if(!String(entry.translationText || '').trim()){
