@@ -32,7 +32,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-01T21:11:00Z';
+const APP_BUILD_ID = '2026-04-01T21:18:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1183,15 +1183,38 @@ function charBgEnabledKeyForAccount(charId, accountId){
   return scopedKeyForAccount('char_bg_activity_enabled_' + charId, accountId);
 }
 
-function isCharBgEnabled(charId, accountId){
-  if(!charId) return true;
+function isGlobalAiBgEnabled(){
+  try{
+    return localStorage.getItem(AI_BG_ENABLED_KEY) === '1';
+  }catch(e){}
+  return false;
+}
+
+function getCharBgOverride(charId, accountId){
+  if(!charId) return null;
   try{
     var scoped = localStorage.getItem(charBgEnabledKeyForAccount(charId, accountId));
     if(scoped !== null) return scoped !== '0';
     var legacy = localStorage.getItem('char_bg_activity_enabled_' + charId);
     if(legacy !== null) return legacy !== '0';
   }catch(e){}
-  return true;
+  return null;
+}
+
+function isCharBgEnabled(charId, accountId){
+  if(!charId) return isGlobalAiBgEnabled();
+  var override = getCharBgOverride(charId, accountId);
+  if(override === null) return isGlobalAiBgEnabled();
+  return !!override;
+}
+
+function hasAnyAiBgActivityEnabled(accountId){
+  if(isGlobalAiBgEnabled()) return true;
+  var chars = getStoredCharactersSnapshot();
+  return chars.some(function(c){
+    var ownerId = c && c.ownerAccountId ? c.ownerAccountId : accountId;
+    return !!(c && c.id && ownerId === accountId && getCharBgOverride(c.id, accountId) === true);
+  });
 }
 
 function getDefaultAccountId(){
@@ -1515,7 +1538,6 @@ function getCharacterAvatarForBg(character){
 
 async function appendBackgroundAiMessage(character, accountId, content){
   if(!character || !character.id) return false;
-  if(localStorage.getItem(AI_BG_ENABLED_KEY) !== '1') return false;
   if(!isCharBgEnabled(character.id, accountId || getDefaultAccountId())) return false;
   var history = await readBackgroundChatHistory(character.id, accountId);
   var now = Date.now();
@@ -1542,7 +1564,6 @@ async function appendBackgroundAiMessage(character, accountId, content){
 
 async function appendBackgroundMoment(character, accountId, action, content, imageText){
   if(!character || !character.id) return false;
-  if(localStorage.getItem(AI_BG_ENABLED_KEY) !== '1') return false;
   if(!isCharBgEnabled(character.id, accountId || getDefaultAccountId())) return false;
   var posts = await readBackgroundMoments(accountId);
   var now = Date.now();
@@ -1736,10 +1757,9 @@ async function maybeUnblockFromBackground(cfg, character, accountId, history, sh
 }
 
 async function runAiBackgroundActivity(){
-  var enabled = localStorage.getItem(AI_BG_ENABLED_KEY) === '1';
-  if(!enabled) return false;
   var defaultId = getDefaultAccountId();
   if(!defaultId) return false;
+  if(!hasAnyAiBgActivityEnabled(defaultId)) return false;
   var character = await getBackgroundCharacter();
   if(!character || !character.id) return false;
   var cfg = getBackgroundProviderConfig();
@@ -1790,7 +1810,6 @@ async function runAiBackgroundActivity(){
   ].join('\n\n');
 
   var rawReply = await callAiForBackground(cfg, sysPrompt, userPrompt);
-  if(localStorage.getItem(AI_BG_ENABLED_KEY) !== '1') return false;
   if(!isCharBgEnabled(character.id, defaultId)) return false;
   var parsed = coerceBgAction(parseBgAction(rawReply), convoState);
   if(!parsed) return false;
@@ -5166,7 +5185,9 @@ function getAiBgIntervalMs(){
 
 async function maybeRunAiBgTick(force){
   if(aiBgRunning) return;
-  if(localStorage.getItem(AI_BG_ENABLED_KEY) !== '1') return;
+  var defaultId = getDefaultAccountId();
+  if(!defaultId) return;
+  if(!hasAnyAiBgActivityEnabled(defaultId)) return;
   var now = Date.now();
   var lastAt = parseInt(localStorage.getItem(AI_BG_LAST_AT_KEY) || '0', 10);
   if(!force && now - lastAt < getAiBgIntervalMs()) return;
