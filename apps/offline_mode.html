@@ -364,6 +364,17 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-story-translate-btn.is-open{background:#161616;color:#fff}
 .offline-story-translate-btn:disabled{opacity:.58;cursor:default}
 .offline-story-translate-btn:active{transform:translateY(1px)}
+.offline-inline-translate-wrap{display:inline-flex;flex-direction:column;align-items:flex-start;gap:8px;vertical-align:middle;margin-left:8px;max-width:min(78vw,268px)}
+.offline-inline-translate-btn{min-width:34px;height:28px;padding:0 10px;border:1.5px solid rgba(18,18,18,.82);border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;box-shadow:1px 1px 0 rgba(0,0,0,.18);cursor:pointer;flex:0 0 auto}
+.offline-inline-translate-btn.is-open{background:#111;color:#fff}
+.offline-inline-translate-btn:disabled{opacity:.58;cursor:default}
+.offline-inline-translate-btn:active{transform:translateY(1px);box-shadow:0 0 0}
+.offline-inline-translation-card{width:min(100%,248px);min-width:168px;max-width:min(72vw,248px);padding:10px 11px 9px;border:2px solid #111;border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.995),rgba(243,243,240,.97));box-shadow:3px 3px 0 rgba(0,0,0,.14),0 0 0 1px rgba(255,255,255,.84) inset}
+.offline-inline-translation-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}
+.offline-inline-translation-pill{display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:0 9px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.offline-inline-translation-sub{font-size:10px;font-weight:800;color:#666;letter-spacing:.08em;text-transform:uppercase}
+.offline-inline-translation-body{padding-top:8px;border-top:2px dashed rgba(17,17,17,.24);font-size:12px;font-weight:700;line-height:1.74;color:#111;white-space:pre-wrap;word-break:break-word}
+.offline-inline-aside-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
 .offline-edit-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:130;background:rgba(255,255,255,.22);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);padding:20px}
 .offline-edit-overlay.open{display:flex}
 .offline-edit-card{width:min(340px,calc(100vw - 28px));border:2px solid #1f1f1f;border-radius:30px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(244,244,241,.95));box-shadow:0 0 0 1px rgba(255,255,255,.95) inset,0 16px 36px rgba(0,0,0,.12);padding:18px 18px 16px;display:flex;flex-direction:column;gap:14px}
@@ -1101,6 +1112,9 @@ function toast(msg, options){
 function esc(s){
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+function quoteJsString(value){
+  return '\'' + String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/'/g, '\\\'').replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '\'';
+}
 function loadCharacter(charIdOverride){
   var forcedId = String(charIdOverride || '').trim();
   if(forcedId){
@@ -1265,17 +1279,19 @@ function shouldPrefetchOfflineTranslations(){
 }
 function buildOfflineReplyLanguagePromptLine(){
   if(!shouldOfferOfflineTranslation()){
-    return '翻译模式关闭，正文、蓝字心声、title、quote、status_card 默认都使用简体中文。';
+    return '翻译模式关闭，线下正文、蓝字心声、引号台词、title、quote、status_card 默认都使用简体中文。';
   }
   var option = getReplyLanguageOption(getOfflineReplyLanguage());
   if(!option || option.value === 'zh'){
-    return '正文、蓝字心声、title、quote、status_card 默认都使用简体中文。';
+    return '线下正文、蓝字心声、引号台词、title、quote、status_card 默认都使用简体中文。';
   }
   return [
     '语言模式：' + option.label + '。',
-    option.instruction,
-    '正文 text、蓝字心声 asides、title、quote、status_card 里的所有可见文字都使用自然口语化的' + option.nativeLabel + '。',
+    '线下正文里的旁白叙述、动作描写、环境描写和所有不在引号里的正文内容继续使用简体中文。',
+    '只有蓝字心声 asides 和角色真正说出口的引号台词使用自然口语化的' + option.nativeLabel + '。',
+    'title、quote 与 status_card 继续按各自规则生成，不要把正文旁白整段切成外语。',
     '番外、小物件、地点措辞和整体风味也要自然贴近这门语言所在地区的生活语感，不要只做生硬直译。',
+    '如果 text 里有任何不在引号里的外语句子，就视为违规，必须改回简体中文。',
     '不要解释这是翻译，也不要写成教材腔或刻意炫语言能力。'
   ].join('');
 }
@@ -1968,7 +1984,6 @@ function primeOfflineStatusCards(){
       queueOfflineSummaryGeneration(entry);
     }
     if(entry && recentAssistantEntries.indexOf(entry) !== -1){
-      queueOfflineEntryTranslationPrefetch(entry);
       if(entry.statusCard) queueOfflineStatusTranslationPrefetch(entry);
     }
   });
@@ -2578,7 +2593,7 @@ function bindOfflineDrawerControls(){
     });
   }
 }
-function renderCharSheetBody(text, asides){
+function renderCharSheetBody(text, asides, entryIndex){
   var body = String(text || '').trim();
   var notes = Array.isArray(asides) ? asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [];
   var parts = body
@@ -2592,6 +2607,172 @@ function renderCharSheetBody(text, asides){
   if(!parts.length){
     parts = ['这场线下见面还没正式开始。'];
   }
+  function extractOfflineQuotedSegments(sourceText){
+    return String(sourceText || '').match(/(?:“[^“”]+”|「[^「」]+」|『[^『』]+』|"[^"\n]+")(?:[，。！？!?、；：…,.．]+)?/g) || [];
+  }
+  function normalizeOfflineInlineTranslationItem(source){
+    if(!(source && typeof source === 'object')) return null;
+    var text = String(source.text || '').trim();
+    var sourceText = String(source.sourceText || '').trim();
+    var kind = String(source.kind || '').trim();
+    if(!text && !sourceText && !kind && !source.loading) return null;
+    return {
+      text: text,
+      visible: !!source.visible,
+      loading: !!source.loading,
+      sourceLanguage: String(source.sourceLanguage || '').trim(),
+      sourceText: sourceText,
+      kind: kind
+    };
+  }
+  function ensureOfflineInlineTranslationStore(entry){
+    if(!entry || typeof entry !== 'object') return { loadingKey:'', items:{} };
+    if(!(entry.inlineTranslations && typeof entry.inlineTranslations === 'object')) entry.inlineTranslations = { loadingKey:'', items:{} };
+    entry.inlineTranslations.loadingKey = String(entry.inlineTranslations.loadingKey || '').trim();
+    var rawItems = entry.inlineTranslations.items && typeof entry.inlineTranslations.items === 'object' ? entry.inlineTranslations.items : {};
+    var nextItems = {};
+    Object.keys(rawItems).forEach(function(key){
+      var normalized = normalizeOfflineInlineTranslationItem(rawItems[key]);
+      if(normalized) nextItems[key] = normalized;
+    });
+    entry.inlineTranslations.items = nextItems;
+    return entry.inlineTranslations;
+  }
+  function getOfflineInlineSource(entry, key){
+    if(!entry) return '';
+    var safeKey = String(key || '').trim();
+    if(!safeKey) return '';
+    var partsKey = safeKey.split(':');
+    var kind = String(partsKey[0] || '').trim();
+    var index = Math.max(0, Number(partsKey[1]) || 0);
+    if(kind === 'aside'){
+      return Array.isArray(entry.asides) ? String(entry.asides[index] || '').trim() : '';
+    }
+    if(kind === 'quote'){
+      return extractOfflineQuotedSegments(String(entry.text || ''))[index] || '';
+    }
+    return '';
+  }
+  function renderOfflineInlineTranslationCard(item){
+    var safeText = String(item && item.text || '').trim();
+    if(!safeText) return '';
+    var kindLabel = String(item && item.kind || '') === 'aside' ? '心声译文' : '台词译文';
+    return '<div class="offline-inline-translation-card"><div class="offline-inline-translation-head"><span class="offline-inline-translation-pill">TRANSLATION</span><span class="offline-inline-translation-sub">' + esc(kindLabel) + '</span></div><div class="offline-inline-translation-body">' + esc(safeText) + '</div></div>';
+  }
+  function requestOfflineInlineTranslation(entryIndex, key, options){
+    if(!session || !Array.isArray(session.entries)) return;
+    var safeIndex = Number(entryIndex);
+    var entry = Number.isInteger(safeIndex) && safeIndex >= 0 ? session.entries[safeIndex] : null;
+    var safeKey = String(key || '').trim();
+    var opts = options || {};
+    if(!entry || entry.role === 'user' || !safeKey) return;
+    if(!shouldOfferOfflineTranslation()){
+      if(!opts.silent) toast('当前角色语言就是中文');
+      return;
+    }
+    var sourceText = getOfflineInlineSource(entry, safeKey);
+    if(!String(sourceText || '').trim()) return;
+    var store = ensureOfflineInlineTranslationStore(entry);
+    var current = normalizeOfflineInlineTranslationItem(store.items[safeKey]) || {};
+    store.loadingKey = safeKey;
+    store.items[safeKey] = Object.assign({}, current, {
+      visible: opts.showOnReady !== false,
+      loading: true,
+      sourceText: String(sourceText || '').trim(),
+      kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
+    });
+    saveSession();
+    renderStory();
+    var systemPrompt = [
+      '你是翻译器。',
+      '请把下面这句角色原文翻译成自然流畅的简体中文。',
+      '只返回纯译文，不要解释，不要原文，不要括号前后缀，不要代码块。'
+    ].join('\n');
+    var userPrompt = JSON.stringify({
+      sourceLanguage: getReplyLanguageOption(getOfflineReplyLanguage()).nativeLabel,
+      kind: safeKey.indexOf('aside:') === 0 ? '蓝字心声' : '角色台词',
+      text: String(sourceText || '').trim()
+    });
+    callAI(systemPrompt, userPrompt).then(function(raw){
+      var translated = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+      if(!translated) throw new Error('empty translation');
+      if(!session || !Array.isArray(session.entries)) return;
+      var latestEntry = session.entries[safeIndex];
+      if(!latestEntry) return;
+      var latestStore = ensureOfflineInlineTranslationStore(latestEntry);
+      latestStore.loadingKey = latestStore.loadingKey === safeKey ? '' : latestStore.loadingKey;
+      latestStore.items[safeKey] = {
+        text: translated,
+        visible: opts.showOnReady !== false,
+        loading: false,
+        sourceLanguage: getOfflineReplyLanguage(),
+        sourceText: String(sourceText || '').trim(),
+        kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
+      };
+      saveSession();
+      renderStory();
+    }).catch(function(){
+      if(!session || !Array.isArray(session.entries)) return;
+      var latestEntry = session.entries[safeIndex];
+      if(!latestEntry) return;
+      var latestStore = ensureOfflineInlineTranslationStore(latestEntry);
+      latestStore.loadingKey = latestStore.loadingKey === safeKey ? '' : latestStore.loadingKey;
+      latestStore.items[safeKey] = Object.assign({}, normalizeOfflineInlineTranslationItem(latestStore.items[safeKey]) || {}, {
+        visible: false,
+        loading: false,
+        sourceText: String(sourceText || '').trim(),
+        kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
+      });
+      saveSession();
+      renderStory();
+      if(!opts.silent) toast('译文生成失败');
+    });
+  }
+  function toggleOfflineInlineTranslation(entryIndex, key){
+    if(!session || !Array.isArray(session.entries)) return;
+    var safeIndex = Number(entryIndex);
+    var entry = Number.isInteger(safeIndex) && safeIndex >= 0 ? session.entries[safeIndex] : null;
+    var safeKey = String(key || '').trim();
+    if(!entry || !safeKey || !shouldOfferOfflineTranslation()) return;
+    var store = ensureOfflineInlineTranslationStore(entry);
+    var item = normalizeOfflineInlineTranslationItem(store.items[safeKey]);
+    if(!(item && String(item.text || '').trim())){
+      requestOfflineInlineTranslation(safeIndex, safeKey);
+      return;
+    }
+    item.visible = !item.visible;
+    item.loading = false;
+    store.items[safeKey] = item;
+    saveSession();
+    renderStory();
+  }
+  function queueOfflineInlineTranslationsPrefetch(entry){
+    if(!entry || entry.role === 'user' || !shouldPrefetchOfflineTranslations()) return;
+    var entryIndex = Array.isArray(session && session.entries) ? session.entries.indexOf(entry) : -1;
+    if(entryIndex < 0) return;
+    var keys = extractOfflineQuotedSegments(String(entry.text || '')).map(function(_, idx){ return 'quote:' + String(idx); })
+      .concat((Array.isArray(entry.asides) ? entry.asides : []).map(function(_, idx){ return 'aside:' + String(idx); }))
+      .slice(0, 6);
+    var store = ensureOfflineInlineTranslationStore(entry);
+    keys.forEach(function(key){
+      var item = normalizeOfflineInlineTranslationItem(store.items[key]);
+      if(item && (item.loading || String(item.text || '').trim())) return;
+      requestOfflineInlineTranslation(entryIndex, key, { silent:true, showOnReady:false });
+    });
+  }
+  function renderOfflineInlineTranslationControl(targetEntryIndex, key){
+    if(!shouldOfferOfflineTranslation() || getOfflineReplyLanguage() === 'zh') return '';
+    if(!session || !Array.isArray(session.entries)) return '';
+    var entry = session.entries[targetEntryIndex];
+    if(!entry) return '';
+    var sourceText = getOfflineInlineSource(entry, key);
+    if(!String(sourceText || '').trim()) return '';
+    var store = ensureOfflineInlineTranslationStore(entry);
+    var item = normalizeOfflineInlineTranslationItem(store.items[key]);
+    var isOpen = !!(item && item.visible && String(item.text || '').trim());
+    var label = item && item.loading ? '译中' : (isOpen ? '收起' : '译');
+    return '<span class="offline-inline-translate-wrap"><button class="offline-inline-translate-btn' + (isOpen ? ' is-open' : '') + '" type="button" onclick="toggleOfflineInlineTranslation(' + Number(targetEntryIndex) + ',' + quoteJsString(key) + ')"' + ((item && item.loading) ? ' disabled' : '') + '>' + esc(label) + '</button>' + (isOpen ? renderOfflineInlineTranslationCard(item) : '') + '</span>';
+  }
   var insertSlots = [];
   if(notes.length === 1){
     insertSlots = [Math.min(parts.length - 1, Math.max(0, Math.floor(parts.length / 2)))];
@@ -2601,18 +2782,20 @@ function renderCharSheetBody(text, asides){
       Math.max(0, Math.min(parts.length - 1, Math.floor((parts.length - 1) * 2 / 3)))
     ];
   }
-  function renderQuotedInline(rawText){
+  function renderQuotedInline(rawText, targetEntryIndex){
     var source = String(rawText || '');
     var pattern = /(?:“[^“”]+”|「[^「」]+」|『[^『』]+』|"[^"\n]+")(?:[，。！？!?、；：…,.．]+)?/g;
     var lastIndex = 0;
     var htmlParts = [];
     var match;
+    var quoteIndex = 0;
     while((match = pattern.exec(source))){
       if(match.index > lastIndex){
         htmlParts.push(esc(source.slice(lastIndex, match.index)));
       }
-      htmlParts.push('<span class="sheet-quote-inline">' + esc(match[0]) + '</span>');
+      htmlParts.push('<span class="sheet-quote-inline">' + esc(match[0]) + '</span>' + renderOfflineInlineTranslationControl(targetEntryIndex, 'quote:' + String(quoteIndex)));
       lastIndex = match.index + match[0].length;
+      quoteIndex += 1;
     }
     if(lastIndex < source.length){
       htmlParts.push(esc(source.slice(lastIndex)));
@@ -2620,11 +2803,16 @@ function renderCharSheetBody(text, asides){
     return htmlParts.join('');
   }
   var html = '';
+  if(Array.isArray(session && session.entries) && Number.isInteger(entryIndex) && entryIndex >= 0){
+    queueOfflineInlineTranslationsPrefetch(session.entries[entryIndex]);
+  }
   parts.forEach(function(part, idx){
     var trimmedPart = String(part || '').trim();
-    html += '<p>' + renderQuotedInline(trimmedPart) + '</p>';
+    html += '<p>' + renderQuotedInline(trimmedPart, entryIndex) + '</p>';
     insertSlots.forEach(function(slot, noteIdx){
-      if(idx === slot && notes[noteIdx]) html += '<p class="char-sheet-aside">' + esc(notes[noteIdx]) + '</p>';
+      if(idx === slot && notes[noteIdx]){
+        html += '<div class="offline-inline-aside-wrap"><p class="char-sheet-aside">' + esc(notes[noteIdx]) + renderOfflineInlineTranslationControl(entryIndex, 'aside:' + String(noteIdx)) + '</p></div>';
+      }
     });
   });
   return html;
@@ -2701,21 +2889,7 @@ async function requestOfflineEntryTranslation(index, options){
   }
 }
 function queueOfflineEntryTranslationPrefetch(entry){
-  if(!entry || entry.role === 'user' || !shouldPrefetchOfflineTranslations()) return;
-  var key = offlineStatusEntryKey(entry) + '::text';
-  if(!key || offlineEntryTranslationQueue[key]) return;
-  var idx = Array.isArray(session && session.entries) ? session.entries.indexOf(entry) : -1;
-  if(idx < 0) return;
-  var translation = entry.translation && typeof entry.translation === 'object' ? entry.translation : null;
-  if(entry.translation && entry.translation.loading) return;
-  if(translation && String(translation.text || '').trim()) return;
-  offlineEntryTranslationQueue[key] = true;
-  Promise.resolve().then(function(){
-    return requestOfflineEntryTranslation(idx, { silent:true, showOnReady:false });
-  }).catch(function(){})
-    .finally(function(){
-      delete offlineEntryTranslationQueue[key];
-    });
+  return;
 }
 function toggleOfflineTranslation(index){
   if(!session || !Array.isArray(session.entries)) return;
@@ -2750,16 +2924,9 @@ function renderPaperStoryCard(entry, idx, isChar){
           '<span class="offline-story-stat"><span class="offline-story-stat-icon">✦</span><span>' + esc(String(meta.tokenCount) + 't') + '</span></span>' +
         '</div>' +
       '</div>';
-  var translateBtn = '';
-  if(isChar && shouldOfferOfflineTranslation()){
-    var translation = entry && entry.translation && typeof entry.translation === 'object' ? entry.translation : null;
-    var btnLabel = translation && translation.loading ? '译中' : ((translation && translation.visible && String(translation.text || '').trim()) ? '收起' : '译');
-    translateBtn = '<button class="offline-story-translate-btn' + ((translation && translation.visible && String(translation.text || '').trim()) ? ' is-open' : '') + '" type="button" onclick="toggleOfflineTranslation(' + idx + ')"' + ((translation && translation.loading) ? ' disabled' : '') + '>' + esc(btnLabel) + '</button>';
-  }
   var bottomActions = '<div class="offline-story-actions">' +
       userEdit +
       '<div class="offline-story-iconset">' +
-        translateBtn +
         '<div class="offline-story-iconbtn"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2"></circle><circle cx="6" cy="12" r="2"></circle><circle cx="18" cy="19" r="2"></circle><path d="M8 12l8-6"></path><path d="M8 12l8 6"></path></svg></div>' +
         '<div class="offline-story-iconbtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12a1 1 0 0 1 1 1v15l-7-4-7 4V5a1 1 0 0 1 1-1Z"></path></svg></div>' +
         '<div class="offline-story-iconbtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10Z"></path></svg></div>' +
@@ -2777,8 +2944,7 @@ function renderPaperStoryCard(entry, idx, isChar){
         '<div class="offline-story-quote">' + esc(meta.quote) + '</div>' +
       '</div>' +
       '<div class="offline-story-divider"></div>' +
-      '<div class="offline-story-body">' + renderCharSheetBody(entry.text || '', entry.asides || (entry.aside ? [entry.aside] : [])) + '</div>' +
-      (isChar ? renderOfflineTranslationBlock(entry) : '') +
+      '<div class="offline-story-body">' + renderCharSheetBody(entry.text || '', entry.asides || (entry.aside ? [entry.aside] : []), idx) + '</div>' +
       (isChar ? ('<div class="offline-story-postcards">' + statusChip + summaryToggle + '</div>') : '') +
       bottomActions +
     '</div>' +
@@ -2846,6 +3012,7 @@ function saveOfflineEditModal(){
   if(!trimmed) return;
   entry.text = trimmed;
   if(entry.translation) entry.translation = null;
+  if(entry.inlineTranslations) entry.inlineTranslations = null;
   entry.tokenCount = estimateOfflineTokens(trimmed);
   if(entry.role === 'assistant'){
     if(!entry.thoughtChain) entry.thoughtChain = normalizeOfflineThoughtChain(entry.thought_chain || null, trimmed);
@@ -3488,7 +3655,7 @@ function getOfflineMemorySnippet(){
     var items = sortOfflineMemoryItemsForPrompt(parsed && parsed.items).map(function(it){
       return String((it && it.text) || '').trim();
     }).filter(Boolean);
-    offlineMemorySnippetCache = items.slice(-4).join('\n');
+    offlineMemorySnippetCache = items.slice(-3).join('\n');
     return offlineMemorySnippetCache;
   }catch(e){
     return '';
@@ -3510,7 +3677,7 @@ async function hydrateOfflineMemorySnippet(){
   var items = sortOfflineMemoryItemsForPrompt(normalized && normalized.items);
   offlineMemorySnippetCache = items.map(function(it){
     return String((it && it.text) || '').trim();
-  }).filter(Boolean).slice(-4).join('\n');
+  }).filter(Boolean).slice(-3).join('\n');
   return offlineMemorySnippetCache;
 }
 async function loadOfflineMemoryStore(){
@@ -3650,7 +3817,7 @@ async function deleteOfflineMemoryItem(id){
   toast('这条记忆已经删掉了');
 }
 function getOfflineRecentOnlineSnippet(){
-  return clipOfflinePromptText(session && session.chatHistory ? session.chatHistory : '', isMobileOfflineRuntime() ? 1800 : 2800);
+  return clipOfflinePromptText(session && session.chatHistory ? session.chatHistory : '', isMobileOfflineRuntime() ? 1200 : 1800);
 }
 function getOfflineRecentOnlineSnippetByBudget(maxChars){
   return clipOfflinePromptText(session && session.chatHistory ? session.chatHistory : '', maxChars);
@@ -3701,12 +3868,12 @@ function getOfflineHistorySnippetByBudget(limit, maxChars){
 }
 function buildOfflineCoreSettingSummary(compactLevel){
   var level = Math.max(0, Number(compactLevel) || 0);
-  var persona = clipOfflinePromptText(character ? (character.personality || character.description || '') : '', offlinePromptLimit(isMobileOfflineRuntime() ? 1450 : 2200, level, 620));
-  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, level, 280));
-  var scenario = clipOfflinePromptText(character ? String(character.scenario || '').trim() : '', offlinePromptLimit(520, level, 220));
-  var systemPrompt = clipOfflinePromptText(character ? String(character.system_prompt || '').trim() : '', offlinePromptLimit(isMobileOfflineRuntime() ? 1050 : 1500, level, 360));
-  var worldBook = getOfflineWorldbookSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 1500 : 2200, level, 560));
-  var memoryText = getOfflineMemorySnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 1100 : 1600, level, 420));
+  var persona = clipOfflinePromptText(character ? (character.personality || character.description || '') : '', offlinePromptLimit(isMobileOfflineRuntime() ? 980 : 1500, level, 420));
+  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, level, 220));
+  var scenario = clipOfflinePromptText(character ? String(character.scenario || '').trim() : '', offlinePromptLimit(360, level, 160));
+  var systemPrompt = clipOfflinePromptText(character ? String(character.system_prompt || '').trim() : '', offlinePromptLimit(isMobileOfflineRuntime() ? 720 : 980, level, 260));
+  var worldBook = getOfflineWorldbookSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 980 : 1460, level, 360));
+  var memoryText = getOfflineMemorySnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, level, 240));
   var charWeather = buildWeatherMoodPrompt(getOfflineWeatherSnapshot('char'));
   var userWeather = buildWeatherMoodPrompt(getOfflineWeatherSnapshot('user'));
   var inviteWeather = String(session && session.invite && session.invite.weather || '').trim();
@@ -3812,9 +3979,9 @@ function parseOfflineJsonObject(raw){
 function buildOfflineThoughtSystemPrompt(options){
   options = options || {};
   var compactLevel = Math.max(0, Number(options.compactLevel) || 0);
-  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 800 : 1200, compactLevel, 260));
-  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 700 : 1000, compactLevel, 220));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 700 : 1000, compactLevel, 220));
+  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 560 : 820, compactLevel, 200));
+  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, compactLevel, 160));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, compactLevel, 160));
   return [
     '你现在只负责生成线下模式这一幕的 thought_chain。',
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."}}',
@@ -3834,9 +4001,9 @@ function buildOfflineThoughtSystemPrompt(options){
 function buildOfflineBodySystemPrompt(options){
   options = options || {};
   var compactLevel = Math.max(0, Number(options.compactLevel) || 0);
-  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, compactLevel, 280));
-  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 820 : 1200, compactLevel, 260));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 2 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 820 : 1200, compactLevel, 260));
+  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, compactLevel, 220));
+  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 480 : 720, compactLevel, 180));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 500 : 760, compactLevel, 180));
   var storyPrefs = getOfflineStoryPrefs();
   return [
     '你现在只负责生成线下模式这一幕的正文内容。',
@@ -3844,7 +4011,8 @@ function buildOfflineBodySystemPrompt(options){
     '不要 thought_chain，不要 status_card，不要解释。',
     'title 是这一幕标题，6-16 个字左右；要搞笑、有网感、像会被拿来当小标题吐槽的那种，允许轻微口语化和坏笑感，但必须贴人设；quote 是可爱圆润但贴人设的小语录，12-30 个字左右。',
     'text 必须写成足量的线下面对面正文，长度优先写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间；超过原上限一点点也可以接受，但绝对不要明显短于下限。',
-    buildOfflineStrictLanguageRule('title、quote、text 正文、引号里的台词、asides 蓝字心声与 heart'),
+    '线下正文的旁白叙述、动作描写、环境描写一律使用简体中文；只有 asides 蓝字心声和 char 真正说出口的引号台词跟随当前语言设置。',
+    '最终检查 text：除了引号里的 char 台词，其余所有正文都必须是简体中文。',
     '注意：thought_chain、幕摘要、阶段记忆总结固定使用简体中文，不跟随语言设置。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     '镜头和感知中心必须是 char 本人，优先写动作、停顿、语气、眼神和现场变化。',
@@ -3863,16 +4031,17 @@ function buildOfflineBodySystemPrompt(options){
 function buildOfflineBodyTextSystemPrompt(options){
   options = options || {};
   var compactLevel = Math.max(0, Number(options.compactLevel) || 0);
-  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, compactLevel, 280));
-  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 820 : 1200, compactLevel, 260));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 2 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 820 : 1200, compactLevel, 260));
+  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, compactLevel, 220));
+  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 480 : 720, compactLevel, 180));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 500 : 760, compactLevel, 180));
   var storyPrefs = getOfflineStoryPrefs();
   var thoughtChain = options.thoughtChain || null;
   return [
     '你现在只负责生成线下模式这一幕的正文文本。',
     '只返回纯文本正文，不要 JSON，不要标题，不要 quote，不要解释。',
     '正文长度优先写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间，允许比原上限自然上浮一小段。',
-    buildOfflineStrictLanguageRule('正文 text 与引号里的台词'),
+    '正文的旁白叙述、动作描写、环境描写固定使用简体中文；只有 char 真正说出口的引号台词跟随当前语言设置。',
+    '最终检查 text：除了引号里的 char 台词，其余所有正文都必须是简体中文。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     '镜头和感知中心必须是 char 本人，优先写动作、停顿、语气、眼神和现场变化。',
     '至少 3 个自然段，每段都用完整句子收尾。',
@@ -3894,8 +4063,8 @@ function buildOfflineStatusSystemPrompt(options){
   var dateRule = profile.key === 'nogrow'
     ? 'future_date 必须是过去某一天的具体日期与时间，要明显早于当前正文时间。'
     : 'future_date 必须是未来某一天的具体日期与时间。';
-  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 700 : 1000, compactLevel, 220));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 700 : 1000, compactLevel, 220));
+  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, compactLevel, 160));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, compactLevel, 160));
   var jsonShape = profile.artifactRule
     ? '{"status_card":{"type":"' + profile.key + '","future_date":"...","future_title":"...","future_note":"...","artifact_label":"...","artifact_html":"..."}}'
     : '{"status_card":{"type":"' + profile.key + '","future_date":"...","future_title":"...","future_note":"..."}}';
@@ -3952,16 +4121,16 @@ function buildOfflineSystemPrompt(options){
   var scenario = character ? String(character.scenario || '').trim() : '';
   var systemPrompt = character ? String(character.system_prompt || '').trim() : '';
   var storyPrefs = getOfflineStoryPrefs();
-  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1500 : 2200, compactLevel, 520));
-  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 420));
+  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 960 : 1420, compactLevel, 360));
+  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 640 : 920, compactLevel, 240));
   var onlineChatText = getOfflineRecentOnlineSnippet();
-  onlineChatText = clipOfflinePromptText(onlineChatText, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
-  var compactPersona = clipOfflinePromptText(persona, offlinePromptLimit(isMobileOfflineRuntime() ? 1400 : 2200, compactLevel, 520));
-  var compactUserPersona = clipOfflinePromptText(userPersona, offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, compactLevel, 280));
-  var compactScenario = clipOfflinePromptText(scenario, offlinePromptLimit(500, compactLevel, 180));
-  var compactSystemPrompt = clipOfflinePromptText(systemPrompt, offlinePromptLimit(isMobileOfflineRuntime() ? 1000 : 1600, compactLevel, 320));
-  var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), offlinePromptLimit(500, compactLevel, 180));
+  onlineChatText = clipOfflinePromptText(onlineChatText, offlinePromptLimit(isMobileOfflineRuntime() ? 660 : 960, compactLevel, 220));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 660 : 960, compactLevel, 220));
+  var compactPersona = clipOfflinePromptText(persona, offlinePromptLimit(isMobileOfflineRuntime() ? 980 : 1480, compactLevel, 360));
+  var compactUserPersona = clipOfflinePromptText(userPersona, offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, compactLevel, 220));
+  var compactScenario = clipOfflinePromptText(scenario, offlinePromptLimit(360, compactLevel, 150));
+  var compactSystemPrompt = clipOfflinePromptText(systemPrompt, offlinePromptLimit(isMobileOfflineRuntime() ? 720 : 980, compactLevel, 240));
+  var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), offlinePromptLimit(320, compactLevel, 130));
   var sideStoryProfile = getOfflineSideStoryProfile(getOfflineUiPrefs().sideStoryType);
   var sideStoryDateRule = sideStoryProfile.key === 'nogrow'
     ? 'future_date 是过去某一天的具体日期与时间，要明显早于当前正文时间。'
@@ -3990,8 +4159,8 @@ function buildOfflineSystemPrompt(options){
     sideStoryProfile.artifactRule ? '如果 status_card 里包含 artifact_html，重点必须放在小物件本体的设计感和完成度上，文字只是陪衬，不要写太长。' : '',
     '如果 status_card 里包含 artifact_html：只能用简单安全的 HTML/CSS，小物件要能直接展示；不许 script，不许外链，不许 iframe，不许事件属性。整个小物件必须严格适配手机弹窗宽度，不许任何文字、边角、贴纸、标题、装饰超出容器。',
     '在线下模式正文里，text 优先写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间，允许比原上限自然上浮一小段，但绝对不要明显短于下限。',
-    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；status_card、title、quote、text、asides、heart、引号里的台词严格使用当前语言设置。',
-    buildOfflineStrictLanguageRule('status_card、title、quote、text、asides 与 heart'),
+    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；status_card、title、quote、heart 使用各自既定规则；正文里的旁白叙述固定简体中文，只有 asides 和引号里的台词严格使用当前语言设置。',
+    '不要把整段正文旁白切成外语；外语只出现在蓝字心声和引号里的角色台词里。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     offlineForbiddenWordRuleLine(),
     '正文的镜头和感知中心必须是 char 本人：重点写 char 看到的、听到的、想到的、做出的动作和反应。',
@@ -4042,16 +4211,16 @@ function buildOfflineOpeningChunkSystemPrompt(){
   var scenario = character ? String(character.scenario || '').trim() : '';
   var systemPrompt = character ? String(character.system_prompt || '').trim() : '';
   var storyPrefs = getOfflineStoryPrefs();
-  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1500 : 2200, compactLevel, 520));
-  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 420));
+  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 960 : 1420, compactLevel, 360));
+  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 640 : 920, compactLevel, 240));
   var onlineChatText = getOfflineRecentOnlineSnippet();
-  onlineChatText = clipOfflinePromptText(onlineChatText, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
-  var compactPersona = clipOfflinePromptText(persona, offlinePromptLimit(isMobileOfflineRuntime() ? 1400 : 2200, compactLevel, 520));
-  var compactUserPersona = clipOfflinePromptText(userPersona, offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, compactLevel, 280));
-  var compactScenario = clipOfflinePromptText(scenario, offlinePromptLimit(500, compactLevel, 180));
-  var compactSystemPrompt = clipOfflinePromptText(systemPrompt, offlinePromptLimit(isMobileOfflineRuntime() ? 1000 : 1600, compactLevel, 320));
-  var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), offlinePromptLimit(500, compactLevel, 180));
+  onlineChatText = clipOfflinePromptText(onlineChatText, offlinePromptLimit(isMobileOfflineRuntime() ? 660 : 960, compactLevel, 220));
+  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 2 : 3, offlinePromptLimit(isMobileOfflineRuntime() ? 660 : 960, compactLevel, 220));
+  var compactPersona = clipOfflinePromptText(persona, offlinePromptLimit(isMobileOfflineRuntime() ? 980 : 1480, compactLevel, 360));
+  var compactUserPersona = clipOfflinePromptText(userPersona, offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, compactLevel, 220));
+  var compactScenario = clipOfflinePromptText(scenario, offlinePromptLimit(360, compactLevel, 150));
+  var compactSystemPrompt = clipOfflinePromptText(systemPrompt, offlinePromptLimit(isMobileOfflineRuntime() ? 720 : 980, compactLevel, 240));
+  var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), offlinePromptLimit(320, compactLevel, 130));
   var sideStoryProfile = getOfflineSideStoryProfile(getOfflineUiPrefs().sideStoryType);
   var sideStoryDateRule = sideStoryProfile.key === 'nogrow'
     ? 'future_date 是过去某一天的具体日期与时间，要明显早于当前正文时间。'
@@ -4064,8 +4233,8 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["...","..."]}，不要代码块，不要解释。',
     '这次直接写完整第一幕正文，长度尽量写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间。',
-    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；status_card、title、quote、text、asides、引号里的台词严格使用当前语言设置。',
-    buildOfflineStrictLanguageRule('status_card、title、quote、text、asides 与引号里的台词'),
+    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；正文里的旁白叙述固定简体中文，只有 asides 和引号里的台词严格使用当前语言设置。',
+    '不要把整段正文旁白切成外语；外语只出现在蓝字心声和引号里的角色台词里。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个中文字符，不要太正经，但必须贴人设。',
     'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个中文字符。',
@@ -4790,7 +4959,7 @@ async function generateOpeningIfNeeded(){
     var openingContext = [
       '请写这场线下见面的第一个场景。',
       buildOfflineInvitePromptLine('见面起点：'),
-      '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 1800 : 2800) || '无'),
+      '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 720 : 980) || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
     try{
@@ -4939,7 +5108,6 @@ async function generateOpeningIfNeeded(){
     queueOfflineSummaryGeneration(openingEntry);
     queueOfflineStatusCardGeneration(openingEntry, { silent:true });
     queueOfflineStageSummaryGeneration();
-    queueOfflineEntryTranslationPrefetch(openingEntry);
     if(openingEntry.statusCard) queueOfflineStatusTranslationPrefetch(openingEntry);
   }catch(e){
     var fallbackText = buildOfflineOpeningFallback();
@@ -4972,7 +5140,6 @@ async function generateOpeningIfNeeded(){
     queueOfflineSummaryGeneration(session.entries[session.entries.length - 1]);
     queueOfflineStatusCardGeneration(session.entries[session.entries.length - 1], { silent:true });
     queueOfflineStageSummaryGeneration();
-    queueOfflineEntryTranslationPrefetch(session.entries[session.entries.length - 1]);
     toast('首幕没有走到理想生成结果，已经自动换成稳定开场。', { sticky:true });
   }
   hideFlightOverlay();
@@ -5025,11 +5192,11 @@ async function requestOfflineReply(options){
     var compactBase = sceneDepth >= 10 ? 2 : (sceneDepth >= 4 ? 1 : 0);
     var retryCompactBase = compactBase;
     var onlineSnippet = getOfflineRecentOnlineSnippetByBudget(
-      offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 920, retryCompactBase, 180)
+      offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, retryCompactBase, 160)
     ) || '无';
     var shortOfflineHistory = clipOfflinePromptText(
-      formatOfflineHistoryForPrompt(retryCompactBase >= 1 ? 3 : 4, retryCompactBase >= 1 ? 5 : 7) || '无',
-      offlinePromptLimit(isMobileOfflineRuntime() ? 760 : 1100, retryCompactBase, 220)
+      formatOfflineHistoryForPrompt(retryCompactBase >= 1 ? 2 : 3, retryCompactBase >= 1 ? 4 : 5) || '无',
+      offlinePromptLimit(isMobileOfflineRuntime() ? 500 : 760, retryCompactBase, 180)
     ) || '无';
     var lastUserEntry = Array.isArray(session.entries) ? session.entries[session.entries.length - 1] : null;
     var thoughtContext = [
@@ -5158,7 +5325,6 @@ async function requestOfflineReply(options){
     queueOfflineSummaryGeneration(replyEntry);
     queueOfflineStatusCardGeneration(replyEntry);
     queueOfflineStageSummaryGeneration();
-    queueOfflineEntryTranslationPrefetch(replyEntry);
     renderStory();
     keepOfflineComposerVisible();
   }catch(e){
