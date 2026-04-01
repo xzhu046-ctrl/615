@@ -2030,6 +2030,17 @@ function defaultMemeLibrary(){
 function normalizeMemeName(value){
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
+function canonicalizeMemeLookupName(value){
+  return normalizeMemeName(value)
+    .replace(/^\[(?:表情包|meme)\s*[:：]\s*/i, '')
+    .replace(/\]$/i, '')
+    .replace(/^【(?:表情包|meme)】\s*/i, '')
+    .replace(/^(?:表情包|meme)\s*[:：]\s*/i, '')
+    .replace(/\s*\|\s*(?:分类|category)\s*[:：].*$/i, '')
+    .replace(/\s*[（(](?:分类|category)\s*[:：].*?[）)]\s*$/i, '')
+    .replace(/^[“”"'`]+|[“”"'`]+$/g, '')
+    .trim();
+}
 function normalizeMemeCategory(value){
   return String(value || '').replace(/\s+/g, ' ').trim() || '未分类';
 }
@@ -2093,14 +2104,20 @@ function getAllMemeItems(){
   return Array.isArray(memeLibraryCache.items) ? memeLibraryCache.items.slice() : [];
 }
 function findMemeByName(name){
-  var target = normalizeMemeName(name).toLowerCase();
+  var target = canonicalizeMemeLookupName(name).toLowerCase();
   if(!target) return null;
+  var targetCompact = target.replace(/[\s\-_.|:：]/g, '');
   var items = getAllMemeItems();
   for(var i = 0; i < items.length; i++){
-    if(normalizeMemeName(items[i].name).toLowerCase() === target) return items[i];
+    var exact = canonicalizeMemeLookupName(items[i].name).toLowerCase();
+    if(exact === target) return items[i];
+    if(exact.replace(/[\s\-_.|:：]/g, '') === targetCompact) return items[i];
   }
   for(var j = 0; j < items.length; j++){
-    if(normalizeMemeName(items[j].name).toLowerCase().indexOf(target) >= 0) return items[j];
+    var fuzzy = canonicalizeMemeLookupName(items[j].name).toLowerCase();
+    var fuzzyCompact = fuzzy.replace(/[\s\-_.|:：]/g, '');
+    if(fuzzy.indexOf(target) >= 0 || target.indexOf(fuzzy) >= 0) return items[j];
+    if(fuzzyCompact && targetCompact && (fuzzyCompact.indexOf(targetCompact) >= 0 || targetCompact.indexOf(fuzzyCompact) >= 0)) return items[j];
   }
   return null;
 }
@@ -2116,7 +2133,7 @@ function parseMemeMarker(raw){
     || text.match(/^【(?:表情包|meme)】\s*(.+)$/i)
     || text.match(/^(?:表情包|meme)\s*[:：]\s*(.+)$/i);
   if(!match || !match[1]) return null;
-  var name = normalizeMemeName(match[1]).replace(/^【表情包】/,'').trim();
+  var name = canonicalizeMemeLookupName(match[1]).replace(/^【表情包】/,'').trim();
   if(!name) return null;
   return name;
 }
@@ -2130,7 +2147,7 @@ function splitTextAndMemeMarkers(raw){
   while((match = pattern.exec(text))){
     var before = text.slice(lastIndex, match.index).trim();
     if(before) parts.push({ text: before, t: 'text' });
-    var memeName = normalizeMemeName(match[2] || match[3] || '');
+    var memeName = canonicalizeMemeLookupName(match[2] || match[3] || '');
     if(memeName) parts.push({ text: memeName, t: 'meme' });
     lastIndex = pattern.lastIndex;
   }
@@ -4122,6 +4139,16 @@ function loadCharBgEnabled(charId){
   var key = charBgEnabledKey(charId);
   try{
     var raw = localStorage.getItem(key);
+    if(raw === null && window.AccountManager){
+      window.AccountManager.ensure();
+      var defaultId = window.AccountManager.getDefaultId() || '';
+      if(defaultId){
+        raw = localStorage.getItem(window.AccountManager.scopedKey('char_bg_activity_enabled_' + charId, defaultId));
+      }
+    }
+    if(raw === null){
+      raw = localStorage.getItem('char_bg_activity_enabled_' + charId);
+    }
     if(raw === null){
       localStorage.setItem(key, '1');
       return true;
@@ -4134,7 +4161,18 @@ function loadCharBgEnabled(charId){
 
 function saveCharBgEnabled(charId, enabled){
   if(!charId) return;
-  try{ localStorage.setItem(charBgEnabledKey(charId), enabled ? '1' : '0'); }catch(e){}
+  var raw = enabled ? '1' : '0';
+  try{ localStorage.setItem(charBgEnabledKey(charId), raw); }catch(e){}
+  try{ localStorage.setItem('char_bg_activity_enabled_' + charId, raw); }catch(e){}
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      var defaultId = window.AccountManager.getDefaultId() || '';
+      if(defaultId){
+        localStorage.setItem(window.AccountManager.scopedKey('char_bg_activity_enabled_' + charId, defaultId), raw);
+      }
+    }
+  }catch(e){}
 }
 
 function loadCharMomentsFreq(charId){
@@ -7867,6 +7905,7 @@ function clearPresenceNudgeState(charId){
 
 function registerPresenceNudge(kind){
   if(!(character && character.id && window.PresenceShared)) return;
+  if(!loadCharBgEnabled(character.id)) return;
   var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
   if(!snapshot || !snapshot.char || snapshot.char.shareEnabled === false) return;
   if(snapshot.char.autoReplyEnabled === false) return;
@@ -7896,6 +7935,7 @@ function registerPresenceNudge(kind){
 
 function maybeWakePresenceByNudge(snapshot){
   if(!(character && character.id && snapshot && snapshot.char)) return false;
+  if(!loadCharBgEnabled(character.id)) return false;
   var state = loadPresenceNudgeState(character.id);
   if(!state.score) return false;
   var chance = snapshot.char.availability === 'sleep'
@@ -7950,6 +7990,7 @@ async function sendOnly() {
 
 async function maybeHandlePresenceAutoReply(){
   if(!(window.PresenceShared && character && character.id)) return false;
+  if(!loadCharBgEnabled(character.id)) return false;
   var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
   if(!snapshot || !snapshot.char || snapshot.char.shareEnabled === false) return false;
   if(snapshot.char.autoReplyEnabled === false) return false;
