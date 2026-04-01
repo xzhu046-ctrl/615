@@ -1360,19 +1360,19 @@ function shouldPrefetchOfflineTranslations(){
 }
 function buildOfflineReplyLanguagePromptLine(){
   if(!shouldOfferOfflineTranslation()){
-    return '翻译模式关闭，线下正文、蓝字心声、引号台词、title、quote、status_card 默认都使用简体中文。';
+    return '翻译模式关闭，线下正文标题、顶部 char 语录、正文旁白、蓝字心声、引号台词、番外都默认使用简体中文。';
   }
   var option = getReplyLanguageOption(getOfflineReplyLanguage());
   if(!option || option.value === 'zh'){
-    return '线下正文、蓝字心声、引号台词、title、quote、status_card 默认都使用简体中文。';
+    return '线下正文标题、顶部 char 语录、正文旁白、蓝字心声、引号台词、番外都默认使用简体中文。';
   }
   return [
     '语言模式：' + option.label + '。',
-    '线下正文里的旁白叙述、动作描写、环境描写和所有不在引号里的正文内容继续使用简体中文。',
+    '线下正文标题、顶部 char 语录、旁白叙述、动作描写、环境描写和所有不在引号里的正文内容固定使用简体中文。',
     '只有蓝字心声 asides 和角色真正说出口的引号台词使用自然口语化的' + option.nativeLabel + '。',
-    'title、quote 与 status_card 继续按各自规则生成，不要把正文旁白整段切成外语。',
+    'status_card 仍然严格遵守当前语言设置，不要把正文标题、顶部 char 语录或正文旁白切成外语。',
     '番外、小物件、地点措辞和整体风味也要自然贴近这门语言所在地区的生活语感，不要只做生硬直译。',
-    '如果 text 里有任何不在引号里的外语句子，就视为违规，必须改回简体中文。',
+    '如果 title、quote 或 text 里有任何不在引号里的外语句子，就视为违规，必须改回简体中文。',
     '不要解释这是翻译，也不要写成教材腔或刻意炫语言能力。'
   ].join('');
 }
@@ -2687,6 +2687,172 @@ function bindOfflineDrawerControls(){
     });
   }
 }
+function extractOfflineQuotedSegments(sourceText){
+  return String(sourceText || '').match(/(?:“[^“”]+”|「[^「」]+」|『[^『』]+』|"[^"\n]+")(?:[，。！？!?、；：…,.．]+)?/g) || [];
+}
+function normalizeOfflineInlineTranslationItem(source){
+  if(!(source && typeof source === 'object')) return null;
+  var text = String(source.text || '').trim();
+  var sourceText = String(source.sourceText || '').trim();
+  var kind = String(source.kind || '').trim();
+  if(!text && !sourceText && !kind && !source.loading) return null;
+  return {
+    text: text,
+    visible: !!source.visible,
+    loading: !!source.loading,
+    sourceLanguage: String(source.sourceLanguage || '').trim(),
+    sourceText: sourceText,
+    kind: kind
+  };
+}
+function ensureOfflineInlineTranslationStore(entry){
+  if(!entry || typeof entry !== 'object') return { loadingKey:'', items:{} };
+  if(!(entry.inlineTranslations && typeof entry.inlineTranslations === 'object')) entry.inlineTranslations = { loadingKey:'', items:{} };
+  entry.inlineTranslations.loadingKey = String(entry.inlineTranslations.loadingKey || '').trim();
+  var rawItems = entry.inlineTranslations.items && typeof entry.inlineTranslations.items === 'object' ? entry.inlineTranslations.items : {};
+  var nextItems = {};
+  Object.keys(rawItems).forEach(function(key){
+    var normalized = normalizeOfflineInlineTranslationItem(rawItems[key]);
+    if(normalized) nextItems[key] = normalized;
+  });
+  entry.inlineTranslations.items = nextItems;
+  return entry.inlineTranslations;
+}
+function getOfflineInlineSource(entry, key){
+  if(!entry) return '';
+  var safeKey = String(key || '').trim();
+  if(!safeKey) return '';
+  var partsKey = safeKey.split(':');
+  var kind = String(partsKey[0] || '').trim();
+  var index = Math.max(0, Number(partsKey[1]) || 0);
+  if(kind === 'aside'){
+    return Array.isArray(entry.asides) ? String(entry.asides[index] || '').trim() : '';
+  }
+  if(kind === 'quote'){
+    return extractOfflineQuotedSegments(String(entry.text || ''))[index] || '';
+  }
+  return '';
+}
+function renderOfflineInlineTranslationCard(item){
+  var safeText = String(item && item.text || '').trim();
+  if(!safeText) return '';
+  var kindLabel = String(item && item.kind || '') === 'aside' ? '心声译文' : '台词译文';
+  return '<div class="offline-inline-translation-card"><div class="offline-inline-translation-head"><span class="offline-inline-translation-pill">TRANSLATION</span><span class="offline-inline-translation-sub">' + esc(kindLabel) + '</span></div><div class="offline-inline-translation-body">' + esc(safeText) + '</div></div>';
+}
+function requestOfflineInlineTranslation(entryIndex, key, options){
+  if(!session || !Array.isArray(session.entries)) return;
+  var safeIndex = Number(entryIndex);
+  var entry = Number.isInteger(safeIndex) && safeIndex >= 0 ? session.entries[safeIndex] : null;
+  var safeKey = String(key || '').trim();
+  var opts = options || {};
+  if(!entry || entry.role === 'user' || !safeKey) return;
+  if(!shouldOfferOfflineTranslation()){
+    if(!opts.silent) toast('当前角色语言就是中文');
+    return;
+  }
+  var sourceText = getOfflineInlineSource(entry, safeKey);
+  if(!String(sourceText || '').trim()) return;
+  var store = ensureOfflineInlineTranslationStore(entry);
+  var current = normalizeOfflineInlineTranslationItem(store.items[safeKey]) || {};
+  store.loadingKey = safeKey;
+  store.items[safeKey] = Object.assign({}, current, {
+    visible: opts.showOnReady !== false,
+    loading: true,
+    sourceText: String(sourceText || '').trim(),
+    kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
+  });
+  saveSession();
+  renderStory();
+  var systemPrompt = [
+    '你是翻译器。',
+    '请把下面这句角色原文翻译成自然流畅的简体中文。',
+    '只返回纯译文，不要解释，不要原文，不要括号前后缀，不要代码块。'
+  ].join('\n');
+  var userPrompt = JSON.stringify({
+    sourceLanguage: getReplyLanguageOption(getOfflineReplyLanguage()).nativeLabel,
+    kind: safeKey.indexOf('aside:') === 0 ? '蓝字心声' : '角色台词',
+    text: String(sourceText || '').trim()
+  });
+  callAI(systemPrompt, userPrompt).then(function(raw){
+    var translated = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+    if(!translated) throw new Error('empty translation');
+    if(!session || !Array.isArray(session.entries)) return;
+    var latestEntry = session.entries[safeIndex];
+    if(!latestEntry) return;
+    var latestStore = ensureOfflineInlineTranslationStore(latestEntry);
+    latestStore.loadingKey = latestStore.loadingKey === safeKey ? '' : latestStore.loadingKey;
+    latestStore.items[safeKey] = {
+      text: translated,
+      visible: opts.showOnReady !== false,
+      loading: false,
+      sourceLanguage: getOfflineReplyLanguage(),
+      sourceText: String(sourceText || '').trim(),
+      kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
+    };
+    saveSession();
+    renderStory();
+  }).catch(function(){
+    if(!session || !Array.isArray(session.entries)) return;
+    var latestEntry = session.entries[safeIndex];
+    if(!latestEntry) return;
+    var latestStore = ensureOfflineInlineTranslationStore(latestEntry);
+    latestStore.loadingKey = latestStore.loadingKey === safeKey ? '' : latestStore.loadingKey;
+    latestStore.items[safeKey] = Object.assign({}, normalizeOfflineInlineTranslationItem(latestStore.items[safeKey]) || {}, {
+      visible: false,
+      loading: false,
+      sourceText: String(sourceText || '').trim(),
+      kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
+    });
+    saveSession();
+    renderStory();
+    if(!opts.silent) toast('译文生成失败');
+  });
+}
+function toggleOfflineInlineTranslation(entryIndex, key){
+  if(!session || !Array.isArray(session.entries)) return;
+  var safeIndex = Number(entryIndex);
+  var entry = Number.isInteger(safeIndex) && safeIndex >= 0 ? session.entries[safeIndex] : null;
+  var safeKey = String(key || '').trim();
+  if(!entry || !safeKey || !shouldOfferOfflineTranslation()) return;
+  var store = ensureOfflineInlineTranslationStore(entry);
+  var item = normalizeOfflineInlineTranslationItem(store.items[safeKey]);
+  if(!(item && String(item.text || '').trim())){
+    requestOfflineInlineTranslation(safeIndex, safeKey);
+    return;
+  }
+  item.visible = !item.visible;
+  item.loading = false;
+  store.items[safeKey] = item;
+  saveSession();
+  renderStory();
+}
+function queueOfflineInlineTranslationsPrefetch(entry){
+  if(!entry || entry.role === 'user' || !shouldPrefetchOfflineTranslations()) return;
+  var entryIndex = Array.isArray(session && session.entries) ? session.entries.indexOf(entry) : -1;
+  if(entryIndex < 0) return;
+  var keys = extractOfflineQuotedSegments(String(entry.text || '')).map(function(_, idx){ return 'quote:' + String(idx); })
+    .concat((Array.isArray(entry.asides) ? entry.asides : []).map(function(_, idx){ return 'aside:' + String(idx); }))
+    .slice(0, 6);
+  var store = ensureOfflineInlineTranslationStore(entry);
+  keys.forEach(function(key){
+    var item = normalizeOfflineInlineTranslationItem(store.items[key]);
+    if(item && (item.loading || String(item.text || '').trim())) return;
+    requestOfflineInlineTranslation(entryIndex, key, { silent:true, showOnReady:false });
+  });
+}
+function renderOfflineInlineTranslationControl(targetEntryIndex, key){
+  if(!shouldOfferOfflineTranslation() || getOfflineReplyLanguage() === 'zh') return '';
+  if(!session || !Array.isArray(session.entries)) return '';
+  var entry = session.entries[targetEntryIndex];
+  if(!entry) return '';
+  var sourceText = getOfflineInlineSource(entry, key);
+  if(!String(sourceText || '').trim()) return '';
+  var store = ensureOfflineInlineTranslationStore(entry);
+  var item = normalizeOfflineInlineTranslationItem(store.items[key]);
+  var isOpen = !!(item && item.visible && String(item.text || '').trim());
+  var label = item && item.loading ? '译中' : (isOpen ? '收起' : '译');
+  return '<span class="offline-inline-translate-wrap"><button class="offline-inline-translate-btn' + (isOpen ? ' is-open' : '') + '" type="button" onclick="toggleOfflineInlineTranslation(' + Number(targetEntryIndex) + ',' + quoteJsString(key) + ')"' + ((item && item.loading) ? ' disabled' : '') + '>' + esc(label) + '</button>' + (isOpen ? renderOfflineInlineTranslationCard(item) : '') + '</span>';
+}
 function renderCharSheetBody(text, asides, entryIndex){
   var body = String(text || '').trim();
   var notes = Array.isArray(asides) ? asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [];
@@ -2700,172 +2866,6 @@ function renderCharSheetBody(text, asides, entryIndex){
   }
   if(!parts.length){
     parts = ['这场线下见面还没正式开始。'];
-  }
-  function extractOfflineQuotedSegments(sourceText){
-    return String(sourceText || '').match(/(?:“[^“”]+”|「[^「」]+」|『[^『』]+』|"[^"\n]+")(?:[，。！？!?、；：…,.．]+)?/g) || [];
-  }
-  function normalizeOfflineInlineTranslationItem(source){
-    if(!(source && typeof source === 'object')) return null;
-    var text = String(source.text || '').trim();
-    var sourceText = String(source.sourceText || '').trim();
-    var kind = String(source.kind || '').trim();
-    if(!text && !sourceText && !kind && !source.loading) return null;
-    return {
-      text: text,
-      visible: !!source.visible,
-      loading: !!source.loading,
-      sourceLanguage: String(source.sourceLanguage || '').trim(),
-      sourceText: sourceText,
-      kind: kind
-    };
-  }
-  function ensureOfflineInlineTranslationStore(entry){
-    if(!entry || typeof entry !== 'object') return { loadingKey:'', items:{} };
-    if(!(entry.inlineTranslations && typeof entry.inlineTranslations === 'object')) entry.inlineTranslations = { loadingKey:'', items:{} };
-    entry.inlineTranslations.loadingKey = String(entry.inlineTranslations.loadingKey || '').trim();
-    var rawItems = entry.inlineTranslations.items && typeof entry.inlineTranslations.items === 'object' ? entry.inlineTranslations.items : {};
-    var nextItems = {};
-    Object.keys(rawItems).forEach(function(key){
-      var normalized = normalizeOfflineInlineTranslationItem(rawItems[key]);
-      if(normalized) nextItems[key] = normalized;
-    });
-    entry.inlineTranslations.items = nextItems;
-    return entry.inlineTranslations;
-  }
-  function getOfflineInlineSource(entry, key){
-    if(!entry) return '';
-    var safeKey = String(key || '').trim();
-    if(!safeKey) return '';
-    var partsKey = safeKey.split(':');
-    var kind = String(partsKey[0] || '').trim();
-    var index = Math.max(0, Number(partsKey[1]) || 0);
-    if(kind === 'aside'){
-      return Array.isArray(entry.asides) ? String(entry.asides[index] || '').trim() : '';
-    }
-    if(kind === 'quote'){
-      return extractOfflineQuotedSegments(String(entry.text || ''))[index] || '';
-    }
-    return '';
-  }
-  function renderOfflineInlineTranslationCard(item){
-    var safeText = String(item && item.text || '').trim();
-    if(!safeText) return '';
-    var kindLabel = String(item && item.kind || '') === 'aside' ? '心声译文' : '台词译文';
-    return '<div class="offline-inline-translation-card"><div class="offline-inline-translation-head"><span class="offline-inline-translation-pill">TRANSLATION</span><span class="offline-inline-translation-sub">' + esc(kindLabel) + '</span></div><div class="offline-inline-translation-body">' + esc(safeText) + '</div></div>';
-  }
-  function requestOfflineInlineTranslation(entryIndex, key, options){
-    if(!session || !Array.isArray(session.entries)) return;
-    var safeIndex = Number(entryIndex);
-    var entry = Number.isInteger(safeIndex) && safeIndex >= 0 ? session.entries[safeIndex] : null;
-    var safeKey = String(key || '').trim();
-    var opts = options || {};
-    if(!entry || entry.role === 'user' || !safeKey) return;
-    if(!shouldOfferOfflineTranslation()){
-      if(!opts.silent) toast('当前角色语言就是中文');
-      return;
-    }
-    var sourceText = getOfflineInlineSource(entry, safeKey);
-    if(!String(sourceText || '').trim()) return;
-    var store = ensureOfflineInlineTranslationStore(entry);
-    var current = normalizeOfflineInlineTranslationItem(store.items[safeKey]) || {};
-    store.loadingKey = safeKey;
-    store.items[safeKey] = Object.assign({}, current, {
-      visible: opts.showOnReady !== false,
-      loading: true,
-      sourceText: String(sourceText || '').trim(),
-      kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
-    });
-    saveSession();
-    renderStory();
-    var systemPrompt = [
-      '你是翻译器。',
-      '请把下面这句角色原文翻译成自然流畅的简体中文。',
-      '只返回纯译文，不要解释，不要原文，不要括号前后缀，不要代码块。'
-    ].join('\n');
-    var userPrompt = JSON.stringify({
-      sourceLanguage: getReplyLanguageOption(getOfflineReplyLanguage()).nativeLabel,
-      kind: safeKey.indexOf('aside:') === 0 ? '蓝字心声' : '角色台词',
-      text: String(sourceText || '').trim()
-    });
-    callAI(systemPrompt, userPrompt).then(function(raw){
-      var translated = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
-      if(!translated) throw new Error('empty translation');
-      if(!session || !Array.isArray(session.entries)) return;
-      var latestEntry = session.entries[safeIndex];
-      if(!latestEntry) return;
-      var latestStore = ensureOfflineInlineTranslationStore(latestEntry);
-      latestStore.loadingKey = latestStore.loadingKey === safeKey ? '' : latestStore.loadingKey;
-      latestStore.items[safeKey] = {
-        text: translated,
-        visible: opts.showOnReady !== false,
-        loading: false,
-        sourceLanguage: getOfflineReplyLanguage(),
-        sourceText: String(sourceText || '').trim(),
-        kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
-      };
-      saveSession();
-      renderStory();
-    }).catch(function(){
-      if(!session || !Array.isArray(session.entries)) return;
-      var latestEntry = session.entries[safeIndex];
-      if(!latestEntry) return;
-      var latestStore = ensureOfflineInlineTranslationStore(latestEntry);
-      latestStore.loadingKey = latestStore.loadingKey === safeKey ? '' : latestStore.loadingKey;
-      latestStore.items[safeKey] = Object.assign({}, normalizeOfflineInlineTranslationItem(latestStore.items[safeKey]) || {}, {
-        visible: false,
-        loading: false,
-        sourceText: String(sourceText || '').trim(),
-        kind: safeKey.indexOf('aside:') === 0 ? 'aside' : 'quote'
-      });
-      saveSession();
-      renderStory();
-      if(!opts.silent) toast('译文生成失败');
-    });
-  }
-  function toggleOfflineInlineTranslation(entryIndex, key){
-    if(!session || !Array.isArray(session.entries)) return;
-    var safeIndex = Number(entryIndex);
-    var entry = Number.isInteger(safeIndex) && safeIndex >= 0 ? session.entries[safeIndex] : null;
-    var safeKey = String(key || '').trim();
-    if(!entry || !safeKey || !shouldOfferOfflineTranslation()) return;
-    var store = ensureOfflineInlineTranslationStore(entry);
-    var item = normalizeOfflineInlineTranslationItem(store.items[safeKey]);
-    if(!(item && String(item.text || '').trim())){
-      requestOfflineInlineTranslation(safeIndex, safeKey);
-      return;
-    }
-    item.visible = !item.visible;
-    item.loading = false;
-    store.items[safeKey] = item;
-    saveSession();
-    renderStory();
-  }
-  function queueOfflineInlineTranslationsPrefetch(entry){
-    if(!entry || entry.role === 'user' || !shouldPrefetchOfflineTranslations()) return;
-    var entryIndex = Array.isArray(session && session.entries) ? session.entries.indexOf(entry) : -1;
-    if(entryIndex < 0) return;
-    var keys = extractOfflineQuotedSegments(String(entry.text || '')).map(function(_, idx){ return 'quote:' + String(idx); })
-      .concat((Array.isArray(entry.asides) ? entry.asides : []).map(function(_, idx){ return 'aside:' + String(idx); }))
-      .slice(0, 6);
-    var store = ensureOfflineInlineTranslationStore(entry);
-    keys.forEach(function(key){
-      var item = normalizeOfflineInlineTranslationItem(store.items[key]);
-      if(item && (item.loading || String(item.text || '').trim())) return;
-      requestOfflineInlineTranslation(entryIndex, key, { silent:true, showOnReady:false });
-    });
-  }
-  function renderOfflineInlineTranslationControl(targetEntryIndex, key){
-    if(!shouldOfferOfflineTranslation() || getOfflineReplyLanguage() === 'zh') return '';
-    if(!session || !Array.isArray(session.entries)) return '';
-    var entry = session.entries[targetEntryIndex];
-    if(!entry) return '';
-    var sourceText = getOfflineInlineSource(entry, key);
-    if(!String(sourceText || '').trim()) return '';
-    var store = ensureOfflineInlineTranslationStore(entry);
-    var item = normalizeOfflineInlineTranslationItem(store.items[key]);
-    var isOpen = !!(item && item.visible && String(item.text || '').trim());
-    var label = item && item.loading ? '译中' : (isOpen ? '收起' : '译');
-    return '<span class="offline-inline-translate-wrap"><button class="offline-inline-translate-btn' + (isOpen ? ' is-open' : '') + '" type="button" onclick="toggleOfflineInlineTranslation(' + Number(targetEntryIndex) + ',' + quoteJsString(key) + ')"' + ((item && item.loading) ? ' disabled' : '') + '>' + esc(label) + '</button>' + (isOpen ? renderOfflineInlineTranslationCard(item) : '') + '</span>';
   }
   var insertSlots = [];
   if(notes.length === 1){
@@ -3567,6 +3567,36 @@ function getOfflineStoryPerspectiveLabel(value){
 function stripOfflineQuotedSpeech(text){
   return String(text || '').replace(/(?:“[^“”]*”|「[^「」]*」|『[^『』]*』|"[^"\n]*"|«[^»\n]*»|„[^“\n]*“)/g, ' ');
 }
+function containsOfflineForeignNarrationUnit(text){
+  var body = String(text || '').replace(/\s+/g, ' ').trim();
+  if(!body) return false;
+  if(/[ぁ-ゟ゠-ヿㇰ-ㇿㄱ-ㅎㅏ-ㅣ가-힣]/.test(body)) return true;
+  if(/[À-ÖØ-öø-ÿĀ-ž]/.test(body)) return true;
+  var asciiBody = body
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\b[A-Z]{1,4}\b/g, ' ')
+    .replace(/\b[0-9A-Za-z]{1,2}\b/g, ' ');
+  return /\b[a-zA-Z]{3,}\b/.test(asciiBody);
+}
+function containsOfflineNarrationLanguageViolation(text){
+  return containsOfflineForeignNarrationUnit(stripOfflineQuotedSpeech(text));
+}
+function containsOfflineChineseOnlyMetaViolation(text){
+  return containsOfflineForeignNarrationUnit(String(text || ''));
+}
+function normalizeOfflineBodyDisplayPayload(payload){
+  if(!(payload && typeof payload === 'object')) return payload;
+  var next = Object.assign({}, payload);
+  if(containsOfflineChineseOnlyMetaViolation(next.title)) next.title = buildOfflineTitleFallback();
+  if(containsOfflineChineseOnlyMetaViolation(next.quote)) next.quote = buildOfflineQuoteFallback();
+  return next;
+}
+function violatesOfflineBodyDisplayLanguage(payload){
+  if(!(payload && typeof payload === 'object')) return false;
+  return containsOfflineChineseOnlyMetaViolation(payload.title)
+    || containsOfflineChineseOnlyMetaViolation(payload.quote)
+    || containsOfflineNarrationLanguageViolation(payload.text);
+}
 function hasOfflineSpeechQuote(text){
   return /(?:“[^“”]{2,}”|「[^「」]{2,}」|『[^『』]{2,}』|"[^"\n]{2,}"|«[^»\n]{2,}»|„[^“\n]{2,}“)/.test(String(text || ''));
 }
@@ -3623,53 +3653,8 @@ function buildOfflineOpeningFallback(){
   var prefs = getOfflineStoryPrefs();
   var charName = getCharDisplayName();
   var userName = resolveUserName();
-  var mode = getOfflineReplyLanguage();
   var body = '';
-  if(mode !== 'zh'){
-    if(prefs.perspective === 'third'){
-      if(mode === 'en'){
-        body = charName + ' stops in front of ' + userName + ' first, like all the words saved on the way here suddenly crowded into his throat. He smooths the edge of her sleeve, pauses for a beat, then asks softly if she rushed here again without taking care of herself. He slows his pace, stays close, and finally asks if she can walk beside him a little longer before this moment slips away.';
-      }else if(mode === 'fr'){
-        body = charName + ' s arrete d abord devant ' + userName + ', comme si toutes les phrases gardees en route lui restaient soudain dans la gorge. Il remet doucement le bord de sa manche en place, hesite une seconde, puis demande si elle a encore couru jusqu ici sans penser a elle. Il ralentit, reste tout pres, et finit par lui proposer de marcher encore un peu a ses cotes avant de laisser filer ce moment.';
-      }else if(mode === 'ja'){
-        body = charName + 'は' + userName + 'の前でふっと足を止めた。ここまでの途中で何度も考えていた言葉が、急に喉の奥で渋滞したみたいだった。乱れた袖口に触れて整え、少しためらってから、また無理して来たんじゃないかと静かに聞く。距離を詰めたまま歩幅を落とし、もう少しだけ隣で歩いてほしいと声をかける。';
-      }else if(mode === 'ko'){
-        body = charName + '는 ' + userName + ' 앞에서 먼저 걸음을 멈췄다. 오는 내내 준비하던 말이 갑자기 목안에 걸린 것처럼 잠깐 숨을 고른다. 흐트러진 소매 끝을 정리해 주고, 또 무리해서 달려온 건 아니냐고 낮게 묻는다. 가까운 거리를 유지한 채 속도를 늦추고, 이 순간이 너무 빨리 끝나지 않게 조금만 더 같이 걷자고 말한다.';
-      }else if(mode === 'yue'){
-        body = charName + '行到' + userName + '面前嗰阵，先慢慢停低，好似一路上谂住要讲嘅说话一下塞晒喺喉咙口。佢帮' + userName + '轻轻整返乱咗嘅袖口，又低声问佢系咪又赶得太急，连自己都冇顾好。之后佢刻意放慢步，挨近少少，话不如先陪佢再行一阵，唔好咁快就散。';
-      }else if(mode === 'de'){
-        body = charName + ' bleibt erst einmal vor ' + userName + ' stehen, als hatten sich alle Worte vom Weg hierher plotzlich in seinem Hals gestaut. Er streicht den zerzausten Stoff an ihrer Schulter glatt, halt einen Augenblick inne und fragt leise, ob sie wieder zu hastig hergekommen ist. Dann passt er seinen Schritt an ihren an, bleibt dicht neben ihr und sagt, dass er lieber noch ein wenig mit ihr weitergehen mochte, bevor dieser Moment endet.';
-      }
-    }else if(prefs.perspective === 'second'){
-      if(mode === 'en'){
-        body = 'He slows down the moment he reaches you, like all the things he rehearsed on the way here suddenly turned warm and awkward in his chest. His fingers smooth the crease at your sleeve, then he asks in a low voice if you came here in a hurry again. He stays close instead of stepping away, matches your pace, and says he wants to walk with you a little longer before talking about anything else.';
-      }else if(mode === 'fr'){
-        body = 'Il ralentit des qu il arrive devant toi, comme si tout ce qu il avait repete en chemin devenait soudain trop chaud dans sa poitrine. Ses doigts lissent doucement le pli de ta manche, puis il te demande a voix basse si tu as encore accouru jusqu ici sans menager ton souffle. Il reste pres de toi, cale son pas sur le tien, et dit qu il prefere marcher un peu a tes cotes avant de parler du reste.';
-      }else if(mode === 'ja'){
-        body = '彼はあなたの前まで来たところで少しだけ歩調を落とした。ここに来るまで何度も考えていたことが、急に熱を持って胸の奥に集まったみたいだった。あなたの袖の乱れをそっと直してから、また無理して急いできたんじゃないかと低く聞く。距離を空けずに隣へ寄り、何かを話し始める前にもう少し一緒に歩きたいと言う。';
-      }else if(mode === 'ko'){
-        body = '그는 네 앞에 오자마자 걸음을 조금 늦췄다. 오는 동안 몇 번이나 마음속으로 되뇌던 말이 갑자기 뜨겁게 차오른 것 같았다. 네 소매의 흐트러진 부분을 가볍게 정리해 준 뒤, 또 이렇게 서둘러 온 건 아니냐고 낮게 묻는다. 괜히 거리를 두지 않고 네 옆으로 붙어 서서는, 다른 얘기보다 먼저 조금만 더 같이 걷고 싶다고 말한다.';
-      }else if(mode === 'yue'){
-        body = '佢行到你面前就慢低咗步，好似一路上谂住要点开口嗰啲心思，突然一下变得好热。佢帮你轻轻整返袖口，又低声问你系咪又赶住过嚟，连气都未抖匀。之后佢冇刻意行开，反而贴近咗少少，话想先陪你再行一阵，其他嘢慢慢先讲。';
-      }else if(mode === 'de'){
-        body = 'Sobald er vor dir steht, wird sein Schritt langsamer, als ware alles, was er sich auf dem Weg hierher zurechtgelegt hat, plotzlich zu warm geworden, um es einfach so auszusprechen. Er streicht die Falte an deinem Armel glatt und fragt leise, ob du wieder zu hastig hergekommen bist. Dann bleibt er nah bei dir, geht in deinem Tempo weiter und sagt, dass er lieber erst noch ein Stuck mit dir gehen mochte, bevor er uber etwas anderes spricht.';
-      }
-    }else{
-      if(mode === 'en'){
-        body = 'He stops in front of me first, like all the words he carried here suddenly pressed against his throat at once. His fingers smooth the crease at my sleeve, and then he asks softly if I rushed over here again without taking proper care of myself. He stays close, slows his pace to match mine, and says he wants to walk beside me a little longer before letting the rest of the evening begin.';
-      }else if(mode === 'fr'){
-        body = 'Il s arrete d abord devant moi, comme si toutes les phrases qu il portait jusqu ici se tassaient soudain dans sa gorge. Ses doigts remettent doucement le pli de ma manche en place, puis il me demande si j ai encore accouru sans vraiment penser a moi. Il reste pres de moi, ralentit pour marcher a mon rythme, et dit qu il prefere rester un peu a mes cotes avant de laisser la suite arriver.';
-      }else if(mode === 'ja'){
-        body = '彼はまず私の前で足を止めた。ここまで抱えてきた言葉が、急にまとめて喉元まで上がってきたみたいだった。私の袖の乱れをそっと直してから、また無理して急いで来たんじゃないかと静かに聞く。距離を保ったまま少し近くに寄り、今はもう少しだけ隣で歩きたいと告げる。';
-      }else if(mode === 'ko'){
-        body = '그는 먼저 내 앞에서 걸음을 멈췄다. 여기까지 오는 동안 품고 있던 말들이 갑자기 한꺼번에 목끝까지 차오른 것 같았다. 내 소매의 흐트러진 부분을 정리해 주고는, 또 무리해서 달려온 건 아니냐고 낮게 묻는다. 가까운 거리를 유지한 채 내 걸음에 맞춰 천천히 걷다가, 지금은 조금만 더 옆에 있고 싶다고 말한다.';
-      }else if(mode === 'yue'){
-        body = '佢先喺我面前停低，好似一路带住过嚟嗰堆说话，突然一下全部顶住喉咙口。佢帮我轻轻整返袖口，又低声问我系咪又赶得太急，连自己都冇顾好。之后佢冇行开，反而挨近咗少少，放慢步同我并住行，话想先咁样陪我再行一阵。';
-      }else if(mode === 'de'){
-        body = 'Er bleibt zuerst vor mir stehen, als hatten sich alle Worte, die er bis hierher mitgetragen hat, plotzlich in seinem Hals gestaut. Mit den Fingern streicht er die Falte an meinem Armel glatt und fragt leise, ob ich wieder zu hastig hergekommen bin. Dann bleibt er dicht bei mir, passt seinen Schritt meinem an und sagt, dass er lieber noch ein wenig so neben mir weitergehen mochte.';
-      }
-    }
-  }else if(prefs.perspective === 'third'){
+  if(prefs.perspective === 'third'){
     body = charName + '先一步停在' + userName + '面前，像是一路上攒着的话忽然全都堵到了喉咙口。' +
       '他抬手替' + userName + '把被风吹乱的衣角理了理，动作刚碰上去又顿住，低声笑了一下，问她是不是又一路赶得太急。' +
       userName + '还没来得及应声，他已经偏过头去看她的脸色，像在确认她今天到底有没有好好休息。' +
@@ -3698,24 +3683,10 @@ function buildOfflineOpeningFallback(){
   return ensureOfflineSpeechPresence(body.trim());
 }
 function buildOfflineTitleFallback(){
-  var mode = getOfflineReplyLanguage();
-  if(mode === 'en') return 'Caught You At Last';
-  if(mode === 'fr') return 'Enfin trouvee';
-  if(mode === 'ja') return 'やっと捕まえた';
-  if(mode === 'ko') return '드디어 붙잡았다';
-  if(mode === 'yue') return '终于俾我捉到你';
-  if(mode === 'de') return 'Endlich erwischt';
   var pool = ['终于抓到你了','你今天别想跑','这次轮到我靠近','见面这事有点坏'];
   return pool[Math.floor(Math.random() * pool.length)] || '终于抓到你了';
 }
 function buildOfflineQuoteFallback(){
-  var option = getReplyLanguageOption(getOfflineReplyLanguage());
-  if(option && option.value === 'en') return 'Let me look at you properly first.';
-  if(option && option.value === 'fr') return 'Laisse-moi d abord bien te regarder.';
-  if(option && option.value === 'ja') return 'まず、ちゃんと君を見せて。';
-  if(option && option.value === 'ko') return '일단 너부터 제대로 볼게.';
-  if(option && option.value === 'yue') return '先俾我认真望清楚你。';
-  if(option && option.value === 'de') return 'Lass mich dich erst richtig ansehen.';
   return '先让我把你今天的样子记住。';
 }
 function buildOfflineAsideFallback(){
@@ -4106,10 +4077,11 @@ function buildOfflineBodySystemPrompt(options){
     '你现在只负责生成线下模式这一幕的正文内容。',
     '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"..."}',
     '不要 thought_chain，不要 status_card，不要解释。',
-    'title 是这一幕标题，6-16 个字左右；要搞笑、有网感、像会被拿来当小标题吐槽的那种，允许轻微口语化和坏笑感，但必须贴人设；quote 是可爱圆润但贴人设的小语录，12-30 个字左右。',
+    'title 是这一幕标题，6-16 个简体中文字符左右；要搞笑、有网感、像会被拿来当小标题吐槽的那种，允许轻微口语化和坏笑感，但必须贴人设。',
+    'quote 是顶部 char 语录，12-30 个简体中文字符左右；要可爱圆润但贴人设。',
     'text 必须写成足量的线下面对面正文，长度优先写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间；超过原上限一点点也可以接受，但绝对不要明显短于下限。',
-    '线下正文的旁白叙述、动作描写、环境描写一律使用简体中文；只有 asides 蓝字心声和 char 真正说出口的引号台词跟随当前语言设置。',
-    '最终检查 text：除了引号里的 char 台词，其余所有正文都必须是简体中文。',
+    '线下正文标题、顶部 char 语录、旁白叙述、动作描写、环境描写一律使用简体中文；只有 asides 蓝字心声和 char 真正说出口的引号台词跟随当前语言设置。',
+    '最终检查 title、quote 和 text：除了引号里的 char 台词，其余所有正文都必须是简体中文。',
     '注意：thought_chain、幕摘要、阶段记忆总结固定使用简体中文，不跟随语言设置。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     '镜头和感知中心必须是 char 本人，优先写动作、停顿、语气、眼神和现场变化。',
@@ -4241,8 +4213,8 @@ function buildOfflineSystemPrompt(options){
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"..."}',
     'text 必须写成足量的线下面对面正文，细节感更强，不要写成短回复，不要写成一小段，也不要写成小说章节标题。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
-    'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个字左右，不要太正经，但必须贴人设。',
-    'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个字左右。',
+    'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个简体中文字符左右，不要太正经，但必须贴人设。',
+    'quote 是顶部 char 语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个简体中文字符左右。',
     'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 与当前气氛。',
     '任何番外都绝对不许 OOC：关系、称呼、身份、性格、世界观、性别、取向、亲疏距离都必须严格继承当前设定，不许乱改。',
     'status_card 里的所有可见文字必须遵守当前语言模式，不要夹带另一种语言的解释。',
@@ -4256,8 +4228,8 @@ function buildOfflineSystemPrompt(options){
     sideStoryProfile.artifactRule ? '如果 status_card 里包含 artifact_html，重点必须放在小物件本体的设计感和完成度上，文字只是陪衬，不要写太长。' : '',
     '如果 status_card 里包含 artifact_html：只能用简单安全的 HTML/CSS，小物件要能直接展示；不许 script，不许外链，不许 iframe，不许事件属性。整个小物件必须严格适配手机弹窗宽度，不许任何文字、边角、贴纸、标题、装饰超出容器。',
     '在线下模式正文里，text 优先写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间，允许比原上限自然上浮一小段，但绝对不要明显短于下限。',
-    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；status_card、title、quote、heart 使用各自既定规则；正文里的旁白叙述固定简体中文，只有 asides 和引号里的台词严格使用当前语言设置。',
-    '不要把整段正文旁白切成外语；外语只出现在蓝字心声和引号里的角色台词里。',
+    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；title、quote 和正文旁白固定简体中文；status_card 严格使用当前语言设置；只有 asides 和引号里的角色台词严格使用当前语言设置。',
+    '不要把整段正文旁白切成外语；title、quote 和外层旁白也绝对不许变成外语。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     offlineForbiddenWordRuleLine(),
     '正文的镜头和感知中心必须是 char 本人：重点写 char 看到的、听到的、想到的、做出的动作和反应。',
@@ -4330,11 +4302,11 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["...","..."]}，不要代码块，不要解释。',
     '这次直接写完整第一幕正文，长度尽量写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间。',
-    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；正文里的旁白叙述固定简体中文，只有 asides 和引号里的台词严格使用当前语言设置。',
-    '不要把整段正文旁白切成外语；外语只出现在蓝字心声和引号里的角色台词里。',
+    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；title、quote 和正文旁白固定简体中文；status_card 严格使用当前语言设置；只有 asides 和引号里的台词严格使用当前语言设置。',
+    '不要把整段正文旁白切成外语；title、quote 和外层旁白也绝对不许变成外语。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
-    'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个中文字符，不要太正经，但必须贴人设。',
-    'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个中文字符。',
+    'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个简体中文字符，不要太正经，但必须贴人设。',
+    'quote 是顶部 char 语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个简体中文字符。',
     'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 与当前气氛。',
     '任何番外都绝对不许 OOC：关系、称呼、身份、性格、世界观、性别、取向、亲疏距离都必须严格继承当前设定，不许乱改。',
     'status_card 里的所有可见文字必须遵守当前语言模式，不要夹带另一种语言的解释。',
@@ -4658,6 +4630,19 @@ function mergeOfflineOpeningText(base, extra){
   var right = String(extra || '').trim();
   if(!left) return right;
   if(!right) return left;
+  if(left === right) return left;
+  var normalizedLeft = left.replace(/\s+/g, ' ').trim();
+  var normalizedRight = right.replace(/\s+/g, ' ').trim();
+  if(normalizedLeft && normalizedRight){
+    if(normalizedLeft.indexOf(normalizedRight) >= 0) return left;
+    if(normalizedRight.indexOf(normalizedLeft) >= 0) return right;
+    for(var overlap = Math.min(120, normalizedLeft.length, normalizedRight.length); overlap >= 16; overlap -= 1){
+      if(normalizedLeft.slice(-overlap) === normalizedRight.slice(0, overlap)){
+        var remainder = normalizedRight.slice(overlap).trim();
+        return remainder ? (left + (/[。！？!?]$/.test(left) ? '\n\n' : ' ') + remainder) : left;
+      }
+    }
+  }
   return left + (/[。！？!?]$/.test(left) ? '\n\n' : ' ') + right;
 }
 function mergeOfflineAsides(base, extra){
@@ -5061,7 +5046,7 @@ async function generateOpeningIfNeeded(){
     ].filter(Boolean).join('\n\n');
     try{
       var fastCombinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingContext, Math.min(plan.mainTimeout, 90000));
-      var fastCombinedObj = parseOfflineJsonObject(fastCombinedRaw);
+      var fastCombinedObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(fastCombinedRaw));
       if(hasValidOfflineCombinedPayload(fastCombinedObj)){
         openingThoughtChain = fastCombinedObj.thought_chain;
         openingStatusCard = fastCombinedObj.status_card;
@@ -5080,7 +5065,7 @@ async function generateOpeningIfNeeded(){
       try{
         var compactLevel = attempt >= 3 ? 2 : (attempt >= 1 ? 1 : 0);
         var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: compactLevel }), openingContext, plan.mainTimeout);
-        var bodyObj = parseOfflineJsonObject(bodyRaw);
+        var bodyObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(bodyRaw));
         if(!hasValidOfflineBodyPayload(bodyObj)) throw new Error('正文结构不完整');
         openingText = ensureOfflineSpeechPresence(String(bodyObj.text || '').trim());
         openingTitle = String(bodyObj.title || '').trim();
@@ -5104,7 +5089,7 @@ async function generateOpeningIfNeeded(){
           try{
             var continueCompact = extendAttempt >= 1 ? 1 : 0;
             var continueRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: continueCompact }), continuePrompt, plan.continueTimeout);
-            var continueObj = parseOfflineJsonObject(continueRaw);
+            var continueObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(continueRaw));
             var extraText = String(continueObj && continueObj.text || '').trim();
             if(!extraText || extraText === openingText) break;
             openingText = ensureOfflineSpeechPresence(mergeOfflineOpeningText(openingText, extraText));
@@ -5129,7 +5114,7 @@ async function generateOpeningIfNeeded(){
     if((!openingTitle || !openingQuote || !String(openingText || '').trim() || !openingThoughtChain)){
       try{
         var combinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt({ compactLevel: 0 }), openingContext, Math.min(plan.mainTimeout, 110000));
-        var combinedObj = parseOfflineJsonObject(combinedRaw);
+        var combinedObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(combinedRaw));
         if(hasValidOfflineCombinedPayload(combinedObj)){
           openingThoughtChain = combinedObj.thought_chain;
           openingTitle = String(combinedObj.title || '').trim();
@@ -5146,6 +5131,7 @@ async function generateOpeningIfNeeded(){
       openingAsides = bestAsides.slice();
     }
     var openingInvalid = violatesOfflinePerspective(openingText, storyPrefs.perspective)
+      || violatesOfflineBodyDisplayLanguage({ title: openingTitle, quote: openingQuote, text: openingText })
       || containsOpeningViolation(openingText)
       || openingTextLength(openingText) < minChars
       || !String(openingTitle || '').trim()
@@ -5343,12 +5329,12 @@ async function requestOfflineReply(options){
       try{
         var bodyCompact = Math.min(2, Math.max(retryCompactBase, bodyAttempt >= 1 ? 1 : 0, bodyAttempt >= 2 ? 2 : 0));
         var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: bodyCompact }), bodyContext, getOfflineReplyTimeoutMs());
-        var bodyObj = parseOfflineJsonObject(bodyRaw);
+        var bodyObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(bodyRaw));
         if(!hasValidOfflineBodyPayload(bodyObj)) throw new Error('正文结构不完整');
         if(!bestBodyPayload || openingTextLength(bodyObj.text) > openingTextLength(bestBodyPayload.text || '')){
           bestBodyPayload = bodyObj;
         }
-        if(!violatesOfflinePerspective(bodyObj.text, prefs.perspective) && !containsOfflineStyleViolation(bodyObj.text)){
+        if(!violatesOfflinePerspective(bodyObj.text, prefs.perspective) && !containsOfflineStyleViolation(bodyObj.text) && !violatesOfflineBodyDisplayLanguage(bodyObj)){
           bodyPayload = bodyObj;
           break;
         }
@@ -5356,7 +5342,7 @@ async function requestOfflineReply(options){
         bodyError = err;
       }
     }
-    if(!bodyPayload && bestBodyPayload && !violatesOfflinePerspective(bestBodyPayload.text, prefs.perspective) && !containsOfflineStyleViolation(bestBodyPayload.text)){
+    if(!bodyPayload && bestBodyPayload && !violatesOfflinePerspective(bestBodyPayload.text, prefs.perspective) && !containsOfflineStyleViolation(bestBodyPayload.text) && !violatesOfflineBodyDisplayLanguage(bestBodyPayload)){
       bodyPayload = bestBodyPayload;
     }
     if(!bodyPayload){
@@ -5377,13 +5363,13 @@ async function requestOfflineReply(options){
         '继续严格保持这幕已有的标题气质、语录气质和蓝字心声质感。',
         '只返回新增内容 JSON：{"text":"...","asides":["...","..."]}'
       ].join('\n\n'), getOfflineReplyTimeoutMs());
-      var extendParsed = parseOfflineJsonObject(extendRaw) || {};
+      var extendParsed = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(extendRaw) || {});
       var extraText = String(extendParsed.text || '').trim();
       if(!extraText) break;
       replyText = ensureOfflineSpeechPresence(mergeOfflineOpeningText(replyText, extraText));
       replyAsides = mergeOfflineAsides(replyAsides, normalizeOfflineAsides(extendParsed.asides));
     }
-    if(openingTextLength(replyText) < minChars || violatesOfflinePerspective(replyText, prefs.perspective) || containsOfflineStyleViolation(replyText) || !replyTitle || !replyQuote || hasOfflineBannedContentInPayload({
+    if(openingTextLength(replyText) < minChars || violatesOfflinePerspective(replyText, prefs.perspective) || containsOfflineStyleViolation(replyText) || violatesOfflineBodyDisplayLanguage({ title: replyTitle, quote: replyQuote, text: replyText }) || !replyTitle || !replyQuote || hasOfflineBannedContentInPayload({
       text: replyText,
       title: replyTitle,
       quote: replyQuote,
