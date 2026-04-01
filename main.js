@@ -32,7 +32,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-01T20:49:00Z';
+const APP_BUILD_ID = '2026-04-01T21:02:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1514,6 +1514,9 @@ function getCharacterAvatarForBg(character){
 }
 
 async function appendBackgroundAiMessage(character, accountId, content){
+  if(!character || !character.id) return false;
+  if(localStorage.getItem(AI_BG_ENABLED_KEY) !== '1') return false;
+  if(!isCharBgEnabled(character.id, accountId || getDefaultAccountId())) return false;
   var history = await readBackgroundChatHistory(character.id, accountId);
   var now = Date.now();
   var entry = {
@@ -1534,9 +1537,13 @@ async function appendBackgroundAiMessage(character, accountId, content){
       f.contentWindow.postMessage({ type:'BACKGROUND_AI_MESSAGE', payload:{ charId: character.id, entry: entry } }, '*');
     }
   }catch(e){}
+  return true;
 }
 
 async function appendBackgroundMoment(character, accountId, action, content, imageText){
+  if(!character || !character.id) return false;
+  if(localStorage.getItem(AI_BG_ENABLED_KEY) !== '1') return false;
+  if(!isCharBgEnabled(character.id, accountId || getDefaultAccountId())) return false;
   var posts = await readBackgroundMoments(accountId);
   var now = Date.now();
   var text = String(content || '').trim() || '想把这一刻记下来。';
@@ -1559,6 +1566,7 @@ async function appendBackgroundMoment(character, accountId, action, content, ima
   });
   await writeBackgroundMoments(accountId, posts);
   renderHomeDockBadges();
+  return true;
 }
 
 function buildBackgroundReplyLanguagePrompt(character){
@@ -1782,14 +1790,15 @@ async function runAiBackgroundActivity(){
   ].join('\n\n');
 
   var rawReply = await callAiForBackground(cfg, sysPrompt, userPrompt);
+  if(localStorage.getItem(AI_BG_ENABLED_KEY) !== '1') return false;
+  if(!isCharBgEnabled(character.id, defaultId)) return false;
   var parsed = coerceBgAction(parseBgAction(rawReply), convoState);
   if(!parsed) return false;
   if(parsed.action === 'message'){
-    await appendBackgroundAiMessage(character, defaultId, parsed.content);
+    return await appendBackgroundAiMessage(character, defaultId, parsed.content);
   }else{
-    await appendBackgroundMoment(character, defaultId, parsed.action, parsed.content, parsed.imageText);
+    return await appendBackgroundMoment(character, defaultId, parsed.action, parsed.content, parsed.imageText);
   }
-  return true;
 }
 
 function updateClock() {
