@@ -364,17 +364,18 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-story-translate-btn.is-open{background:#161616;color:#fff}
 .offline-story-translate-btn:disabled{opacity:.58;cursor:default}
 .offline-story-translate-btn:active{transform:translateY(1px)}
-.offline-inline-translate-wrap{display:inline-flex;flex-direction:column;align-items:flex-start;vertical-align:baseline;margin-left:8px;line-height:1;transform:translateY(1px)}
+.offline-inline-translate-wrap{display:inline-flex;align-items:center;vertical-align:baseline;margin-left:8px;line-height:1;transform:translateY(1px)}
 .offline-inline-translate-btn{min-width:34px;height:26px;padding:0 10px;border:1.5px solid rgba(18,18,18,.88);border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;box-shadow:1px 1px 0 rgba(0,0,0,.16);cursor:pointer;vertical-align:baseline}
 .offline-inline-translate-btn.is-open{background:#111;color:#fff}
 .offline-inline-translate-btn:disabled{opacity:.58;cursor:default}
 .offline-inline-translate-btn:active{transform:translateY(1px);box-shadow:0 0 0}
-.offline-inline-translation-card{margin-top:8px;z-index:8;width:min(232px,calc(100vw - 92px));padding:10px 11px 10px;border:1.5px solid #111;border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.995),rgba(244,244,241,.98));box-shadow:2px 2px 0 rgba(0,0,0,.14),0 8px 18px rgba(0,0,0,.08),0 0 0 1px rgba(255,255,255,.86) inset}
+.offline-inline-translation-stack{display:flex;flex-direction:column;gap:8px;margin:8px 0 2px 0;padding-left:12px}
+.offline-inline-translation-card{width:min(252px,calc(100vw - 92px));padding:10px 11px 10px;border:1.5px solid #111;border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.995),rgba(244,244,241,.98));box-shadow:2px 2px 0 rgba(0,0,0,.14),0 8px 18px rgba(0,0,0,.08),0 0 0 1px rgba(255,255,255,.86) inset}
 .offline-inline-translation-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .offline-inline-translation-pill{display:inline-flex;align-items:center;justify-content:center;min-height:19px;padding:0 8px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:8px;font-weight:900;letter-spacing:.1em}
 .offline-inline-translation-sub{font-size:9px;font-weight:800;color:#7a7a7a;letter-spacing:.08em}
 .offline-inline-translation-body{padding-top:7px;border-top:1px dashed rgba(17,17,17,.2);font-size:12px;font-weight:700;line-height:1.76;color:#111;white-space:pre-wrap;word-break:break-word}
-.offline-inline-aside-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:10px;position:relative}
+.offline-inline-aside-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:8px;position:relative}
 .offline-edit-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:130;background:rgba(255,255,255,.22);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);padding:20px}
 .offline-edit-overlay.open{display:flex}
 .offline-edit-card{width:min(340px,calc(100vw - 28px));border:2px solid #1f1f1f;border-radius:30px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(244,244,241,.95));box-shadow:0 0 0 1px rgba(255,255,255,.95) inset,0 16px 36px rgba(0,0,0,.12);padding:18px 18px 16px;display:flex;flex-direction:column;gap:14px}
@@ -2921,7 +2922,7 @@ function renderOfflineInlineTranslationControl(targetEntryIndex, key){
   }
   var isOpen = !!(item && item.visible && String(item.text || '').trim());
   var label = item && item.loading ? '译中' : (isOpen ? '收起' : '译');
-  return '<span class="offline-inline-translate-wrap"><button class="offline-inline-translate-btn' + (isOpen ? ' is-open' : '') + '" type="button" onclick="toggleOfflineInlineTranslation(' + Number(targetEntryIndex) + ',' + quoteJsString(key) + ')"' + ((item && item.loading) ? ' disabled' : '') + '>' + esc(label) + '</button>' + (isOpen ? renderOfflineInlineTranslationCard(item) : '') + '</span>';
+  return '<span class="offline-inline-translate-wrap"><button class="offline-inline-translate-btn' + (isOpen ? ' is-open' : '') + '" type="button" onclick="toggleOfflineInlineTranslation(' + Number(targetEntryIndex) + ',' + quoteJsString(key) + ')"' + ((item && item.loading) ? ' disabled' : '') + '>' + esc(label) + '</button></span>';
 }
 function renderCharSheetBody(text, asides, entryIndex){
   var body = String(text || '').trim();
@@ -2939,11 +2940,26 @@ function renderCharSheetBody(text, asides, entryIndex){
     insertSlots = [0, Math.min(parts.length - 1, 1)];
   }
   var quoteCursor = 0;
+  function collectOpenTranslationCard(targetEntryIndex, key){
+    if(!session || !Array.isArray(session.entries)) return '';
+    var entry = session.entries[targetEntryIndex];
+    if(!entry) return '';
+    var store = ensureOfflineInlineTranslationStore(entry);
+    var item = normalizeOfflineInlineTranslationItem(store.items[key]);
+    var sourceText = getOfflineInlineSource(entry, key);
+    if(item && String(item.sourceText || '').trim() !== String(sourceText || '').trim()){
+      delete store.items[key];
+      item = null;
+    }
+    if(!(item && item.visible && String(item.text || '').trim())) return '';
+    return renderOfflineInlineTranslationCard(item);
+  }
   function renderQuotedInline(rawText, targetEntryIndex){
     var source = String(rawText || '');
     var pattern = /(?:“[^“”]+”|「[^「」]+」|『[^『』]+』|"[^"\n]+")(?:[，。！？!?、；：…,.．]+)?/g;
     var lastIndex = 0;
     var htmlParts = [];
+    var cardParts = [];
     var match;
     while((match = pattern.exec(source))){
       if(match.index > lastIndex){
@@ -2952,13 +2968,18 @@ function renderCharSheetBody(text, asides, entryIndex){
       var quoteSource = stripOfflineQuoteMarks(match[0]);
       var quoteKey = buildOfflineInlineTranslationKey('quote', quoteSource, quoteCursor);
       htmlParts.push('<span class="sheet-quote-inline">' + esc(match[0]) + '</span>' + renderOfflineInlineTranslationControl(targetEntryIndex, quoteKey));
+      var cardHtml = collectOpenTranslationCard(targetEntryIndex, quoteKey);
+      if(cardHtml) cardParts.push(cardHtml);
       lastIndex = match.index + match[0].length;
       quoteCursor += 1;
     }
     if(lastIndex < source.length){
       htmlParts.push(esc(source.slice(lastIndex)));
     }
-    return htmlParts.join('');
+    return {
+      textHtml: htmlParts.join(''),
+      cardsHtml: cardParts.length ? ('<div class="offline-inline-translation-stack">' + cardParts.join('') + '</div>') : ''
+    };
   }
   var html = '';
   if(Array.isArray(session && session.entries) && Number.isInteger(entryIndex) && entryIndex >= 0){
@@ -2966,11 +2987,12 @@ function renderCharSheetBody(text, asides, entryIndex){
   }
   parts.forEach(function(part, idx){
     var trimmedPart = String(part || '').trim();
-    html += '<p>' + renderQuotedInline(trimmedPart, entryIndex) + '</p>';
+    var rendered = renderQuotedInline(trimmedPart, entryIndex);
+    html += '<p>' + rendered.textHtml + '</p>' + rendered.cardsHtml;
     insertSlots.forEach(function(slot, noteIdx){
       if(idx === slot && notes[noteIdx]){
         var asideKey = buildOfflineInlineTranslationKey('aside', notes[noteIdx], noteIdx);
-        html += '<div class="offline-inline-aside-wrap"><p class="char-sheet-aside">' + esc(notes[noteIdx]) + renderOfflineInlineTranslationControl(entryIndex, asideKey) + '</p></div>';
+        html += '<div class="offline-inline-aside-wrap"><p class="char-sheet-aside">' + esc(notes[noteIdx]) + renderOfflineInlineTranslationControl(entryIndex, asideKey) + '</p>' + collectOpenTranslationCard(entryIndex, asideKey) + '</div>';
       }
     });
   });
@@ -5191,6 +5213,7 @@ async function generateOpeningIfNeeded(){
   var storyPrefs = getOfflineStoryPrefs();
   var plan = getOfflineOpeningAttemptPlan();
   var minChars = storyPrefs.minChars;
+  var openingMinChars = Math.max(220, minChars - 120);
   var openingText = '';
   var openingAsides = [];
   var openingTitle = '';
@@ -5232,7 +5255,7 @@ async function generateOpeningIfNeeded(){
       lastError = fastCombinedErr;
     }
     for(var attempt = 0; attempt < plan.attempts; attempt += 1){
-      if(openingTextLength(openingText) >= minChars && openingTitle && openingQuote) break;
+      if(openingTextLength(openingText) >= openingMinChars && openingTitle && openingQuote) break;
       try{
         var compactLevel = attempt >= 3 ? 2 : (attempt >= 1 ? 1 : 0);
         var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: compactLevel }), openingContext, plan.mainTimeout);
@@ -5253,9 +5276,9 @@ async function generateOpeningIfNeeded(){
           };
         }
         for(var extendAttempt = 0; extendAttempt < plan.extendAttempts; extendAttempt += 1){
-          if(openingTextLength(openingText) >= minChars) break;
+          if(openingTextLength(openingText) >= openingMinChars) break;
           if(containsOpeningViolation(openingText) || violatesOfflinePerspective(openingText, storyPrefs.perspective)) break;
-          var missing = minChars - openingTextLength(openingText);
+          var missing = openingMinChars - openingTextLength(openingText);
           var continuePrompt = [
             openingContext,
             '这是已经写好的第一幕正文，请保持同一幕、同一视角、同一氛围继续往下写，不要重复前文：',
@@ -5290,8 +5313,27 @@ async function generateOpeningIfNeeded(){
         lastError = err;
         continue;
       }
-      if(openingTextLength(openingText) >= minChars && !containsOpeningViolation(openingText) && !violatesOfflinePerspective(openingText, storyPrefs.perspective) && openingTitle && openingQuote){
+      if(openingTextLength(openingText) >= openingMinChars && !containsOpeningViolation(openingText) && !violatesOfflinePerspective(openingText, storyPrefs.perspective) && openingTitle && openingQuote){
         break;
+      }
+    }
+    if(!openingThoughtChain && String(openingText || '').trim()){
+      try{
+        var openingThoughtRaw = await callAIWithTimeout(
+          buildOfflineThoughtSystemPrompt({ compactLevel: 0 }),
+          [
+            openingContext,
+            '这是已经拿到的首幕正文，请只补一份 thought_chain，不要重写正文：',
+            String(openingText || '').trim()
+          ].join('\n\n'),
+          Math.min(getOfflineReplyTimeoutMs(), 45000)
+        );
+        var openingThoughtObj = parseOfflineJsonObject(openingThoughtRaw);
+        if(hasValidOfflineThoughtPayload(openingThoughtObj)){
+          openingThoughtChain = openingThoughtObj.thought_chain;
+        }
+      }catch(thoughtErr){
+        lastError = lastError || thoughtErr;
       }
     }
     if((!openingTitle || !openingQuote || !String(openingText || '').trim() || !openingThoughtChain)){
@@ -5328,7 +5370,7 @@ async function generateOpeningIfNeeded(){
       thought_chain: openingThoughtChain,
       status_card: openingStatusCard || {}
     }, {
-      minChars: minChars,
+      minChars: openingMinChars,
       perspective: storyPrefs.perspective,
       requireSpeech: true
     });
@@ -5342,7 +5384,7 @@ async function generateOpeningIfNeeded(){
         }, {
           opening: true,
           issues: openingIssues,
-          minChars: minChars,
+          minChars: openingMinChars,
           perspective: storyPrefs.perspective,
           context: openingContext,
           timeoutMs: plan.repairTimeout
@@ -5360,7 +5402,7 @@ async function generateOpeningIfNeeded(){
             thought_chain: openingThoughtChain,
             status_card: openingStatusCard || {}
           }, {
-            minChars: minChars,
+            minChars: openingMinChars,
             perspective: storyPrefs.perspective,
             requireSpeech: true
           });
