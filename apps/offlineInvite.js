@@ -608,39 +608,6 @@ function closeOfflineInviteModal(){
   modal.classList.remove('open');
   modal.removeAttribute('data-msg-id');
 }
-function shouldOfferOfflineInviteModalTranslation(msgId, viewRole){
-  if(viewRole === 'user') return false;
-  if(typeof getMessageById !== 'function' || typeof shouldOfferMessageTranslation !== 'function') return false;
-  var entry = getMessageById(msgId);
-  return !!(entry && shouldOfferMessageTranslation(entry));
-}
-function buildOfflineInviteModalTranslationHtml(msgId){
-  if(typeof getMessageById !== 'function' || typeof buildInviteTranslationCardHtml !== 'function') return '';
-  var entry = getMessageById(msgId);
-  if(!entry) return '';
-  var translation = entry.inviteTranslation && typeof entry.inviteTranslation === 'object' ? entry.inviteTranslation : null;
-  var isOpen = !!(entry.translationVisible && translation && (translation.opening || translation.aside || translation.mood || translation.location));
-  var label = entry.translationLoading ? '译中' : (isOpen ? '收起' : '译');
-  return '<div class="offline-invite-modal-translate-wrap">' +
-    '<button class="offline-invite-modal-translate-btn" type="button" data-offline-translate-btn="1"' + (entry.translationLoading ? ' disabled' : '') + '>' + esc(label) + '</button>' +
-    (isOpen ? ('<div class="offline-invite-modal-translate-card">' + buildInviteTranslationCardHtml(translation) + '</div>') : '') +
-  '</div>';
-}
-async function toggleOfflineInviteModalTranslation(msgId, payload, viewRole, canRespond){
-  if(!shouldOfferOfflineInviteModalTranslation(msgId, viewRole)) return;
-  if(typeof toggleMessageTranslation !== 'function') return;
-  var result = toggleMessageTranslation(msgId);
-  if(result && typeof result.then === 'function'){
-    try{ await result; }catch(e){}
-  }else if(typeof requestChatMessageTranslation === 'function'){
-    var entry = typeof getMessageById === 'function' ? getMessageById(msgId) : null;
-    if(entry && entry.translationLoading){
-      try{ await requestChatMessageTranslation(msgId); }catch(e){}
-    }
-  }
-  openOfflineInviteModal(msgId, payload, viewRole, canRespond);
-}
-
 function showOfflineInviteAsidePopup(letter, text, evt){
   if(!letter || !text) return;
   var pop = letter.querySelector('.offline-invite-modal-aside-pop');
@@ -700,7 +667,6 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
   var popupText = viewRole === 'user'
     ? String((payload && payload.content) || '').trim()
     : aside;
-  var translationBlock = shouldOfferOfflineInviteModalTranslation(msgId, viewRole) ? buildOfflineInviteModalTranslationHtml(msgId) : '';
   letter.innerHTML = ''
     + '<div class="offline-invite-modal-weather">' + esc(payload && payload.weather || '☀︎') + '</div>'
     + '<button class="offline-invite-modal-heart" type="button" data-offline-modal-close="1" aria-label="关闭邀请"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path></svg></button>'
@@ -714,7 +680,6 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
     + '<div class="offline-invite-modal-signoff">With love,</div>'
     + '<div class="offline-invite-modal-signature">' + esc(displayName) + '</div>'
     + '<div class="offline-invite-modal-letter-flower"><img src="assets/floral-border-2.png" alt=""></div>'
-    + translationBlock
     + (showActions ? '<div class="offline-invite-modal-actions">'
     + '<button class="offline-action-btn' + (status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="reject">×</button>'
     + '<button class="offline-action-btn' + (status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="accept">✓</button>'
@@ -734,12 +699,6 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
     }
     var closeBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-modal-close]') : null;
     if(closeBtn) return;
-    var translateBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-translate-btn]') : null;
-    if(translateBtn){
-      evt.stopPropagation();
-      toggleOfflineInviteModalTranslation(msgId, payload, viewRole, canRespond);
-      return;
-    }
     if(popupText){
       evt.stopPropagation();
       showOfflineInviteAsidePopup(letter, popupText, evt);
