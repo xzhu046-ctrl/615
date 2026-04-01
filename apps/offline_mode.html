@@ -3082,9 +3082,14 @@ function renderStory(){
   renderOfflineStageSummaryList();
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   if(!list.length){
+    var failureText = String(session && session.lastOpeningError || '').trim();
     wrap.innerHTML = renderPaperStoryCard({
       role: 'assistant',
-      text: '这场线下见面还没正式开始。',
+      text: (session && session.openingFailed)
+        ? ('线下首幕生成失败了，还没有拿到可用正文。' + (failureText ? ('\n\n失败原因：' + failureText + '\n\n点左下角 ↻ 再试一次。') : '\n\n点左下角 ↻ 再试一次。'))
+        : '这场线下见面还没正式开始。',
+      title: (session && session.openingFailed) ? '首幕生成失败' : '',
+      quote: (session && session.openingFailed) ? '这次不再用 fallback 糊过去。' : '',
       timeLabel: '现在',
       meta: ''
     }, 0, true);
@@ -3617,10 +3622,7 @@ function containsOfflineChineseOnlyMetaViolation(text){
 }
 function normalizeOfflineBodyDisplayPayload(payload){
   if(!(payload && typeof payload === 'object')) return payload;
-  var next = Object.assign({}, payload);
-  if(containsOfflineChineseOnlyMetaViolation(next.title)) next.title = buildOfflineTitleFallback();
-  if(containsOfflineChineseOnlyMetaViolation(next.quote)) next.quote = buildOfflineQuoteFallback();
-  return next;
+  return Object.assign({}, payload);
 }
 function violatesOfflineBodyDisplayLanguage(payload){
   if(!(payload && typeof payload === 'object')) return false;
@@ -5087,7 +5089,7 @@ function shouldBootOpeningFlow(){
 async function generateOpeningIfNeeded(){
   if(!session || (!session.pendingOpening && !shouldBootOpeningFlow())){
     hideFlightOverlay();
-    return;
+    return false;
   }
   var storyPrefs = getOfflineStoryPrefs();
   var plan = getOfflineOpeningAttemptPlan();
@@ -5211,23 +5213,13 @@ async function generateOpeningIfNeeded(){
       status_card: openingStatusCard || {}
     });
     if(openingInvalid){
-      openingText = buildOfflineOpeningFallback();
-      openingAsides = normalizeOfflineAsides(buildOfflineAsideFallback());
-      openingTitle = buildOfflineTitleFallback();
-      openingQuote = buildOfflineQuoteFallback();
-      openingStatusCard = null;
+      throw lastError || new Error('首幕未通过线下正文校验');
     }
     if(!openingThoughtChain){
       openingThoughtChain = normalizeOfflineThoughtChain(null, openingText);
     }
     if(!String(openingText || '').trim()){
-      openingText = buildOfflineOpeningFallback();
-      openingAsides = normalizeOfflineAsides(buildOfflineAsideFallback());
-      openingTitle = buildOfflineTitleFallback();
-      openingQuote = buildOfflineQuoteFallback();
-      if(!openingThoughtChain){
-        openingThoughtChain = normalizeOfflineThoughtChain(null, openingText);
-      }
+      throw lastError || new Error('首幕正文为空');
     }
     var labels = nowLabels();
     var normalizedOpeningStatus = openingStatusCard ? normalizeOfflineStatusCard(openingStatusCard, openingText) : null;
@@ -5252,46 +5244,26 @@ async function generateOpeningIfNeeded(){
     }));
     session.entries.push(openingEntry);
     session.openingFailed = false;
+    session.lastOpeningError = '';
     session.pendingOpening = false;
     saveSession();
     queueOfflineSummaryGeneration(openingEntry);
     queueOfflineStatusCardGeneration(openingEntry, { silent:true });
     queueOfflineStageSummaryGeneration();
     if(openingEntry.statusCard) queueOfflineStatusTranslationPrefetch(openingEntry);
+    hideFlightOverlay();
+    return true;
   }catch(e){
-    var fallbackText = buildOfflineOpeningFallback();
-    var fallbackAsides = normalizeOfflineAsides(buildOfflineAsideFallback());
-    var fallbackLabels = nowLabels();
-    var fallbackTitle = buildOfflineTitleFallback();
-    var fallbackQuote = buildOfflineQuoteFallback();
-    session.entries.push(Object.assign({
-      role:'assistant',
-      text:fallbackText,
-      title:fallbackTitle,
-      quote:fallbackQuote,
-      asides:fallbackAsides,
-      heart:'♥',
-      thoughtChain: normalizeOfflineThoughtChain(null, fallbackText),
-      statusCard:null,
-      statusPending:true,
-      bubbles:['终于见到你','过来一点'],
-      timeLabel:fallbackLabels.timeLabel,
-      meta:fallbackLabels.meta,
-      fullLabel:fallbackLabels.fullLabel,
-      createdAt:fallbackLabels.createdAt
-    }, buildOfflineEntryMeta({ text:fallbackText, title:fallbackTitle, quote:fallbackQuote, asides:fallbackAsides }, 'assistant', fallbackLabels, {
-      generationMs: 0
-    })));
-    session.openingFailed = false;
+    session.openingFailed = true;
     session.pendingOpening = false;
     session.pendingAnimation = false;
+    session.lastOpeningError = summarizeOfflineError(e);
     saveSession();
-    queueOfflineSummaryGeneration(session.entries[session.entries.length - 1]);
-    queueOfflineStatusCardGeneration(session.entries[session.entries.length - 1], { silent:true });
-    queueOfflineStageSummaryGeneration();
-    toast('首幕没有走到理想生成结果，已经自动换成稳定开场。', { sticky:true });
+    renderStory();
+    toast('线下首幕生成失败：' + summarizeOfflineError(e), { sticky:true });
+    hideFlightOverlay();
+    return false;
   }
-  hideFlightOverlay();
 }
 async function sendOfflineTurn(){
   if(sending) return;
@@ -5470,14 +5442,19 @@ async function requestOfflineReply(options){
       generationMs: Date.now() - replyStartedAt
     }));
     session.entries.push(replyEntry);
+    session.lastReplyError = '';
     saveSession();
     queueOfflineSummaryGeneration(replyEntry);
     queueOfflineStatusCardGeneration(replyEntry);
     queueOfflineStageSummaryGeneration();
     renderStory();
     keepOfflineComposerVisible();
+    return true;
   }catch(e){
+    session.lastReplyError = summarizeOfflineError(e);
+    saveSession();
     toast('线下回复生成失败：' + summarizeOfflineError(e), { sticky:true });
+    return false;
   }finally{
     sending = false;
     setOfflineComposerBusy(false);
@@ -5489,6 +5466,7 @@ async function rerollOfflineTurn(){
   if((!Array.isArray(session.entries) || !session.entries.length) && canRetryOpening){
     session.active = true;
     session.openingFailed = false;
+    session.lastOpeningError = '';
     session.pendingOpening = true;
     session.pendingAnimation = true;
     saveSession();
@@ -5499,6 +5477,10 @@ async function rerollOfflineTurn(){
     return;
   }
   if(!Array.isArray(session.entries) || !session.entries.length) return;
+  var snapshotEntries = session.entries.slice();
+  var snapshotOpeningFailed = !!session.openingFailed;
+  var snapshotLastOpeningError = String(session.lastOpeningError || '');
+  var snapshotLastReplyError = String(session.lastReplyError || '');
   var lastAssistantIndex = -1;
   for(var i = session.entries.length - 1; i >= 0; i -= 1){
     if(session.entries[i] && session.entries[i].role === 'assistant'){
@@ -5517,6 +5499,7 @@ async function rerollOfflineTurn(){
   if(!hasAnyAssistant && session.invite){
     session.active = true;
     session.openingFailed = false;
+    session.lastOpeningError = '';
     session.pendingOpening = true;
     session.pendingAnimation = true;
   }
@@ -5524,11 +5507,30 @@ async function rerollOfflineTurn(){
   renderStory();
   if(!hasAnyAssistant && session.invite){
     showFlightIfNeeded();
-    await generateOpeningIfNeeded();
+    var openingOk = await generateOpeningIfNeeded();
+    if(!openingOk){
+      session.entries = snapshotEntries.slice();
+      session.openingFailed = snapshotOpeningFailed;
+      session.lastOpeningError = snapshotLastOpeningError;
+      session.lastReplyError = snapshotLastReplyError;
+      session.pendingOpening = false;
+      session.pendingAnimation = false;
+      saveSession();
+    }
     renderStory();
     return;
   }
-  await requestOfflineReply();
+  var replyOk = await requestOfflineReply();
+  if(!replyOk){
+    session.entries = snapshotEntries.slice();
+    session.openingFailed = snapshotOpeningFailed;
+    session.lastOpeningError = snapshotLastOpeningError;
+    session.lastReplyError = snapshotLastReplyError;
+    session.pendingOpening = false;
+    session.pendingAnimation = false;
+    saveSession();
+    renderStory();
+  }
 }
 async function summarizeOfflineMemory(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
