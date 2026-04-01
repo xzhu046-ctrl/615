@@ -382,6 +382,18 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-status-future-title{font-family:'ZCOOL KuaiLe','Fredoka','Nunito',sans-serif;font-size:22px;font-weight:900;line-height:1.2;color:#111;text-shadow:0 1px 0 rgba(255,255,255,.88)}
 .offline-status-future-copy{margin-top:10px;font-size:14px;font-weight:700;line-height:1.9;color:#1f1f1f;white-space:pre-wrap;word-break:break-word}
 .offline-status-future-copy s,.offline-status-future-copy .strike{opacity:.54;text-decoration:line-through;text-decoration-thickness:1.6px;text-decoration-color:currentColor;text-decoration-skip-ink:none}
+.offline-status-translate-wrap{margin-top:14px;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.offline-status-translate-btn{min-width:46px;height:30px;padding:0 12px;border:2px solid #111;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;box-shadow:2px 2px 0 rgba(0,0,0,.14);cursor:pointer}
+.offline-status-translate-btn:disabled{opacity:.58;cursor:default}
+.offline-status-translate-btn:active{transform:translate(1px,1px);box-shadow:0 0 0}
+.offline-status-translation-card{width:100%;padding:12px 12px 10px;border:2px solid #111;border-radius:20px;background:linear-gradient(180deg,rgba(255,255,255,.995),rgba(243,243,240,.97));box-shadow:4px 4px 0 rgba(0,0,0,.14),0 0 0 1px rgba(255,255,255,.88) inset}
+.offline-status-translation-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.offline-status-translation-pill{display:inline-flex;align-items:center;justify-content:center;min-height:24px;padding:0 10px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.offline-status-translation-sub{font-size:10px;font-weight:800;color:#666;letter-spacing:.08em;text-transform:uppercase}
+.offline-status-translation-body{padding-top:10px;border-top:2px dashed rgba(17,17,17,.28);display:flex;flex-direction:column;gap:10px}
+.offline-status-translation-row{display:flex;flex-direction:column;gap:5px}
+.offline-status-translation-label{font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.1em;color:#6f6f6f;text-transform:uppercase}
+.offline-status-translation-copy{font-size:13px;font-weight:700;line-height:1.78;color:#111;white-space:pre-wrap;word-break:break-word}
 .offline-status-history-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:131;background:rgba(255,255,255,.22);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);padding:20px}
 .offline-status-history-overlay.open{display:flex}
 .offline-status-history-card{width:min(340px,calc(100vw - 28px));max-height:min(70vh,520px);border:2px solid #111;border-radius:30px;background:linear-gradient(180deg,rgba(255,255,255,.985),rgba(244,244,244,.96));box-shadow:0 18px 38px rgba(0,0,0,.12),0 0 0 1px rgba(255,255,255,.92) inset;padding:16px;display:flex;flex-direction:column;gap:12px}
@@ -1211,6 +1223,10 @@ function normalizeReplyLanguage(value){
 function getReplyLanguageOption(value){
   return OFFLINE_REPLY_LANGUAGE_OPTIONS[normalizeReplyLanguage(value)];
 }
+function getOfflineVisibleLanguageLabel(){
+  var option = getReplyLanguageOption(getOfflineReplyLanguage());
+  return option && option.nativeLabel ? option.nativeLabel : '简体中文';
+}
 function getOfflineReplyLanguage(){
   return shouldOfferOfflineTranslation()
     ? normalizeReplyLanguage(character && character.replyLanguage || 'zh')
@@ -1221,16 +1237,17 @@ function shouldOfferOfflineTranslation(){
 }
 function buildOfflineReplyLanguagePromptLine(){
   if(!shouldOfferOfflineTranslation()){
-    return '翻译模式关闭，正文与蓝字心声默认使用简体中文；title、quote、status_card 也保持中文。';
+    return '翻译模式关闭，正文、蓝字心声、title、quote、status_card 默认都使用简体中文。';
   }
   var option = getReplyLanguageOption(getOfflineReplyLanguage());
   if(!option || option.value === 'zh'){
-    return '正文与蓝字心声默认使用简体中文；title、quote、status_card 也保持中文。';
+    return '正文、蓝字心声、title、quote、status_card 默认都使用简体中文。';
   }
   return [
     '语言模式：' + option.label + '。',
     option.instruction,
-    '只让正文 text 和蓝字心声 asides 使用该语言；title、quote、status_card 仍然保持中文。',
+    '正文 text、蓝字心声 asides、title、quote、status_card 里的所有可见文字都使用自然口语化的' + option.nativeLabel + '。',
+    '番外、小物件、地点措辞和整体风味也要自然贴近这门语言所在地区的生活语感，不要只做生硬直译。',
     '不要解释这是翻译，也不要写成教材腔或刻意炫语言能力。'
   ].join('');
 }
@@ -1296,6 +1313,9 @@ function persistOfflineCharacterSettings(){
   saveCharactersList(list);
   try{ localStorage.setItem(activeCharacterKey(), JSON.stringify(character)); }catch(e){}
   try{ localStorage.setItem('activeCharacter', JSON.stringify(character)); }catch(e){}
+  try{ localStorage.setItem(scopedKey('pendingChatChar'), JSON.stringify(character)); }catch(e){}
+  try{ if(window.parent) window.parent.postMessage({ type:'SET_ACTIVE_CHARACTER', payload: character }, '*'); }catch(e){}
+  try{ if(window.top && window.top !== window.parent) window.top.postMessage({ type:'SET_ACTIVE_CHARACTER', payload: character }, '*'); }catch(e){}
 }
 function findCharacterById(charId){
   var safeId = String(charId || '').trim();
@@ -1907,16 +1927,19 @@ async function openOfflineStatusModal(entryIndex){
   if(!overlay || !top || !grid) return;
   var entries = Array.isArray(session && session.entries) ? session.entries : [];
   var targetEntry = null;
+  var targetIndex = -1;
   var desiredIndex = Number(entryIndex);
   if(Number.isInteger(desiredIndex) && desiredIndex >= 0 && desiredIndex < entries.length){
     if(entries[desiredIndex] && entries[desiredIndex].role === 'assistant'){
       targetEntry = entries[desiredIndex];
+      targetIndex = desiredIndex;
     }
   }
   if(!targetEntry){
     for(var i = entries.length - 1; i >= 0; i -= 1){
       if(entries[i] && entries[i].role === 'assistant'){
         targetEntry = entries[i];
+        targetIndex = i;
         break;
       }
     }
@@ -1956,8 +1979,15 @@ async function openOfflineStatusModal(entryIndex){
         '<div class="offline-artifact-preview">' + String(snap.artifactHtml || '') + '</div>' +
       '</div>';
   }
+  var translation = snap.translation && typeof snap.translation === 'object' ? snap.translation : null;
+  var showStatusTranslation = shouldOfferOfflineStatusTranslation();
+  var statusTranslationOpen = !!(showStatusTranslation && translation && translation.visible && (translation.futureTitle || translation.futureNote || translation.artifactLabel || translation.artifactHtml));
+  var statusTranslationBtn = showStatusTranslation
+    ? ('<div class="offline-status-translate-wrap"><button class="offline-status-translate-btn" type="button" onclick="toggleOfflineStatusTranslation(' + Number(targetIndex) + ')"' + ((translation && translation.loading) ? ' disabled' : '') + '>' + esc(translation && translation.loading ? '译中' : (statusTranslationOpen ? '收起' : '译')) + '</button>' + (statusTranslationOpen ? renderOfflineStatusTranslationBlock(snap) : '') + '</div>')
+    : '';
   grid.innerHTML =
-    '<div class="offline-status-row"><div class="offline-status-label">' + esc(String(snap.typeLabel || modalProfile.label)) + '</div><div class="offline-status-value"><div class="offline-status-future-title">' + esc(snap.futureTitle) + '</div><div class="offline-status-future-copy">' + renderOfflineStatusRichText(snap.futureNote) + '</div>' + artifactBlock + '</div></div>';
+    '<div class="offline-status-row"><div class="offline-status-label">' + esc(String(snap.typeLabel || modalProfile.label)) + '</div><div class="offline-status-value"><div class="offline-status-future-title">' + esc(snap.futureTitle) + '</div><div class="offline-status-future-copy">' + renderOfflineStatusRichText(snap.futureNote) + '</div>' + artifactBlock + statusTranslationBtn + '</div></div>';
+  overlay.dataset.entryIndex = String(targetIndex);
   overlay.classList.add('open');
 }
 function closeOfflineStatusModal(){
@@ -2088,7 +2118,7 @@ function buildOfflineDrawerDraft(){
     perspective: prefs.perspective,
     style: prefs.style,
     translationEnabled: !!(character && character.translationEnabled),
-    replyLanguage: normalizeReplyLanguage(character && character.replyLanguage || 'en'),
+    replyLanguage: normalizeReplyLanguage(character && character.replyLanguage || 'zh'),
     summaryEvery: ui.summaryEvery,
     summaryAuto: ui.summaryAuto,
     sideStoryType: ui.sideStoryType
@@ -2189,7 +2219,7 @@ function getOfflineSideStoryProfile(type){
       chip: '番外正在被大厨翻炒…',
       titleRule: 'future_title 必须像一则很好玩的签题、占卜标题或命运提示，既有神秘感，也要贴这对关系。',
       noteRule: 'future_note 要写成 char 因为好奇、心血来潮、被推荐、被起哄、陪 user、或者各种自然理由，真的去算了这段关系。必须写出 char 看到结果后的反应，可以搞笑、嘴硬、暗爽、害羞、伤感或若有所思，但绝对不许 OOC。',
-      artifactRule: '必须额外返回 artifact_html 和 artifact_label。artifact_html 要用简单的 HTML/CSS 做成一个非常精致的占卜/算卦结果物件，可以是塔罗牌牌面、观音灵签、庙签、六爻结果页、金钱卦、骰子占卜、面相批注、手相卡、卢恩符文、茶叶占卜小卡、梅花易数批文、八字合盘、月老签等等；不要脚本，不要外链。里面必须同时包含一则签文/结果和一小段解签说明，而且全部是中文。不要总是月老签，要在这些占卜方式里自然轮换，只有在关系和语境真的很适合时才使用月老签；优先多做不同体系的结果物件。若选择塔罗牌，就把牌面和排版做得格外精致好看。整个 artifact_html 必须严格适配手机弹窗：宽度控制在容器内，不许任何文字、卡片边角或装饰超出可视范围，不许把内容挤出边框。',
+      artifactRule: '必须额外返回 artifact_html 和 artifact_label。artifact_html 要用简单的 HTML/CSS 做成一个非常精致的占卜/算卦结果物件，可以是塔罗牌牌面、观音灵签、庙签、六爻结果页、金钱卦、骰子占卜、面相批注、手相卡、卢恩符文、茶叶占卜小卡、梅花易数批文、八字合盘、月老签等等；不要脚本，不要外链。里面必须同时包含一则签文/结果和一小段解签说明，所有可见文字都遵守当前语言模式。不要总是月老签，要在这些占卜方式里自然轮换，只有在关系和语境真的很适合时才使用月老签；优先多做不同体系的结果物件。若选择塔罗牌，就把牌面和排版做得格外精致好看。整个 artifact_html 必须严格适配手机弹窗：宽度控制在容器内，不许任何文字、卡片边角或装饰超出可视范围，不许把内容挤出边框。',
       noteLengthRule: 'future_note 要短一点，控制在 22-68 个中文字符之间，像看完签文后 char 脱口而出或憋在心里的一句反应；重点是让 artifact_html 成为主角。'
     }
   };
@@ -2966,6 +2996,89 @@ function renderOfflineStatusChip(entry, idx){
   if(!isPending) return '';
   return '<div class="offline-status-chip pending" aria-live="polite">' + esc(getOfflineSideStoryProfile((entry.statusCard && entry.statusCard.type) || getOfflineUiPrefs().sideStoryType).chip) + '</div>';
 }
+function shouldOfferOfflineStatusTranslation(){
+  return shouldOfferOfflineTranslation() && getOfflineReplyLanguage() !== 'zh';
+}
+function renderOfflineStatusTranslationBlock(card){
+  var translation = card && card.translation && typeof card.translation === 'object' ? card.translation : null;
+  if(!(translation && translation.visible && (String(translation.futureTitle || '').trim() || String(translation.futureNote || '').trim() || String(translation.artifactLabel || '').trim() || String(translation.artifactHtml || '').trim()))) return '';
+  var rows = [];
+  if(String(translation.futureTitle || '').trim()){
+    rows.push('<div class="offline-status-translation-row"><div class="offline-status-translation-label">番外标题</div><div class="offline-status-translation-copy">' + esc(String(translation.futureTitle || '').trim()) + '</div></div>');
+  }
+  if(String(translation.futureNote || '').trim()){
+    rows.push('<div class="offline-status-translation-row"><div class="offline-status-translation-label">番外正文</div><div class="offline-status-translation-copy">' + renderOfflineStatusRichText(String(translation.futureNote || '').trim()) + '</div></div>');
+  }
+  if(String(translation.artifactLabel || '').trim() || String(translation.artifactHtml || '').trim()){
+    rows.push('<div class="offline-status-translation-row"><div class="offline-status-translation-label">' + esc(String(translation.artifactLabel || '译文小物件')) + '</div><div class="offline-status-translation-copy">' + (String(translation.artifactHtml || '').trim() ? String(translation.artifactHtml || '') : esc(String(translation.artifactLabel || '').trim())) + '</div></div>');
+  }
+  if(!rows.length) return '';
+  return '<div class="offline-status-translation-card"><div class="offline-status-translation-head"><div class="offline-status-translation-pill">TRANSLATION</div><div class="offline-status-translation-sub">简体中文</div></div><div class="offline-status-translation-body">' + rows.join('') + '</div></div>';
+}
+async function requestOfflineStatusTranslation(entryIndex){
+  var entries = Array.isArray(session && session.entries) ? session.entries : [];
+  var idx = Number(entryIndex);
+  var entry = Number.isInteger(idx) && idx >= 0 ? entries[idx] : null;
+  if(!entry || entry.role === 'user' || !entry.statusCard) return;
+  if(!shouldOfferOfflineStatusTranslation()){
+    toast('当前角色语言就是中文');
+    return;
+  }
+  entry.statusCard.translation = Object.assign({}, entry.statusCard.translation || {}, { loading:true, visible:true });
+  saveSession();
+  if(document.getElementById('offlineStatusOverlay')?.classList.contains('open')) openOfflineStatusModal(idx);
+  try{
+    var systemPrompt = [
+      '你是翻译器。',
+      '请把下面这张线下番外侧页翻译成自然流畅的简体中文。',
+      '只返回 JSON：{"futureTitle":"...","futureNote":"...","artifactLabel":"...","artifactHtml":"..."}。',
+      'artifactHtml 若存在，必须保留原有 HTML 结构和内联样式，只翻译用户能看见的文字，不要加解释，不要加代码块。'
+    ].join('\n');
+    var userPrompt = JSON.stringify({
+      sourceLanguage: getOfflineVisibleLanguageLabel(),
+      futureTitle: String(entry.statusCard.futureTitle || '').trim(),
+      futureNote: String(entry.statusCard.futureNote || '').trim(),
+      artifactLabel: String(entry.statusCard.artifactLabel || '').trim(),
+      artifactHtml: String(entry.statusCard.artifactHtml || '').trim()
+    });
+    var raw = await callAI(systemPrompt, userPrompt);
+    var parsed = parseOfflineJsonObject(raw) || {};
+    entry.statusCard.translation = {
+      futureTitle: String(parsed.futureTitle || '').trim(),
+      futureNote: String(parsed.futureNote || '').trim(),
+      artifactLabel: String(parsed.artifactLabel || '').trim(),
+      artifactHtml: sanitizeOfflineArtifactHtml(parsed.artifactHtml || ''),
+      visible: true,
+      loading: false,
+      sourceLanguage: getOfflineReplyLanguage(),
+      generatedAt: Date.now()
+    };
+    saveSession();
+    if(document.getElementById('offlineStatusOverlay')?.classList.contains('open')) openOfflineStatusModal(idx);
+  }catch(err){
+    entry.statusCard.translation = Object.assign({}, entry.statusCard.translation || {}, { loading:false, visible:false });
+    saveSession();
+    if(document.getElementById('offlineStatusOverlay')?.classList.contains('open')) openOfflineStatusModal(idx);
+    toast('番外译文生成失败');
+  }
+}
+function toggleOfflineStatusTranslation(entryIndex){
+  var entries = Array.isArray(session && session.entries) ? session.entries : [];
+  var idx = Number(entryIndex);
+  var entry = Number.isInteger(idx) && idx >= 0 ? entries[idx] : null;
+  if(!entry || !entry.statusCard || !shouldOfferOfflineStatusTranslation()) return;
+  var translation = entry.statusCard.translation && typeof entry.statusCard.translation === 'object' ? entry.statusCard.translation : null;
+  var hasTranslation = !!(translation && (String(translation.futureTitle || '').trim() || String(translation.futureNote || '').trim() || String(translation.artifactLabel || '').trim() || String(translation.artifactHtml || '').trim()));
+  if(!hasTranslation || String(translation.sourceLanguage || '').trim() !== getOfflineReplyLanguage()){
+    requestOfflineStatusTranslation(idx);
+    return;
+  }
+  translation.visible = !translation.visible;
+  translation.loading = false;
+  entry.statusCard.translation = translation;
+  saveSession();
+  if(document.getElementById('offlineStatusOverlay')?.classList.contains('open')) openOfflineStatusModal(idx);
+}
 function formatOfflineGenTime(ms){
   var secs = Math.max(0, Number(ms || 0)) / 1000;
   if(!secs) return '0s';
@@ -3071,8 +3184,30 @@ function getOfflineReplyMinChars(){
 function getOfflineStoryPerspectiveLabel(value){
   return value === 'second' ? '第二人称' : (value === 'third' ? '第三人称' : '第一人称');
 }
+function stripOfflineQuotedSpeech(text){
+  return String(text || '').replace(/(?:“[^“”]*”|「[^「」]*」|『[^『』]*』|"[^"\n]*"|«[^»\n]*»|„[^“\n]*“)/g, ' ');
+}
+function hasOfflineSpeechQuote(text){
+  return /(?:“[^“”]{2,}”|「[^「」]{2,}」|『[^『』]{2,}』|"[^"\n]{2,}"|«[^»\n]{2,}»|„[^“\n]{2,}“)/.test(String(text || ''));
+}
+function buildOfflineSpeechFallbackLine(){
+  var mode = getOfflineReplyLanguage();
+  if(mode === 'en') return '"Walk with me a little longer, okay?"';
+  if(mode === 'fr') return '"Reste encore un peu avec moi, d\'accord ?"' ;
+  if(mode === 'ja') return '「もう少しだけ、一緒に歩こう」';
+  if(mode === 'ko') return '"조금만 더 같이 걸어 줄래?"';
+  if(mode === 'yue') return '“再陪我行一阵，好唔好？”';
+  if(mode === 'de') return '"Geh noch ein kleines Stuck mit mir, ja?"';
+  return '“先陪我再走一段，好不好。”';
+}
+function ensureOfflineSpeechPresence(text){
+  var body = String(text || '').trim();
+  if(!body) return buildOfflineSpeechFallbackLine();
+  if(hasOfflineSpeechQuote(body)) return body;
+  return (body + '\n\n' + buildOfflineSpeechFallbackLine()).trim();
+}
 function violatesOfflinePerspective(text, perspective){
-  var body = String(text || '');
+  var body = stripOfflineQuotedSpeech(text);
   if(!body) return false;
   if(perspective === 'third'){
     return /(^|[，。！？、\s“”"'‘’（(【\[])(我|我们|你|你们)(?=[，。！？、\s”"'’）)】\]]|$)/.test(body);
@@ -3135,20 +3270,27 @@ function buildOfflineOpeningFallback(){
         ? ' 他看你一眼，又像想起什么似的把话接下去，问你要不要先陪他往前走一段，边走边慢慢聊。'
         : ' 他看我一眼，又像想起什么似的把话接下去，问我要不要先陪他往前走一段，边走边慢慢聊。');
   }
-  return body.trim();
+  return ensureOfflineSpeechPresence(body.trim());
 }
 function buildOfflineTitleFallback(){
+  var mode = getOfflineReplyLanguage();
+  if(mode === 'en') return 'Caught You At Last';
+  if(mode === 'fr') return 'Enfin trouvee';
+  if(mode === 'ja') return 'やっと捕まえた';
+  if(mode === 'ko') return '드디어 붙잡았다';
+  if(mode === 'yue') return '终于俾我捉到你';
+  if(mode === 'de') return 'Endlich erwischt';
   var pool = ['终于抓到你了','你今天别想跑','这次轮到我靠近','见面这事有点坏'];
   return pool[Math.floor(Math.random() * pool.length)] || '终于抓到你了';
 }
 function buildOfflineQuoteFallback(){
   var option = getReplyLanguageOption(getOfflineReplyLanguage());
-  if(option && option.value === 'en') return '先让我好好看看你。';
-  if(option && option.value === 'fr') return '先让我把你今天的样子记住。';
-  if(option && option.value === 'ja') return '先让我把你今天的样子记住。';
-  if(option && option.value === 'ko') return '先让我把你今天的样子记住。';
+  if(option && option.value === 'en') return 'Let me look at you properly first.';
+  if(option && option.value === 'fr') return 'Laisse-moi d abord bien te regarder.';
+  if(option && option.value === 'ja') return 'まず、ちゃんと君を見せて。';
+  if(option && option.value === 'ko') return '일단 너부터 제대로 볼게.';
   if(option && option.value === 'yue') return '先俾我认真望清楚你。';
-  if(option && option.value === 'de') return '先让我把你今天的样子记住。';
+  if(option && option.value === 'de') return 'Lass mich dich erst richtig ansehen.';
   return '先让我把你今天的样子记住。';
 }
 function buildOfflineAsideFallback(){
@@ -3535,11 +3677,12 @@ function buildOfflineBodySystemPrompt(options){
     '你现在只负责生成线下模式这一幕的正文内容。',
     '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"..."}',
     '不要 thought_chain，不要 status_card，不要解释。',
-    'title 是这一幕标题，6-16 个中文字符；要搞笑、有网感、像会被拿来当小标题吐槽的那种，允许轻微口语化和坏笑感，但必须贴人设；quote 是可爱圆润但贴人设的小语录，12-30 个中文字符。',
+    'title 是这一幕标题，6-16 个字左右；要搞笑、有网感、像会被拿来当小标题吐槽的那种，允许轻微口语化和坏笑感，但必须贴人设；quote 是可爱圆润但贴人设的小语录，12-30 个字左右。',
     'text 必须写成足量的线下面对面正文，长度优先写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个中文字符之间；超过原上限一点点也可以接受，但绝对不要明显短于下限。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     '镜头和感知中心必须是 char 本人，优先写动作、停顿、语气、眼神和现场变化。',
     '至少 3 个自然段，每段都用完整句子收尾。',
+    '正文里必须至少出现 1 句 char 真正说出口的直接引语，用引号包起来，不要整段都只写动作和旁白。',
     'asides 是 2 句第一人称心声，分别适合插在第一段后和第二段后。',
     '这两句心声要像活人脑子里一闪而过的小反应、小嘴硬或小失控，不要写总结、解释、分析、抒情排比，更不要写成 AI 读后感。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
@@ -3565,6 +3708,7 @@ function buildOfflineBodyTextSystemPrompt(options){
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     '镜头和感知中心必须是 char 本人，优先写动作、停顿、语气、眼神和现场变化。',
     '至少 3 个自然段，每段都用完整句子收尾。',
+    '正文里必须至少出现 1 句 char 真正说出口的直接引语，用引号包起来，不要整段都只写动作和旁白。',
     '如果下面提供了 thought_chain，必须严格顺着它来写，不能违背它的情绪和行动方向。',
     thoughtChain ? ('本轮 thought_chain：\nsubtext_perception: ' + String(thoughtChain.subtext_perception || '') + '\nemotional_reaction: ' + String(thoughtChain.emotional_reaction || '') + '\naction_strategy: ' + String(thoughtChain.action_strategy || '')) : '',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
@@ -3594,7 +3738,7 @@ function buildOfflineStatusSystemPrompt(options){
     'status_card 必须和这幕正文一起构成同一件事的番外侧页，严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt。',
     '任何番外都绝对不许 OOC：关系、称呼、身份、性格、世界观、性别、取向、亲疏距离都必须严格继承当前设定，不许乱改。',
     '这次番外类型是：' + profile.label + '。',
-    'future_title、future_note、artifact_label、artifact_html 里的所有可见文字都必须是中文，不许输出英文、日文、韩文或其他外语；必要时把概念也翻成自然中文。',
+    'future_title、future_note、artifact_label、artifact_html 里的所有可见文字都必须遵守当前语言模式，不要夹带另一种语言的解释。',
     '所有番外类型都允许自然使用 ~~划掉的嘴硬句子~~ 来表现口是心非、临时反悔或自己打自己脸；如果用了，就必须真正贴合人设与语气，不要乱用。',
     dateRule,
     profile.titleRule,
@@ -3661,11 +3805,11 @@ function buildOfflineSystemPrompt(options){
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"..."}',
     'text 必须写成足量的线下面对面正文，细节感更强，不要写成短回复，不要写成一小段，也不要写成小说章节标题。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
-    'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个中文字符，不要太正经，但必须贴人设。',
-    'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个中文字符。',
+    'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个字左右，不要太正经，但必须贴人设。',
+    'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个字左右。',
     'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 与当前气氛。',
     '任何番外都绝对不许 OOC：关系、称呼、身份、性格、世界观、性别、取向、亲疏距离都必须严格继承当前设定，不许乱改。',
-    'status_card 里的所有可见文字必须是中文，不许输出英文、日文、韩文或其他外语。',
+    'status_card 里的所有可见文字必须遵守当前语言模式，不要夹带另一种语言的解释。',
     '所有番外类型都允许自然使用 ~~划掉的嘴硬句子~~ 来表现口是心非、临时反悔或自己打自己脸；如果用了，就必须真正贴合人设与语气，不要乱用。',
     '这次番外类型是：' + sideStoryProfile.label + '。',
     sideStoryDateRule,
@@ -3686,6 +3830,7 @@ function buildOfflineSystemPrompt(options){
     '减少比喻、少用修辞，优先直接写动作、对话、停顿和眼神，不要把一句很简单的话写得过于文学化。',
     '不要使用“像受惊的小动物一样”“像护食的小动物一样”这类把人比成小动物的写法。',
     'text 至少写成 3 个自然段，每一段都用完整句子收尾；如果字数不够，就继续补充同一幕的动作、气氛、停顿、对话和身体反应，直到达到下限。',
+    '正文里必须至少出现 1 句 char 真正说出口的直接引语，用引号包起来，不要整段都只写动作和旁白。',
     'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
     '蓝字心声要像活人脑内瞬间闪过的欲言又止、嘴硬、自我警告、心里发烫或一秒露馅，不要总结局面，不要讲大道理，不要复述正文。',
     'heart 是右上角爱心里的短心声，2-10 个字。',
@@ -3752,7 +3897,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
     'quote 是 char 留下的一句小语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个中文字符。',
     'status_card 必须和正文一起生成，不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 与当前气氛。',
     '任何番外都绝对不许 OOC：关系、称呼、身份、性格、世界观、性别、取向、亲疏距离都必须严格继承当前设定，不许乱改。',
-    'status_card 里的所有可见文字必须是中文，不许输出英文、日文、韩文或其他外语。',
+    'status_card 里的所有可见文字必须遵守当前语言模式，不要夹带另一种语言的解释。',
     '这次番外类型是：' + sideStoryProfile.label + '。',
     sideStoryDateRule,
     sideStoryProfile.titleRule,
@@ -3771,6 +3916,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '减少比喻、少用修辞，优先直接写动作、对话、停顿和眼神，不要把一句很简单的话写得过于文学化。',
     '不要使用“像受惊的小动物一样”“像护食的小动物一样”这类把人比成小动物的写法。',
     'text 至少写成 3 个自然段，每一段都用完整句子收尾。',
+    '正文里必须至少出现 1 句 char 真正说出口的直接引语，用引号包起来，不要整段都只写动作和旁白。',
     'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
     '蓝字心声要像活人脑内瞬间闪过的欲言又止、嘴硬、自我警告、心里发烫或一秒露馅，不要总结局面，不要讲大道理，不要复述正文。',
     '下笔前必须先读并吸收这些信息，再决定 char 的开场方式：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、见面起点信息、scenario、system prompt。',
@@ -4480,7 +4626,7 @@ async function generateOpeningIfNeeded(){
         var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: compactLevel }), openingContext, plan.mainTimeout);
         var bodyObj = parseOfflineJsonObject(bodyRaw);
         if(!hasValidOfflineBodyPayload(bodyObj)) throw new Error('正文结构不完整');
-        openingText = String(bodyObj.text || '').trim();
+        openingText = ensureOfflineSpeechPresence(String(bodyObj.text || '').trim());
         openingTitle = String(bodyObj.title || '').trim();
         openingQuote = String(bodyObj.quote || '').trim();
         openingAsides = normalizeOfflineAsides(bodyObj.asides);
@@ -4505,7 +4651,7 @@ async function generateOpeningIfNeeded(){
             var continueObj = parseOfflineJsonObject(continueRaw);
             var extraText = String(continueObj && continueObj.text || '').trim();
             if(!extraText || extraText === openingText) break;
-            openingText = mergeOfflineOpeningText(openingText, extraText);
+            openingText = ensureOfflineSpeechPresence(mergeOfflineOpeningText(openingText, extraText));
             openingAsides = mergeOfflineAsides(openingAsides, normalizeOfflineAsides(continueObj && continueObj.asides));
             if(openingTextLength(openingText) > openingTextLength(bestText)){
               bestText = openingText;
@@ -4532,7 +4678,7 @@ async function generateOpeningIfNeeded(){
           openingThoughtChain = combinedObj.thought_chain;
           openingTitle = String(combinedObj.title || '').trim();
           openingQuote = String(combinedObj.quote || '').trim();
-          openingText = String(combinedObj.text || '').trim();
+          openingText = ensureOfflineSpeechPresence(String(combinedObj.text || '').trim());
           openingAsides = normalizeOfflineAsides(combinedObj.asides);
         }
       }catch(combinedErr){
@@ -4759,7 +4905,7 @@ async function requestOfflineReply(options){
     if(!bodyPayload){
       throw bodyError || new Error('正文生成失败');
     }
-    var replyText = String(bodyPayload.text || '').trim();
+    var replyText = ensureOfflineSpeechPresence(String(bodyPayload.text || '').trim());
     var replyTitle = String(bodyPayload.title || '').trim();
     var replyQuote = String(bodyPayload.quote || '').trim();
     var replyAsides = normalizeOfflineAsides(bodyPayload.asides);
@@ -4777,7 +4923,7 @@ async function requestOfflineReply(options){
       var extendParsed = parseOfflineJsonObject(extendRaw) || {};
       var extraText = String(extendParsed.text || '').trim();
       if(!extraText) break;
-      replyText = mergeOfflineOpeningText(replyText, extraText);
+      replyText = ensureOfflineSpeechPresence(mergeOfflineOpeningText(replyText, extraText));
       replyAsides = mergeOfflineAsides(replyAsides, normalizeOfflineAsides(extendParsed.asides));
     }
     if(openingTextLength(replyText) < minChars || violatesOfflinePerspective(replyText, prefs.perspective) || containsOfflineStyleViolation(replyText) || !replyTitle || !replyQuote || hasOfflineBannedContentInPayload({

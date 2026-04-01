@@ -194,6 +194,11 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .offline-invite-modal-heart svg{display:block;width:18px;height:18px;fill:#0a0a0a}
 .offline-invite-modal-aside-pop{position:absolute;left:0;top:0;max-width:148px;padding:8px 12px;border:1.2px solid rgba(28,28,28,.34);border-radius:999px;background:rgba(255,255,255,.32);backdrop-filter:blur(16px) saturate(135%);-webkit-backdrop-filter:blur(16px) saturate(135%);font-family:var(--fontd);font-size:12px;font-weight:900;line-height:1.2;color:#262626;white-space:nowrap;box-shadow:0 10px 24px rgba(0,0,0,.06),0 1px 0 rgba(255,255,255,.7) inset,1px 2px 0 rgba(0,0,0,.1);pointer-events:none;opacity:0;transform:translateY(12px) scale(.82);transform-origin:center center;transition:opacity .16s ease,transform .22s cubic-bezier(.2,1.15,.34,1);z-index:7}
 .offline-invite-modal-aside-pop.open{opacity:1;transform:translateY(0) scale(1)}
+.offline-invite-modal-translate-wrap{margin-top:12px;display:flex;flex-direction:column;align-items:flex-start;gap:8px;position:relative;z-index:8}
+.offline-invite-modal-translate-btn{min-width:38px;height:28px;padding:0 10px;border:2px solid #111;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;box-shadow:2px 2px 0 rgba(0,0,0,.15);cursor:pointer}
+.offline-invite-modal-translate-btn:disabled{opacity:.58;cursor:default}
+.offline-invite-modal-translate-btn:active{transform:translate(1px,1px);box-shadow:0 0 0}
+.offline-invite-modal-translate-card{width:100%;padding:10px 11px 9px;border:2px solid #111;border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.99),rgba(243,243,240,.97));box-shadow:4px 4px 0 rgba(0,0,0,.14)}
 .family-card-bubble{
   width:min(100%,420px);
   display:grid;
@@ -3429,17 +3434,15 @@ function toggleMessageTranslation(msgId){
   var kind = normalizeMessageType(entry.type || 'text');
   if(kind === 'offlineinvite'){
     if(!(entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.aside || entry.inviteTranslation.mood || entry.inviteTranslation.location))){
-      requestChatMessageTranslation(msgId);
-      return;
+      return requestChatMessageTranslation(msgId);
     }
   }else if(!String(entry.translationText || '').trim()){
-    requestChatMessageTranslation(msgId);
-    return;
+    return requestChatMessageTranslation(msgId);
   }
   entry.translationVisible = !entry.translationVisible;
   entry.translationLoading = false;
   renderChatLog(false);
-  saveChat(true).catch(function(){});
+  return saveChat(true).catch(function(){});
 }
 
 function getWeatherRoleLabel(role){
@@ -5976,6 +5979,9 @@ function compactChar(c){
     , offlineInviteMax:Number(c.offlineInviteMax)||Math.max(Number(c.offlineInviteMin)||300,360)
     , offlineInvitePerspective:String(c.offlineInvitePerspective||'first')
     , offlineInviteStyle:String(c.offlineInviteStyle||'')
+    , offlineSummaryEvery:Number(c.offlineSummaryEvery)||5
+    , offlineSummaryAuto:c.offlineSummaryAuto != null ? !!c.offlineSummaryAuto : true
+    , offlineSideStoryType:String(c.offlineSideStoryType||'future')
     , translationEnabled:!!c.translationEnabled
     , replyLanguage:normalizeReplyLanguage(c.replyLanguage||c.language||'zh')
     , livePresenceWorldHint:String(c.livePresenceWorldHint||'')
@@ -13978,7 +13984,7 @@ function openChatSettings() {
       document.getElementById('csInviteMax').value = (character.offlineInviteMax || 360);
       document.getElementById('csInvitePerspective').value = (character.offlineInvitePerspective || 'first');
       document.getElementById('csInviteStyle').value = (character.offlineInviteStyle || '');
-      syncReplyLanguageButtons('csReplyLanguageGrid', character.replyLanguage || 'en', !!character.translationEnabled);
+      syncReplyLanguageButtons('csReplyLanguageGrid', character.replyLanguage || 'zh', !!character.translationEnabled);
       loadChatBackgroundForCharacter(character.id).then(function(src){
         stagedChatBackground = src || '';
         var bgUrl = document.getElementById('csChatBgUrl');
@@ -13987,7 +13993,7 @@ function openChatSettings() {
       });
     }else{
       resetChatBackgroundSelection();
-      syncReplyLanguageButtons('csReplyLanguageGrid', 'en', false);
+      syncReplyLanguageButtons('csReplyLanguageGrid', 'zh', false);
     }
     var uav = document.getElementById('csUserAvatar');
     uav.innerHTML = getAvatarPlaceholderHtml('user', '+');
@@ -14282,7 +14288,7 @@ async function saveChatSettings() {
   var inviteStyle = String(document.getElementById('csInviteStyle').value || '').trim();
   var replyLanguageToggle = document.getElementById('csReplyLanguageToggle');
   var translationEnabled = !!(replyLanguageToggle && replyLanguageToggle.classList.contains('on'));
-  var replyLanguage = normalizeReplyLanguage((document.getElementById('csReplyLanguage') || {}).value || 'en');
+  var replyLanguage = normalizeReplyLanguage((document.getElementById('csReplyLanguage') || {}).value || 'zh');
   var cwin = parseInt(document.getElementById('csContextWindow').value || String(DEFAULT_CONTEXT_WINDOW), 10);
   var severy = parseInt(document.getElementById('csSummaryEvery').value || String(DEFAULT_SUMMARY_EVERY), 10);
   var manualSize = parseInt(document.getElementById('csManualSummarySize').value || String(DEFAULT_MANUAL_SUMMARY_SIZE), 10);
