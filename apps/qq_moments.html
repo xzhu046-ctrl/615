@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-03-31T09:30:00Z"></script>
-<script src="../assetStore.js?v=2026-03-31T09:30:00Z"></script>
-<script src="../chatStorage.js?v=2026-03-31T09:30:00Z"></script>
-<script src="../metadataStore.js?v=2026-03-31T09:30:00Z"></script>
+<script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../chatStorage.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -326,6 +326,9 @@ function normalizeReplyLanguage(value){
   const safe = String(value || 'zh').trim().toLowerCase();
   return REPLY_LANGUAGE_OPTIONS[safe] ? safe : 'zh';
 }
+function normalizeTranslationMode(value){
+  return String(value || '').trim().toLowerCase() === 'prefetch' ? 'prefetch' : 'ondemand';
+}
 
 function getReplyLanguageOption(value){
   return REPLY_LANGUAGE_OPTIONS[normalizeReplyLanguage(value)];
@@ -346,6 +349,7 @@ function resolveMomentAuthorMeta(post){
   const authorName = String(next.authorName || '').trim();
   let translationEnabled = next.translationEnabled != null ? !!next.translationEnabled : false;
   let replyLanguage = normalizeReplyLanguage(next.replyLanguage || 'zh');
+  let translationMode = normalizeTranslationMode(next.translationMode || 'ondemand');
   const activeAccountId = (()=>{ try{ return String(((window.AccountManager && window.AccountManager.getActive && window.AccountManager.getActive()) || {}).id || '').trim(); }catch(e){ return ''; } })();
   const roster = getStoredCharactersSnapshot();
   let found = null;
@@ -369,15 +373,21 @@ function resolveMomentAuthorMeta(post){
     next.charId = String(next.charId || found.id || '');
     translationEnabled = found.translationEnabled != null ? !!found.translationEnabled : translationEnabled;
     replyLanguage = normalizeReplyLanguage(found.replyLanguage || found.language || replyLanguage);
+    translationMode = normalizeTranslationMode(found.translationMode || translationMode);
   }
   next.translationEnabled = !!translationEnabled;
   next.replyLanguage = replyLanguage;
+  next.translationMode = translationMode;
   return next;
 }
 
 function shouldOfferMomentTranslation(post){
   const resolved = resolveMomentAuthorMeta(post);
   return !!(resolved.translationEnabled && normalizeReplyLanguage(resolved.replyLanguage) !== 'zh');
+}
+function shouldPrefetchMomentTranslation(post){
+  const resolved = resolveMomentAuthorMeta(post);
+  return !!(resolved.translationEnabled && normalizeReplyLanguage(resolved.replyLanguage) !== 'zh' && normalizeTranslationMode(resolved.translationMode) === 'prefetch');
 }
 
 function getMomentTranslationState(post){
@@ -438,19 +448,21 @@ function parseMomentTranslationResult(raw){
   return text.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
 }
 
-async function requestMomentTranslation(postId, field){
+const momentTranslationPrefetchQueue = Object.create(null);
+async function requestMomentTranslation(postId, field, options){
   const posts = getPosts();
   const idx = posts.findIndex((item)=>String(item && item.id || '') === String(postId || ''));
   if(idx === -1) return;
   const post = resolveMomentAuthorMeta(posts[idx]);
+  const opts = options || {};
   if(!shouldOfferMomentTranslation(post)) return;
   const sourceText = String(field === 'imageText' ? post.imageText : post.text || '').trim();
   if(!sourceText) return;
   const translation = Object.assign({}, post.translation || {});
   if(field === 'imageText') translation.imageLoading = true;
   else translation.textLoading = true;
-  if(field === 'imageText') translation.imageVisible = true;
-  else translation.textVisible = true;
+  if(field === 'imageText') translation.imageVisible = opts.showOnReady !== false;
+  else translation.textVisible = opts.showOnReady !== false;
   post.translation = translation;
   posts[idx] = post;
   savePosts(posts);
@@ -477,11 +489,11 @@ async function requestMomentTranslation(postId, field){
     if(field === 'imageText'){
       nextTranslation.imageText = translated;
       nextTranslation.imageLoading = false;
-      nextTranslation.imageVisible = true;
+      nextTranslation.imageVisible = opts.showOnReady !== false;
     }else{
       nextTranslation.text = translated;
       nextTranslation.textLoading = false;
-      nextTranslation.textVisible = true;
+      nextTranslation.textVisible = opts.showOnReady !== false;
     }
     latestPost.translation = nextTranslation;
     latestPosts[latestIdx] = latestPost;
@@ -503,10 +515,42 @@ async function requestMomentTranslation(postId, field){
       latestPosts[latestIdx] = latestPost;
       savePosts(latestPosts);
     }
-    showToast('翻译失败');
+    if(!opts.silent) showToast('翻译失败');
   }
   renderFeed();
   renderImageViewer();
+}
+function queueMomentTranslationPrefetch(postId, field){
+  const safePostId = String(postId || '').trim();
+  const safeField = field === 'imageText' ? 'imageText' : 'text';
+  const key = safePostId + '::' + safeField;
+  if(!safePostId || momentTranslationPrefetchQueue[key]) return;
+  const posts = getPosts();
+  const idx = posts.findIndex((item)=>String(item && item.id || '') === safePostId);
+  if(idx === -1) return;
+  const post = resolveMomentAuthorMeta(posts[idx]);
+  if(!shouldPrefetchMomentTranslation(post)) return;
+  const translation = Object.assign({}, post.translation || {});
+  const hasText = safeField === 'imageText'
+    ? String(translation.imageText || '').trim()
+    : String(translation.text || '').trim();
+  const isLoading = safeField === 'imageText' ? !!translation.imageLoading : !!translation.textLoading;
+  if(hasText || isLoading) return;
+  momentTranslationPrefetchQueue[key] = true;
+  Promise.resolve().then(()=>{
+    return requestMomentTranslation(safePostId, safeField, { silent:true, showOnReady:false });
+  }).catch(()=>{})
+    .finally(()=>{
+      delete momentTranslationPrefetchQueue[key];
+    });
+}
+function primeMomentTranslations(posts){
+  (Array.isArray(posts) ? posts : getPosts()).slice(0, 5).forEach((item)=>{
+    const post = resolveMomentAuthorMeta(item);
+    if(!shouldPrefetchMomentTranslation(post)) return;
+    if(String(post.text || '').trim()) queueMomentTranslationPrefetch(post.id, 'text');
+    if(String(post.imageText || '').trim()) queueMomentTranslationPrefetch(post.id, 'imageText');
+  });
 }
 
 function toggleMomentTranslation(postId, field){
@@ -867,6 +911,7 @@ function renderFeed(){
       openImageViewer(post || null);
     });
   });
+  primeMomentTranslations(posts);
 }
 
 function prepareReply(postId, commentId){

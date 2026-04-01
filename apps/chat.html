@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-03-31T09:06:00Z"></script>
-<script src="../accountManager.js?v=2026-03-31T09:06:00Z"></script>
-<script src="../assetStore.js?v=2026-03-31T09:06:00Z"></script>
-<script src="../chatStorage.js?v=2026-03-31T09:06:00Z"></script>
-<script src="../metadataStore.js?v=2026-03-31T09:06:00Z"></script>
-<script src="../presenceShared.js?v=2026-03-31T09:06:00Z"></script>
-<script src="../sunnySupport.js?v=2026-03-31T09:06:00Z"></script>
-<script src="offlineInvite.js?v=2026-03-31T09:06:00Z"></script>
+<script src="../promptManager.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../chatStorage.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../presenceShared.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../sunnySupport.js?v=2026-03-31T10:28:00Z"></script>
+<script src="offlineInvite.js?v=2026-03-31T10:28:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -618,6 +618,14 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .cs-language-btn.is-active small{color:rgba(255,255,255,.68)}
 .cs-language-grid.is-disabled{opacity:.42;pointer-events:none;filter:grayscale(1)}
 .cs-language-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
+.cs-translation-mode-grid{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px}
+.cs-translation-mode-grid.is-disabled{opacity:.42;pointer-events:none;filter:grayscale(1)}
+.cs-translation-mode-btn{width:100%;padding:12px 14px;border:var(--bd);border-radius:16px;background:linear-gradient(180deg,#fff 0%,#f2f2f2 100%);color:var(--b);box-shadow:var(--sh);text-align:left;cursor:pointer;transition:transform .12s,box-shadow .12s,background .12s,color .12s}
+.cs-translation-mode-btn strong{display:block;font-family:var(--fontd);font-size:13px;font-weight:900;line-height:1.2}
+.cs-translation-mode-btn small{display:block;margin-top:5px;font-size:10px;font-weight:800;line-height:1.55;letter-spacing:.04em;color:var(--g)}
+.cs-translation-mode-btn.is-active{background:#111;color:#fff}
+.cs-translation-mode-btn.is-active small{color:rgba(255,255,255,.74)}
+.cs-translation-mode-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .presence-mini-map{margin-top:12px;height:146px;border:var(--bd);border-radius:16px;background:
   linear-gradient(180deg,rgba(255,255,255,.98),rgba(244,244,244,.95)),
   linear-gradient(90deg, rgba(0,0,0,.06) 1px, transparent 1px),
@@ -1144,6 +1152,17 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
       <button class="cs-language-btn" type="button" data-reply-language="ko"><span>韩语</span><small>한국어</small></button>
       <button class="cs-language-btn" type="button" data-reply-language="yue"><span>粤语</span><small>广东话</small></button>
       <button class="cs-language-btn" type="button" data-reply-language="de"><span>德语</span><small>Deutsch</small></button>
+    </div>
+    <input id="csTranslationMode" type="hidden" value="ondemand">
+    <div class="cs-translation-mode-grid" id="csTranslationModeGrid">
+      <button class="cs-translation-mode-btn" type="button" data-translation-mode="ondemand">
+        <strong>点击译文消耗一次 API</strong>
+        <small>默认模式。点开哪条才翻哪条，首轮生成更轻一点。</small>
+      </button>
+      <button class="cs-translation-mode-btn" type="button" data-translation-mode="prefetch">
+        <strong>角色先返回原文 + 译文</strong>
+        <small>角色内容生成后会立刻把译文缓存好，点开直接看，不再等那一下。</small>
+      </button>
     </div>
   </div>
 
@@ -3196,6 +3215,9 @@ function normalizeReplyLanguage(value){
   var safe = String(value || 'zh').trim().toLowerCase();
   return REPLY_LANGUAGE_OPTIONS[safe] ? safe : 'zh';
 }
+function normalizeTranslationMode(value){
+  return String(value || '').trim().toLowerCase() === 'prefetch' ? 'prefetch' : 'ondemand';
+}
 function getReplyLanguageOption(value){
   return REPLY_LANGUAGE_OPTIONS[normalizeReplyLanguage(value)];
 }
@@ -3206,6 +3228,12 @@ function getCharacterReplyLanguage(){
   return isCharacterTranslationEnabled()
     ? normalizeReplyLanguage(character && character.replyLanguage || 'zh')
     : 'zh';
+}
+function getCharacterTranslationMode(){
+  return normalizeTranslationMode(character && character.translationMode || 'ondemand');
+}
+function shouldPrefetchCharacterTranslations(){
+  return isCharacterTranslationEnabled() && getCharacterReplyLanguage() !== 'zh' && getCharacterTranslationMode() === 'prefetch';
 }
 function buildChatReplyLanguagePrompt(){
   if(!isCharacterTranslationEnabled()) return '';
@@ -3250,10 +3278,22 @@ function syncReplyLanguageButtons(containerId, value, enabled){
     btn.classList.toggle('is-active', String(btn.getAttribute('data-reply-language') || '') === safe);
   });
 }
+function syncTranslationModeButtons(containerId, value, enabled){
+  var container = document.getElementById(containerId);
+  var hidden = document.getElementById('csTranslationMode');
+  var safe = normalizeTranslationMode(value || (hidden && hidden.value) || 'ondemand');
+  if(hidden) hidden.value = safe;
+  if(!container) return;
+  container.classList.toggle('is-disabled', !enabled);
+  container.querySelectorAll('[data-translation-mode]').forEach(function(btn){
+    btn.classList.toggle('is-active', String(btn.getAttribute('data-translation-mode') || '') === safe);
+  });
+}
 function toggleReplyLanguageSwitch(){
   var toggle = document.getElementById('csReplyLanguageToggle');
   var next = !(toggle && toggle.classList.contains('on'));
   syncReplyLanguageButtons('csReplyLanguageGrid', (document.getElementById('csReplyLanguage') || {}).value || 'zh', next);
+  syncTranslationModeButtons('csTranslationModeGrid', (document.getElementById('csTranslationMode') || {}).value || 'ondemand', next);
 }
 function bindChatReplyLanguageButtons(){
   var grid = document.getElementById('csReplyLanguageGrid');
@@ -3263,6 +3303,17 @@ function bindChatReplyLanguageButtons(){
     btn.addEventListener('click', function(){
       if(grid.classList.contains('is-disabled')) return;
       syncReplyLanguageButtons('csReplyLanguageGrid', btn.getAttribute('data-reply-language') || 'zh', true);
+    });
+  });
+}
+function bindChatTranslationModeButtons(){
+  var grid = document.getElementById('csTranslationModeGrid');
+  if(!grid || grid.dataset.bound === '1') return;
+  grid.dataset.bound = '1';
+  grid.querySelectorAll('[data-translation-mode]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if(grid.classList.contains('is-disabled')) return;
+      syncTranslationModeButtons('csTranslationModeGrid', btn.getAttribute('data-translation-mode') || 'ondemand', true);
     });
   });
 }
@@ -3303,16 +3354,19 @@ function findInnerVoiceTarget(store, id){
   if(store.current && (!safeId || String(store.current.id || '') === safeId)) return store.current;
   return null;
 }
-async function requestInnerVoiceTranslation(id){
+var chatTranslationPrefetchQueue = Object.create(null);
+var innerVoiceTranslationPrefetchQueue = Object.create(null);
+async function requestInnerVoiceTranslation(id, options){
   if(!character) return;
+  var opts = options || {};
   if(!shouldOfferInnerVoiceTranslation()){
-    toast('当前角色语言就是中文');
+    if(!opts.silent) toast('当前角色语言就是中文');
     return;
   }
   var store = loadInnerVoiceStore();
   var target = findInnerVoiceTarget(store, id);
   if(!target) return;
-  target.translation = Object.assign({}, target.translation || {}, { loading:true, visible:true });
+  target.translation = Object.assign({}, target.translation || {}, { loading:true, visible: opts.showOnReady !== false });
   if(store.current && String(store.current.id || '') === String(target.id || '')){
     store.current.translation = target.translation;
   }
@@ -3341,7 +3395,7 @@ async function requestInnerVoiceTranslation(id){
     target.translation = {
       normal: normal,
       desire: desire,
-      visible: true,
+      visible: opts.showOnReady !== false,
       loading: false,
       sourceLanguage: getCharacterReplyLanguage()
     };
@@ -3361,8 +3415,25 @@ async function requestInnerVoiceTranslation(id){
       saveInnerVoiceStore(store);
     }
     renderInnerVoiceOverlay();
-    toast('心声译文生成失败');
+    if(!opts.silent) toast('心声译文生成失败');
   }
+}
+function queueInnerVoiceTranslationPrefetch(id){
+  var safeId = String(id || '').trim();
+  if(!safeId || !shouldPrefetchCharacterTranslations()) return;
+  if(innerVoiceTranslationPrefetchQueue[safeId]) return;
+  var store = loadInnerVoiceStore();
+  var target = findInnerVoiceTarget(store, safeId);
+  if(!target) return;
+  var translation = target.translation && typeof target.translation === 'object' ? target.translation : null;
+  if(translation && (String(translation.normal || '').trim() || String(translation.desire || '').trim())) return;
+  innerVoiceTranslationPrefetchQueue[safeId] = true;
+  Promise.resolve().then(function(){
+    return requestInnerVoiceTranslation(safeId, { silent:true, showOnReady:false });
+  }).catch(function(){})
+    .finally(function(){
+      delete innerVoiceTranslationPrefetchQueue[safeId];
+    });
 }
 function toggleInnerVoiceTranslation(id){
   if(!shouldOfferInnerVoiceTranslation()) return;
@@ -3383,10 +3454,12 @@ function toggleInnerVoiceTranslation(id){
   saveInnerVoiceStore(store);
   renderInnerVoiceOverlay();
 }
-async function requestChatMessageTranslation(msgId){
+async function requestChatMessageTranslation(msgId, options){
   var entry = getMessageById(msgId);
+  var opts = options || {};
   if(!shouldOfferMessageTranslation(entry)) return;
   entry.translationLoading = true;
+  if(opts.showOnReady !== false) entry.translationVisible = true;
   renderChatLog(false);
   try{
     var kind = normalizeMessageType(entry.type || 'text');
@@ -3425,7 +3498,7 @@ async function requestChatMessageTranslation(msgId){
       if(!translated) throw new Error('empty translation');
       entry.translationText = translated;
     }
-    entry.translationVisible = true;
+    entry.translationVisible = opts.showOnReady !== false;
     entry.translationSourceLanguage = getCharacterReplyLanguage();
     entry.translationLoading = false;
     await saveChat(true);
@@ -3433,7 +3506,40 @@ async function requestChatMessageTranslation(msgId){
   }catch(err){
     entry.translationLoading = false;
     renderChatLog(false);
-    toast('译文生成失败');
+    if(!opts.silent) toast('译文生成失败');
+  }
+}
+function queueChatMessageTranslationPrefetch(msgId){
+  var safeId = String(msgId || '').trim();
+  if(!safeId || !shouldPrefetchCharacterTranslations()) return;
+  if(chatTranslationPrefetchQueue[safeId]) return;
+  var entry = getMessageById(safeId);
+  if(!shouldOfferMessageTranslation(entry) || (entry && entry.translationLoading)) return;
+  var kind = normalizeMessageType(entry && entry.type || 'text');
+  var hasTranslation = kind === 'offlineinvite'
+    ? !!(entry && entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.aside || entry.inviteTranslation.location))
+    : !!String(entry && entry.translationText || '').trim();
+  if(hasTranslation) return;
+  chatTranslationPrefetchQueue[safeId] = true;
+  Promise.resolve().then(function(){
+    return requestChatMessageTranslation(safeId, { silent:true, showOnReady:false });
+  }).catch(function(){})
+    .finally(function(){
+      delete chatTranslationPrefetchQueue[safeId];
+    });
+}
+function primeChatTranslations(){
+  if(!shouldPrefetchCharacterTranslations()) return;
+  (Array.isArray(chatLog) ? chatLog : []).filter(function(entry){
+    return entry && entry.role === 'assistant' && entry.id;
+  }).slice(-6).forEach(function(entry){
+    if(entry && entry.role === 'assistant' && entry.id){
+      queueChatMessageTranslationPrefetch(entry.id);
+    }
+  });
+  var latestInnerVoice = getLatestInnerVoiceItem && getLatestInnerVoiceItem();
+  if(latestInnerVoice && latestInnerVoice.id){
+    queueInnerVoiceTranslationPrefetch(latestInnerVoice.id);
   }
 }
 function toggleMessageTranslation(msgId){
@@ -5123,7 +5229,8 @@ async function maybeRunAiMomentsFromChat(text, msgType){
       authorAvatar: aiAvatar,
       charId: String((character && character.id) || ''),
       translationEnabled: !!(character && character.translationEnabled),
-      replyLanguage: normalizeReplyLanguage(character && (character.replyLanguage || character.language) || 'zh')
+      replyLanguage: normalizeReplyLanguage(character && (character.replyLanguage || character.language) || 'zh'),
+      translationMode: normalizeTranslationMode(character && character.translationMode || 'ondemand')
     });
     changed = true;
   }
@@ -5969,6 +6076,7 @@ function ensureMsgRange(){
     character.offlineInviteStyle = String(src.offlineInviteStyle || '');
     character.translationEnabled = !!src.translationEnabled;
     character.replyLanguage = normalizeReplyLanguage(src.replyLanguage || src.language || 'zh');
+    character.translationMode = normalizeTranslationMode(src.translationMode || 'ondemand');
   }catch(e){
     character.msgMin = character.msgMin || 1;
     character.msgMax = character.msgMax || Math.max(character.msgMin,3);
@@ -5978,6 +6086,7 @@ function ensureMsgRange(){
     character.offlineInviteStyle = String(character.offlineInviteStyle || '');
     character.translationEnabled = !!character.translationEnabled;
     character.replyLanguage = normalizeReplyLanguage(character.replyLanguage || character.language || 'zh');
+    character.translationMode = normalizeTranslationMode(character.translationMode || 'ondemand');
   }
 }
 function compactChar(c){
@@ -5997,6 +6106,7 @@ function compactChar(c){
     , offlineSideStoryType:String(c.offlineSideStoryType||'future')
     , translationEnabled:!!c.translationEnabled
     , replyLanguage:normalizeReplyLanguage(c.replyLanguage||c.language||'zh')
+    , translationMode:normalizeTranslationMode(c.translationMode||'ondemand')
     , livePresenceWorldHint:String(c.livePresenceWorldHint||'')
     , livePresence:(c.livePresence && typeof c.livePresence === 'object') ? Object.assign({}, c.livePresence) : null
   };
@@ -12455,6 +12565,7 @@ async function refreshInnerVoiceFromAi(seedText){
     store.current = item;
     store.items = (store.items || []).concat([item]).slice(-120);
     saveInnerVoiceStore(store);
+    queueInnerVoiceTranslationPrefetch(item.id);
     popInnerVoiceHeart();
     if(document.getElementById('innerVoiceOverlay')?.classList.contains('open')){
       renderInnerVoiceOverlay();
@@ -13996,6 +14107,7 @@ function openChatSettings() {
     }
     bindChatBackgroundUrlInput();
     bindChatReplyLanguageButtons();
+    bindChatTranslationModeButtons();
     var isDefault = isDefaultAccountContext();
     if (character) {
       syncSettingsCharAvatarPreview();
@@ -14009,6 +14121,7 @@ function openChatSettings() {
       document.getElementById('csInvitePerspective').value = (character.offlineInvitePerspective || 'first');
       document.getElementById('csInviteStyle').value = (character.offlineInviteStyle || '');
       syncReplyLanguageButtons('csReplyLanguageGrid', character.replyLanguage || 'zh', !!character.translationEnabled);
+      syncTranslationModeButtons('csTranslationModeGrid', character.translationMode || 'ondemand', !!character.translationEnabled);
       loadChatBackgroundForCharacter(character.id).then(function(src){
         stagedChatBackground = src || '';
         var bgUrl = document.getElementById('csChatBgUrl');
@@ -14018,6 +14131,7 @@ function openChatSettings() {
     }else{
       resetChatBackgroundSelection();
       syncReplyLanguageButtons('csReplyLanguageGrid', 'zh', false);
+      syncTranslationModeButtons('csTranslationModeGrid', 'ondemand', false);
     }
     var uav = document.getElementById('csUserAvatar');
     uav.innerHTML = getAvatarPlaceholderHtml('user', '+');
@@ -14313,6 +14427,7 @@ async function saveChatSettings() {
   var replyLanguageToggle = document.getElementById('csReplyLanguageToggle');
   var translationEnabled = !!(replyLanguageToggle && replyLanguageToggle.classList.contains('on'));
   var replyLanguage = normalizeReplyLanguage((document.getElementById('csReplyLanguage') || {}).value || 'zh');
+  var translationMode = normalizeTranslationMode((document.getElementById('csTranslationMode') || {}).value || 'ondemand');
   var cwin = parseInt(document.getElementById('csContextWindow').value || String(DEFAULT_CONTEXT_WINDOW), 10);
   var severy = parseInt(document.getElementById('csSummaryEvery').value || String(DEFAULT_SUMMARY_EVERY), 10);
   var manualSize = parseInt(document.getElementById('csManualSummarySize').value || String(DEFAULT_MANUAL_SUMMARY_SIZE), 10);
@@ -14366,6 +14481,7 @@ async function saveChatSettings() {
     character.offlineInviteStyle = inviteStyle;
     character.translationEnabled = translationEnabled;
     character.replyLanguage = replyLanguage;
+    character.translationMode = translationMode;
     if(window.PresenceShared){
       var currentPresenceSettings = window.PresenceShared.getCharSettings(character);
       character.livePresence = Object.assign({}, currentPresenceSettings, {
@@ -14407,6 +14523,7 @@ async function saveChatSettings() {
     pendingPresenceAutoReplyEnabled = null;
   }
   renderChatLog(true);
+  primeChatTranslations();
   chatSettingsSavedAtLeastOnce = true;
   toast('设置已保存！');
   // Persist chat log so changes survive leaving page
@@ -14845,6 +14962,7 @@ async function deliverAiReply(text, limitOverride){
       }));
       var inviteEntry = await appendOfflineInviteToChat('assistant', invitePayload, true);
       sentIds.push(inviteEntry.id);
+      queueChatMessageTranslationPrefetch(inviteEntry.id);
       lastSentKey = dedupeKey;
       sentTexts.push(invitePayload.content || OFFLINE_INVITE_SNIPPET);
       sentCount++;
@@ -14890,6 +15008,7 @@ async function deliverAiReply(text, limitOverride){
     }
     await saveChat();
     sentIds.push(entry.id);
+    queueChatMessageTranslationPrefetch(entry.id);
     lastSentKey = dedupeKey;
     var seedLine = String(p.text || '').trim();
     if(seedLine){
@@ -14944,16 +15063,18 @@ window.addEventListener('message', async function(e) {
     }
     if(normalizeMessageType(incoming.type || 'text') === 'offlineinvite'){
       var incomingWeather = window.getInviteWeatherSnapshot ? window.getInviteWeatherSnapshot('char') : null;
-      await appendOfflineInviteToChat('assistant', buildOfflineInvitePayload('assistant', '', Object.assign({}, parseOfflineInvitePayload(incoming.content) || {}, {
+      var incomingInviteEntry = await appendOfflineInviteToChat('assistant', buildOfflineInvitePayload('assistant', '', Object.assign({}, parseOfflineInvitePayload(incoming.content) || {}, {
         charId: (parseOfflineInvitePayload(incoming.content) || {}).charId || '',
         charName: (parseOfflineInvitePayload(incoming.content) || {}).charName || '',
         weather: incomingWeather && incomingWeather.weatherIcon ? incomingWeather.weatherIcon : ((parseOfflineInvitePayload(incoming.content) || {}).weather || '')
       })), true);
+      if(incomingInviteEntry && incomingInviteEntry.id) queueChatMessageTranslationPrefetch(incomingInviteEntry.id);
       return;
     }
     chatLog.push(incoming);
     addMessage('ai', incoming.content, true, incoming.type, incoming.id);
     if(incoming.role === 'assistant'){
+      queueChatMessageTranslationPrefetch(incoming.id);
       var inType = normalizeMessageType(incoming.type || 'text');
       var inSeed = String(incoming.content || '').trim();
       if(inSeed){
@@ -15006,6 +15127,7 @@ window.addEventListener('message', async function(e) {
       renderEmptyState();
       await restoreOrStartChat();
       if(switchToken !== characterSwitchToken || String((character && character.id) || '').trim() !== incomingId) return;
+      primeChatTranslations();
       importPendingOfflineArtifacts();
       updateFloatingUi();
       maybeAutoTriggerFamilyReply(character && character.id);
@@ -15013,6 +15135,7 @@ window.addEventListener('message', async function(e) {
     }
     await syncChatLogFromStorageForCurrentCharacter();
     if(switchToken !== characterSwitchToken || String((character && character.id) || '').trim() !== incomingId) return;
+    primeChatTranslations();
     importPendingOfflineArtifacts();
     updateFloatingUi();
     maybeAutoTriggerFamilyReply(character && character.id);

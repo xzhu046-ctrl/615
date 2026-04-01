@@ -330,7 +330,8 @@ function buildOfflineLaunchCharSnapshot(source){
     offlineSummaryAuto: source.offlineSummaryAuto != null ? !!source.offlineSummaryAuto : true,
     offlineSideStoryType: String(source.offlineSideStoryType || 'future'),
     translationEnabled: !!source.translationEnabled,
-    replyLanguage: String(source.replyLanguage || source.language || 'zh').trim() || 'zh'
+    replyLanguage: String(source.replyLanguage || source.language || 'zh').trim() || 'zh',
+    translationMode: String(source.translationMode || 'ondemand').trim() || 'ondemand'
   };
 }
 

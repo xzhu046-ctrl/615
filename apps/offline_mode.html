@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-03-31T09:06:00Z"></script>
-<script src="../metadataStore.js?v=2026-03-31T09:06:00Z"></script>
-<script src="../promptManager.js?v=2026-03-31T09:06:00Z"></script>
-<script src="../accountManager.js?v=2026-03-31T09:06:00Z"></script>
+<script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../promptManager.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -110,6 +110,14 @@ url('assets/樱花在水里.jpg') center/cover no-repeat}
 .offline-language-btn.is-active small{color:rgba(255,255,255,.68)}
 .offline-language-grid.is-disabled{opacity:.42;pointer-events:none;filter:grayscale(1)}
 .offline-language-btn:active{transform:translateY(1px)}
+.offline-translation-mode-grid{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px}
+.offline-translation-mode-grid.is-disabled{opacity:.42;pointer-events:none;filter:grayscale(1)}
+.offline-translation-mode-btn{width:100%;padding:12px 13px;border:2px solid rgba(17,17,17,.86);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.985),rgba(243,243,243,.96));color:#111;box-shadow:3px 3px 0 rgba(0,0,0,.12);text-align:left;cursor:pointer;transition:transform .16s ease,box-shadow .16s ease,background .16s ease,color .16s ease}
+.offline-translation-mode-btn strong{display:block;font-family:var(--fontd);font-size:13px;font-weight:900;line-height:1.2}
+.offline-translation-mode-btn small{display:block;margin-top:5px;font-size:10px;font-weight:800;line-height:1.55;color:#666;letter-spacing:.04em}
+.offline-translation-mode-btn.is-active{background:#111;color:#fff}
+.offline-translation-mode-btn.is-active small{color:rgba(255,255,255,.74)}
+.offline-translation-mode-btn:active{transform:translateY(1px);box-shadow:1px 1px 0 rgba(0,0,0,.12)}
 .offline-stage-summary-item{padding:12px 12px 11px;border-radius:18px;border:1.5px solid rgba(17,17,17,.18);background:rgba(255,255,255,.88)}
 .offline-stage-summary-kicker{font-size:10px;font-weight:900;letter-spacing:.08em;color:#6a6a6a;text-transform:uppercase}
 .offline-stage-summary-copy{margin-top:6px;font-size:12px;font-weight:700;line-height:1.72;color:#1d1d1d;white-space:pre-wrap;word-break:break-word}
@@ -529,6 +537,16 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
             <button class="offline-language-btn" type="button" data-reply-language="ko"><span>韩语</span><small>한국어</small></button>
             <button class="offline-language-btn" type="button" data-reply-language="yue"><span>粤语</span><small>广东话</small></button>
             <button class="offline-language-btn" type="button" data-reply-language="de"><span>德语</span><small>Deutsch</small></button>
+          </div>
+          <div class="offline-translation-mode-grid" id="offlineDrawerTranslationModeGrid">
+            <button class="offline-translation-mode-btn" type="button" data-translation-mode="ondemand">
+              <strong>点击译文消耗一次 API</strong>
+              <small>默认模式。点开哪条才翻哪条，不会拖重正文生成。</small>
+            </button>
+            <button class="offline-translation-mode-btn" type="button" data-translation-mode="prefetch">
+              <strong>角色先返回原文 + 译文</strong>
+              <small>角色内容生成后会立刻把译文缓存好，点开直接看。</small>
+            </button>
           </div>
         </section>
         <section class="offline-setting-card">
@@ -1204,7 +1222,8 @@ function buildOfflineCharacterFromSnapshot(snapshot){
     offlineSummaryAuto: snapshot.offlineSummaryAuto != null ? !!snapshot.offlineSummaryAuto : true,
     offlineSideStoryType: String(snapshot.offlineSideStoryType || 'future'),
     translationEnabled: !!snapshot.translationEnabled,
-    replyLanguage: normalizeReplyLanguage(snapshot.replyLanguage || snapshot.language || 'zh')
+    replyLanguage: normalizeReplyLanguage(snapshot.replyLanguage || snapshot.language || 'zh'),
+    translationMode: normalizeTranslationMode(snapshot.translationMode || 'ondemand')
   };
 }
 var OFFLINE_REPLY_LANGUAGE_OPTIONS = {
@@ -1220,6 +1239,9 @@ function normalizeReplyLanguage(value){
   var safe = String(value || 'zh').trim().toLowerCase();
   return OFFLINE_REPLY_LANGUAGE_OPTIONS[safe] ? safe : 'zh';
 }
+function normalizeTranslationMode(value){
+  return String(value || '').trim().toLowerCase() === 'prefetch' ? 'prefetch' : 'ondemand';
+}
 function getReplyLanguageOption(value){
   return OFFLINE_REPLY_LANGUAGE_OPTIONS[normalizeReplyLanguage(value)];
 }
@@ -1232,8 +1254,14 @@ function getOfflineReplyLanguage(){
     ? normalizeReplyLanguage(character && character.replyLanguage || 'zh')
     : 'zh';
 }
+function getOfflineTranslationMode(){
+  return normalizeTranslationMode(character && character.translationMode || 'ondemand');
+}
 function shouldOfferOfflineTranslation(){
   return !!(character && character.translationEnabled);
+}
+function shouldPrefetchOfflineTranslations(){
+  return shouldOfferOfflineTranslation() && getOfflineReplyLanguage() !== 'zh' && getOfflineTranslationMode() === 'prefetch';
 }
 function buildOfflineReplyLanguagePromptLine(){
   if(!shouldOfferOfflineTranslation()){
@@ -1873,6 +1901,7 @@ async function ensureOfflineStatusCardForEntry(entry){
           entry.statusFreshAt = Date.now();
           saveSession();
           renderStory();
+          queueOfflineStatusTranslationPrefetch(entry);
           if(entry.statusToastOnReady){
             entry.statusToastOnReady = false;
             toast('番外已送达');
@@ -1928,12 +1957,19 @@ function queueOfflineStatusCardGeneration(entry, options){
 }
 function primeOfflineStatusCards(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
+  var recentAssistantEntries = list.filter(function(entry){
+    return entry && entry.role === 'assistant' && String(entry.text || '').trim();
+  }).slice(-3);
   list.forEach(function(entry){
     if(entry && entry.role === 'assistant' && !entry.statusCard && String(entry.text || '').trim()){
       queueOfflineStatusCardGeneration(entry, { silent:true });
     }
     if(entry && entry.role === 'assistant' && !String(entry.summaryText || '').trim() && String(entry.text || '').trim()){
       queueOfflineSummaryGeneration(entry);
+    }
+    if(entry && recentAssistantEntries.indexOf(entry) !== -1){
+      queueOfflineEntryTranslationPrefetch(entry);
+      if(entry.statusCard) queueOfflineStatusTranslationPrefetch(entry);
     }
   });
 }
@@ -2136,6 +2172,7 @@ function buildOfflineDrawerDraft(){
     style: prefs.style,
     translationEnabled: !!(character && character.translationEnabled),
     replyLanguage: normalizeReplyLanguage(character && character.replyLanguage || 'zh'),
+    translationMode: normalizeTranslationMode(character && character.translationMode || 'ondemand'),
     summaryEvery: ui.summaryEvery,
     summaryAuto: ui.summaryAuto,
     sideStoryType: ui.sideStoryType
@@ -2154,6 +2191,7 @@ function applyOfflineDrawerDraftToCharacter(){
   character.offlineInviteStyle = String(draft.style || '').trim();
   character.translationEnabled = !!draft.translationEnabled;
   character.replyLanguage = normalizeReplyLanguage(draft.replyLanguage || 'zh');
+  character.translationMode = normalizeTranslationMode(draft.translationMode || 'ondemand');
   character.offlineSummaryEvery = Math.max(3, Number(draft.summaryEvery) || 5);
   character.offlineSummaryAuto = !!draft.summaryAuto;
   character.offlineSideStoryType = String(draft.sideStoryType || 'future');
@@ -2352,6 +2390,7 @@ function syncOfflineDrawerControls(){
   var summaryAuto = document.getElementById('offlineDrawerSummaryAuto');
   var translationEnabled = document.getElementById('offlineDrawerTranslationEnabled');
   var languageGrid = document.getElementById('offlineDrawerLanguageGrid');
+  var translationModeGrid = document.getElementById('offlineDrawerTranslationModeGrid');
   var sideStoryTrigger = document.getElementById('offlineDrawerSideStoryTrigger');
   var sideStoryDropdown = document.getElementById('offlineDrawerSideStoryDropdown');
   var range = document.getElementById('offlineDrawerCurrentRange');
@@ -2376,6 +2415,12 @@ function syncOfflineDrawerControls(){
       btn.classList.toggle('is-active', String(btn.getAttribute('data-reply-language') || '') === draft.replyLanguage);
     });
   }
+  if(translationModeGrid){
+    translationModeGrid.classList.toggle('is-disabled', !draft.translationEnabled);
+    translationModeGrid.querySelectorAll('[data-translation-mode]').forEach(function(btn){
+      btn.classList.toggle('is-active', String(btn.getAttribute('data-translation-mode') || '') === draft.translationMode);
+    });
+  }
   if(sideStoryTrigger) sideStoryTrigger.textContent = getOfflineSideStoryProfile(draft.sideStoryType).label;
   if(sideStoryDropdown){
     sideStoryDropdown.querySelectorAll('[data-side-story]').forEach(function(btn){
@@ -2396,6 +2441,7 @@ function bindOfflineDrawerControls(){
   var summaryAuto = document.getElementById('offlineDrawerSummaryAuto');
   var translationEnabled = document.getElementById('offlineDrawerTranslationEnabled');
   var languageGrid = document.getElementById('offlineDrawerLanguageGrid');
+  var translationModeGrid = document.getElementById('offlineDrawerTranslationModeGrid');
   var sideStoryDropdown = document.getElementById('offlineDrawerSideStoryDropdown');
   var sideStoryTrigger = document.getElementById('offlineDrawerSideStoryTrigger');
   var summarizeBtn = document.getElementById('offlineDrawerSummarizeBtn');
@@ -2469,6 +2515,7 @@ function bindOfflineDrawerControls(){
       var draft = getOfflineDrawerDraft();
       draft.translationEnabled = !draft.translationEnabled;
       persistOfflineDrawerSettings({ silent:true });
+      primeOfflineStatusCards();
     });
   }
   if(languageGrid){
@@ -2477,6 +2524,17 @@ function bindOfflineDrawerControls(){
         if(languageGrid.classList.contains('is-disabled')) return;
         getOfflineDrawerDraft().replyLanguage = normalizeReplyLanguage(btn.getAttribute('data-reply-language') || 'zh');
         persistOfflineDrawerSettings({ silent:true });
+        primeOfflineStatusCards();
+      });
+    });
+  }
+  if(translationModeGrid){
+    translationModeGrid.querySelectorAll('[data-translation-mode]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        if(translationModeGrid.classList.contains('is-disabled')) return;
+        getOfflineDrawerDraft().translationMode = normalizeTranslationMode(btn.getAttribute('data-translation-mode') || 'ondemand');
+        persistOfflineDrawerSettings({ silent:true });
+        primeOfflineStatusCards();
       });
     });
   }
@@ -2594,15 +2652,18 @@ function renderOfflineTranslationBlock(entry){
     '<div class="offline-story-translation-body">' + bodyHtml + asideHtml + '</div>' +
   '</div>';
 }
-async function requestOfflineEntryTranslation(index){
+var offlineEntryTranslationQueue = Object.create(null);
+var offlineStatusTranslationQueue = Object.create(null);
+async function requestOfflineEntryTranslation(index, options){
   if(!session || !Array.isArray(session.entries)) return;
   var entry = session.entries[index];
+  var opts = options || {};
   if(!entry || entry.role === 'user') return;
   if(!shouldOfferOfflineTranslation()){
-    toast('当前角色语言就是中文');
+    if(!opts.silent) toast('当前角色语言就是中文');
     return;
   }
-  entry.translation = Object.assign({}, entry.translation || {}, { loading:true, visible:true });
+  entry.translation = Object.assign({}, entry.translation || {}, { loading:true, visible: opts.showOnReady !== false });
   saveSession();
   renderStory();
   try{
@@ -2626,7 +2687,7 @@ async function requestOfflineEntryTranslation(index){
     entry.translation = {
       text: translatedText,
       asides: Array.isArray(parsed.asides) ? parsed.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [],
-      visible: true,
+      visible: opts.showOnReady !== false,
       sourceLanguage: getOfflineReplyLanguage(),
       generatedAt: Date.now()
     };
@@ -2636,8 +2697,25 @@ async function requestOfflineEntryTranslation(index){
     entry.translation = Object.assign({}, entry.translation || {}, { loading:false });
     saveSession();
     renderStory();
-    toast('译文生成失败');
+    if(!opts.silent) toast('译文生成失败');
   }
+}
+function queueOfflineEntryTranslationPrefetch(entry){
+  if(!entry || entry.role === 'user' || !shouldPrefetchOfflineTranslations()) return;
+  var key = offlineStatusEntryKey(entry) + '::text';
+  if(!key || offlineEntryTranslationQueue[key]) return;
+  var idx = Array.isArray(session && session.entries) ? session.entries.indexOf(entry) : -1;
+  if(idx < 0) return;
+  var translation = entry.translation && typeof entry.translation === 'object' ? entry.translation : null;
+  if(entry.translation && entry.translation.loading) return;
+  if(translation && String(translation.text || '').trim()) return;
+  offlineEntryTranslationQueue[key] = true;
+  Promise.resolve().then(function(){
+    return requestOfflineEntryTranslation(idx, { silent:true, showOnReady:false });
+  }).catch(function(){})
+    .finally(function(){
+      delete offlineEntryTranslationQueue[key];
+    });
 }
 function toggleOfflineTranslation(index){
   if(!session || !Array.isArray(session.entries)) return;
@@ -3037,16 +3115,17 @@ function renderOfflineStatusTranslationBlock(card){
   if(!rows.length) return '';
   return '<div class="offline-status-translation-card"><div class="offline-status-translation-head"><div class="offline-status-translation-pill">TRANSLATION</div><div class="offline-status-translation-sub">简体中文</div></div><div class="offline-status-translation-body">' + rows.join('') + '</div></div>';
 }
-async function requestOfflineStatusTranslation(entryIndex){
+async function requestOfflineStatusTranslation(entryIndex, options){
   var entries = Array.isArray(session && session.entries) ? session.entries : [];
   var idx = Number(entryIndex);
   var entry = Number.isInteger(idx) && idx >= 0 ? entries[idx] : null;
+  var opts = options || {};
   if(!entry || entry.role === 'user' || !entry.statusCard) return;
   if(!shouldOfferOfflineStatusTranslation()){
-    toast('当前角色语言就是中文');
+    if(!opts.silent) toast('当前角色语言就是中文');
     return;
   }
-  entry.statusCard.translation = Object.assign({}, entry.statusCard.translation || {}, { loading:true, visible:true });
+  entry.statusCard.translation = Object.assign({}, entry.statusCard.translation || {}, { loading:true, visible: opts.showOnReady !== false });
   saveSession();
   if(document.getElementById('offlineStatusOverlay')?.classList.contains('open')) openOfflineStatusModal(idx);
   try{
@@ -3070,7 +3149,7 @@ async function requestOfflineStatusTranslation(entryIndex){
       futureNote: String(parsed.futureNote || '').trim(),
       artifactLabel: String(parsed.artifactLabel || '').trim(),
       artifactHtml: sanitizeOfflineArtifactHtml(parsed.artifactHtml || ''),
-      visible: true,
+      visible: opts.showOnReady !== false,
       loading: false,
       sourceLanguage: getOfflineReplyLanguage(),
       generatedAt: Date.now()
@@ -3081,8 +3160,26 @@ async function requestOfflineStatusTranslation(entryIndex){
     entry.statusCard.translation = Object.assign({}, entry.statusCard.translation || {}, { loading:false, visible:false });
     saveSession();
     if(document.getElementById('offlineStatusOverlay')?.classList.contains('open')) openOfflineStatusModal(idx);
-    toast('番外译文生成失败');
+    if(!opts.silent) toast('番外译文生成失败');
   }
+}
+function queueOfflineStatusTranslationPrefetch(entry){
+  if(!entry || entry.role === 'user' || !entry.statusCard || !shouldPrefetchOfflineTranslations()) return;
+  var key = offlineStatusEntryKey(entry) + '::status';
+  if(!key || offlineStatusTranslationQueue[key]) return;
+  var idx = Array.isArray(session && session.entries) ? session.entries.indexOf(entry) : -1;
+  if(idx < 0) return;
+  var translation = entry.statusCard.translation && typeof entry.statusCard.translation === 'object' ? entry.statusCard.translation : null;
+  var hasTranslation = !!(translation && (String(translation.futureTitle || '').trim() || String(translation.futureNote || '').trim() || String(translation.artifactLabel || '').trim() || String(translation.artifactHtml || '').trim()));
+  if(translation && translation.loading) return;
+  if(hasTranslation) return;
+  offlineStatusTranslationQueue[key] = true;
+  Promise.resolve().then(function(){
+    return requestOfflineStatusTranslation(idx, { silent:true, showOnReady:false });
+  }).catch(function(){})
+    .finally(function(){
+      delete offlineStatusTranslationQueue[key];
+    });
 }
 function toggleOfflineStatusTranslation(entryIndex){
   var entries = Array.isArray(session && session.entries) ? session.entries : [];
@@ -4842,6 +4939,8 @@ async function generateOpeningIfNeeded(){
     queueOfflineSummaryGeneration(openingEntry);
     queueOfflineStatusCardGeneration(openingEntry, { silent:true });
     queueOfflineStageSummaryGeneration();
+    queueOfflineEntryTranslationPrefetch(openingEntry);
+    if(openingEntry.statusCard) queueOfflineStatusTranslationPrefetch(openingEntry);
   }catch(e){
     var fallbackText = buildOfflineOpeningFallback();
     var fallbackAsides = normalizeOfflineAsides(buildOfflineAsideFallback());
@@ -4873,6 +4972,7 @@ async function generateOpeningIfNeeded(){
     queueOfflineSummaryGeneration(session.entries[session.entries.length - 1]);
     queueOfflineStatusCardGeneration(session.entries[session.entries.length - 1], { silent:true });
     queueOfflineStageSummaryGeneration();
+    queueOfflineEntryTranslationPrefetch(session.entries[session.entries.length - 1]);
     toast('首幕没有走到理想生成结果，已经自动换成稳定开场。', { sticky:true });
   }
   hideFlightOverlay();
@@ -5058,6 +5158,7 @@ async function requestOfflineReply(options){
     queueOfflineSummaryGeneration(replyEntry);
     queueOfflineStatusCardGeneration(replyEntry);
     queueOfflineStageSummaryGeneration();
+    queueOfflineEntryTranslationPrefetch(replyEntry);
     renderStory();
     keepOfflineComposerVisible();
   }catch(e){
