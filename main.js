@@ -32,7 +32,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-01T19:08:00Z';
+const APP_BUILD_ID = '2026-04-01T19:32:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -4630,6 +4630,14 @@ window.addEventListener('message',(e)=>{
     setMinimizedOfflineCharId('');
     removeAppFromStack('offline');
   }
+  if(type==='QQ_BADGE_SYNC'){
+    var activeAcctId = getActiveAccountId();
+    if(activeAcctId){
+      qqUnreadCountCache[activeAcctId] = Math.max(0, Number(payload && payload.chatUnread || 0) || 0);
+      qqMomentsUnreadCountCache[activeAcctId] = Math.max(0, Number(payload && payload.momentsUnread || 0) || 0);
+    }
+    renderHomeDockBadges();
+  }
   if(type==='OPEN_APP'){ openApp(payload); }
   if(type==='OPEN_APP_REPLACE'){ replaceApp(payload); }
   if(type==='SET_CHAT_SHELL_BACKGROUND'){
@@ -4969,7 +4977,33 @@ function normalizeUnreadBadgeCount(n){
 }
 
 var qqUnreadCountCache = {};
+var qqMomentsUnreadCountCache = {};
 var qqUnreadRefreshToken = 0;
+function summarizeShellUnreadHistory(list){
+  var items = Array.isArray(list) ? list : [];
+  var unread = 0;
+  var lastTs = 0;
+  items.forEach(function(item){
+    if(!item || typeof item !== 'object') return;
+    var ts = Number(item.sentAt || item.readAt || item.updatedAt || 0) || 0;
+    if(ts > lastTs) lastTs = ts;
+    if(item.role === 'assistant' && !item.readAt) unread += 1;
+  });
+  return { unread: unread, lastTs: lastTs, count: items.length };
+}
+function chooseBetterShellUnreadSummary(current, next){
+  if(!current) return next;
+  if(!next) return current;
+  if(Number(next.lastTs || 0) > Number(current.lastTs || 0)) return next;
+  if(Number(next.lastTs || 0) === Number(current.lastTs || 0) && Number(next.count || 0) > Number(current.count || 0)) return next;
+  return current;
+}
+function extractChatCharIdFromRecord(record){
+  if(record && record.charId) return String(record.charId || '').trim();
+  var recordId = String(record && record.id || '').trim();
+  var match = recordId.match(/^chat_(.+?)(?:__acct_.+)?$/);
+  return match ? String(match[1] || '').trim() : '';
+}
 function getQqUnreadCountForActive(){
   var activeId = '';
   try{
@@ -5010,6 +5044,9 @@ function getQqUnreadCountForActive(){
 
 function getMomentsUnreadCountForActive(){
   var activeId = getActiveAccountId();
+  if(activeId && Object.prototype.hasOwnProperty.call(qqMomentsUnreadCountCache, activeId)){
+    return Math.max(0, Number(qqMomentsUnreadCountCache[activeId] || 0) || 0);
+  }
   var seenAt = 0;
   try{
     seenAt = parseInt(localStorage.getItem(scopedKeyForAccount(MOMENTS_LAST_SEEN_KEY, activeId)) || '0', 10);
@@ -5062,16 +5099,19 @@ async function refreshQqUnreadCountCache(){
     var records = await window.PhoneStorage.list('chats');
     if(token !== qqUnreadRefreshToken) return;
     var suffix = '__acct_' + activeId;
-    var total = 0;
+    var byChar = Object.create(null);
     (Array.isArray(records) ? records : []).forEach(function(record){
       if(!record || typeof record !== 'object') return;
       var recordId = String(record.id || '');
       if(recordId.indexOf('chat_') !== 0 || recordId.indexOf(suffix) === -1) return;
       var list = Array.isArray(record.history) ? record.history : [];
-      list.forEach(function(m){
-        if(m && m.role === 'assistant' && !m.readAt) total++;
-      });
+      var charId = extractChatCharIdFromRecord(record);
+      if(!charId) return;
+      byChar[charId] = chooseBetterShellUnreadSummary(byChar[charId], summarizeShellUnreadHistory(list));
     });
+    var total = Object.keys(byChar).reduce(function(sum, charId){
+      return sum + Math.max(0, Number(byChar[charId] && byChar[charId].unread || 0) || 0);
+    }, 0);
     qqUnreadCountCache[activeId] = total;
     renderHomeDockBadges();
   }catch(e){}

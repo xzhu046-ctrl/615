@@ -357,6 +357,7 @@ async function loadChars(){
   await refreshMomentsCache();
   renderList();
   renderMomentsBadge();
+  syncHomeBadgeCount();
 }
 function pinnedChatIdsKey(){
   return accountScopedKey('qq_pinned_chat_ids');
@@ -441,6 +442,26 @@ function formatBadgeCount(n){
   if(!n || n < 1) return '';
   return n > 9 ? '9+' : String(n);
 }
+function getTotalChatUnreadCount(){
+  var total = 0;
+  chars.forEach(function(c){
+    if(!c || c.isSunnySupport) return;
+    total += unreadCountOf(c);
+  });
+  return total;
+}
+function syncHomeBadgeCount(){
+  var chatUnread = getTotalChatUnreadCount();
+  var momentsUnread = getMomentsUnreadCount();
+  forward({
+    type:'QQ_BADGE_SYNC',
+    payload:{
+      chatUnread: chatUnread,
+      momentsUnread: momentsUnread,
+      total: chatUnread + momentsUnread
+    }
+  });
+}
 
 async function markChatAsRead(charId){
   if(!charId) return;
@@ -470,6 +491,7 @@ async function markChatAsRead(charId){
             history: listIdb
           });
           if(chatSummaryCache[charId]) chatSummaryCache[charId].unread = 0;
+          syncHomeBadgeCount();
           return;
         }
       }
@@ -493,6 +515,8 @@ async function markChatAsRead(charId){
     });
     if(!changed) return;
     localStorage.setItem(key, JSON.stringify({ history:list, messages:list }));
+    if(chatSummaryCache[charId]) chatSummaryCache[charId].unread = 0;
+    syncHomeBadgeCount();
   }catch(e){}
 }
 
@@ -831,7 +855,7 @@ function openProfileCenter(){
 }
 window.addEventListener('message', async function(e){
   var d=e.data||{};
-  if(d.type==='CHARACTER_IMPORTED'){ await loadChars(); renderMomentsBadge(); forward(d); }
+  if(d.type==='CHARACTER_IMPORTED'){ await loadChars(); renderMomentsBadge(); syncHomeBadgeCount(); forward(d); }
   if(d.type==='CHAT_UPDATED'){
     var payload = d.payload || {};
     if(payload.id){
@@ -845,6 +869,7 @@ window.addEventListener('message', async function(e){
     }
     await loadChars();
     renderMomentsBadge();
+    syncHomeBadgeCount();
     forward(d);
   }
   if(d.type==='SET_ACTIVE_CHARACTER' || d.type==='OPEN_CHAT_WITH' || d.type==='OPEN_APP_WITH'){ forward(d); }
@@ -857,7 +882,7 @@ Promise.resolve(window.MetadataStore && typeof window.MetadataStore.init === 'fu
   .then(function(){
     return loadChars().catch(function(err){ console.error('qq load chars failed', err); });
   });
-setInterval(function(){ loadChars().catch(function(){}); renderMomentsBadge(); }, 3000);
+setInterval(function(){ loadChars().catch(function(){}); renderMomentsBadge(); syncHomeBadgeCount(); }, 3000);
 ensureParentTopbarVisible();
 window.addEventListener('pageshow', ensureParentTopbarVisible);
 </script>

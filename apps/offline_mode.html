@@ -753,18 +753,95 @@ function pendingOfflineResumeKey(charId){
 function offlineArchiveListKey(){
   return scopedKey('offline_meet_archives');
 }
-function loadOfflineArchives(){
+function offlineArchiveLegacyListKey(){
+  return 'offline_meet_archives';
+}
+function offlineArchiveRecordKey(archiveId){
+  return scopedKey('offline_meet_archive_record_' + String(archiveId || '').trim());
+}
+function offlineArchiveLegacyRecordKey(archiveId){
+  return 'offline_meet_archive_record_' + String(archiveId || '').trim();
+}
+function loadOfflineArchiveIndexEntries(){
+  var scopedRaw = '';
+  var legacyRaw = '';
+  try{ scopedRaw = localStorage.getItem(offlineArchiveListKey()) || ''; }catch(e){}
+  try{ legacyRaw = localStorage.getItem(offlineArchiveLegacyListKey()) || ''; }catch(e){}
   try{
-    var parsed = JSON.parse(localStorage.getItem(offlineArchiveListKey()) || '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  }catch(e){
-    return [];
+    var parsedScoped = JSON.parse(scopedRaw || '[]');
+    if(Array.isArray(parsedScoped) && parsedScoped.length) return parsedScoped;
+  }catch(e){}
+  try{
+    var parsedLegacy = JSON.parse(legacyRaw || '[]');
+    return Array.isArray(parsedLegacy) ? parsedLegacy : [];
+  }catch(e){}
+  return [];
+}
+function loadOfflineArchiveRecord(archiveId){
+  var safeId = String(archiveId || '').trim();
+  if(!safeId) return null;
+  var candidates = [offlineArchiveRecordKey(safeId), offlineArchiveLegacyRecordKey(safeId)];
+  for(var i = 0; i < candidates.length; i += 1){
+    try{
+      var raw = localStorage.getItem(candidates[i]) || '';
+      if(!raw) continue;
+      var parsed = JSON.parse(raw);
+      if(parsed && typeof parsed === 'object') return parsed;
+    }catch(e){}
   }
+  return null;
+}
+function buildOfflineArchiveListEntry(entry){
+  var source = entry && typeof entry === 'object' ? entry : {};
+  return {
+    id: String(source.id || '').trim(),
+    charId: String(source.charId || '').trim(),
+    charName: String(source.charName || '').trim(),
+    charAvatar: String(source.charAvatar || '').trim(),
+    userName: String(source.userName || '').trim(),
+    status: String(source.status || 'pending').trim() || 'pending',
+    statusLabel: String(source.statusLabel || '').trim(),
+    reason: String(source.reason || '').trim(),
+    createdAt: Number(source.createdAt || 0) || 0,
+    updatedAt: Number(source.updatedAt || 0) || 0,
+    preview: String(source.preview || '').trim(),
+    entryCount: Number(source.entryCount || 0) || 0,
+    endedAt: Number(source.endedAt || 0) || 0,
+    characterSnapshot: source.characterSnapshot && typeof source.characterSnapshot === 'object' ? Object.assign({}, source.characterSnapshot) : null
+  };
+}
+function loadOfflineArchives(){
+  var parsed = loadOfflineArchiveIndexEntries();
+  return parsed.map(function(item){
+    if(!(item && typeof item === 'object')) return null;
+    var safeId = String(item.id || '').trim();
+    if(!safeId) return null;
+    var record = loadOfflineArchiveRecord(safeId);
+    if(record && typeof record === 'object'){
+      return Object.assign({}, item, record, { id: safeId });
+    }
+    return item;
+  }).filter(Boolean);
 }
 function saveOfflineArchives(list){
+  var nextList = Array.isArray(list) ? list.filter(Boolean) : [];
+  var previous = loadOfflineArchiveIndexEntries();
+  var previousIds = previous.map(function(item){ return String(item && item.id || '').trim(); }).filter(Boolean);
+  var nextIds = nextList.map(function(item){ return String(item && item.id || '').trim(); }).filter(Boolean);
   try{
-    localStorage.setItem(offlineArchiveListKey(), JSON.stringify(Array.isArray(list) ? list : []));
+    localStorage.setItem(offlineArchiveListKey(), JSON.stringify(nextList.map(buildOfflineArchiveListEntry)));
   }catch(e){}
+  nextList.forEach(function(entry){
+    var safeId = String(entry && entry.id || '').trim();
+    if(!safeId) return;
+    var serialized = JSON.stringify(entry);
+    try{ localStorage.setItem(offlineArchiveRecordKey(safeId), serialized); }catch(e){}
+  });
+  previousIds.forEach(function(id){
+    if(nextIds.indexOf(id) !== -1) return;
+    try{ localStorage.removeItem(offlineArchiveRecordKey(id)); }catch(e){}
+    try{ localStorage.removeItem(offlineArchiveLegacyRecordKey(id)); }catch(e){}
+  });
 }
 function snapshotOfflineSessionState(source){
   var base = source || session || null;
