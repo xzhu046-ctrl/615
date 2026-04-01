@@ -4055,6 +4055,160 @@ async function repairOfflineBodyPayload(draft, options){
     asides: normalizeOfflineAsides(parsed.asides)
   };
 }
+async function rewriteOfflineBodyPayload(draft, options){
+  var source = draft && typeof draft === 'object' ? draft : {};
+  var opts = options || {};
+  var lang = getOfflineReplyLanguage();
+  var langOption = getReplyLanguageOption(lang);
+  var systemPrompt = [
+    '你是“线下正文终审改稿器”。',
+    '你收到的是一版不合格草稿，你的任务不是判断它哪里错，而是直接把它改成最终可用版本。',
+    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."]}。',
+    '不要解释，不要代码块，不要 thought_chain，不要 status_card。',
+    '如果草稿里踩中了禁词、禁用句式、外语旁白、错误视角、缺少引号台词、长度不够，你必须主动改写到合格，不能把问题原样留下。',
+    'title 与 quote 必须是简体中文。',
+    '正文旁白、动作、环境描写必须是简体中文。',
+    lang && lang !== 'zh'
+      ? ('只有蓝字心声 asides 和引号里的角色台词使用' + (langOption.nativeLabel || langOption.label || lang) + '原文。')
+      : '蓝字心声和引号里的角色台词默认使用简体中文。',
+    '正文里必须至少保留 1 句角色真正说出口的引号台词。',
+    'asides 只保留 1 到 2 句，语气自然，不能是总结句。',
+    '绝对不要说“我不能这样写”“不合规”“请修改后再试”，你要直接给出修好的成稿。'
+  ].join('\n');
+  var userPrompt = JSON.stringify({
+    task: opts.opening ? '重写线下首幕正文' : '重写线下续写正文',
+    issues: Array.isArray(opts.issues) ? opts.issues : [],
+    minChars: Math.max(0, Number(opts.minChars) || 0),
+    perspective: getOfflineStoryPerspectiveLabel(opts.perspective || getOfflineStoryPrefs().perspective),
+    context: String(opts.context || '').trim(),
+    thoughtChain: opts.thoughtChain && typeof opts.thoughtChain === 'object' ? {
+      subtext_perception: String(opts.thoughtChain.subtext_perception || '').trim(),
+      emotional_reaction: String(opts.thoughtChain.emotional_reaction || '').trim(),
+      action_strategy: String(opts.thoughtChain.action_strategy || '').trim()
+    } : null,
+    draft: {
+      title: String(source.title || '').trim(),
+      quote: String(source.quote || '').trim(),
+      text: String(source.text || '').trim(),
+      asides: Array.isArray(source.asides) ? source.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : []
+    }
+  });
+  var raw = await callAIWithTimeout(systemPrompt, userPrompt, Math.min(isMobileOfflineRuntime() ? 70000 : 56000, Number(opts.timeoutMs) || 56000));
+  var parsed = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(raw) || {});
+  if(!hasValidOfflineBodyPayload(parsed)) return null;
+  return {
+    title: String(parsed.title || '').trim(),
+    quote: String(parsed.quote || '').trim(),
+    text: String(parsed.text || '').trim(),
+    asides: normalizeOfflineAsides(parsed.asides)
+  };
+}
+async function generateOfflineBodyTextOnly(context, options){
+  var opts = options || {};
+  var prompt = [
+    String(context || '').trim(),
+    '如果上一版踩中了禁词、禁用句式、语言错误、视角错误或缺少台词，请你直接改写成合格正文。',
+    '不要解释，不要返回 JSON，只返回修好的纯正文。',
+    '即使你发现问题，也要直接给出改好的版本，不要拒绝。'
+  ].filter(Boolean).join('\n\n');
+  var raw = await callAIWithTimeout(
+    buildOfflineBodyTextSystemPrompt({
+      compactLevel: Math.max(0, Number(opts.compactLevel) || 0),
+      thoughtChain: opts.thoughtChain || null
+    }),
+    prompt,
+    Math.min(isMobileOfflineRuntime() ? 70000 : 56000, Number(opts.timeoutMs) || 56000)
+  );
+  return String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+}
+function normalizeOfflineBodyDraftCandidate(draft){
+  var source = draft && typeof draft === 'object' ? draft : {};
+  return {
+    title: String(source.title || '').trim(),
+    quote: String(source.quote || '').trim(),
+    text: String(source.text || '').trim(),
+    asides: normalizeOfflineAsides(source.asides)
+  };
+}
+function scoreOfflineBodyDraft(payload, issues){
+  var issueCount = Array.isArray(issues) ? issues.length : 999;
+  return (10000 - issueCount * 1000) + Math.min(900, openingTextLength(payload && payload.text || ''));
+}
+async function finalizeOfflineBodyPayload(draft, options){
+  var opts = options || {};
+  var current = normalizeOfflineBodyDraftCandidate(draft);
+  var currentIssues = collectOfflineBodyValidationIssues(current, opts);
+  var best = current;
+  var bestIssues = currentIssues.slice();
+  var bestScore = scoreOfflineBodyDraft(best, bestIssues);
+  for(var attempt = 0; attempt < 3; attempt += 1){
+    if(!currentIssues.length){
+      return { payload: current, issues: [] };
+    }
+    try{
+      var repaired = await repairOfflineBodyPayload(current, Object.assign({}, opts, {
+        issues: currentIssues,
+        timeoutMs: Math.min(Number(opts.timeoutMs) || 52000, isMobileOfflineRuntime() ? 68000 : 52000)
+      }));
+      if(repaired){
+        var repairedIssues = collectOfflineBodyValidationIssues(repaired, opts);
+        var repairedScore = scoreOfflineBodyDraft(repaired, repairedIssues);
+        if(repairedScore >= bestScore){
+          best = repaired;
+          bestIssues = repairedIssues.slice();
+          bestScore = repairedScore;
+        }
+        current = repaired;
+        currentIssues = repairedIssues;
+        if(!currentIssues.length) return { payload: current, issues: [] };
+      }
+    }catch(repairErr){}
+    try{
+      var rewritten = await rewriteOfflineBodyPayload(current, Object.assign({}, opts, {
+        issues: currentIssues,
+        timeoutMs: Math.min((Number(opts.timeoutMs) || 56000) + 4000, isMobileOfflineRuntime() ? 76000 : 60000)
+      }));
+      if(rewritten){
+        var rewrittenIssues = collectOfflineBodyValidationIssues(rewritten, opts);
+        var rewrittenScore = scoreOfflineBodyDraft(rewritten, rewrittenIssues);
+        if(rewrittenScore >= bestScore){
+          best = rewritten;
+          bestIssues = rewrittenIssues.slice();
+          bestScore = rewrittenScore;
+        }
+        current = rewritten;
+        currentIssues = rewrittenIssues;
+        if(!currentIssues.length) return { payload: current, issues: [] };
+      }
+    }catch(rewriteErr){}
+    if(opts.context && (!String(current.text || '').trim() || currentIssues.length)){
+      try{
+        var textOnly = await generateOfflineBodyTextOnly(opts.context, {
+          compactLevel: Math.min(2, Number(opts.compactLevel) || 0),
+          thoughtChain: opts.thoughtChain || null,
+          timeoutMs: Math.min((Number(opts.timeoutMs) || 56000) + 6000, isMobileOfflineRuntime() ? 78000 : 62000)
+        });
+        if(String(textOnly || '').trim()){
+          current = normalizeOfflineBodyDraftCandidate({
+            title: current.title,
+            quote: current.quote,
+            text: String(textOnly || '').trim(),
+            asides: current.asides
+          });
+          currentIssues = collectOfflineBodyValidationIssues(current, opts);
+          var textOnlyScore = scoreOfflineBodyDraft(current, currentIssues);
+          if(textOnlyScore >= bestScore){
+            best = current;
+            bestIssues = currentIssues.slice();
+            bestScore = textOnlyScore;
+          }
+          if(!currentIssues.length) return { payload: current, issues: [] };
+        }
+      }catch(textOnlyErr){}
+    }
+  }
+  return { payload: best, issues: bestIssues };
+}
 function memorySummaryStorageKey(charId){
   return scopedKey('memory_summaries_' + String(charId || '').trim());
 }
@@ -4951,6 +5105,8 @@ async function callAIWithTimeout(systemPrompt, userPrompt, timeoutMs){
 function summarizeOfflineError(err){
   var text = String(err && (err.message || err) || '').trim();
   if(!text) return '未知错误';
+  if(/自动修过了，但还是没修到合格版本/.test(text)) return text;
+  if(/未通过线下正文校验/.test(text)) return '这轮正文我已经试着自动修了，但最后还是没修到合格版本';
   if(/cors/i.test(text)) return '浏览器把这次请求拦住了，通常是接口没有放开跨域';
   if(/401|unauthorized|invalid api key|incorrect api key|api key/i.test(text.toLowerCase())) return '这次像是密钥不对，或者接口没有授权成功';
   if(/403|forbidden/i.test(text.toLowerCase())) return '这次接口拒绝了请求，可能是权限或来源限制';
@@ -5519,57 +5675,28 @@ async function generateOpeningIfNeeded(){
       openingText = bestText;
       openingAsides = bestAsides.slice();
     }
-    var openingIssues = collectOfflineBodyValidationIssues({
+    var openingFinalize = await finalizeOfflineBodyPayload(bestDraft || {
       title: openingTitle,
       quote: openingQuote,
       text: openingText,
-      asides: openingAsides,
-      thought_chain: openingThoughtChain,
-      status_card: openingStatusCard || {}
+      asides: openingAsides
     }, {
+      opening: true,
       minChars: openingMinChars,
       perspective: storyPrefs.perspective,
-      requireSpeech: true
+      requireSpeech: true,
+      context: openingContext,
+      thoughtChain: openingThoughtChain,
+      compactLevel: 1,
+      timeoutMs: plan.repairTimeout
     });
+    openingTitle = String(openingFinalize && openingFinalize.payload && openingFinalize.payload.title || openingTitle || '').trim();
+    openingQuote = String(openingFinalize && openingFinalize.payload && openingFinalize.payload.quote || openingQuote || '').trim();
+    openingText = String(openingFinalize && openingFinalize.payload && openingFinalize.payload.text || openingText || '').trim();
+    openingAsides = normalizeOfflineAsides(openingFinalize && openingFinalize.payload ? openingFinalize.payload.asides : openingAsides);
+    var openingIssues = Array.isArray(openingFinalize && openingFinalize.issues) ? openingFinalize.issues : [];
     if(openingIssues.length){
-      try{
-        var repairedOpening = await repairOfflineBodyPayload(bestDraft || {
-          title: openingTitle,
-          quote: openingQuote,
-          text: openingText,
-          asides: openingAsides
-        }, {
-          opening: true,
-          issues: openingIssues,
-          minChars: openingMinChars,
-          perspective: storyPrefs.perspective,
-          context: openingContext,
-          timeoutMs: plan.repairTimeout
-        });
-        if(repairedOpening){
-          openingTitle = repairedOpening.title;
-          openingQuote = repairedOpening.quote;
-          openingText = repairedOpening.text;
-          openingAsides = repairedOpening.asides;
-          openingIssues = collectOfflineBodyValidationIssues({
-            title: openingTitle,
-            quote: openingQuote,
-            text: openingText,
-            asides: openingAsides,
-            thought_chain: openingThoughtChain,
-            status_card: openingStatusCard || {}
-          }, {
-            minChars: openingMinChars,
-            perspective: storyPrefs.perspective,
-            requireSpeech: true
-          });
-        }
-      }catch(repairErr){
-        lastError = repairErr;
-      }
-    }
-    if(openingIssues.length){
-      throw lastError || new Error('首幕未通过线下正文校验：' + openingIssues.join('、'));
+      throw lastError || new Error('首幕我已经自动修过了，但还是没修到合格版本：' + openingIssues.join('、'));
     }
     if(!openingThoughtChain){
       openingThoughtChain = normalizeOfflineThoughtChain(null, openingText);
@@ -5740,6 +5867,25 @@ async function requestOfflineReply(options){
       bodyPayload = bestBodyPayload;
     }
     if(!bodyPayload){
+      try{
+        var textOnlyReply = await generateOfflineBodyTextOnly(bodyContext, {
+          compactLevel: Math.min(2, retryCompactBase + 1),
+          thoughtChain: thoughtChain,
+          timeoutMs: getOfflineReplyTimeoutMs()
+        });
+        if(String(textOnlyReply || '').trim()){
+          bodyPayload = {
+            title: '',
+            quote: '',
+            text: String(textOnlyReply || '').trim(),
+            asides: []
+          };
+        }
+      }catch(textOnlyReplyErr){
+        bodyError = bodyError || textOnlyReplyErr;
+      }
+    }
+    if(!bodyPayload){
       throw bodyError || new Error('正文生成失败');
     }
     var replyText = ensureOfflineSpeechPresence(String(bodyPayload.text || '').trim());
@@ -5763,59 +5909,32 @@ async function requestOfflineReply(options){
       replyText = ensureOfflineSpeechPresence(mergeOfflineOpeningText(replyText, extraText));
       replyAsides = mergeOfflineAsides(replyAsides, normalizeOfflineAsides(extendParsed.asides));
     }
-    var replyIssues = collectOfflineBodyValidationIssues({
+    var replyFinalize = await finalizeOfflineBodyPayload({
       text: replyText,
       title: replyTitle,
       quote: replyQuote,
-      asides: replyAsides,
-      thought_chain: thoughtChain
+      asides: replyAsides
     }, {
+      opening: false,
       minChars: minChars,
       perspective: prefs.perspective,
-      requireSpeech: true
+      requireSpeech: true,
+      context: bodyContext,
+      thoughtChain: thoughtChain,
+      compactLevel: retryCompactBase,
+      timeoutMs: Math.min(getOfflineReplyTimeoutMs(), 52000)
     });
-    if(replyIssues.length){
-      try{
-        var repairedReply = await repairOfflineBodyPayload({
-          text: replyText,
-          title: replyTitle,
-          quote: replyQuote,
-          asides: replyAsides
-        }, {
-          opening: false,
-          issues: replyIssues,
-          minChars: minChars,
-          perspective: prefs.perspective,
-          context: bodyContext,
-          timeoutMs: Math.min(getOfflineReplyTimeoutMs(), 45000)
-        });
-        if(repairedReply){
-          replyText = repairedReply.text;
-          replyTitle = repairedReply.title;
-          replyQuote = repairedReply.quote;
-          replyAsides = repairedReply.asides;
-          replyIssues = collectOfflineBodyValidationIssues({
-            text: replyText,
-            title: replyTitle,
-            quote: replyQuote,
-            asides: replyAsides,
-            thought_chain: thoughtChain
-          }, {
-            minChars: minChars,
-            perspective: prefs.perspective,
-            requireSpeech: true
-          });
-        }
-      }catch(repairErr){
-        bodyError = repairErr;
-      }
-    }
+    replyText = String(replyFinalize && replyFinalize.payload && replyFinalize.payload.text || replyText || '').trim();
+    replyTitle = String(replyFinalize && replyFinalize.payload && replyFinalize.payload.title || replyTitle || '').trim();
+    replyQuote = String(replyFinalize && replyFinalize.payload && replyFinalize.payload.quote || replyQuote || '').trim();
+    replyAsides = normalizeOfflineAsides(replyFinalize && replyFinalize.payload ? replyFinalize.payload.asides : replyAsides);
+    var replyIssues = Array.isArray(replyFinalize && replyFinalize.issues) ? replyFinalize.issues : [];
     if(replyIssues.length){
       var replyLen = openingTextLength(replyText);
       var replyLenHint = replyLen < minChars
         ? ('当前字数 ' + replyLen + '/' + minChars)
         : ('当前字数 ' + replyLen + '，字数其实已经够了，但正文校验没过');
-      throw new Error('回复未通过线下正文校验（' + replyLenHint + '；' + replyIssues.join('、') + '）');
+      throw new Error('回复我已经自动修过了，但还是没修到合格版本（' + replyLenHint + '；' + replyIssues.join('、') + '）');
     }
     var nextLabels = nowLabels();
     var replyEntry = {
