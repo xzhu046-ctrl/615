@@ -309,36 +309,19 @@ function readOfflineSession(charId){
   }
 }
 
-function trimOfflineSnapshotText(value, maxLen){
-  var limit = Math.max(0, Number(maxLen) || 0);
-  var text = String(value || '').trim();
-  if(!limit) return '';
-  return text.length > limit ? text.slice(0, limit) : text;
-}
-
-function trimOfflineSnapshotAsset(value, maxLen){
-  var limit = Math.max(0, Number(maxLen) || 0);
-  var text = String(value || '').trim();
-  if(!text) return '';
-  if(/^data:/i.test(text)){
-    return text.length <= limit ? text : '';
-  }
-  return text.length > limit ? text.slice(0, limit) : text;
-}
-
 function buildOfflineLaunchCharSnapshot(source){
   if(!source || typeof source !== 'object') return null;
   return {
     id: String(source.id || '').trim(),
-    name: trimOfflineSnapshotText(source.name, 120),
-    nickname: trimOfflineSnapshotText(source.nickname, 120),
-    avatar: trimOfflineSnapshotAsset(source.avatar, 2048),
-    imageData: trimOfflineSnapshotAsset(source.imageData, 4096),
-    description: trimOfflineSnapshotText(source.description, 800),
-    personality: trimOfflineSnapshotText(source.personality, 1200),
-    scenario: trimOfflineSnapshotText(source.scenario, 800),
-    system_prompt: trimOfflineSnapshotText(source.system_prompt, 1800),
-    first_mes: trimOfflineSnapshotText(source.first_mes, 600),
+    name: String(source.name || '').trim(),
+    nickname: String(source.nickname || '').trim(),
+    avatar: String(source.avatar || '').trim(),
+    imageData: String(source.imageData || '').trim(),
+    description: String(source.description || '').trim(),
+    personality: String(source.personality || '').trim(),
+    scenario: String(source.scenario || '').trim(),
+    system_prompt: String(source.system_prompt || '').trim(),
+    first_mes: String(source.first_mes || '').trim(),
     offlineInviteMin: Number(source.offlineInviteMin || 300),
     offlineInviteMax: Number(source.offlineInviteMax || 360),
     offlineInvitePerspective: String(source.offlineInvitePerspective || 'first'),
@@ -443,25 +426,6 @@ function buildOfflineThreadLaunchSnapshot(targetCharId, payload){
   return merged;
 }
 
-function buildOfflinePersistedInvitePayload(payload, charSnapshot){
-  var source = payload && typeof payload === 'object' ? payload : {};
-  return {
-    type: 'offline_invite',
-    sourceRole: String(source.sourceRole || 'assistant').trim() || 'assistant',
-    charId: String(source.charId || (charSnapshot && charSnapshot.id) || '').trim(),
-    charName: String(source.charName || (charSnapshot && (charSnapshot.nickname || charSnapshot.name)) || '').trim(),
-    content: trimOfflineSnapshotText(source.content, 240),
-    mood: trimOfflineSnapshotText(source.mood, 40),
-    weather: trimOfflineSnapshotText(source.weather, 20),
-    location: trimOfflineSnapshotText(source.location, 120),
-    aside: trimOfflineSnapshotText(source.aside, 80),
-    timeLabel: trimOfflineSnapshotText(source.timeLabel, 32),
-    dateLabel: trimOfflineSnapshotText(source.dateLabel, 48),
-    createdAt: Number(source.createdAt || Date.now()) || Date.now(),
-    status: trimOfflineSnapshotText(source.status, 24) || 'pending'
-  };
-}
-
 async function openOfflineSession(payload){
   var liveCharId = getOfflineInviteThreadCharId();
   var targetCharId = String(liveCharId || (payload && payload.charId) || '').trim();
@@ -497,19 +461,30 @@ async function openOfflineSession(payload){
     payload.charSnapshot = Object.assign({}, charSnapshot || {});
     payload.charName = String((charSnapshot && (charSnapshot.nickname || charSnapshot.name)) || payload.charName || '').trim();
   }
-  var persistedInvite = buildOfflinePersistedInvitePayload(payload, charSnapshot);
   primeOfflineLaunchCharacterSnapshot(charSnapshot);
   var history = formatChatForModel(chatLog.slice(-10));
   var launchToken = 'ol_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  var latestLaunchRecord = {
+    mode: 'invite',
+    launchToken: launchToken,
+    charId: targetCharId,
+    charSnapshot: charSnapshot,
+    threadCharSnapshot: charSnapshot,
+    payload: payload,
+    chatHistory: history,
+    createdAt: Date.now()
+  };
   try{ localStorage.removeItem(pendingOfflineBootstrapStorageKey(targetCharId)); }catch(e){}
+  try{ localStorage.removeItem('offline_bootstrap_' + targetCharId); }catch(e){}
   try{ localStorage.removeItem(pendingOfflineLaunchStorageKey(targetCharId)); }catch(e){}
+  try{ localStorage.removeItem('offline_launch_' + targetCharId); }catch(e){}
   try{ localStorage.removeItem(accountScopedKey('offline_resume_' + targetCharId)); }catch(e){}
   try{ localStorage.removeItem('offline_resume_' + targetCharId); }catch(e){}
   var nextSession = {
     charId: targetCharId,
     charSnapshot: charSnapshot,
     active: true,
-    invite: persistedInvite,
+    invite: payload,
     entries: [],
     pendingAnimation: true,
     pendingOpening: true,
@@ -525,10 +500,26 @@ async function openOfflineSession(payload){
     }));
   }catch(e){}
   try{
+    localStorage.setItem('offline_bootstrap_' + targetCharId, JSON.stringify({
+      charId: targetCharId,
+      charSnapshot: charSnapshot,
+      session: nextSession
+    }));
+  }catch(e){}
+  try{
     localStorage.setItem(pendingOfflineLaunchStorageKey(targetCharId), JSON.stringify({
       charId: targetCharId,
       charSnapshot: charSnapshot,
-      payload: persistedInvite,
+      payload: payload,
+      chatHistory: history,
+      createdAt: Date.now()
+    }));
+  }catch(e){}
+  try{
+    localStorage.setItem('offline_launch_' + targetCharId, JSON.stringify({
+      charId: targetCharId,
+      charSnapshot: charSnapshot,
+      payload: payload,
       chatHistory: history,
       createdAt: Date.now()
     }));
@@ -538,23 +529,33 @@ async function openOfflineSession(payload){
       launchToken: launchToken,
       charId: targetCharId,
       charSnapshot: charSnapshot,
-      payload: persistedInvite,
+      payload: payload,
       chatHistory: history,
       createdAt: Date.now()
     }));
   }catch(e){}
-  persistOfflineLaunchTokenRecord(launchToken, {
-    mode: 'invite',
-    launchToken: launchToken,
-    charId: targetCharId,
-    charSnapshot: charSnapshot,
-    threadCharSnapshot: charSnapshot,
-    payload: persistedInvite,
-    chatHistory: history,
-    session: nextSession,
-    createdAt: Date.now()
+  try{
+    localStorage.setItem('offline_launch_latest', JSON.stringify({
+      launchToken: launchToken,
+      charId: targetCharId,
+      charSnapshot: charSnapshot,
+      payload: payload,
+      chatHistory: history,
+      createdAt: Date.now()
+    }));
+  }catch(e){}
+  latestLaunchRecord.session = nextSession;
+  persistOfflineLaunchTokenRecord(launchToken, latestLaunchRecord);
+  postToShell({
+    type:'OPEN_APP_WITH',
+    payload:{
+      app:'offline',
+      charId: targetCharId,
+      launchMode:'invite',
+      launchToken: launchToken,
+      offlineLaunchRecord: latestLaunchRecord
+    }
   });
-  postToShell({ type:'OPEN_APP_WITH', payload:{ app:'offline', charId: targetCharId, launchMode:'invite', launchToken: launchToken } });
 }
 
 function getCurrentUserDisplayName(){

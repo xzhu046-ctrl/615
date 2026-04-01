@@ -32,7 +32,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-03-31T05:46:00Z';
+const APP_BUILD_ID = '2026-03-31T06:21:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -4161,7 +4161,32 @@ let pendingOpenOfflineCharId='';
 let pendingOpenOfflineNonce='';
 let pendingOpenOfflineLaunchMode='';
 let pendingOpenOfflineLaunchToken='';
+let pendingOpenOfflineLaunchRecord=null;
 let appTransitionPromise = Promise.resolve();
+
+function clonePendingOfflineLaunchRecord(record){
+  if(!record || typeof record !== 'object') return null;
+  try{
+    return JSON.parse(JSON.stringify(record));
+  }catch(err){
+    return null;
+  }
+}
+
+function consumePendingOfflineLaunchRecord(options){
+  var record = clonePendingOfflineLaunchRecord(pendingOpenOfflineLaunchRecord);
+  if(!record) return null;
+  var requestedToken = String(options && options.launchToken || '').trim();
+  var requestedCharId = String(options && options.charId || '').trim();
+  var recordToken = String(record.launchToken || '').trim();
+  var recordCharId = String(record.charId || '').trim();
+  if(requestedToken && recordToken && requestedToken !== recordToken) return null;
+  if(requestedCharId && recordCharId && requestedCharId !== recordCharId) return null;
+  pendingOpenOfflineLaunchRecord = null;
+  return record;
+}
+
+window.consumePendingOfflineLaunchRecord = consumePendingOfflineLaunchRecord;
 
 function runAppTransition(task){
   appTransitionPromise = appTransitionPromise.then(task).catch(function(err){
@@ -4557,6 +4582,7 @@ window.addEventListener('message',(e)=>{
       pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
       pendingOpenOfflineLaunchMode = String(payload.launchMode || '').trim();
       pendingOpenOfflineLaunchToken = String(payload.launchToken || '').trim();
+      pendingOpenOfflineLaunchRecord = clonePendingOfflineLaunchRecord(payload.offlineLaunchRecord || null);
       try{ localStorage.setItem(scopedKeyForAccount('activeOfflineCharacterId', getActiveAccountId()), pendingOpenOfflineCharId); }catch(err){}
       try{ localStorage.setItem('activeOfflineCharacterId', pendingOpenOfflineCharId); }catch(err){}
       replaceApp(appId);
