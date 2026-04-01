@@ -32,7 +32,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-03-31T08:46:00Z';
+const APP_BUILD_ID = '2026-03-31T09:06:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1549,10 +1549,33 @@ async function appendBackgroundMoment(character, accountId, action, content, ima
     comments: [],
     likes: [],
     authorName: aiName,
-    authorAvatar: aiAvatar
+    authorAvatar: aiAvatar,
+    charId: String((character && character.id) || ''),
+    translationEnabled: !!(character && character.translationEnabled),
+    replyLanguage: String((character && (character.replyLanguage || character.language)) || 'zh')
   });
   await writeBackgroundMoments(accountId, posts);
   renderHomeDockBadges();
+}
+
+function buildBackgroundReplyLanguagePrompt(character){
+  var enabled = !!(character && character.translationEnabled);
+  var language = String((character && (character.replyLanguage || character.language)) || 'zh').trim().toLowerCase();
+  if(!enabled || !language || language === 'zh') return '';
+  var labels = {
+    en:'English',
+    fr:'Francais',
+    ja:'日本语',
+    ko:'한국어',
+    yue:'广东话',
+    de:'Deutsch'
+  };
+  var label = labels[language] || language;
+  return [
+    '【语言模式】',
+    '所有面向用户可见的正文都使用' + label + '原文。',
+    '不要额外附上中文翻译，不要解释你正在使用哪种语言。'
+  ].join('\n');
 }
 
 async function callAiForBackground(cfg, sysPrompt, userPrompt){
@@ -1751,7 +1774,8 @@ async function runAiBackgroundActivity(){
       ? ('你这边已经累计有 ' + convoState.unreadAssistantCount + ' 条未读主动消息了，别一直刷屏。')
       : '目前没有你发出后还没被对方看到的主动消息。',
     '请像真人一样在这三种动作里选一个最自然的：主动聊天 / 发说说 / 发动态。',
-    '要求：不要机械，不要复读用户原话，不要出现“我是AI/不能发朋友圈”等元话；如果选 message，要有一点“主动来找对方”的感觉。'
+    '要求：不要机械，不要复读用户原话，不要出现“我是AI/不能发朋友圈”等元话；如果选 message，要有一点“主动来找对方”的感觉。',
+    buildBackgroundReplyLanguagePrompt(character) || ''
   ].join('\n\n');
 
   var rawReply = await callAiForBackground(cfg, sysPrompt, userPrompt);

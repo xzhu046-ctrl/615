@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-03-31T06:21:00Z"></script>
-<script src="../metadataStore.js?v=2026-03-31T06:21:00Z"></script>
-<script src="../promptManager.js?v=2026-03-31T06:21:00Z"></script>
-<script src="../accountManager.js?v=2026-03-31T06:21:00Z"></script>
+<script src="../assetStore.js?v=2026-03-31T09:06:00Z"></script>
+<script src="../metadataStore.js?v=2026-03-31T09:06:00Z"></script>
+<script src="../promptManager.js?v=2026-03-31T09:06:00Z"></script>
+<script src="../accountManager.js?v=2026-03-31T09:06:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -390,7 +390,7 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-status-translation-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
 .offline-status-translation-pill{display:inline-flex;align-items:center;justify-content:center;min-height:24px;padding:0 10px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
 .offline-status-translation-sub{font-size:10px;font-weight:800;color:#666;letter-spacing:.08em;text-transform:uppercase}
-.offline-status-translation-body{padding-top:10px;border-top:2px dashed rgba(17,17,17,.28);display:flex;flex-direction:column;gap:10px}
+.offline-status-translation-body{padding-top:10px;padding-right:3px;border-top:2px dashed rgba(17,17,17,.28);display:flex;flex-direction:column;gap:10px;max-height:min(32vh,240px);overflow:auto}
 .offline-status-translation-row{display:flex;flex-direction:column;gap:5px}
 .offline-status-translation-label{font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.1em;color:#6f6f6f;text-transform:uppercase}
 .offline-status-translation-copy{font-size:13px;font-weight:700;line-height:1.78;color:#111;white-space:pre-wrap;word-break:break-word}
@@ -4148,6 +4148,15 @@ async function generateOfflineThoughtPair(seedText){
     'desire：写角色不受道德约束的隐秘欲望，允许大胆直白，但仍需与当前关系和对话相关。',
     '不要复读用户原句，不要输出空字符串。'
   ].join('\n');
+  var offlineReplyLanguage = getOfflineReplyLanguage();
+  var offlineReplyLanguageOption = getReplyLanguageOption(offlineReplyLanguage);
+  if(shouldOfferOfflineTranslation() && offlineReplyLanguage !== 'zh' && offlineReplyLanguageOption){
+    baseSys += '\n' + [
+      '【心声语言模式】',
+      'JSON 里的 normal 与 desire 都必须使用' + (offlineReplyLanguageOption.nativeLabel || offlineReplyLanguageOption.label || '目标语言') + '原文来写。',
+      '不要夹带中文解释，不要自己再写译文。'
+    ].join('\n');
+  }
   var shortHistory = formatOfflineHistoryForPrompt(5, 8) || '';
   var innerWb = clipOfflinePromptText(getOfflineWorldbookSnippet(), isMobileOfflineRuntime() ? 1200 : 1800);
   var userPrompt = (promptManager && typeof promptManager.innerVoiceUserPrompt === 'function')
@@ -4156,11 +4165,18 @@ async function generateOfflineThoughtPair(seedText){
       persona: character.personality || character.description || '',
       worldBook: innerWb,
       history: shortHistory,
-      latestReply: seedText || ''
+      latestReply: seedText || '',
+      languageMode: (shouldOfferOfflineTranslation() && offlineReplyLanguage !== 'zh' && offlineReplyLanguageOption) ? (offlineReplyLanguageOption.nativeLabel || offlineReplyLanguageOption.label || '') : '',
+      languageInstruction: (shouldOfferOfflineTranslation() && offlineReplyLanguage !== 'zh' && offlineReplyLanguageOption)
+        ? ('normal 与 desire 原文使用' + (offlineReplyLanguageOption.nativeLabel || offlineReplyLanguageOption.label || '目标语言') + '，不要额外附带中文解释。')
+        : ''
     })
     : [
       '角色名：' + (character.nickname || character.name || '角色'),
       '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
+      (shouldOfferOfflineTranslation() && offlineReplyLanguage !== 'zh' && offlineReplyLanguageOption)
+        ? ('语言要求：' + (offlineReplyLanguageOption.nativeLabel || offlineReplyLanguageOption.label || '目标语言') + '原文。normal 与 desire 都用该语言，不要附中文解释。')
+        : '语言要求：默认使用简体中文。',
       innerWb ? ('已启用世界书：\n' + innerWb) : '已启用世界书：无',
       shortHistory ? ('最近对话：\n' + shortHistory) : '最近对话：无',
       seedText ? ('本轮角色回复：' + seedText) : ''

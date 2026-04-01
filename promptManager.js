@@ -257,11 +257,16 @@ ${blockPolicy}` : ''}
       worldBook = '',
       memory = '',
       history = '',
-      latestReply = ''
+      latestReply = '',
+      languageMode = '',
+      languageInstruction = ''
     } = ctx;
     return [
       `角色名：${name}`,
       `角色人设：${String(persona || '').slice(0, 1200)}`,
+      languageInstruction
+        ? `语言要求：${String(languageMode || '').trim() ? `${languageMode}。` : ''}${String(languageInstruction).trim()}`
+        : '语言要求：默认使用简体中文。',
       worldBook ? `已启用世界书：\n${String(worldBook).slice(0, 1800)}` : '已启用世界书：无',
       memory ? `最近记忆总结：\n${String(memory || '').slice(0, 1800)}` : '最近记忆总结：无',
       history ? `最近对话：\n${history}` : '最近对话：无',

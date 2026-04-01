@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-03-31T06:21:00Z"></script>
-<script src="../accountManager.js?v=2026-03-31T06:21:00Z"></script>
-<script src="../assetStore.js?v=2026-03-31T06:21:00Z"></script>
-<script src="../chatStorage.js?v=2026-03-31T06:21:00Z"></script>
-<script src="../metadataStore.js?v=2026-03-31T06:21:00Z"></script>
-<script src="../presenceShared.js?v=2026-03-31T06:21:00Z"></script>
-<script src="../sunnySupport.js?v=2026-03-31T06:21:00Z"></script>
-<script src="offlineInvite.js?v=2026-03-31T06:21:00Z"></script>
+<script src="../promptManager.js?v=2026-03-31T09:06:00Z"></script>
+<script src="../accountManager.js?v=2026-03-31T09:06:00Z"></script>
+<script src="../assetStore.js?v=2026-03-31T09:06:00Z"></script>
+<script src="../chatStorage.js?v=2026-03-31T09:06:00Z"></script>
+<script src="../metadataStore.js?v=2026-03-31T09:06:00Z"></script>
+<script src="../presenceShared.js?v=2026-03-31T09:06:00Z"></script>
+<script src="../sunnySupport.js?v=2026-03-31T09:06:00Z"></script>
+<script src="offlineInvite.js?v=2026-03-31T09:06:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -3219,6 +3219,17 @@ function buildChatReplyLanguagePrompt(){
     '不要额外解释“这是翻译”或“我在说某种语言”。'
   ].join('\n');
 }
+function buildInnerVoiceLanguagePrompt(){
+  if(!isCharacterTranslationEnabled()) return '';
+  var option = getReplyLanguageOption(getCharacterReplyLanguage());
+  if(!option || option.value === 'zh') return '';
+  return [
+    '【心声语言模式】',
+    'JSON 里的 normal 与 desire 都必须使用' + option.nativeLabel + '原文来写。',
+    '不要夹带中文解释，不要自己附带译文，也不要写成“翻译如下”。',
+    '语气要像角色脑子里直接闪过的活人念头。'
+  ].join('\n');
+}
 function shouldOfferMessageTranslation(entry){
   if(!isCharacterTranslationEnabled()) return false;
   var kind = normalizeMessageType(entry && entry.type || 'text');
@@ -4925,6 +4936,7 @@ async function generateMomentPostViaAi(seed, aiText, snapshot, postType){
     'text 是角色发出来的感想/文案，不能像说明书，也不要复读用户命令。',
     '如果有 imageText，它只能是画面描写，不能和 text 一样，不能写成感想。'
   ].join('\n');
+  var replyLanguagePrompt = buildChatReplyLanguagePrompt();
   var user = [
     '角色名：' + String((character && (character.nickname || character.name)) || '角色'),
     '角色人设：' + String((character && (character.personality || character.description)) || ''),
@@ -4932,7 +4944,8 @@ async function generateMomentPostViaAi(seed, aiText, snapshot, postType){
     recent ? ('最近10条聊天：\n' + recent) : '最近10条聊天：无',
     '当前想法线索：' + String(seed || ''),
     '角色刚回复/当前语气：' + String(aiText || ''),
-    '要发的类型：' + (isDynamic ? '动态（带图）' : '说说（纯文字）')
+    '要发的类型：' + (isDynamic ? '动态（带图）' : '说说（纯文字）'),
+    replyLanguagePrompt || ''
   ].join('\n\n');
   try{
     var raw = await callAIWithCustomPrompts(sys, user);
@@ -5104,7 +5117,10 @@ async function maybeRunAiMomentsFromChat(text, msgType){
       comments: [],
       likes: [],
       authorName: aiName,
-      authorAvatar: aiAvatar
+      authorAvatar: aiAvatar,
+      charId: String((character && character.id) || ''),
+      translationEnabled: !!(character && character.translationEnabled),
+      replyLanguage: normalizeReplyLanguage(character && (character.replyLanguage || character.language) || 'zh')
     });
     changed = true;
   }
@@ -12375,10 +12391,15 @@ async function refreshInnerVoiceFromAi(seedText){
     '你是角色本人的“内心独白生成器”。',
     '仅返回 JSON：{"normal":"...","desire":"..."}，不要 markdown，不要解释。',
     '必须严格代入角色此刻的连续心理活动，先读懂最近对话、记忆总结、世界书和刚发出的回复，再写。',
-    'normal：写角色当下正常内心想法，要具体、连贯、像真的脑内句子，不要偷懒写空话，长度控制在 40-120 个中文字符。',
-    'desire：写角色更深一层、不会直接说出口的隐秘欲望，必须贴当前关系和上下文，长度控制在 50-160 个中文字符。',
+    'normal：写角色当下正常内心想法，要具体、连贯、像真的脑内句子，不要偷懒写空话，控制在 1-3 句。',
+    'desire：写角色更深一层、不会直接说出口的隐秘欲望，必须贴当前关系和上下文，控制在 1-3 句，信息密度更高一点。',
     '不要复读用户原句，不要输出文件名，不要输出空字符串。'
   ].join('\n');
+  var innerVoiceLanguagePrompt = buildInnerVoiceLanguagePrompt();
+  var innerVoiceLanguageOption = getReplyLanguageOption(getCharacterReplyLanguage());
+  if(innerVoiceLanguagePrompt){
+    baseSys += '\n' + innerVoiceLanguagePrompt;
+  }
   var shortHistory = buildInnerVoiceHistoryForPrompt(16);
   var memorySnippet = buildInnerVoiceMemorySnippet(4);
   var innerWb = getStrictPromptWorldbookEntries().map(function(e){
@@ -12391,11 +12412,14 @@ async function refreshInnerVoiceFromAi(seedText){
       worldBook: innerWb,
       memory: memorySnippet,
       history: shortHistory,
-      latestReply: seedText || ''
+      latestReply: seedText || '',
+      languageMode: innerVoiceLanguagePrompt ? (innerVoiceLanguageOption.nativeLabel || innerVoiceLanguageOption.label || '') : '',
+      languageInstruction: innerVoiceLanguagePrompt ? ('normal 与 desire 原文使用' + (innerVoiceLanguageOption.nativeLabel || innerVoiceLanguageOption.label || '目标语言') + '，不要额外附带中文解释。') : ''
     })
     : [
       '角色名：' + (character.nickname || character.name || '角色'),
       '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
+      innerVoiceLanguagePrompt ? ('语言要求：' + (innerVoiceLanguageOption.nativeLabel || innerVoiceLanguageOption.label || '目标语言') + '原文。normal 与 desire 都用该语言，不要附中文解释。') : '语言要求：默认使用简体中文。',
       innerWb ? ('已启用世界书：\n' + innerWb) : '已启用世界书：无',
       memorySnippet ? ('最近记忆总结：\n' + memorySnippet) : '最近记忆总结：无',
       shortHistory ? ('最近对话：\n' + shortHistory) : '最近对话：无',

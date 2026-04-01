@@ -54,6 +54,15 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 .post-time{font-size:10px;color:var(--g);font-weight:800}
 .post-type{border:var(--bd);border-radius:999px;background:#111;color:#fff;padding:2px 8px;font-size:9px;font-weight:900;letter-spacing:.04em}
 .post-text{font-size:13px;font-weight:700;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.moment-translate-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:7px}
+.moment-translate-btn{min-width:34px;height:28px;padding:0 10px;border:1.5px solid rgba(18,18,18,.78);border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;box-shadow:1px 1px 0 rgba(0,0,0,.18);cursor:pointer}
+.moment-translate-btn:active{transform:translate(1px,1px);box-shadow:0 0 0}
+.moment-translate-btn:disabled{opacity:.58;cursor:default}
+.moment-translation-card{width:100%;padding:12px 12px 10px;border:2px solid #111;border-radius:20px;background:linear-gradient(180deg,rgba(255,255,255,.99),rgba(244,244,241,.97));color:#181818;box-shadow:4px 4px 0 rgba(0,0,0,.14),0 0 0 1px rgba(255,255,255,.84) inset}
+.moment-translation-kicker{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.moment-translation-pill{display:inline-flex;align-items:center;justify-content:center;min-height:24px;padding:0 10px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.moment-translation-sub{font-size:10px;font-weight:800;color:#666;letter-spacing:.08em;text-transform:uppercase}
+.moment-translation-body{padding-top:10px;border-top:2px dashed rgba(17,17,17,.28);font-size:12px;font-weight:700;line-height:1.82;color:#111;white-space:pre-wrap;word-break:break-word}
 .post-action-row{display:flex;align-items:center;justify-content:flex-end;gap:8px}
 .like-text{font-size:11px;font-weight:800;color:#444;max-width:68%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .like-btn{border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);padding:5px 8px;display:flex;align-items:center;justify-content:center;cursor:pointer}
@@ -112,13 +121,16 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 
 .image-view-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:140;padding:18px}
 .image-view-overlay.open{display:flex}
-.image-view-card{width:min(328px,100%);background:var(--w);border:var(--bd);border-radius:20px;box-shadow:var(--sh);padding:14px;display:flex;flex-direction:column;gap:12px}
+.image-view-card{width:min(328px,100%);max-height:min(78vh,620px);background:var(--w);border:var(--bd);border-radius:20px;box-shadow:var(--sh);padding:14px;display:flex;flex-direction:column;gap:12px}
 .image-view-header{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .image-view-title{font-family:var(--fontd);font-size:14px;font-weight:900}
 .image-view-close{width:30px;height:30px;border-radius:999px;border:var(--bd);background:var(--w);box-shadow:1px 1px 0 var(--b);font-size:16px;font-weight:900;cursor:pointer}
 .image-view-close:active{transform:translate(1px,1px);box-shadow:0 0 0}
+.image-view-content{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto;padding-right:2px}
 .image-view-paper{border:var(--bd);border-radius:18px;background:linear-gradient(180deg,#fff 0%,#f6f6f6 100%);padding:16px;box-shadow:inset 0 0 0 1px #dcdcdc}
 .image-view-text{font-size:13px;font-weight:700;line-height:1.75;color:var(--b);white-space:pre-wrap;word-break:break-word}
+.image-view-translate-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.image-view-translation-body .moment-translation-body{max-height:min(28vh,220px);overflow:auto;padding-right:2px}
 
 .toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%) translateY(10px);background:#0a0a0a;color:#fff;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;transition:all .2s;pointer-events:none;z-index:160}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -200,8 +212,11 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
         <div class="image-view-title">图片内容</div>
         <button class="image-view-close" type="button" onclick="closeImageViewer()">×</button>
       </div>
-      <div class="image-view-paper">
-        <div class="image-view-text" id="imageViewText"></div>
+      <div class="image-view-content">
+        <div class="image-view-paper">
+          <div class="image-view-text" id="imageViewText"></div>
+        </div>
+        <div class="image-view-translate-wrap" id="imageViewTranslateWrap" style="display:none"></div>
       </div>
     </div>
   </div>
@@ -238,6 +253,17 @@ let deleteMode = false;
 let deleteSelection = [];
 let replyTarget = {};
 let pendingDeleteComment = { postId:'', commentId:'' };
+let currentImageViewerPostId = '';
+
+const REPLY_LANGUAGE_OPTIONS = {
+  zh:{ value:'zh', label:'中文', nativeLabel:'简体中文' },
+  en:{ value:'en', label:'英语', nativeLabel:'English' },
+  fr:{ value:'fr', label:'法语', nativeLabel:'Francais' },
+  ja:{ value:'ja', label:'日语', nativeLabel:'日本语' },
+  ko:{ value:'ko', label:'韩语', nativeLabel:'한국어' },
+  yue:{ value:'yue', label:'粤语', nativeLabel:'广东话' },
+  de:{ value:'de', label:'德语', nativeLabel:'Deutsch' }
+};
 
 function scopedKey(base){
   if(window.AccountManager){
@@ -293,6 +319,233 @@ function activeProfile(){
 
 function esc(s){
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function normalizeReplyLanguage(value){
+  const safe = String(value || 'zh').trim().toLowerCase();
+  return REPLY_LANGUAGE_OPTIONS[safe] ? safe : 'zh';
+}
+
+function getReplyLanguageOption(value){
+  return REPLY_LANGUAGE_OPTIONS[normalizeReplyLanguage(value)];
+}
+
+function getStoredCharactersSnapshot(){
+  try{
+    const list = JSON.parse(localStorage.getItem('characters') || '[]');
+    return Array.isArray(list) ? list : [];
+  }catch(e){
+    return [];
+  }
+}
+
+function resolveMomentAuthorMeta(post){
+  const next = Object.assign({}, post || {});
+  const charId = String(next.charId || '').trim();
+  const authorName = String(next.authorName || '').trim();
+  let translationEnabled = next.translationEnabled != null ? !!next.translationEnabled : false;
+  let replyLanguage = normalizeReplyLanguage(next.replyLanguage || 'zh');
+  const activeAccountId = (()=>{ try{ return String(((window.AccountManager && window.AccountManager.getActive && window.AccountManager.getActive()) || {}).id || '').trim(); }catch(e){ return ''; } })();
+  const roster = getStoredCharactersSnapshot();
+  let found = null;
+  if(charId){
+    found = roster.find((item)=>{
+      if(!item || String(item.id || '').trim() !== charId) return false;
+      const owner = String(item.ownerAccountId || '').trim();
+      return !activeAccountId || !owner || owner === activeAccountId;
+    }) || roster.find((item)=> item && String(item.id || '').trim() === charId) || null;
+  }
+  if(!found && authorName){
+    found = roster.find((item)=>{
+      if(!item) return false;
+      const owner = String(item.ownerAccountId || '').trim();
+      if(activeAccountId && owner && owner !== activeAccountId) return false;
+      const names = [item.nickname, item.name].map((value)=>String(value || '').trim()).filter(Boolean);
+      return names.indexOf(authorName) !== -1;
+    }) || null;
+  }
+  if(found){
+    next.charId = String(next.charId || found.id || '');
+    translationEnabled = found.translationEnabled != null ? !!found.translationEnabled : translationEnabled;
+    replyLanguage = normalizeReplyLanguage(found.replyLanguage || found.language || replyLanguage);
+  }
+  next.translationEnabled = !!translationEnabled;
+  next.replyLanguage = replyLanguage;
+  return next;
+}
+
+function shouldOfferMomentTranslation(post){
+  const resolved = resolveMomentAuthorMeta(post);
+  return !!(resolved.translationEnabled && normalizeReplyLanguage(resolved.replyLanguage) !== 'zh');
+}
+
+function getMomentTranslationState(post){
+  const resolved = resolveMomentAuthorMeta(post);
+  const translation = resolved.translation && typeof resolved.translation === 'object' ? resolved.translation : {};
+  return {
+    post: resolved,
+    translation: translation,
+    option: getReplyLanguageOption(resolved.replyLanguage)
+  };
+}
+
+function buildMomentTranslationCardHtml(text, sourceLabel, extraClass){
+  const safeText = String(text || '').trim();
+  if(!safeText) return '';
+  return '<div class="moment-translation-card' + (extraClass ? (' ' + extraClass) : '') + '">'
+    + '<div class="moment-translation-kicker"><span class="moment-translation-pill">TRANSLATION</span><span class="moment-translation-sub">' + esc(sourceLabel || '简体中文') + '</span></div>'
+    + '<div class="moment-translation-body">' + esc(safeText) + '</div>'
+    + '</div>';
+}
+
+function getMomentsAiHost(){
+  const hosts = [];
+  try{ if(window.parent && window.parent !== window) hosts.push(window.parent); }catch(e){}
+  try{ if(window.top && window.top !== window && hosts.indexOf(window.top) === -1) hosts.push(window.top); }catch(e){}
+  for(const host of hosts){
+    try{
+      if(host && typeof host.getBackgroundProviderConfig === 'function' && typeof host.callAiForBackground === 'function'){
+        return host;
+      }
+    }catch(e){}
+  }
+  return null;
+}
+
+async function callMomentsAi(systemPrompt, userPrompt){
+  const host = getMomentsAiHost();
+  if(!host) throw new Error('no ai host');
+  const cfg = host.getBackgroundProviderConfig();
+  if(!cfg) throw new Error('missing provider config');
+  return host.callAiForBackground(cfg, systemPrompt, userPrompt);
+}
+
+function parseMomentTranslationResult(raw){
+  let text = String(raw || '').trim();
+  if(!text) return '';
+  if(text.startsWith('```')){
+    text = text.replace(/^```[a-zA-Z]*\s*/, '');
+    if(text.endsWith('```')) text = text.slice(0, -3);
+    text = text.trim();
+  }
+  try{
+    const obj = JSON.parse(text);
+    if(obj && typeof obj === 'object'){
+      return String(obj.translation || obj.text || obj.content || '').trim();
+    }
+  }catch(e){}
+  return text.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+}
+
+async function requestMomentTranslation(postId, field){
+  const posts = getPosts();
+  const idx = posts.findIndex((item)=>String(item && item.id || '') === String(postId || ''));
+  if(idx === -1) return;
+  const post = resolveMomentAuthorMeta(posts[idx]);
+  if(!shouldOfferMomentTranslation(post)) return;
+  const sourceText = String(field === 'imageText' ? post.imageText : post.text || '').trim();
+  if(!sourceText) return;
+  const translation = Object.assign({}, post.translation || {});
+  if(field === 'imageText') translation.imageLoading = true;
+  else translation.textLoading = true;
+  if(field === 'imageText') translation.imageVisible = true;
+  else translation.textVisible = true;
+  post.translation = translation;
+  posts[idx] = post;
+  savePosts(posts);
+  renderFeed();
+  renderImageViewer();
+  try{
+    const option = getReplyLanguageOption(post.replyLanguage);
+    const systemPrompt = [
+      '你是翻译器，只把原文翻成自然简体中文。',
+      '只返回 JSON：{"translation":"..."}，不要解释，不要 markdown，不要括号前后缀。'
+    ].join('\n');
+    const userPrompt = JSON.stringify({
+      sourceLanguage: option && option.nativeLabel ? option.nativeLabel : post.replyLanguage,
+      field: field === 'imageText' ? '动态图片描述' : '朋友圈正文',
+      text: sourceText
+    });
+    const translated = parseMomentTranslationResult(await callMomentsAi(systemPrompt, userPrompt));
+    if(!translated) throw new Error('empty translation');
+    const latestPosts = getPosts();
+    const latestIdx = latestPosts.findIndex((item)=>String(item && item.id || '') === String(postId || ''));
+    if(latestIdx === -1) return;
+    const latestPost = resolveMomentAuthorMeta(latestPosts[latestIdx]);
+    const nextTranslation = Object.assign({}, latestPost.translation || {}, { sourceLanguage: post.replyLanguage });
+    if(field === 'imageText'){
+      nextTranslation.imageText = translated;
+      nextTranslation.imageLoading = false;
+      nextTranslation.imageVisible = true;
+    }else{
+      nextTranslation.text = translated;
+      nextTranslation.textLoading = false;
+      nextTranslation.textVisible = true;
+    }
+    latestPost.translation = nextTranslation;
+    latestPosts[latestIdx] = latestPost;
+    savePosts(latestPosts);
+  }catch(e){
+    const latestPosts = getPosts();
+    const latestIdx = latestPosts.findIndex((item)=>String(item && item.id || '') === String(postId || ''));
+    if(latestIdx !== -1){
+      const latestPost = resolveMomentAuthorMeta(latestPosts[latestIdx]);
+      const nextTranslation = Object.assign({}, latestPost.translation || {});
+      if(field === 'imageText'){
+        nextTranslation.imageLoading = false;
+        nextTranslation.imageVisible = false;
+      }else{
+        nextTranslation.textLoading = false;
+        nextTranslation.textVisible = false;
+      }
+      latestPost.translation = nextTranslation;
+      latestPosts[latestIdx] = latestPost;
+      savePosts(latestPosts);
+    }
+    showToast('翻译失败');
+  }
+  renderFeed();
+  renderImageViewer();
+}
+
+function toggleMomentTranslation(postId, field){
+  const posts = getPosts();
+  const idx = posts.findIndex((item)=>String(item && item.id || '') === String(postId || ''));
+  if(idx === -1) return;
+  const post = resolveMomentAuthorMeta(posts[idx]);
+  if(!shouldOfferMomentTranslation(post)) return;
+  const translation = Object.assign({}, post.translation || {});
+  const hasText = field === 'imageText'
+    ? String(translation.imageText || '').trim()
+    : String(translation.text || '').trim();
+  if(!hasText){
+    requestMomentTranslation(postId, field).catch(()=>{});
+    return;
+  }
+  if(field === 'imageText'){
+    translation.imageLoading = false;
+    translation.imageVisible = !translation.imageVisible;
+  }else{
+    translation.textLoading = false;
+    translation.textVisible = !translation.textVisible;
+  }
+  post.translation = translation;
+  posts[idx] = post;
+  savePosts(posts);
+  renderFeed();
+  renderImageViewer();
+}
+
+function renderMomentCaptionTranslation(post){
+  if(!shouldOfferMomentTranslation(post) || !String(post.text || '').trim()) return '';
+  const state = getMomentTranslationState(post);
+  const translation = state.translation || {};
+  const isOpen = !!(translation.textVisible && String(translation.text || '').trim());
+  const label = translation.textLoading ? '译中' : (isOpen ? '收起' : '译');
+  return '<div class="moment-translate-wrap">'
+    + '<button class="moment-translate-btn" type="button" onclick="toggleMomentTranslation(\'' + esc(post.id) + '\',\'text\')"' + (translation.textLoading ? ' disabled' : '') + '>' + esc(label) + '</button>'
+    + (isOpen ? buildMomentTranslationCardHtml(String(translation.text || '').trim(), '简体中文') : '')
+    + '</div>';
 }
 
 function showToast(text){
@@ -553,7 +806,7 @@ function getCommentAvatarStyleValue(comment){
 function renderFeed(){
   const host = document.getElementById('feedList');
   if(!host) return;
-  const posts = getPosts().sort((a,b)=> (b.createdAt||0) - (a.createdAt||0));
+  const posts = getPosts().map((post)=>resolveMomentAuthorMeta(post)).sort((a,b)=> (b.createdAt||0) - (a.createdAt||0));
   if(!posts.length){
     host.innerHTML = '<div class="empty">还没有朋友圈，点击右下角 + 发布第一条吧。</div>';
     return;
@@ -573,6 +826,7 @@ function renderFeed(){
       + '<span class="post-type">' + esc(typeLabel) + '</span>'
       + '</div>'
       + (post.text ? '<div class="post-text">' + esc(post.text) + '</div>' : '')
+      + renderMomentCaptionTranslation(post)
       + (post.type === 'dynamic' && post.imageText ? '<button class="image-card-button" type="button" data-post-id="' + esc(post.id) + '"></button>' : '')
       + '<div class="post-action-row">'
       + '<div class="like-text">' + esc(formatLikeText(likes)) + '</div>'
@@ -608,8 +862,8 @@ function renderFeed(){
     btn.addEventListener('click', ()=>{
       if(deleteMode) return;
       const id = btn.getAttribute('data-post-id');
-    const post = getPosts().find((p)=>String(p && p.id || '') === String(id || ''));
-      openImageViewer(post && post.imageText ? post.imageText : '无图片描述');
+      const post = getPosts().find((p)=>String(p && p.id || '') === String(id || ''));
+      openImageViewer(post || null);
     });
   });
 }
@@ -936,15 +1190,37 @@ function submitDynamic(){
   publishCurrent();
 }
 
-function openImageViewer(text){
+function renderImageViewer(){
   const overlay = document.getElementById('imageViewOverlay');
   const textEl = document.getElementById('imageViewText');
-  if(textEl) textEl.textContent = String(text || '').trim() || '无图片描述';
-  if(overlay) overlay.classList.add('open');
+  const wrap = document.getElementById('imageViewTranslateWrap');
+  const post = getPosts().map((item)=>resolveMomentAuthorMeta(item)).find((item)=>String(item && item.id || '') === String(currentImageViewerPostId || '')) || null;
+  if(textEl) textEl.textContent = String((post && post.imageText) || '').trim() || '无图片描述';
+  if(wrap){
+    if(post && shouldOfferMomentTranslation(post) && String(post.imageText || '').trim()){
+      const state = getMomentTranslationState(post);
+      const translation = state.translation || {};
+      const isOpen = !!(translation.imageVisible && String(translation.imageText || '').trim());
+      const label = translation.imageLoading ? '译中' : (isOpen ? '收起' : '译');
+      wrap.innerHTML = '<button class="moment-translate-btn" type="button" onclick="toggleMomentTranslation(\'' + esc(post.id) + '\',\'imageText\')"' + (translation.imageLoading ? ' disabled' : '') + '>' + esc(label) + '</button>'
+        + (isOpen ? buildMomentTranslationCardHtml(String(translation.imageText || '').trim(), '简体中文', 'image-view-translation-body') : '');
+      wrap.style.display = '';
+    }else{
+      wrap.innerHTML = '';
+      wrap.style.display = 'none';
+    }
+  }
+  if(overlay && currentImageViewerPostId) overlay.classList.add('open');
+}
+
+function openImageViewer(post){
+  currentImageViewerPostId = String(post && post.id || '').trim();
+  renderImageViewer();
 }
 
 function closeImageViewer(){
   const overlay = document.getElementById('imageViewOverlay');
+  currentImageViewerPostId = '';
   if(overlay) overlay.classList.remove('open');
 }
 
