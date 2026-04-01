@@ -2034,9 +2034,10 @@ function canonicalizeMemeLookupName(value){
   return normalizeMemeName(value)
     .replace(/^\[(?:表情包|meme)\s*[:：]\s*/i, '')
     .replace(/\]$/i, '')
-    .replace(/^【(?:表情包|meme)】\s*/i, '')
+    .replace(/^【(?:表情包|meme)\s*[:：]?\s*/i, '')
+    .replace(/】$/i, '')
     .replace(/^(?:表情包|meme)\s*[:：]\s*/i, '')
-    .replace(/\s*\|\s*(?:分类|category)\s*[:：].*$/i, '')
+    .replace(/\s*[|｜]\s*(?:分类|category)\s*[:：].*$/i, '')
     .replace(/\s*[（(](?:分类|category)\s*[:：].*?[）)]\s*$/i, '')
     .replace(/^[“”"'`]+|[“”"'`]+$/g, '')
     .trim();
@@ -2096,7 +2097,7 @@ function parseMemePayload(raw){
   try{
     return normalizeMemeItem(JSON.parse(String(raw)));
   }catch(e){
-    var text = normalizeMemeName(raw);
+    var text = canonicalizeMemeLookupName(raw);
     return text ? normalizeMemeItem({ name: text, category: '未分类' }) : null;
   }
 }
@@ -2130,6 +2131,7 @@ function parseMemeMarker(raw){
   var text = String(raw || '').trim();
   if(!text) return null;
   var match = text.match(/^\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\]$/i)
+    || text.match(/^【(?:表情包|meme)\s*[:：]?\s*(.+)】$/i)
     || text.match(/^【(?:表情包|meme)】\s*(.+)$/i)
     || text.match(/^(?:表情包|meme)\s*[:：]\s*(.+)$/i);
   if(!match || !match[1]) return null;
@@ -2140,14 +2142,14 @@ function parseMemeMarker(raw){
 function splitTextAndMemeMarkers(raw){
   var text = String(raw || '').trim();
   if(!text) return [];
-  var pattern = /(\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\]|【(?:表情包|meme)】\s*([^\n\r]+))/ig;
+  var pattern = /(\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\]|【(?:表情包|meme)\s*[:：]?\s*([^\n\r】]+)】|【(?:表情包|meme)】\s*([^\n\r]+))/ig;
   var parts = [];
   var lastIndex = 0;
   var match;
   while((match = pattern.exec(text))){
     var before = text.slice(lastIndex, match.index).trim();
     if(before) parts.push({ text: before, t: 'text' });
-    var memeName = canonicalizeMemeLookupName(match[2] || match[3] || '');
+    var memeName = canonicalizeMemeLookupName(match[2] || match[3] || match[4] || '');
     if(memeName) parts.push({ text: memeName, t: 'meme' });
     lastIndex = pattern.lastIndex;
   }

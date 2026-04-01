@@ -370,7 +370,8 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-inline-translate-btn:disabled{opacity:.58;cursor:default}
 .offline-inline-translate-btn:active{transform:translateY(1px);box-shadow:0 0 0}
 .offline-inline-translation-stack{display:flex;flex-direction:column;gap:8px;margin:8px 0 2px 0;padding-left:12px}
-.offline-inline-translation-card{width:min(252px,calc(100vw - 92px));padding:10px 11px 10px;border:1.5px solid #111;border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.995),rgba(244,244,241,.98));box-shadow:2px 2px 0 rgba(0,0,0,.14),0 8px 18px rgba(0,0,0,.08),0 0 0 1px rgba(255,255,255,.86) inset}
+.offline-inline-translation-card{position:relative;width:min(252px,calc(100vw - 92px));padding:10px 11px 10px;border:1.5px solid #111;border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.995),rgba(244,244,241,.98));box-shadow:2px 2px 0 rgba(0,0,0,.14),0 8px 18px rgba(0,0,0,.08),0 0 0 1px rgba(255,255,255,.86) inset}
+.offline-inline-translation-card::before{content:'';position:absolute;left:16px;top:-8px;width:14px;height:14px;border-top:1.5px solid #111;border-left:1.5px solid #111;background:rgba(255,255,255,.99);transform:rotate(45deg)}
 .offline-inline-translation-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .offline-inline-translation-pill{display:inline-flex;align-items:center;justify-content:center;min-height:19px;padding:0 8px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:8px;font-weight:900;letter-spacing:.1em}
 .offline-inline-translation-sub{font-size:9px;font-weight:800;color:#7a7a7a;letter-spacing:.08em}
@@ -2794,6 +2795,14 @@ function renderOfflineInlineTranslationCard(item){
   var kindLabel = String(item && item.kind || '') === 'aside' ? '心声' : '台词';
   return '<div class="offline-inline-translation-card"><div class="offline-inline-translation-head"><span class="offline-inline-translation-pill">译文</span><span class="offline-inline-translation-sub">' + esc(kindLabel) + '</span></div><div class="offline-inline-translation-body">' + esc(safeText) + '</div></div>';
 }
+function normalizeOfflineAsideDisplayText(text){
+  var safe = String(text || '').trim();
+  if(!safe) return '';
+  return safe
+    .replace(/^[（(【\[]+\s*/, '')
+    .replace(/\s*[）)】\]]+$/, '')
+    .trim();
+}
 function requestOfflineInlineTranslation(entryIndex, key, options){
   if(!session || !Array.isArray(session.entries)) return;
   var safeIndex = Number(entryIndex);
@@ -2926,7 +2935,7 @@ function renderOfflineInlineTranslationControl(targetEntryIndex, key){
 }
 function renderCharSheetBody(text, asides, entryIndex){
   var body = String(text || '').trim();
-  var notes = Array.isArray(asides) ? asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [];
+  var notes = Array.isArray(asides) ? asides.map(function(it){ return normalizeOfflineAsideDisplayText(it); }).filter(Boolean).slice(0, 2) : [];
   var parts = body
     ? body.split(/\n+/).map(function(it){ return String(it || '').trim(); }).filter(Boolean)
     : ['这场线下见面还没正式开始。'];
@@ -4287,6 +4296,7 @@ function buildOfflineBodySystemPrompt(options){
     '正文里必须至少出现 1 句 char 真正说出口的直接引语，用引号包起来，不要整段都只写动作和旁白。',
     'asides 是 2 句第一人称心声，分别适合插在第一段后和第二段后。',
     '这两句心声要像活人脑子里一闪而过的小反应、小嘴硬或小失控，不要写总结、解释、分析、抒情排比，更不要写成 AI 读后感。',
+    'asides 不要加括号、书名号、方括号、破折号或任何前后缀，只返回干净的一句原文。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '用户名字：' + resolveUserName(),
     '用户 persona：' + (userPersona || '未提供'),
