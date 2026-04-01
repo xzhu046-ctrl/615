@@ -108,6 +108,7 @@ url('assets/樱花在水里.jpg') center/cover no-repeat}
 .offline-language-btn small{display:block;margin-top:4px;font-size:10px;letter-spacing:.06em;color:#6f6f6f}
 .offline-language-btn.is-active{background:#151515;color:#fff;border-color:#151515;box-shadow:2px 2px 0 rgba(0,0,0,.18)}
 .offline-language-btn.is-active small{color:rgba(255,255,255,.68)}
+.offline-language-grid.is-disabled{opacity:.42;pointer-events:none;filter:grayscale(1)}
 .offline-language-btn:active{transform:translateY(1px)}
 .offline-stage-summary-item{padding:12px 12px 11px;border-radius:18px;border:1.5px solid rgba(17,17,17,.18);background:rgba(255,255,255,.88)}
 .offline-stage-summary-kicker{font-size:10px;font-weight:900;letter-spacing:.08em;color:#6a6a6a;text-transform:uppercase}
@@ -501,10 +502,13 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
         <section class="offline-setting-card">
           <div class="offline-setting-head">
             <div class="offline-setting-title">语言设置</div>
-            <div class="offline-setting-note">原文生成语言，译文始终显示为简体中文</div>
+            <div class="offline-setting-note">不开启时默认就是中文</div>
+          </div>
+          <div class="offline-setting-row" style="margin-bottom:10px">
+            <span class="offline-setting-label">开启翻译模式</span>
+            <button class="offline-setting-toggle" id="offlineDrawerTranslationEnabled" type="button" aria-pressed="false"></button>
           </div>
           <div class="offline-language-grid" id="offlineDrawerLanguageGrid">
-            <button class="offline-language-btn" type="button" data-reply-language="zh"><span>中文</span><small>默认</small></button>
             <button class="offline-language-btn" type="button" data-reply-language="en"><span>英语</span><small>English</small></button>
             <button class="offline-language-btn" type="button" data-reply-language="fr"><span>法语</span><small>Francais</small></button>
             <button class="offline-language-btn" type="button" data-reply-language="ja"><span>日语</span><small>日本语</small></button>
@@ -1185,6 +1189,7 @@ function buildOfflineCharacterFromSnapshot(snapshot){
     offlineSummaryEvery: Number(snapshot.offlineSummaryEvery || 5),
     offlineSummaryAuto: snapshot.offlineSummaryAuto != null ? !!snapshot.offlineSummaryAuto : true,
     offlineSideStoryType: String(snapshot.offlineSideStoryType || 'future'),
+    translationEnabled: !!snapshot.translationEnabled,
     replyLanguage: normalizeReplyLanguage(snapshot.replyLanguage || snapshot.language || 'zh')
   };
 }
@@ -1205,12 +1210,17 @@ function getReplyLanguageOption(value){
   return OFFLINE_REPLY_LANGUAGE_OPTIONS[normalizeReplyLanguage(value)];
 }
 function getOfflineReplyLanguage(){
-  return normalizeReplyLanguage(character && character.replyLanguage || 'zh');
+  return shouldOfferOfflineTranslation()
+    ? normalizeReplyLanguage(character && character.replyLanguage || 'zh')
+    : 'zh';
 }
 function shouldOfferOfflineTranslation(){
-  return getOfflineReplyLanguage() !== 'zh';
+  return !!(character && character.translationEnabled);
 }
 function buildOfflineReplyLanguagePromptLine(){
+  if(!shouldOfferOfflineTranslation()){
+    return '翻译模式关闭，正文与蓝字心声默认使用简体中文；title、quote、status_card 也保持中文。';
+  }
   var option = getReplyLanguageOption(getOfflineReplyLanguage());
   if(!option || option.value === 'zh'){
     return '正文与蓝字心声默认使用简体中文；title、quote、status_card 也保持中文。';
@@ -2075,7 +2085,8 @@ function buildOfflineDrawerDraft(){
     maxChars: prefs.maxChars,
     perspective: prefs.perspective,
     style: prefs.style,
-    replyLanguage: getOfflineReplyLanguage(),
+    translationEnabled: !!(character && character.translationEnabled),
+    replyLanguage: normalizeReplyLanguage(character && character.replyLanguage || 'en'),
     summaryEvery: ui.summaryEvery,
     summaryAuto: ui.summaryAuto,
     sideStoryType: ui.sideStoryType
@@ -2092,6 +2103,7 @@ function applyOfflineDrawerDraftToCharacter(){
   character.offlineInviteMax = Math.max(character.offlineInviteMin, Number(draft.maxChars) || 360);
   character.offlineInvitePerspective = String(draft.perspective || 'first');
   character.offlineInviteStyle = String(draft.style || '').trim();
+  character.translationEnabled = !!draft.translationEnabled;
   character.replyLanguage = normalizeReplyLanguage(draft.replyLanguage || 'zh');
   character.offlineSummaryEvery = Math.max(3, Number(draft.summaryEvery) || 5);
   character.offlineSummaryAuto = !!draft.summaryAuto;
@@ -2289,6 +2301,7 @@ function syncOfflineDrawerControls(){
   var style = document.getElementById('offlineDrawerStyle');
   var summaryEvery = document.getElementById('offlineDrawerSummaryEvery');
   var summaryAuto = document.getElementById('offlineDrawerSummaryAuto');
+  var translationEnabled = document.getElementById('offlineDrawerTranslationEnabled');
   var languageGrid = document.getElementById('offlineDrawerLanguageGrid');
   var sideStoryTrigger = document.getElementById('offlineDrawerSideStoryTrigger');
   var sideStoryDropdown = document.getElementById('offlineDrawerSideStoryDropdown');
@@ -2304,7 +2317,12 @@ function syncOfflineDrawerControls(){
     summaryAuto.classList.toggle('is-on', !!draft.summaryAuto);
     summaryAuto.setAttribute('aria-pressed', draft.summaryAuto ? 'true' : 'false');
   }
+  if(translationEnabled){
+    translationEnabled.classList.toggle('is-on', !!draft.translationEnabled);
+    translationEnabled.setAttribute('aria-pressed', draft.translationEnabled ? 'true' : 'false');
+  }
   if(languageGrid){
+    languageGrid.classList.toggle('is-disabled', !draft.translationEnabled);
     languageGrid.querySelectorAll('[data-reply-language]').forEach(function(btn){
       btn.classList.toggle('is-active', String(btn.getAttribute('data-reply-language') || '') === draft.replyLanguage);
     });
@@ -2327,6 +2345,7 @@ function bindOfflineDrawerControls(){
   var maxChars = document.getElementById('offlineDrawerMaxChars');
   var summaryEvery = document.getElementById('offlineDrawerSummaryEvery');
   var summaryAuto = document.getElementById('offlineDrawerSummaryAuto');
+  var translationEnabled = document.getElementById('offlineDrawerTranslationEnabled');
   var languageGrid = document.getElementById('offlineDrawerLanguageGrid');
   var sideStoryDropdown = document.getElementById('offlineDrawerSideStoryDropdown');
   var sideStoryTrigger = document.getElementById('offlineDrawerSideStoryTrigger');
@@ -2396,9 +2415,17 @@ function bindOfflineDrawerControls(){
       syncOfflineDrawerControls();
     });
   }
+  if(translationEnabled){
+    translationEnabled.addEventListener('click', function(){
+      var draft = getOfflineDrawerDraft();
+      draft.translationEnabled = !draft.translationEnabled;
+      persistOfflineDrawerSettings({ silent:true });
+    });
+  }
   if(languageGrid){
     languageGrid.querySelectorAll('[data-reply-language]').forEach(function(btn){
       btn.addEventListener('click', function(){
+        if(languageGrid.classList.contains('is-disabled')) return;
         getOfflineDrawerDraft().replyLanguage = normalizeReplyLanguage(btn.getAttribute('data-reply-language') || 'zh');
         persistOfflineDrawerSettings({ silent:true });
       });
