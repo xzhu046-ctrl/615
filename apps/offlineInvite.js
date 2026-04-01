@@ -328,7 +328,8 @@ function buildOfflineLaunchCharSnapshot(source){
     offlineInviteStyle: String(source.offlineInviteStyle || '').trim(),
     offlineSummaryEvery: Number(source.offlineSummaryEvery || 5),
     offlineSummaryAuto: source.offlineSummaryAuto != null ? !!source.offlineSummaryAuto : true,
-    offlineSideStoryType: String(source.offlineSideStoryType || 'future')
+    offlineSideStoryType: String(source.offlineSideStoryType || 'future'),
+    replyLanguage: String(source.replyLanguage || source.language || 'zh').trim() || 'zh'
   };
 }
 
