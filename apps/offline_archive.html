@@ -221,6 +221,58 @@ function buildArchiveListEntry(entry){
     characterSnapshot: source.characterSnapshot && typeof source.characterSnapshot === 'object' ? Object.assign({}, source.characterSnapshot) : null
   };
 }
+function buildArchiveCharacterSnapshot(snapshot){
+  if(!(snapshot && typeof snapshot === 'object')) return null;
+  var safeId = String(snapshot.id || '').trim();
+  if(!safeId) return null;
+  return {
+    id: safeId,
+    name: String(snapshot.name || snapshot.charName || '').trim(),
+    nickname: String(snapshot.nickname || snapshot.charName || '').trim(),
+    avatar: String(snapshot.avatar || '').trim() || '🌸',
+    imageData: '',
+    description: String(snapshot.description || '').trim(),
+    personality: String(snapshot.personality || '').trim(),
+    scenario: String(snapshot.scenario || '').trim(),
+    system_prompt: String(snapshot.system_prompt || '').trim(),
+    first_mes: String(snapshot.first_mes || '').trim(),
+    offlineInviteMin: Number(snapshot.offlineInviteMin || 300),
+    offlineInviteMax: Number(snapshot.offlineInviteMax || 360),
+    offlineInvitePerspective: String(snapshot.offlineInvitePerspective || 'first'),
+    offlineInviteStyle: String(snapshot.offlineInviteStyle || '').trim(),
+    offlineSummaryEvery: Number(snapshot.offlineSummaryEvery || 5),
+    offlineSummaryAuto: snapshot.offlineSummaryAuto != null ? !!snapshot.offlineSummaryAuto : true,
+    offlineSideStoryType: String(snapshot.offlineSideStoryType || 'future'),
+    translationEnabled: !!snapshot.translationEnabled,
+    replyLanguage: String(snapshot.replyLanguage || snapshot.language || 'zh').trim() || 'zh',
+    translationMode: String(snapshot.translationMode || 'ondemand').trim() || 'ondemand'
+  };
+}
+function buildArchiveSessionSnapshot(snapshot){
+  var source = snapshot && typeof snapshot === 'object' ? JSON.parse(JSON.stringify(snapshot)) : null;
+  if(!source || typeof source !== 'object') return { active:false, entries:[] };
+  if(source.charSnapshot && typeof source.charSnapshot === 'object'){
+    source.charSnapshot = buildArchiveCharacterSnapshot(source.charSnapshot) || source.charSnapshot;
+  }
+  if(source.invite && typeof source.invite === 'object' && source.invite.charSnapshot && typeof source.invite.charSnapshot === 'object'){
+    source.invite.charSnapshot = buildArchiveCharacterSnapshot(source.invite.charSnapshot) || source.invite.charSnapshot;
+  }
+  if(typeof source.chatHistory === 'string' && source.chatHistory.length > 1800){
+    source.chatHistory = source.chatHistory.slice(-1800);
+  }
+  source.entries = Array.isArray(source.entries) ? source.entries.map(function(entry){
+    if(!(entry && typeof entry === 'object')) return entry;
+    var nextEntry = Object.assign({}, entry);
+    delete nextEntry.translation;
+    delete nextEntry.inlineTranslations;
+    if(nextEntry.statusCard && typeof nextEntry.statusCard === 'object'){
+      nextEntry.statusCard = Object.assign({}, nextEntry.statusCard);
+      delete nextEntry.statusCard.translation;
+    }
+    return nextEntry;
+  }) : [];
+  return source;
+}
 function esc(text){
   return String(text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -252,7 +304,10 @@ function saveArchives(){
   nextList.forEach(function(entry){
     var safeId = String(entry && entry.id || '').trim();
     if(!safeId) return;
-    try{ localStorage.setItem(offlineArchiveRecordKey(safeId), JSON.stringify(entry)); }catch(e){}
+    var safeEntry = Object.assign({}, entry);
+    safeEntry.characterSnapshot = buildArchiveCharacterSnapshot(safeEntry.characterSnapshot || {}) || safeEntry.characterSnapshot || null;
+    safeEntry.snapshot = buildArchiveSessionSnapshot(safeEntry.snapshot);
+    try{ localStorage.setItem(offlineArchiveRecordKey(safeId), JSON.stringify(safeEntry)); }catch(e){}
   });
   previousIds.forEach(function(id){
     if(nextIds.indexOf(id) !== -1) return;

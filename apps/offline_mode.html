@@ -812,6 +812,37 @@ function buildOfflineArchiveListEntry(entry){
     characterSnapshot: source.characterSnapshot && typeof source.characterSnapshot === 'object' ? Object.assign({}, source.characterSnapshot) : null
   };
 }
+function buildOfflineArchiveCharacterSnapshot(snapshot){
+  var base = buildOfflineCharacterFromSnapshot(snapshot || {}) || null;
+  if(!base) return null;
+  base.imageData = '';
+  return base;
+}
+function buildOfflineArchiveSessionSnapshot(snapshot){
+  var source = snapshotOfflineSessionState(snapshot) || null;
+  if(!source || typeof source !== 'object') return { active:false, entries:[] };
+  if(source.charSnapshot && typeof source.charSnapshot === 'object'){
+    source.charSnapshot = buildOfflineArchiveCharacterSnapshot(source.charSnapshot) || source.charSnapshot;
+  }
+  if(source.invite && typeof source.invite === 'object' && source.invite.charSnapshot && typeof source.invite.charSnapshot === 'object'){
+    source.invite.charSnapshot = buildOfflineArchiveCharacterSnapshot(source.invite.charSnapshot) || source.invite.charSnapshot;
+  }
+  if(typeof source.chatHistory === 'string' && source.chatHistory.length > 1800){
+    source.chatHistory = source.chatHistory.slice(-1800);
+  }
+  source.entries = Array.isArray(source.entries) ? source.entries.map(function(entry){
+    if(!(entry && typeof entry === 'object')) return entry;
+    var nextEntry = Object.assign({}, entry);
+    delete nextEntry.translation;
+    delete nextEntry.inlineTranslations;
+    if(nextEntry.statusCard && typeof nextEntry.statusCard === 'object'){
+      nextEntry.statusCard = Object.assign({}, nextEntry.statusCard);
+      delete nextEntry.statusCard.translation;
+    }
+    return nextEntry;
+  }) : [];
+  return source;
+}
 function loadOfflineArchives(){
   var parsed = loadOfflineArchiveIndexEntries();
   return parsed.map(function(item){
@@ -836,7 +867,10 @@ function saveOfflineArchives(list){
   nextList.forEach(function(entry){
     var safeId = String(entry && entry.id || '').trim();
     if(!safeId) return;
-    var serialized = JSON.stringify(entry);
+    var safeEntry = Object.assign({}, entry);
+    safeEntry.characterSnapshot = buildOfflineArchiveCharacterSnapshot(safeEntry.characterSnapshot || {}) || safeEntry.characterSnapshot || null;
+    safeEntry.snapshot = buildOfflineArchiveSessionSnapshot(safeEntry.snapshot);
+    var serialized = JSON.stringify(safeEntry);
     try{ localStorage.setItem(offlineArchiveRecordKey(safeId), serialized); }catch(e){}
   });
   previousIds.forEach(function(id){
@@ -900,8 +934,8 @@ function upsertOfflineArchive(snapshot, options){
   var archiveId = String(opts.archiveId || snapshot.archiveId || ('offline_archive_' + now + '_' + Math.random().toString(36).slice(2, 8)));
   var existingIndex = list.findIndex(function(item){ return item && item.id === archiveId; });
   var existing = existingIndex >= 0 ? list[existingIndex] : null;
-  var charSnapshot = Object.assign({}, existing && existing.characterSnapshot || {}, character || {});
-  var archiveSnapshot = snapshotOfflineSessionState(snapshot) || { active:false, entries:[] };
+  var charSnapshot = Object.assign({}, existing && existing.characterSnapshot || {}, buildOfflineArchiveCharacterSnapshot(character || {}) || {});
+  var archiveSnapshot = buildOfflineArchiveSessionSnapshot(snapshot);
   archiveSnapshot.archiveId = archiveId;
   archiveSnapshot.minimized = false;
   archiveSnapshot.active = opts.status === 'pending';
