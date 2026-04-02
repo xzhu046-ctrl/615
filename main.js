@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T05:27:00Z';
+const APP_BUILD_ID = '2026-04-02T05:39:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -5336,10 +5336,6 @@ function getMomentsUnreadCountForActive(){
   return count;
 }
 
-function getCombinedQqBadgeCount(){
-  return getQqUnreadCountForActive() + getMomentsUnreadCountForActive();
-}
-
 async function refreshQqUnreadCountCache(){
   if(!(window.PhoneStorage && typeof window.PhoneStorage.list === 'function')) return;
   var activeId = '';
@@ -5382,7 +5378,7 @@ function renderHomeDockBadges(){
     badge.className = 'home-app-badge';
     qqBtn.appendChild(badge);
   }
-  var count = getCombinedQqBadgeCount();
+  var count = getQqUnreadCountForActive();
   if(count > 0){
     badge.textContent = normalizeUnreadBadgeCount(count);
     badge.classList.add('show');
