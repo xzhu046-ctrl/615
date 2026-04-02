@@ -6252,6 +6252,13 @@ function resolveCharacterFromRoster(charId, fallback){
   }
 }
 
+async function resolveCharacterFromRosterFresh(charId, fallback){
+  if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
+    try{ await window.MetadataStore.loadCharacters(true); }catch(err){}
+  }
+  return resolveCharacterFromRoster(charId, fallback);
+}
+
 function isSubAccountNeedFriend(charId){
   if(!window.AccountManager || !charId) return false;
   var acct = window.AccountManager.getActive();
@@ -6425,12 +6432,12 @@ async function init() {
     if(!character && window.SunnySupport && desiredChatCharId === window.SunnySupport.ID){
       character = getSunnyCharacter();
     }
-    var rosterCharacter = resolveCharacterFromRoster(desiredChatCharId, character);
+    var rosterCharacter = await resolveCharacterFromRosterFresh(desiredChatCharId, character);
     if(rosterCharacter) character = rosterCharacter;
     if(!character && window.MetadataStore && typeof window.MetadataStore.init === 'function'){
       try{
         await window.MetadataStore.init();
-        rosterCharacter = resolveCharacterFromRoster(desiredChatCharId, character);
+        rosterCharacter = await resolveCharacterFromRosterFresh(desiredChatCharId, character);
         if(rosterCharacter) character = rosterCharacter;
       }catch(err){}
     }
@@ -15224,7 +15231,7 @@ window.addEventListener('message', async function(e) {
     if(d.type !== 'OPEN_CHAT_WITH' && desiredChatCharId && incomingId && incomingId !== desiredChatCharId){
       return;
     }
-    incoming = resolveCharacterFromRoster(incomingId, incoming) || incoming;
+    incoming = await resolveCharacterFromRosterFresh(incomingId, incoming) || incoming;
     var prevId = String((character && character.id) || '').trim();
     var sameChar = !!(incomingId && prevId && incomingId === prevId);
     var switchToken = ++characterSwitchToken;
