@@ -530,9 +530,12 @@ function slimChar(c){
   };
 }
 
-function resolveLatestChar(id, fallback){
+async function resolveLatestChar(id, fallback){
   var targetId = String(id || '').trim();
   if(!targetId) return fallback || null;
+  if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
+    try{ await window.MetadataStore.loadCharacters(true); }catch(err){}
+  }
   var list = getStoredCharactersSnapshot();
   if(!Array.isArray(list)) return fallback || null;
   var activeAcctId = '';
@@ -980,17 +983,17 @@ function toggleGreeting(e, btn) {
 }
 
 function closeDetail() { document.getElementById('dp').classList.remove('open'); }
-function openChatAfterFriendAccepted(charId){
+async function openChatAfterFriendAccepted(charId){
   var targetId = String(charId || '').trim();
   if(!targetId) return;
-  var found = resolveLatestChar(targetId, chars.find(function(item){ return item && String(item.id || '') === targetId; }));
+  var found = await resolveLatestChar(targetId, chars.find(function(item){ return item && String(item.id || '') === targetId; }));
   if(found) curChar = found;
   if(curChar && String(curChar.id || '') === targetId) startChat();
 }
 
-function startChat() {
+async function startChat() {
   if (!curChar) return;
-  curChar = resolveLatestChar(curChar.id, curChar) || curChar;
+  curChar = await resolveLatestChar(curChar.id, curChar) || curChar;
   if(window.AccountManager && !isDefaultAccount() && !window.AccountManager.isFriend(curChar.id)){
     var pendingCharId = curChar.id;
     askFriendRequestWithCallbacks(

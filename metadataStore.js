@@ -53,10 +53,11 @@
     }catch(err){}
   }
 
-  function loadCharacters(){
-    if(Array.isArray(cache.characters)) return Promise.resolve(cloneJson(cache.characters));
-    if(pending.characters) return pending.characters.then(cloneJson);
-    pending.characters = Promise.resolve()
+  function loadCharacters(force){
+    var shouldForce = force === true;
+    if(!shouldForce && Array.isArray(cache.characters)) return Promise.resolve(cloneJson(cache.characters));
+    if(!shouldForce && pending.characters) return pending.characters.then(cloneJson);
+    var task = Promise.resolve()
       .then(function(){
         if(global.PhoneStorage && typeof global.PhoneStorage.getJson === 'function'){
           return global.PhoneStorage.getJson(CHARACTERS_KEY).catch(function(){ return null; });
@@ -72,17 +73,21 @@
           }).catch(function(){});
         }
         return cache.characters;
-      })
-      .finally(function(){
+      });
+    if(!shouldForce){
+      pending.characters = task.finally(function(){
         pending.characters = null;
       });
-    return pending.characters.then(cloneJson);
+      return pending.characters.then(cloneJson);
+    }
+    return task.then(cloneJson);
   }
 
-  function loadWorldbooks(){
-    if(cache.worldbooks && typeof cache.worldbooks === 'object') return Promise.resolve(cloneJson(cache.worldbooks));
-    if(pending.worldbooks) return pending.worldbooks.then(cloneJson);
-    pending.worldbooks = Promise.resolve()
+  function loadWorldbooks(force){
+    var shouldForce = force === true;
+    if(!shouldForce && cache.worldbooks && typeof cache.worldbooks === 'object') return Promise.resolve(cloneJson(cache.worldbooks));
+    if(!shouldForce && pending.worldbooks) return pending.worldbooks.then(cloneJson);
+    var task = Promise.resolve()
       .then(function(){
         if(global.PhoneStorage && typeof global.PhoneStorage.getJson === 'function'){
           return global.PhoneStorage.getJson(WORLDBOOKS_KEY).catch(function(){ return null; });
@@ -98,11 +103,14 @@
           }).catch(function(){});
         }
         return cache.worldbooks;
-      })
-      .finally(function(){
+      });
+    if(!shouldForce){
+      pending.worldbooks = task.finally(function(){
         pending.worldbooks = null;
       });
-    return pending.worldbooks.then(cloneJson);
+      return pending.worldbooks.then(cloneJson);
+    }
+    return task.then(cloneJson);
   }
 
   function saveCharacters(list){
@@ -164,6 +172,8 @@
     init: init,
     loadCharacters: loadCharacters,
     loadWorldbooks: loadWorldbooks,
+    reloadCharacters: function(){ return loadCharacters(true); },
+    reloadWorldbooks: function(){ return loadWorldbooks(true); },
     saveCharacters: saveCharacters,
     saveWorldbooks: saveWorldbooks,
     getCharactersSync: getCharactersSync,

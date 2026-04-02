@@ -234,9 +234,12 @@ function slimChar(c){
   };
 }
 
-function resolveLatestChar(id, fallback){
+async function resolveLatestChar(id, fallback){
   var targetId = String(id || '').trim();
   if(!targetId) return fallback || null;
+  if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
+    try{ await window.MetadataStore.loadCharacters(true); }catch(err){}
+  }
   var list = getStoredCharactersSnapshot();
   if(!Array.isArray(list)) return fallback || null;
   var activeAcctId = '';
@@ -345,6 +348,9 @@ async function refreshMomentsCache(){
 }
 
 async function loadChars(){
+  if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
+    try{ await window.MetadataStore.loadCharacters(true); }catch(err){}
+  }
   chars = getStoredCharactersSnapshot();
   if(!Array.isArray(chars)) chars = [];
   if(window.AccountManager){
@@ -730,9 +736,9 @@ function renderList(){
   bindListInteractions();
 }
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function openChat(id){
+async function openChat(id){
   var c = chars.find(function(x){return x.id===id;});
-  c = resolveLatestChar(id, c);
+  c = await resolveLatestChar(id, c);
   if(!c && window.SunnySupport && id === window.SunnySupport.ID){
     c = window.SunnySupport.getCharacter();
   }
@@ -890,7 +896,7 @@ window.addEventListener('message', async function(e){
     var payload = d.payload || {};
     var payloadId = String((payload && payload.id) || '').trim();
     if(payloadId){
-      var next = resolveLatestChar(payloadId, payload);
+      var next = await resolveLatestChar(payloadId, payload);
       var replaced = false;
       chars = (Array.isArray(chars) ? chars : []).map(function(item){
         if(item && String(item.id || '') === payloadId){
