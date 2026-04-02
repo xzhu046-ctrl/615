@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-02T09:47:00Z"></script>
-<script src="../assetStore.js?v=2026-04-02T09:47:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-02T09:47:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T09:47:00Z"></script>
+<script src="../accountManager.js?v=2026-04-02T10:01:00Z"></script>
+<script src="../assetStore.js?v=2026-04-02T10:01:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-02T10:01:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T10:01:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -374,6 +374,19 @@ function esc(text){
 }
 
 function loadStoredAsset(key){
+  var shell = getParentShell();
+  try{
+    if(shell && shell !== window && typeof shell.loadStoredAsset === 'function'){
+      return shell.loadStoredAsset(key).then(function(src){
+        return String(src || '').trim();
+      }).catch(function(){ return ''; });
+    }
+    if(shell && shell !== window && shell.assetStore && typeof shell.assetStore.load === 'function'){
+      return shell.assetStore.load(key).then(function(src){
+        return String(src || '').trim();
+      }).catch(function(){ return ''; });
+    }
+  }catch(err){}
   if(window.assetStore && typeof window.assetStore.load === 'function') return window.assetStore.load(key);
   try{ return Promise.resolve(localStorage.getItem(key) || ''); }catch(e){ return Promise.resolve(''); }
 }
@@ -504,6 +517,9 @@ function getCharacterName(char){
 
 function getCharacterAvatar(char){
   if(!char) return '';
+  var shellResolved = getShellResolvedCharacter(char.id);
+  var shellDirect = String((shellResolved && (shellResolved.imageData || shellResolved.avatarUrl || shellResolved.avatar)) || '').trim();
+  if(shellDirect && /^(data:|https?:|blob:|\/|\.\.?\/|assets\/)/i.test(shellDirect)) return shellDirect;
   var liveSrc = getLiveChatAvatarSrcFromShell(char.id);
   if(liveSrc) return liveSrc;
   var shellSrc = getShellAvatarSrc(char.id);
@@ -555,6 +571,9 @@ function renderScheduleAvatarButton(btn, char, avatarSrc){
 function resolveCharacterAvatarAsync(char){
   if(!char || !char.id) return Promise.resolve('');
   var charId = String(char.id);
+  var shellResolved = getShellResolvedCharacter(charId);
+  var shellDirect = String((shellResolved && (shellResolved.imageData || shellResolved.avatarUrl || shellResolved.avatar)) || '').trim();
+  if(shellDirect && /^(data:|https?:|blob:|\/|\.\.?\/|assets\/)/i.test(shellDirect)) return Promise.resolve(shellDirect);
   var liveSrc = getLiveChatAvatarSrcFromShell(charId);
   if(liveSrc) return Promise.resolve(liveSrc);
   var shellSrc = getShellAvatarSrc(charId);
