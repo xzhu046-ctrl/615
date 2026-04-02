@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-02T06:38:00Z"></script>
-<script src="../assetStore.js?v=2026-04-02T06:38:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-02T06:38:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T06:38:00Z"></script>
+<script src="../accountManager.js?v=2026-04-02T06:46:00Z"></script>
+<script src="../assetStore.js?v=2026-04-02T06:46:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-02T06:46:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T06:46:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -38,7 +38,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-hero-media img{width:100%;height:100%;object-fit:cover;display:block}
 .schedule-hero-card::after{
   content:'';position:absolute;inset:0;background:
-    linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.08) 26%,rgba(255,255,255,.18) 58%,rgba(255,255,255,.42) 100%);
+    linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.06) 24%,rgba(255,255,255,.12) 56%,rgba(255,255,255,.28) 100%);
   pointer-events:none
 }
 .schedule-hero-card > *{position:relative;z-index:1}
@@ -70,14 +70,21 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
   background:rgba(255,255,255,.88);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;
   box-shadow:0 10px 22px rgba(0,0,0,.08)
 }
-.schedule-char-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:100%}
+.schedule-char-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;max-width:100%}
 .schedule-char-chip,.schedule-ghost-btn,.schedule-solid-btn,.schedule-icon-btn{
   border:2px solid #111;background:linear-gradient(180deg,rgba(255,255,255,.99),rgba(244,244,241,.97));box-shadow:4px 4px 0 rgba(0,0,0,.14);cursor:pointer;
 }
 .schedule-char-chip{
-  border-radius:999px;padding:8px 12px;font-size:11px;font-weight:900;white-space:nowrap
+  display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:6px 10px 6px 6px;font-size:11px;font-weight:900;white-space:nowrap
 }
 .schedule-char-chip.active{background:var(--b);color:var(--w)}
+.schedule-char-avatar{
+  width:34px;height:34px;border-radius:999px;border:1.5px solid rgba(18,18,18,.74);box-shadow:0 0 0 2px rgba(255,255,255,.95),0 8px 16px rgba(0,0,0,.08);
+  background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:var(--fontd);font-size:11px;font-weight:900;color:#111;flex:0 0 34px
+}
+.schedule-char-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.schedule-char-chip.active .schedule-char-avatar{box-shadow:0 0 0 2px rgba(17,17,17,.9),0 8px 16px rgba(0,0,0,.2)}
+.schedule-char-name{display:inline-block;max-width:78px;overflow:hidden;text-overflow:ellipsis}
 .schedule-solid-btn,.schedule-ghost-btn{border-radius:14px;padding:9px 12px;font-size:12px;font-weight:900}
 .schedule-solid-btn{background:var(--b);color:var(--w)}
 .schedule-icon-btn{width:40px;height:40px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900}
@@ -453,6 +460,24 @@ function getCharacterName(char){
   return String((char && (char.nickname || char.name)) || '角色');
 }
 
+function getCharacterAvatar(char){
+  if(!char) return '';
+  var direct = String(char.imageData || char.avatarUrl || char.avatar || '').trim();
+  if(direct && /^(data:|https?:|blob:|\/|\.\.?\/|assets\/)/i.test(direct)) return direct;
+  var id = String(char.id || '').trim();
+  if(id){
+    try{
+      var scoped = window.AccountManager && typeof window.AccountManager.scopedKey === 'function'
+        ? String(window.AccountManager.scopedKey('char_avatar_' + id) || '').trim()
+        : '';
+      var stored = (scoped ? localStorage.getItem(scoped) : '') || localStorage.getItem('char_avatar_' + id) || '';
+      stored = String(stored || '').trim();
+      if(stored) return stored;
+    }catch(err){}
+  }
+  return '';
+}
+
 function loadCharacters(){
   if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
     characterList = window.MetadataStore.getCharactersSync().filter(function(item){ return item && item.id; });
@@ -497,12 +522,16 @@ function renderCharSelector(){
   var host = document.getElementById('charSelector');
   if(!host) return;
   if(!characterList.length){
-    host.innerHTML = '<button class="schedule-char-chip active" type="button">暂无角色</button>';
+    host.innerHTML = '<button class="schedule-char-chip active" type="button"><span class="schedule-char-avatar">?</span><span class="schedule-char-name">暂无角色</span></button>';
     return;
   }
   host.innerHTML = characterList.map(function(char){
     var active = String(char.id) === String(activeCharId) ? ' active' : '';
-    return '<button class="schedule-char-chip' + active + '" type="button" onclick="selectChar(\'' + esc(String(char.id)) + '\')">' + esc(getCharacterName(char)) + '</button>';
+    var avatar = getCharacterAvatar(char);
+    var avatarHtml = avatar
+      ? ('<span class="schedule-char-avatar"><img src="' + esc(avatar) + '" alt=""></span>')
+      : ('<span class="schedule-char-avatar">' + esc(getCharacterName(char).slice(0,2)) + '</span>');
+    return '<button class="schedule-char-chip' + active + '" type="button" onclick="selectChar(\'' + esc(String(char.id)) + '\')">' + avatarHtml + '<span class="schedule-char-name">' + esc(getCharacterName(char)) + '</span></button>';
   }).join('');
 }
 
