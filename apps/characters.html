@@ -530,6 +530,29 @@ function slimChar(c){
   };
 }
 
+function resolveLatestChar(id, fallback){
+  var targetId = String(id || '').trim();
+  if(!targetId) return fallback || null;
+  var list = getStoredCharactersSnapshot();
+  if(!Array.isArray(list)) return fallback || null;
+  var activeAcctId = '';
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      activeAcctId = String((acct && acct.id) || '').trim();
+    }
+  }catch(err){}
+  var hit = list.find(function(c){
+    if(!c || String(c.id || '') !== targetId) return false;
+    if(!activeAcctId) return true;
+    return String(c.ownerAccountId || '') === activeAcctId;
+  });
+  if(!hit){
+    hit = list.find(function(c){ return c && String(c.id || '') === targetId; }) || null;
+  }
+  return hit || fallback || null;
+}
+
 // ── Storage ──
 function load() {
   chars = getStoredCharactersSnapshot();
@@ -960,13 +983,14 @@ function closeDetail() { document.getElementById('dp').classList.remove('open');
 function openChatAfterFriendAccepted(charId){
   var targetId = String(charId || '').trim();
   if(!targetId) return;
-  var found = chars.find(function(item){ return item && String(item.id || '') === targetId; });
+  var found = resolveLatestChar(targetId, chars.find(function(item){ return item && String(item.id || '') === targetId; }));
   if(found) curChar = found;
   if(curChar && String(curChar.id || '') === targetId) startChat();
 }
 
 function startChat() {
   if (!curChar) return;
+  curChar = resolveLatestChar(curChar.id, curChar) || curChar;
   if(window.AccountManager && !isDefaultAccount() && !window.AccountManager.isFriend(curChar.id)){
     var pendingCharId = curChar.id;
     askFriendRequestWithCallbacks(
