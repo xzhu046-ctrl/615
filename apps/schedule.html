@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-02T10:23:00Z"></script>
-<script src="../assetStore.js?v=2026-04-02T10:23:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-02T10:23:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T10:23:00Z"></script>
+<script src="../accountManager.js?v=2026-04-02T10:31:00Z"></script>
+<script src="../assetStore.js?v=2026-04-02T10:31:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-02T10:31:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T10:31:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -172,6 +172,12 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
   width:min(520px,100%);border:var(--bd);border-radius:28px;background:#fff;box-shadow:0 18px 36px rgba(0,0,0,.16);padding:16px 16px 18px;display:flex;flex-direction:column;gap:12px
 }
 .schedule-modal-card h3{font-family:var(--fontd);font-size:18px;font-weight:900}
+.schedule-debug-copy{width:min(620px,100%)}
+.schedule-debug-copy p{font-size:12px;font-weight:800;color:#666;line-height:1.6}
+.schedule-debug-text{
+  width:100%;min-height:260px;border:var(--bd);border-radius:18px;background:#fff;padding:11px 12px;resize:vertical;
+  font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;color:#111;outline:none
+}
 .schedule-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .schedule-input,.schedule-select,.schedule-textarea{
   width:100%;border:var(--bd);border-radius:18px;background:#fff;padding:11px 12px;font-size:13px;font-weight:800;outline:none
@@ -355,6 +361,18 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
       <div class="schedule-modal-actions">
         <button class="schedule-ghost-btn" type="button" onclick="closeEntryModal()">取消</button>
         <button class="schedule-solid-btn" type="button" onclick="saveEntryFromModal()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="schedule-modal" id="debugModal" onclick="handleModalMask(event)">
+    <div class="schedule-modal-card schedule-debug-copy">
+      <h3>头像调试</h3>
+      <p>如果自动复制失败，直接长按下面这段文本手动复制给我。</p>
+      <textarea class="schedule-debug-text" id="debugText" readonly></textarea>
+      <div class="schedule-modal-actions">
+        <button class="schedule-ghost-btn" type="button" onclick="closeDebugModal()">关闭</button>
+        <button class="schedule-solid-btn" type="button" onclick="copyDebugTextarea()">再试一次复制</button>
       </div>
     </div>
   </div>
@@ -736,13 +754,54 @@ function copyText(text){
   });
 }
 
+function openDebugModal(text){
+  var modal = document.getElementById('debugModal');
+  var area = document.getElementById('debugText');
+  if(!modal || !area) return;
+  area.value = String(text || '');
+  modal.classList.add('open');
+  setTimeout(function(){
+    try{
+      area.focus();
+      area.select();
+      area.setSelectionRange(0, area.value.length);
+    }catch(err){}
+  }, 20);
+}
+
+function closeDebugModal(){
+  var modal = document.getElementById('debugModal');
+  if(modal) modal.classList.remove('open');
+}
+
+function copyDebugTextarea(){
+  var area = document.getElementById('debugText');
+  if(!area) return;
+  copyText(area.value || '').then(function(){
+    toast('头像调试已复制');
+  }).catch(function(){
+    try{
+      area.focus();
+      area.select();
+      area.setSelectionRange(0, area.value.length);
+    }catch(err){}
+    toast('请手动复制这段调试');
+  });
+}
+
 function copyAvatarDebugInfo(){
   buildAvatarDebugReport().then(function(report){
     return copyText(report).then(function(){
       toast('头像调试已复制');
+      closeDebugModal();
     });
   }).catch(function(err){
-    toast('复制失败：' + (err && err.message ? err.message : '未知错误'));
+    buildAvatarDebugReport().then(function(report){
+      openDebugModal(report);
+      toast('自动复制失败，已打开调试面板');
+    }).catch(function(){
+      toast('复制失败：' + (err && err.message ? err.message : '未知错误'));
+    });
   });
 }
 
@@ -1081,7 +1140,9 @@ function toggleCharQuotes(){
 }
 
 function handleModalMask(evt){
-  if(evt.target && evt.target.id === 'entryModal') closeEntryModal();
+  if(!evt.target) return;
+  if(evt.target.id === 'entryModal') closeEntryModal();
+  if(evt.target.id === 'debugModal') closeDebugModal();
 }
 
 function openEntryModal(mode){
