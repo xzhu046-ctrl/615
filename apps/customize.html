@@ -39,6 +39,8 @@ display:flex;align-items:center;justify-content:center;font-size:20px;font-weigh
 input[type="text"], input[type="file"]{cursor:text;font-weight:800;font-size:14px;font-family:var(--font);font-variant-emoji:text;background:var(--w)}
 input[type="text"]:focus{box-shadow:3px 4px 0 #0a0a0a}
 .hint{font-size:11px;color:var(--g);line-height:1.6;margin-top:12px;padding:10px 12px;border-radius:12px;background:var(--off);border:1.5px dashed #cfcfcf}
+.subcard-title{display:flex;align-items:center;gap:8px;font-family:var(--fontd);font-size:15px;font-weight:900;color:#2c2924;margin-bottom:10px}
+.subcard-title::before{content:'';width:8px;height:8px;border-radius:50%;background:#0a0a0a;box-shadow:12px 0 0 rgba(10,10,10,0.12)}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--b);color:var(--w);padding:9px 18px;border-radius:12px;font-size:12px;font-weight:700;opacity:0;transition:all .25s;z-index:99}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .icon-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
@@ -75,6 +77,20 @@ input[type="text"]:focus{box-shadow:3px 4px 0 #0a0a0a}
       </div>
     </div>
     <div class="hint">支持本地图片或网络图片链接。保存后即刻生效。</div>
+  </div>
+
+  <div class="card">
+    <div class="subcard-title">日程图片</div>
+    <div class="panel">
+      <div class="preview" id="schedule-preview">预览</div>
+      <div class="controls">
+        <input id="schedule-file-input" type="file" accept="image/*" onchange="onScheduleFile(this.files[0])" aria-label="上传日程图片">
+        <input type="text" id="schedule-url-input" placeholder="输入 url" aria-label="输入日程图片url">
+        <button class="btn" onclick="resetScheduleCover()">重置</button>
+        <button class="btn" onclick="saveScheduleCover()">保存</button>
+      </div>
+    </div>
+    <div class="hint">这里会替换日程 app 右上角那张插画图，支持本地图片和网络链接。</div>
   </div>
 
   <div class="card">
@@ -155,6 +171,7 @@ input[type="text"]:focus{box-shadow:3px 4px 0 #0a0a0a}
 <script src="../assetStore.js"></script>
 <script>
 let chosenData = '';
+let chosenScheduleCover = '';
 const ICON_APPS = ['qq','worldbook','settings','customize','map6'];
 const ICON_LABELS = { qq:'QQ', worldbook:'世界书', settings:'设置', customize:'外观', map6:'地图' };
 const PHONE_FRAME_STORAGE_KEY = 'phone_frame_visible';
@@ -167,6 +184,7 @@ const LIVE_DANMAKU_ENABLED_KEY = 'home_live_danmaku_enabled';
 let stagedIcons = {};
 let frameVisible = true;
 let liveDanmakuEnabled = true;
+const SCHEDULE_COVER_KEY = 'schedule_cover_image';
 
 function getDefaultPhoneFrameVisibility(){
   return false;
@@ -319,10 +337,24 @@ function setPreview(src){
   else { p.textContent='预览'; }
 }
 
+function setSchedulePreview(src){
+  const p=document.getElementById('schedule-preview');
+  if(!p) return;
+  if(src){ p.innerHTML='<img src="'+src+'" alt="schedule preview">'; }
+  else { p.textContent='预览'; }
+}
+
 function onFile(file){
   if(!file) return;
   const r=new FileReader();
   r.onload=e=>{ chosenData=e.target.result; setPreview(chosenData); };
+  r.readAsDataURL(file);
+}
+
+function onScheduleFile(file){
+  if(!file) return;
+  const r=new FileReader();
+  r.onload=e=>{ chosenScheduleCover=e.target.result; setSchedulePreview(chosenScheduleCover); };
   r.readAsDataURL(file);
 }
 
@@ -355,6 +387,37 @@ function saveAndExit(){
     else window.parent.postMessage({type:'CLOSE_APP'}, '*');
   }catch(e){}
   toast('已保存');
+}
+
+function saveScheduleCover(){
+  const urlVal=document.getElementById('schedule-url-input').value.trim();
+  if(urlVal){
+    chosenScheduleCover = urlVal;
+    setSchedulePreview(chosenScheduleCover);
+  }
+  if(!chosenScheduleCover){
+    toast('请先选择图片或输入 URL');
+    return;
+  }
+  if(window.assetStore) window.assetStore.saveOrFallback(SCHEDULE_COVER_KEY, chosenScheduleCover);
+  else localStorage.setItem(SCHEDULE_COVER_KEY, chosenScheduleCover);
+  try{
+    window.parent.postMessage({type:'SCHEDULE_COVER_UPDATED', payload: chosenScheduleCover}, '*');
+  }catch(e){}
+  toast('日程图片已保存');
+}
+
+function resetScheduleCover(){
+  chosenScheduleCover = '';
+  setSchedulePreview('');
+  const input = document.getElementById('schedule-url-input');
+  if(input) input.value = '';
+  if(window.assetStore) window.assetStore.remove(SCHEDULE_COVER_KEY);
+  else localStorage.removeItem(SCHEDULE_COVER_KEY);
+  try{
+    window.parent.postMessage({type:'SCHEDULE_COVER_UPDATED', payload: null}, '*');
+  }catch(e){}
+  toast('已恢复默认日程图片');
 }
 
 // Icon picker
@@ -445,6 +508,12 @@ function saveIcons(){
   };
   if(window.assetStore) window.assetStore.load('wallpaper_custom').then(restoreWallpaper);
   else restoreWallpaper(localStorage.getItem('wallpaper_custom'));
+  const restoreSchedule = function(src){
+    if(src){ chosenScheduleCover = src; setSchedulePreview(src); return; }
+    setSchedulePreview('');
+  };
+  if(window.assetStore) window.assetStore.load(SCHEDULE_COVER_KEY).then(restoreSchedule);
+  else restoreSchedule(localStorage.getItem(SCHEDULE_COVER_KEY));
 })();
 </script>
 </body>

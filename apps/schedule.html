@@ -365,6 +365,7 @@ var viewMonthKey = ScheduleShared.toMonthKey(new Date());
 var selectedDateKey = ScheduleShared.toDateKey(new Date());
 var entryModalMode = '';
 var toastTimer = null;
+var scheduleCoverSrc = '';
 
 function esc(text){
   return String(text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -377,6 +378,17 @@ function toast(text){
   node.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(function(){ node.classList.remove('show'); }, 1900);
+}
+
+function loadStoredScheduleCover(){
+  if(window.assetStore && typeof window.assetStore.load === 'function'){
+    return window.assetStore.load('schedule_cover_image').catch(function(){ return ''; });
+  }
+  try{
+    return Promise.resolve(localStorage.getItem('schedule_cover_image') || '');
+  }catch(err){
+    return Promise.resolve('');
+  }
 }
 
 function getParentShell(){
@@ -697,6 +709,13 @@ function renderAll(){
   renderCalendar();
   renderDetails();
   renderSettings();
+  renderScheduleCover();
+}
+
+function renderScheduleCover(){
+  var img = document.querySelector('.schedule-side-hero img');
+  if(!img) return;
+  img.src = scheduleCoverSrc || 'assets/日历.jpg';
 }
 
 function ensureActiveChar(){
@@ -962,12 +981,21 @@ async function initSchedule(){
   if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
     try{ await window.MetadataStore.init(); }catch(err){}
   }
+  try{ scheduleCoverSrc = String(await loadStoredScheduleCover() || '').trim(); }catch(err){ scheduleCoverSrc = ''; }
   loadCharacters();
   scheduleState = await ScheduleShared.loadState();
   ensureActiveChar();
   bindMetadataUpdates();
   renderAll();
 }
+
+window.addEventListener('message', function(evt){
+  var data = evt && evt.data ? evt.data : {};
+  if(data.type === 'SCHEDULE_COVER_UPDATED'){
+    scheduleCoverSrc = String((data && data.payload) || '').trim();
+    renderScheduleCover();
+  }
+});
 
 initSchedule();
 </script>
