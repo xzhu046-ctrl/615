@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-02T09:34:00Z"></script>
-<script src="../assetStore.js?v=2026-04-02T09:34:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-02T09:34:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T09:34:00Z"></script>
+<script src="../accountManager.js?v=2026-04-02T09:47:00Z"></script>
+<script src="../assetStore.js?v=2026-04-02T09:47:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-02T09:47:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T09:47:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -56,6 +56,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
   width:68px;height:68px;border:2px dashed #111;border-radius:20px;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;
   box-shadow:5px 5px 0 rgba(0,0,0,.12);overflow:hidden;background-position:center;background-repeat:no-repeat;background-size:cover
 }
+.schedule-current-char-media{display:block;width:100%;height:100%;object-fit:cover}
 .schedule-current-char-fallback{font-family:var(--fontd);font-size:12px;font-weight:900;color:#111}
 .schedule-ghost-btn,.schedule-solid-btn,.schedule-icon-btn{
   border:2px solid #111;background:linear-gradient(180deg,rgba(255,255,255,.998),rgba(246,246,246,.992));box-shadow:4px 4px 0 rgba(0,0,0,.14);cursor:pointer;
@@ -457,6 +458,46 @@ function getLiveChatAvatarSrcFromShell(charId){
   return '';
 }
 
+function getShellResolvedCharacter(charId){
+  var shell = getParentShell();
+  var safeId = String(charId || '').trim();
+  if(!safeId) return null;
+  try{
+    if(shell && typeof shell.resolveShellCharacterById === 'function'){
+      var fallback = shell && typeof shell.getActiveCharacterData === 'function' ? shell.getActiveCharacterData() : null;
+      var resolved = shell.resolveShellCharacterById(safeId, fallback);
+      if(resolved && resolved.id) return resolved;
+    }
+  }catch(err){}
+  try{
+    if(shell && typeof shell.getActiveCharacterData === 'function'){
+      var active = shell.getActiveCharacterData();
+      if(active && String(active.id || '') === safeId) return active;
+    }
+  }catch(err){}
+  try{
+    if(shell && typeof shell.getCurrentForegroundCharacter === 'function'){
+      var live = shell.getCurrentForegroundCharacter();
+      if(live && String(live.id || '') === safeId) return live;
+    }
+  }catch(err){}
+  return null;
+}
+
+function getShellAvatarSrc(charId){
+  var shell = getParentShell();
+  var safeId = String(charId || '').trim();
+  if(!safeId) return '';
+  try{
+    if(shell && typeof shell.getCharacterAvatarForBg === 'function'){
+      var resolved = getShellResolvedCharacter(safeId);
+      var src = String(shell.getCharacterAvatarForBg(resolved || { id:safeId }) || '').trim();
+      if(src) return src;
+    }
+  }catch(err){}
+  return '';
+}
+
 function getCharacterName(char){
   return String((char && (char.nickname || char.name)) || '角色');
 }
@@ -465,6 +506,8 @@ function getCharacterAvatar(char){
   if(!char) return '';
   var liveSrc = getLiveChatAvatarSrcFromShell(char.id);
   if(liveSrc) return liveSrc;
+  var shellSrc = getShellAvatarSrc(char.id);
+  if(shellSrc) return shellSrc;
   var direct = String(char.imageData || char.avatarUrl || char.avatar || '').trim();
   if(direct && /^(data:|https?:|blob:|\/|\.\.?\/|assets\/)/i.test(direct)) return direct;
   var id = String(char.id || '').trim();
@@ -492,12 +535,20 @@ function renderScheduleAvatarButton(btn, char, avatarSrc){
   if(!btn) return;
   var safeSrc = String(avatarSrc || '').trim();
   var fallbackText = esc(getCharacterName(char).slice(0,2) || 'CH');
+  btn.style.backgroundImage = 'none';
+  btn.innerHTML = '';
   if(safeSrc){
-    btn.style.backgroundImage = 'url("' + safeSrc.replace(/(["\\])/g, '\\$1') + '")';
-    btn.innerHTML = '';
+    var img = document.createElement('img');
+    img.className = 'schedule-current-char-media';
+    img.alt = '';
+    img.decoding = 'async';
+    img.src = safeSrc;
+    img.onerror = function(){
+      btn.innerHTML = '<span class="schedule-current-char-fallback">' + fallbackText + '</span>';
+    };
+    btn.appendChild(img);
     return;
   }
-  btn.style.backgroundImage = 'none';
   btn.innerHTML = '<span class="schedule-current-char-fallback">' + fallbackText + '</span>';
 }
 
@@ -506,6 +557,8 @@ function resolveCharacterAvatarAsync(char){
   var charId = String(char.id);
   var liveSrc = getLiveChatAvatarSrcFromShell(charId);
   if(liveSrc) return Promise.resolve(liveSrc);
+  var shellSrc = getShellAvatarSrc(charId);
+  if(shellSrc) return Promise.resolve(shellSrc);
   var syncSrc = getCharacterAvatar(char);
   if(syncSrc) return Promise.resolve(syncSrc);
   var fromRoster = getCharacterById(charId);
