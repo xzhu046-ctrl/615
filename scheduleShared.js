@@ -2,6 +2,7 @@
   'use strict';
 
   var STORE_KEY = 'schedule_app_state_v1';
+  var stateCache = null;
 
   function cloneJson(value){
     try{ return JSON.parse(JSON.stringify(value)); }catch(err){ return value; }
@@ -243,19 +244,27 @@
     if(storage && typeof storage.getJson === 'function'){
       return storage.getJson(key).catch(function(){ return null; }).then(function(stored){
         var next = normalizeState(stored || readLegacyState());
+        stateCache = cloneJson(next);
+        try{ global.localStorage.setItem(key, JSON.stringify(next)); }catch(err){}
         return cloneJson(next);
       });
     }
-    return Promise.resolve(cloneJson(readLegacyState()));
+    var fallback = cloneJson(readLegacyState());
+    stateCache = cloneJson(fallback);
+    return Promise.resolve(fallback);
   }
 
   function readStateSync(){
-    return cloneJson(readLegacyState());
+    if(stateCache) return cloneJson(stateCache);
+    var next = cloneJson(readLegacyState());
+    stateCache = cloneJson(next);
+    return next;
   }
 
   function saveState(state){
     var key = getScopedStoreKey();
     var next = normalizeState(state);
+    stateCache = cloneJson(next);
     var storage = getPhoneStorage();
     if(storage && typeof storage.putJson === 'function'){
       return storage.putJson(key, next).then(function(saved){
