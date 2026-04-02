@@ -6,7 +6,7 @@ const APP_MAP = {
   settings:   { title: '设置',           src: 'apps/settings.html' },
   customize:  { title: '外观',           src: 'apps/customize.html' },
   worldbook:  { title: '档案',           src: 'apps/worldbook.html' },
-  schedule:   { title: '日程',           src: 'apps/schedule.html' },
+  schedule:   { title: '日程',           src: 'apps/schedule.html', hideTopbar: true },
   map6:       { title: '地图',           src: 'apps/map6.html' },
   offline_archive: { title: '档案馆',    src: 'apps/offline_archive.html' },
   offline:    { title: '线下模式',       src: 'apps/offline_mode.html', hideTopbar: true },
@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T05:39:00Z';
+const APP_BUILD_ID = '2026-04-02T06:02:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
