@@ -6,6 +6,7 @@ const APP_MAP = {
   settings:   { title: '设置',           src: 'apps/settings.html' },
   customize:  { title: '外观',           src: 'apps/customize.html' },
   worldbook:  { title: '世界书',         src: 'apps/worldbook.html' },
+  schedule:   { title: '日程',           src: 'apps/schedule.html' },
   map6:       { title: '地图',           src: 'apps/map6.html' },
   offline_archive: { title: '档案馆',    src: 'apps/offline_archive.html' },
   offline:    { title: '线下模式',       src: 'apps/offline_mode.html', hideTopbar: true },
@@ -32,7 +33,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T03:34:00Z';
+const APP_BUILD_ID = '2026-04-02T03:58:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -749,6 +750,7 @@ async function primeLatestCoreFiles(){
     'main.js',
     'assetStore.js',
     'chatStorage.js',
+    'scheduleShared.js',
     'promptManager.js',
     'accountManager.js',
     'presenceShared.js',
@@ -758,6 +760,7 @@ async function primeLatestCoreFiles(){
     'apps/qq.html',
     'apps/chat.html',
     'apps/offlineInvite.js',
+    'apps/schedule.html',
     'apps/map6.html',
     'apps/offline_mode.html'
   ];
@@ -1615,6 +1618,216 @@ function buildBackgroundReplyLanguagePrompt(character){
   ].join('\n');
 }
 
+function getScheduleWorldbookContext(){
+  var data = {};
+  try{
+    if(window.MetadataStore && typeof window.MetadataStore.getWorldbooksSync === 'function'){
+      data = window.MetadataStore.getWorldbooksSync() || {};
+    }else{
+      data = JSON.parse(localStorage.getItem('worldbooks') || '{}') || {};
+    }
+  }catch(err){
+    data = {};
+  }
+  var lines = [];
+  var seen = {};
+  function pushLine(title, content){
+    var safeTitle = String(title || '').trim();
+    var safeContent = String(content || '').trim();
+    if(!safeContent) return;
+    var key = (safeTitle + '::' + safeContent).slice(0, 220);
+    if(seen[key]) return;
+    seen[key] = true;
+    lines.push((safeTitle ? (safeTitle + '：') : '') + safeContent);
+  }
+  function walk(node, fallbackTitle){
+    if(!node) return;
+    if(Array.isArray(node)){
+      node.forEach(function(item){ walk(item, fallbackTitle); });
+      return;
+    }
+    if(typeof node !== 'object') return;
+    var title = String(node.title || node.name || node.label || fallbackTitle || '').trim();
+    if(typeof node.content === 'string'){
+      pushLine(title, node.content);
+    }
+    if(Array.isArray(node.entries)) walk(node.entries, title);
+    if(Array.isArray(node.books)) walk(node.books, title);
+    if(Array.isArray(node.items)) walk(node.items, title);
+    if(node.data && typeof node.data === 'object') walk(node.data, title);
+  }
+  Object.keys(data || {}).forEach(function(key){
+    walk(data[key], key);
+  });
+  return lines.slice(0, 18).join('\n').slice(0, 2600);
+}
+
+function getScheduleUserName(charId){
+  var safeId = String(charId || '').trim();
+  var activeId = getActiveAccountId();
+  var scoped = scopedKeyForAccount('user_name_' + safeId, activeId);
+  return String(localStorage.getItem(scoped) || localStorage.getItem('user_name_' + safeId) || localStorage.getItem('user_name') || 'USER').trim() || 'USER';
+}
+
+function getScheduleUserPersona(){
+  try{
+    var active = window.AccountManager && window.AccountManager.getActive ? window.AccountManager.getActive() : null;
+    if(active && !active.isDefault) return '';
+  }catch(err){}
+  return String(localStorage.getItem('user_persona') || '').trim();
+}
+
+function normalizeScheduleTimelineItems(items){
+  return (Array.isArray(items) ? items : []).map(function(item){
+    item = item && typeof item === 'object' ? item : {};
+    return {
+      start: String(item.start || item.time || '').trim(),
+      end: String(item.end || '').trim(),
+      title: String(item.title || '').trim(),
+      note: String(item.note || '').trim(),
+      kind: String(item.kind || 'char').trim() || 'char'
+    };
+  }).filter(function(item){
+    return item.start || item.title || item.note;
+  }).slice(0, 10);
+}
+
+function normalizeScheduleQuoteDrafts(items){
+  return (Array.isArray(items) ? items : []).map(function(item){
+    item = item && typeof item === 'object' ? item : {};
+    return {
+      id: String(item.id || ('quote_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7))),
+      title: String(item.title || '').trim(),
+      excerpt: String(item.excerpt || '').trim(),
+      reply: String(item.reply || '').trim(),
+      sourceId: String(item.sourceId || '').trim(),
+      sourceType: String(item.sourceType || '').trim()
+    };
+  }).filter(function(item){
+    return item.title || item.excerpt || item.reply;
+  }).slice(0, 4);
+}
+
+function parseScheduleDayResult(raw, payload){
+  var txt = cleanBgJson(raw);
+  var parsed = null;
+  try{ parsed = JSON.parse(txt); }catch(err){}
+  parsed = parsed && typeof parsed === 'object' ? parsed : {};
+  return {
+    date: String((parsed.date || payload.dateKey) || '').trim() || String(payload.dateKey || ''),
+    diary: String(parsed.diary || parsed.dayDiary || '').trim(),
+    calendarNote: String(parsed.calendarNote || parsed.calendar_note || '').trim(),
+    comment: String(parsed.comment || parsed.todoComment || '').trim(),
+    generatedAt: Date.now(),
+    timeline: normalizeScheduleTimelineItems(parsed.timeline || parsed.schedule || []),
+    quoteDrafts: normalizeScheduleQuoteDrafts(parsed.quoteDrafts || parsed.chatQuotes || [])
+  };
+}
+
+async function generateScheduleDayPlan(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var charId = String(payload.charId || '').trim();
+  if(!charId) throw new Error('缺少角色');
+  var chars = getStoredCharactersSnapshot();
+  var character = chars.find(function(item){ return item && String(item.id || '') === charId; }) || null;
+  if(!character) throw new Error('找不到角色');
+  var cfg = getBackgroundProviderConfig();
+  if(!cfg) throw new Error('请先在设置里配置模型');
+  var dateKey = String(payload.dateKey || '').trim();
+  var dateObj = /^\d{4}-\d{2}-\d{2}$/.test(dateKey) ? new Date(dateKey + 'T12:00:00') : new Date();
+  var weekday = ['周日','周一','周二','周三','周四','周五','周六'][dateObj.getDay()];
+  var eventLines = (Array.isArray(payload.events) ? payload.events : []).map(function(item){
+    return [
+      String(item.start || '').trim() || '未设时间',
+      String(item.title || '').trim(),
+      String(item.location || '').trim(),
+      String(item.note || '').trim(),
+      item.remindChar ? '用户希望你记住并提醒' : ''
+    ].filter(Boolean).join(' | ');
+  });
+  var todoLines = (Array.isArray(payload.todos) ? payload.todos : []).map(function(item){
+    return [
+      item.done ? '已完成' : '待做',
+      String(item.text || '').trim(),
+      String(item.note || '').trim()
+    ].filter(Boolean).join(' | ');
+  });
+  var specialLines = []
+    .concat((Array.isArray(payload.specialDates) ? payload.specialDates : []).map(function(item){
+      return [String(item.title || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | ');
+    }))
+    .concat((Array.isArray(payload.holidays) ? payload.holidays : []).map(function(item){
+      return [String(item.title || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | ');
+    }));
+  var sysPrompt = [
+    '你正在生成一个日程 app 里的角色当日日程。',
+    '只返回严格 JSON，不要 markdown，不要解释。',
+    'JSON 结构：{"date":"YYYY-MM-DD","diary":"...","calendarNote":"...","comment":"...","timeline":[{"start":"08:30","end":"09:20","title":"...","note":"..."}],"quoteDrafts":[{"title":"待办引用","excerpt":"...","reply":"...","sourceType":"todo|event","sourceId":"..."}]}',
+    '所有字段都用简体中文输出。',
+    'timeline 是现实里会发生的一天，至少 4 条，最多 8 条。',
+    'diary 是角色今天的一句日记，要有人设感。',
+    'calendarNote 是写在日历边上的一句留言。',
+    'comment 是角色看见用户待办或行程后的点评。',
+    'quoteDrafts 只有在值得主动提起时才返回，最多 2 条，reply 要像聊天里会发出去的话。'
+  ].join('\n');
+  var userPrompt = [
+    '日期：' + dateKey + ' ' + weekday,
+    '角色名：' + String(character.nickname || character.name || '角色'),
+    '角色人设：' + String(character.personality || character.description || '').slice(0, 2000),
+    character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 900)) : '',
+    character.system_prompt ? ('角色系统约束：' + String(character.system_prompt || '').slice(0, 900)) : '',
+    getScheduleWorldbookContext() ? ('世界书摘要：\n' + getScheduleWorldbookContext()) : '',
+    '用户名字：' + getScheduleUserName(charId),
+    getScheduleUserPersona() ? ('用户设定：' + getScheduleUserPersona().slice(0, 900)) : '',
+    '严格时间感知总开关：' + (payload.globalTimeAwareness === false ? '关闭' : '开启'),
+    '这个角色的时间感知覆盖：' + (payload.charOverride && payload.charOverride.timeAwarenessEnabled === false ? '关闭' : '开启'),
+    specialLines.length ? ('当天节日 / 纪念日：\n- ' + specialLines.join('\n- ')) : '当天没有额外节日或纪念日。',
+    eventLines.length ? ('用户当天写下的日程：\n- ' + eventLines.join('\n- ')) : '用户当天没有额外公开日程。',
+    todoLines.length ? ('用户当天待办：\n- ' + todoLines.join('\n- ')) : '用户当天没有额外待办。',
+    '请像真人一样安排这一天：有人认真规划，有人拖延熬夜，有人松弛散漫，都按人设来。',
+    '如果用户有行程或待办，可以在 comment 或 quoteDrafts 里自然地关心、提醒、吃醋、吐槽，但不要脱离人设。'
+  ].filter(Boolean).join('\n\n');
+  var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
+  var result = parseScheduleDayResult(raw, payload);
+  if(!result.timeline.length) throw new Error('没有生成出有效时间轴');
+  if(!result.diary) result.diary = '今天像被轻轻摁住的一页纸，直到最后还是有一点在想你。';
+  return result;
+}
+
+async function sendScheduleQuote(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var charId = String(payload.charId || '').trim();
+  if(!charId) return false;
+  var accountId = getDefaultAccountId();
+  if(!accountId) return false;
+  var history = await readBackgroundChatHistory(charId, accountId);
+  var now = Date.now();
+  var entry = {
+    id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
+    role: 'assistant',
+    content: JSON.stringify({
+      title: String(payload.title || '日程引用'),
+      excerpt: String(payload.excerpt || ''),
+      reply: String(payload.reply || ''),
+      dateKey: String(payload.dateKey || '')
+    }),
+    type: 'schedulequote',
+    replyToId: null,
+    sentAt: now,
+    readAt: null
+  };
+  history.push(entry);
+  await writeBackgroundChatHistory(charId, accountId, history);
+  renderHomeDockBadges();
+  try{
+    var f = document.getElementById('app-iframe');
+    if(f && f.contentWindow){
+      f.contentWindow.postMessage({ type:'BACKGROUND_AI_MESSAGE', payload:{ charId: charId, entry: entry } }, '*');
+    }
+  }catch(err){}
+  return true;
+}
+
 async function callAiForBackground(cfg, sysPrompt, userPrompt){
   if(cfg.provider === 'openai'){
     var res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -1824,6 +2037,11 @@ async function runAiBackgroundActivity(){
     return await appendBackgroundMoment(character, defaultId, parsed.action, parsed.content, parsed.imageText);
   }
 }
+
+window.ScheduleShell = {
+  generateDayPlan: generateScheduleDayPlan,
+  sendScheduleQuote: sendScheduleQuote
+};
 
 function updateClock() {
   const now = new Date();
@@ -2403,6 +2621,10 @@ function bindHomePager(){
 }
 
 function openPlaceholderMiniApp(idx){
+  if(Number(idx) === 3){
+    openApp('schedule');
+    return;
+  }
   if(Number(idx) === 6){
     openApp('map6');
     return;

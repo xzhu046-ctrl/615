@@ -10,6 +10,7 @@
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T03:58:00Z"></script>
 <script src="../presenceShared.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../sunnySupport.js?v=2026-03-31T10:28:00Z"></script>
 <script src="offlineInvite.js?v=2026-04-01T23:27:00Z"></script>
@@ -366,6 +367,13 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg.ai   .msg-bubble{background:var(--w);border:var(--bd);color:var(--b);border-bottom-left-radius:4px;border-top-left-radius:6px;border-top-right-radius:16px;border-bottom-right-radius:16px;box-shadow:var(--sh)}
 .msg.user .msg-bubble.moneypacket-shell,
 .msg.ai .msg-bubble.moneypacket-shell{background:transparent !important;border:none !important;box-shadow:none !important;padding:0 !important;min-height:0;overflow:visible}
+.msg-bubble.schedulequote-shell{padding:0;background:transparent;border:none;box-shadow:none;min-height:0;overflow:visible}
+.schedule-quote-bubble{min-width:220px;border:var(--bd);border-radius:20px;background:linear-gradient(180deg,#fff 0%,#f4f4f1 100%);box-shadow:var(--sh);padding:12px 12px 11px;display:flex;flex-direction:column;gap:10px}
+.schedule-quote-bubble-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.schedule-quote-bubble-tag{display:inline-flex;align-items:center;justify-content:center;padding:4px 8px;border:var(--bd);border-radius:999px;background:#101010;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+.schedule-quote-bubble-date{font-size:10px;font-weight:900;color:#666;letter-spacing:.08em;text-transform:uppercase}
+.schedule-quote-bubble-excerpt{border:var(--bd);border-radius:16px;background:#fff;padding:10px 11px;box-shadow:2px 2px 0 #0a0a0a;font-size:12px;font-weight:900;line-height:1.6}
+.schedule-quote-bubble-reply{font-size:12px;font-weight:800;line-height:1.75}
 .msg-avatar{width:40px;height:40px;border-radius:12px;border:var(--bd);background:var(--pale);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;overflow:hidden;align-self:flex-start;box-shadow:var(--sh);position:relative}
 .msg-avatar img{width:100%;height:100%;object-fit:cover;border-radius:10px;display:block}
 .msg-avatar .avatar-media{display:block;width:100%;height:100%;border-radius:10px;background-position:center;background-repeat:no-repeat;background-size:cover}
@@ -4608,6 +4616,7 @@ function normalizeMessageType(type){
   if(type === 'family_card' || type === 'familycard') return 'familycard';
   if(type === 'money_packet' || type === 'moneypacket' || type === 'transfer') return 'moneypacket';
   if(type === 'offline_invite' || type === 'offlineinvite') return 'offlineinvite';
+  if(type === 'schedule_quote' || type === 'schedulequote') return 'schedulequote';
   if(type === 'sunny_card' || type === 'sunnycard' || type === 'support_card') return 'sunnycard';
   return 'text';
 }
@@ -5624,6 +5633,69 @@ function markUserMessagesReadByChar(){
 function getMessageById(msgId){
   return chatLog.find(function(m){ return m.id === msgId; }) || null;
 }
+function parseScheduleQuotePayload(raw){
+  if(raw && typeof raw === 'object') return raw;
+  try{
+    var parsed = JSON.parse(String(raw || ''));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  }catch(err){
+    return {};
+  }
+}
+function renderScheduleQuoteBubble(host, raw){
+  var payload = parseScheduleQuotePayload(raw);
+  host.innerHTML = '<div class="schedule-quote-bubble">'
+    + '<div class="schedule-quote-bubble-top"><span class="schedule-quote-bubble-tag">' + esc(payload.title || '日程引用') + '</span>'
+    + '<span class="schedule-quote-bubble-date">' + esc(payload.dateKey || '') + '</span></div>'
+    + '<div class="schedule-quote-bubble-excerpt">' + esc(payload.excerpt || '这条日程还没写具体内容。') + '</div>'
+    + (payload.reply ? ('<div class="schedule-quote-bubble-reply">' + esc(payload.reply) + '</div>') : '')
+    + '</div>';
+}
+function buildSchedulePromptBlock(){
+  if(!character || !window.ScheduleShared || typeof window.ScheduleShared.readStateSync !== 'function') return '';
+  var state = window.ScheduleShared.readStateSync();
+  if(!state || typeof state !== 'object') return '';
+  var todayKey = window.ScheduleShared.toDateKey(new Date());
+  var ctx = window.ScheduleShared.summarizeDayContext(state, character.id, todayKey);
+  var lines = [];
+  if((ctx.events || []).length){
+    lines.push('【用户今天写在日程里的安排】');
+    ctx.events.slice(0, 5).forEach(function(item){
+      if(item.visibleToChar === false) return;
+      lines.push('- ' + [String(item.start || '').trim() || '未设时间', String(item.title || '').trim(), String(item.location || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | '));
+    });
+  }
+  if((ctx.todos || []).length){
+    if(lines.length) lines.push('');
+    lines.push('【用户今天的待办】');
+    ctx.todos.slice(0, 6).forEach(function(item){
+      if(item.visibleToChar === false) return;
+      lines.push('- ' + [(item.done ? '已完成' : '待做'), String(item.text || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | '));
+    });
+  }
+  if((ctx.specialDates || []).length || (ctx.holidays || []).length){
+    if(lines.length) lines.push('');
+    lines.push('【今天的重要日子】');
+    (ctx.specialDates || []).slice(0, 4).forEach(function(item){
+      lines.push('- ' + [String(item.title || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | '));
+    });
+    (ctx.holidays || []).slice(0, 4).forEach(function(item){
+      lines.push('- ' + [String(item.title || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | '));
+    });
+  }
+  if(ctx.charDay){
+    if(lines.length) lines.push('');
+    lines.push('【你今天自己的日程 / 情绪】');
+    if(ctx.charDay.diary) lines.push('一句日记：' + String(ctx.charDay.diary || '').trim());
+    (Array.isArray(ctx.charDay.timeline) ? ctx.charDay.timeline : []).slice(0, 5).forEach(function(item){
+      lines.push('- ' + [String(item.start || '').trim() || '未设时间', String(item.title || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | '));
+    });
+  }
+  if(!lines.length) return '';
+  lines.push('');
+  lines.push('请在合适时自然地意识到这些安排，但不要每条都硬提，更不要像待办机器人。');
+  return lines.join('\n').trim();
+}
 function getReplyLabel(source){
   var role = '';
   if(source && typeof source === 'object'){
@@ -5648,6 +5720,10 @@ function getReplySnippetText(msg){
   else if(kind === 'familycard') text = '【亲属卡】';
   else if(kind === 'moneypacket') text = moneyPacketSummaryText(payload.content || msg.content || '');
   else if(kind === 'offlineinvite') text = offlineInviteSummaryText(payload.content || msg.content || '');
+  else if(kind === 'schedulequote'){
+    var schedulePayload = parseScheduleQuotePayload(payload.content || msg.content || '');
+    text = '【日程引用】' + String(schedulePayload.excerpt || schedulePayload.reply || '').trim();
+  }
   else text = payload.content || msg.content || '';
   text = String(text || '').trim();
   return text || '空消息';
@@ -5694,6 +5770,9 @@ function formatMessageForModel(msg){
   } else if(kind === 'offlineinvite'){
     var invitePayload = parseOfflineInvitePayload(content) || {};
     content = '[offline_invite content="' + String(invitePayload.content || '').replace(/"/g, '\'') + '" location="' + String(invitePayload.location || '').replace(/"/g, '\'') + '" mood="' + String(invitePayload.mood || '').replace(/"/g, '\'') + '" weather="' + String(invitePayload.weather || '').replace(/"/g, '\'') + '" aside="' + String(invitePayload.aside || '').replace(/"/g, '\'') + '"]';
+  } else if(kind === 'schedulequote'){
+    var schedulePayload = parseScheduleQuotePayload(content) || {};
+    content = '[schedule_quote title="' + String(schedulePayload.title || '').replace(/"/g, '\'') + '" excerpt="' + String(schedulePayload.excerpt || '').replace(/"/g, '\'') + '" reply="' + String(schedulePayload.reply || '').replace(/"/g, '\'') + '" date="' + String(schedulePayload.dateKey || '').replace(/"/g, '\'') + '"]';
   }
   if(msg.replyToId){
     var target = getMessageById(msg.replyToId);
@@ -7491,6 +7570,8 @@ function buildSystemPrompt() {
   if(pendingFamilyFollowupCue){
     parts.push(pendingFamilyFollowupCue);
   }
+  var schedulePrompt = buildSchedulePromptBlock();
+  if(schedulePrompt) parts.push(['【日程感知】', schedulePrompt].join('\n'));
   var presenceSnapshot = getCurrentPresenceSnapshot();
   if(presenceSnapshot && presenceSnapshot.char && presenceSnapshot.char.shareEnabled !== false){
     parts.push([
@@ -8877,6 +8958,7 @@ function addMessage(role, content, doScroll, msgType, msgId) {
     : ('msg-bubble' + (msgType==='voice' ? ' voice' : '') + (msgType==='image' ? ' image-card' : ''));
   if(msgType === 'familycard') bubble.classList.add('familycard-shell');
   if(isMoney) bubble.classList.add('moneypacket-shell');
+  if(msgType === 'schedulequote') bubble.classList.add('schedulequote-shell');
   var entry = msgId ? getMessageById(msgId) : null;
 
   var safeText = content || '(空消息)';
@@ -8942,6 +9024,8 @@ function addMessage(role, content, doScroll, msgType, msgId) {
     }
   } else if(msgType === 'offlineinvite'){
     renderOfflineInviteBubble(bubble, safeText, viewRole, msgId);
+  } else if(msgType === 'schedulequote'){
+    renderScheduleQuoteBubble(bubble, safeText);
   } else if(msgType === 'sunnycard'){
     renderSunnyCardBubble(bubble, safeText, msgId);
   } else {

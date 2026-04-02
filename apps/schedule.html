@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+<title>日程</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
+<script src="../accountManager.js?v=2026-04-02T03:58:00Z"></script>
+<script src="../assetStore.js?v=2026-04-02T03:58:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-02T03:58:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T03:58:00Z"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --b:#0a0a0a;--w:#fff;--off:#f6f6f4;--ink:#111;--g:#747474;--line:#d6d6d2;
+  --bd:2px solid #0a0a0a;--sh:3px 4px 0 rgba(10,10,10,.98);
+  --font:'Quicksand',sans-serif;--fontd:'Nunito',sans-serif;--fontcute:'ZCOOL KuaiLe',cursive;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:#ecebe7;color:var(--b)}
+body{font-family:var(--font);display:flex;flex-direction:column}
+button,input,textarea,select{font:inherit;color:inherit}
+button{appearance:none;-webkit-appearance:none;background:none;border:none}
+.schedule-shell{
+  flex:1;min-height:0;overflow:auto;padding:14px 12px 18px;background:
+    radial-gradient(circle at top left, rgba(255,255,255,.96), rgba(246,245,241,.98) 34%, rgba(235,233,227,.98) 100%);
+}
+.schedule-frame{
+  min-height:100%;border:var(--bd);border-radius:30px;background:
+    linear-gradient(180deg, rgba(255,255,255,.92), rgba(250,249,244,.96)),
+    radial-gradient(circle at 20% 18%, rgba(0,0,0,.032) 0 2px, transparent 2px),
+    radial-gradient(circle at 70% 35%, rgba(0,0,0,.024) 0 2px, transparent 2px);
+  background-size:auto,22px 22px,22px 22px;
+  box-shadow:6px 8px 0 rgba(10,10,10,.95);padding:18px 16px 20px;display:flex;flex-direction:column;gap:14px;
+}
+.schedule-head{display:flex;gap:14px;align-items:flex-start;justify-content:space-between}
+.schedule-title-stack{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
+.schedule-month-index{font-family:var(--fontd);font-size:56px;font-weight:900;line-height:.9;letter-spacing:.02em;color:transparent;-webkit-text-stroke:2px #0a0a0a}
+.schedule-title-meta{display:flex;flex-direction:column;gap:4px}
+.schedule-month-label{font-family:var(--fontd);font-size:32px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+.schedule-year-label{font-family:var(--fontd);font-size:24px;font-weight:900;letter-spacing:.04em}
+.schedule-char-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:48%}
+.schedule-char-chip,.schedule-ghost-btn,.schedule-solid-btn,.schedule-icon-btn{
+  border:var(--bd);background:var(--w);box-shadow:var(--sh);cursor:pointer;
+}
+.schedule-char-chip{border-radius:999px;padding:8px 12px;font-size:11px;font-weight:900;white-space:nowrap}
+.schedule-char-chip.active{background:var(--b);color:var(--w)}
+.schedule-solid-btn,.schedule-ghost-btn{border-radius:14px;padding:10px 12px;font-size:12px;font-weight:900}
+.schedule-solid-btn{background:var(--b);color:var(--w)}
+.schedule-icon-btn{width:40px;height:40px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:900}
+.schedule-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.schedule-toolbar-actions{display:flex;gap:10px;flex-wrap:wrap}
+.schedule-month-nav{display:flex;align-items:center;gap:10px}
+.schedule-month-nav button{width:38px;height:38px;border:var(--bd);border-radius:999px;background:var(--w);box-shadow:var(--sh);font-family:var(--fontd);font-size:18px;font-weight:900;cursor:pointer}
+.schedule-month-name{font-size:13px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.schedule-board{display:grid;grid-template-columns:minmax(0,1.28fr) minmax(290px,.9fr);gap:14px;align-items:start}
+.schedule-calendar-card,.schedule-side-card,.schedule-detail-card,.schedule-panel-card{
+  border:var(--bd);border-radius:28px;background:rgba(255,255,255,.92);box-shadow:var(--sh);
+}
+.schedule-calendar-card{padding:16px 14px 18px}
+.schedule-side-stack{display:flex;flex-direction:column;gap:14px}
+.schedule-side-card{padding:14px}
+.schedule-day-head{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;padding-bottom:12px;margin-bottom:12px;border-bottom:2px dashed #1f1f1f}
+.schedule-day-head span{
+  width:100%;aspect-ratio:1/1;border:1.8px solid #0a0a0a;border-radius:999px;display:flex;align-items:center;justify-content:center;
+  font-family:var(--fontcute);font-size:11px;background:#fff;
+}
+.schedule-day-head span.is-weekend{background:#101010;color:#fff}
+.schedule-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
+.schedule-day-cell{min-height:76px;border:none;background:transparent;display:flex;justify-content:center;align-items:flex-start;cursor:pointer}
+.schedule-day-inner{
+  width:100%;max-width:64px;aspect-ratio:1/1;border:1.8px solid #1b1b1b;border-radius:999px;background:#fff;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:3px;padding:6px 4px;position:relative;transition:transform .12s ease, box-shadow .12s ease, background .12s ease;
+}
+.schedule-day-inner.has-items::after{
+  content:'';position:absolute;right:7px;top:7px;width:8px;height:8px;border-radius:999px;background:#0a0a0a;
+}
+.schedule-day-inner.has-special::before{
+  content:'✦';position:absolute;left:8px;top:6px;font-size:9px;font-weight:900
+}
+.schedule-day-cell:active .schedule-day-inner{transform:translate(1px,1px)}
+.schedule-day-cell.selected .schedule-day-inner{background:#0d0d0d;color:#fff;box-shadow:3px 4px 0 #0a0a0a}
+.schedule-day-cell.today .schedule-day-inner{outline:2px solid #0a0a0a;outline-offset:2px}
+.schedule-day-number{font-family:var(--fontd);font-size:18px;font-weight:900;line-height:1}
+.schedule-day-note{font-size:10px;line-height:1.1;color:#666;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.schedule-day-cell.selected .schedule-day-note{color:rgba(255,255,255,.78)}
+.schedule-side-hero{
+  border:var(--bd);border-radius:26px;overflow:hidden;background:#fff;box-shadow:3px 4px 0 #0a0a0a;height:204px;position:relative;
+}
+.schedule-side-hero img{width:100%;height:100%;object-fit:cover;display:block;filter:grayscale(1) contrast(1.02) brightness(1.02)}
+.schedule-side-hero::after{
+  content:'';position:absolute;inset:auto 0 0 0;height:44%;background:linear-gradient(180deg, transparent, rgba(255,255,255,.94) 64%, rgba(255,255,255,1));
+}
+.schedule-hero-stamp{
+  position:absolute;left:14px;bottom:12px;z-index:2;border:var(--bd);border-radius:16px;background:rgba(255,255,255,.94);padding:8px 10px;box-shadow:var(--sh);
+}
+.schedule-hero-stamp .k{font-size:10px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:#666}
+.schedule-hero-stamp .v{margin-top:2px;font-family:var(--fontd);font-size:15px;font-weight:900}
+.schedule-section-title{font-family:var(--fontcute);font-size:28px;letter-spacing:.06em}
+.schedule-section-sub{margin-top:4px;font-size:11px;color:#666;font-weight:700;line-height:1.5}
+.schedule-todo-list,.schedule-badge-list,.schedule-quote-list,.schedule-timeline,.schedule-events-list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.schedule-todo-item,.schedule-badge-item,.schedule-quote-card,.schedule-timeline-item,.schedule-event-item{
+  border:var(--bd);background:#fff;box-shadow:var(--sh);
+}
+.schedule-todo-item,.schedule-badge-item,.schedule-event-item{border-radius:18px;padding:10px 12px}
+.schedule-todo-item{display:flex;gap:10px;align-items:flex-start}
+.schedule-todo-toggle{
+  width:22px;height:22px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:2px 2px 0 #0a0a0a;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;cursor:pointer
+}
+.schedule-todo-item.done .schedule-todo-main{opacity:.56;text-decoration:line-through}
+.schedule-todo-main{min-width:0;flex:1}
+.schedule-todo-text,.schedule-event-title,.schedule-badge-title{font-size:13px;font-weight:900;line-height:1.5}
+.schedule-todo-meta,.schedule-event-meta,.schedule-badge-note{margin-top:2px;font-size:11px;color:#666;line-height:1.5;font-weight:700}
+.schedule-mini-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.schedule-mini-actions button{
+  border:var(--bd);border-radius:999px;background:#fff;box-shadow:2px 2px 0 #0a0a0a;padding:7px 10px;font-size:11px;font-weight:900;cursor:pointer
+}
+.schedule-detail-card{padding:14px 16px 16px}
+.schedule-detail-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.schedule-detail-date{font-family:var(--fontd);font-size:22px;font-weight:900}
+.schedule-detail-date-sub{margin-top:3px;font-size:11px;color:#666;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+.schedule-detail-actions{display:flex;gap:8px;flex-wrap:wrap}
+.schedule-detail-actions button{
+  border:var(--bd);border-radius:14px;background:#fff;box-shadow:var(--sh);padding:10px 12px;font-size:12px;font-weight:900;cursor:pointer
+}
+.schedule-detail-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);gap:14px;margin-top:14px}
+.schedule-panel-card{padding:14px}
+.schedule-kicker{font-size:10px;font-weight:900;letter-spacing:.18em;color:#7a7a7a;text-transform:uppercase}
+.schedule-panel-title{margin-top:3px;font-family:var(--fontd);font-size:18px;font-weight:900}
+.schedule-diary-card{
+  margin-top:12px;border:var(--bd);border-radius:22px;background:linear-gradient(180deg,#fff,#f6f6f3);box-shadow:var(--sh);padding:14px 14px 13px;line-height:1.8
+}
+.schedule-diary-card .diary-text{font-size:13px;font-weight:700}
+.schedule-diary-card .diary-note{margin-top:10px;padding-top:10px;border-top:1.5px dashed #1f1f1f;font-size:12px;color:#666;line-height:1.7;font-weight:700}
+.schedule-timeline-item{border-radius:22px;padding:12px 14px;display:grid;grid-template-columns:78px 1fr;gap:12px}
+.schedule-time{font-family:var(--fontd);font-size:14px;font-weight:900}
+.schedule-timeline-main{min-width:0}
+.schedule-timeline-title{font-size:13px;font-weight:900;line-height:1.45}
+.schedule-timeline-note{margin-top:3px;font-size:11px;color:#666;font-weight:700;line-height:1.5}
+.schedule-badge-list{flex-direction:row;flex-wrap:wrap}
+.schedule-badge-item{border-radius:999px;padding:8px 12px;box-shadow:2px 2px 0 #0a0a0a}
+.schedule-badge-item .schedule-badge-title{font-size:11px}
+.schedule-badge-item .schedule-badge-note{margin-top:0;font-size:10px}
+.schedule-quote-card{border-radius:22px;padding:14px;background:linear-gradient(180deg,#fff,#f5f5f2)}
+.schedule-quote-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.schedule-quote-tag{border:var(--bd);border-radius:999px;background:#101010;color:#fff;padding:4px 8px;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+.schedule-quote-text{margin-top:12px;border:var(--bd);border-radius:18px;background:#fff;padding:12px 12px 11px;box-shadow:2px 2px 0 #0a0a0a;font-size:12px;font-weight:800;line-height:1.65}
+.schedule-quote-reply{margin-top:10px;font-size:12px;font-weight:800;line-height:1.7}
+.schedule-empty{margin-top:12px;border:1.5px dashed #1f1f1f;border-radius:20px;padding:14px;text-align:center;font-size:12px;color:#666;font-weight:800;line-height:1.6;background:rgba(255,255,255,.76)}
+.schedule-settings-drawer{
+  position:fixed;inset:auto 12px 12px 12px;z-index:30;border:var(--bd);border-radius:28px;background:rgba(255,255,255,.98);box-shadow:8px 10px 0 rgba(10,10,10,.96);
+  padding:16px 16px 18px;display:none;max-height:min(72vh,620px);overflow:auto
+}
+.schedule-settings-drawer.open{display:block}
+.schedule-settings-head{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.schedule-settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.schedule-field{border:var(--bd);border-radius:22px;background:#fff;box-shadow:var(--sh);padding:12px}
+.schedule-field label{display:block;font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#666}
+.schedule-field p{margin-top:6px;font-size:12px;font-weight:800;line-height:1.6}
+.schedule-switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.schedule-switch{
+  min-width:58px;padding:6px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:2px 2px 0 #0a0a0a;display:flex;justify-content:flex-start;cursor:pointer
+}
+.schedule-switch::after{content:'';width:18px;height:18px;border:var(--bd);border-radius:999px;background:#0a0a0a;display:block}
+.schedule-switch.on{background:#111}
+.schedule-switch.on::after{margin-left:auto;background:#fff}
+.schedule-modal{
+  position:fixed;inset:0;background:rgba(0,0,0,.24);display:none;align-items:flex-end;justify-content:center;z-index:40;padding:14px
+}
+.schedule-modal.open{display:flex}
+.schedule-modal-card{
+  width:min(520px,100%);border:var(--bd);border-radius:28px;background:#fff;box-shadow:8px 10px 0 rgba(10,10,10,.98);padding:16px 16px 18px;display:flex;flex-direction:column;gap:12px
+}
+.schedule-modal-card h3{font-family:var(--fontd);font-size:18px;font-weight:900}
+.schedule-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.schedule-input,.schedule-select,.schedule-textarea{
+  width:100%;border:var(--bd);border-radius:18px;background:#fff;padding:11px 12px;font-size:13px;font-weight:800;outline:none
+}
+.schedule-textarea{min-height:96px;resize:vertical;grid-column:1/-1}
+.schedule-modal-actions{display:flex;gap:10px;justify-content:flex-end}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(12px);background:#0a0a0a;color:#fff;padding:10px 16px;border-radius:999px;font-size:12px;font-weight:900;opacity:0;pointer-events:none;transition:opacity .22s ease,transform .22s ease;z-index:55}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media (max-width: 900px){
+  .schedule-char-row{max-width:none;justify-content:flex-start}
+  .schedule-board,.schedule-detail-grid,.schedule-settings-grid,.schedule-form-grid{grid-template-columns:1fr}
+  .schedule-month-index{font-size:48px}
+  .schedule-month-label{font-size:26px}
+  .schedule-year-label{font-size:20px}
+}
+</style>
+</head>
+<body>
+  <div class="schedule-shell">
+    <div class="schedule-frame">
+      <div class="schedule-head">
+        <div class="schedule-title-stack">
+          <div class="schedule-month-index" id="monthIndex">04</div>
+          <div class="schedule-title-meta">
+            <div class="schedule-month-label" id="monthLabel">APRIL</div>
+            <div class="schedule-year-label" id="yearLabel">2026</div>
+          </div>
+        </div>
+        <div class="schedule-char-row" id="charSelector"></div>
+      </div>
+
+      <div class="schedule-toolbar">
+        <div class="schedule-month-nav">
+          <button type="button" onclick="shiftMonth(-1)">‹</button>
+          <div class="schedule-month-name" id="monthName">APRIL 2026</div>
+          <button type="button" onclick="shiftMonth(1)">›</button>
+        </div>
+        <div class="schedule-toolbar-actions">
+          <button class="schedule-ghost-btn" type="button" onclick="openSettingsDrawer()">时间感知</button>
+          <button class="schedule-solid-btn" type="button" onclick="generateSelectedDay()">生成Ta的一天</button>
+        </div>
+      </div>
+
+      <div class="schedule-board">
+        <div class="schedule-calendar-card">
+          <div class="schedule-day-head">
+            <span>MON</span>
+            <span>TUE</span>
+            <span>WED</span>
+            <span>THU</span>
+            <span>FRI</span>
+            <span class="is-weekend">SAT</span>
+            <span class="is-weekend">SUN</span>
+          </div>
+          <div class="schedule-grid" id="calendarGrid"></div>
+        </div>
+
+        <div class="schedule-side-stack">
+          <div class="schedule-side-card">
+            <div class="schedule-side-hero">
+              <img src="assets/日历.jpg" alt="日历插画">
+              <div class="schedule-hero-stamp">
+                <div class="k">Selected Day</div>
+                <div class="v" id="selectedDayStamp">APR 01</div>
+              </div>
+            </div>
+            <div class="schedule-mini-actions">
+              <button type="button" onclick="openEntryModal('event')">添加行程</button>
+              <button type="button" onclick="openEntryModal('todo')">添加待办</button>
+              <button type="button" onclick="openEntryModal('special')">添加日期</button>
+            </div>
+          </div>
+
+          <div class="schedule-side-card">
+            <div class="schedule-section-title">TO DO LIST:</div>
+            <div class="schedule-section-sub">当天待办会被这个 char 看见，他可以在日历里点评，也可能在聊天时提起。</div>
+            <div class="schedule-todo-list" id="todoList"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="schedule-detail-card">
+        <div class="schedule-detail-top">
+          <div>
+            <div class="schedule-detail-date" id="detailDateLabel">April 1</div>
+            <div class="schedule-detail-date-sub" id="detailDateSub">TODAY OVERVIEW</div>
+          </div>
+          <div class="schedule-detail-actions">
+            <button type="button" onclick="generateSelectedDay()">重生成日程</button>
+            <button type="button" onclick="openEntryModal('event')">补一条安排</button>
+          </div>
+        </div>
+
+        <div class="schedule-badge-list" id="badgeList"></div>
+
+        <div class="schedule-detail-grid">
+          <div class="schedule-panel-card">
+            <div class="schedule-kicker">Today Timeline</div>
+            <div class="schedule-panel-title">今日时间轴</div>
+            <div class="schedule-timeline" id="timelineList"></div>
+          </div>
+          <div class="schedule-panel-card">
+            <div class="schedule-kicker">Diary & Notes</div>
+            <div class="schedule-panel-title">他的一句日记</div>
+            <div id="diaryHost"></div>
+            <div class="schedule-quote-list" id="quoteList"></div>
+          </div>
+        </div>
+
+        <div class="schedule-detail-grid">
+          <div class="schedule-panel-card">
+            <div class="schedule-kicker">User Events</div>
+            <div class="schedule-panel-title">用户日程</div>
+            <div class="schedule-events-list" id="eventList"></div>
+          </div>
+          <div class="schedule-panel-card">
+            <div class="schedule-kicker">Calendar Whisper</div>
+            <div class="schedule-panel-title">日历留言</div>
+            <div id="calendarNoteHost"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="schedule-settings-drawer" id="settingsDrawer">
+    <div class="schedule-settings-head">
+      <div>
+        <div class="schedule-kicker">Time Awareness</div>
+        <div class="schedule-panel-title">时间感知设置</div>
+      </div>
+      <button class="schedule-icon-btn" type="button" onclick="closeSettingsDrawer()">×</button>
+    </div>
+    <div class="schedule-settings-grid">
+      <div class="schedule-field">
+        <div class="schedule-switch-row">
+          <div>
+            <label>总开关</label>
+            <p>决定整个日程系统要不要严格按日期与时间推进。</p>
+          </div>
+          <button class="schedule-switch" id="globalAwarenessSwitch" type="button" onclick="toggleGlobalAwareness()"></button>
+        </div>
+      </div>
+      <div class="schedule-field">
+        <div class="schedule-switch-row">
+          <div>
+            <label>当前 Char 覆盖</label>
+            <p>这个角色可以单独决定是否遵守严格时间感知。</p>
+          </div>
+          <button class="schedule-switch" id="charAwarenessSwitch" type="button" onclick="toggleCharAwareness()"></button>
+        </div>
+      </div>
+      <div class="schedule-field">
+        <div class="schedule-switch-row">
+          <div>
+            <label>日历留言</label>
+            <p>允许这个角色在日历页面留下带人设感的小留言。</p>
+          </div>
+          <button class="schedule-switch" id="charCommentSwitch" type="button" onclick="toggleCharComments()"></button>
+        </div>
+      </div>
+      <div class="schedule-field">
+        <div class="schedule-switch-row">
+          <div>
+            <label>聊天引用</label>
+            <p>允许他把待办或行程引用成特殊气泡带去聊天。</p>
+          </div>
+          <button class="schedule-switch" id="charQuoteSwitch" type="button" onclick="toggleCharQuotes()"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="schedule-modal" id="entryModal" onclick="handleModalMask(event)">
+    <div class="schedule-modal-card">
+      <h3 id="entryModalTitle">添加条目</h3>
+      <div class="schedule-form-grid" id="entryFormGrid"></div>
+      <div class="schedule-modal-actions">
+        <button class="schedule-ghost-btn" type="button" onclick="closeEntryModal()">取消</button>
+        <button class="schedule-solid-btn" type="button" onclick="saveEntryFromModal()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+var scheduleState = ScheduleShared.normalizeState(null);
+var characterList = [];
+var activeCharId = '';
+var viewMonthKey = ScheduleShared.toMonthKey(new Date());
+var selectedDateKey = ScheduleShared.toDateKey(new Date());
+var entryModalMode = '';
+var toastTimer = null;
+
+function esc(text){
+  return String(text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function toast(text){
+  var node = document.getElementById('toast');
+  if(!node) return;
+  node.textContent = String(text || '').trim();
+  node.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ node.classList.remove('show'); }, 1900);
+}
+
+function getParentShell(){
+  try{
+    if(window.parent && window.parent !== window) return window.parent;
+  }catch(err){}
+  return window;
+}
+
+function getActiveCharacterFromShell(){
+  var shell = getParentShell();
+  try{
+    if(shell && typeof shell.getCurrentForegroundCharacter === 'function'){
+      var live = shell.getCurrentForegroundCharacter();
+      if(live && live.id) return live;
+    }
+  }catch(err){}
+  try{
+    if(shell && typeof shell.getActiveCharacterData === 'function'){
+      var active = shell.getActiveCharacterData();
+      if(active && active.id) return active;
+    }
+  }catch(err){}
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      var scoped = window.AccountManager.scopedKey('activeCharacter');
+      var parsed = JSON.parse(localStorage.getItem(scoped) || localStorage.getItem('activeCharacter') || 'null');
+      if(parsed && parsed.id) return parsed;
+    }
+  }catch(err){}
+  return null;
+}
+
+function getCharacterName(char){
+  return String((char && (char.nickname || char.name)) || '角色');
+}
+
+function loadCharacters(){
+  if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
+    characterList = window.MetadataStore.getCharactersSync().filter(function(item){ return item && item.id; });
+  }else{
+    try{
+      var list = JSON.parse(localStorage.getItem('characters') || '[]');
+      characterList = Array.isArray(list) ? list.filter(function(item){ return item && item.id; }) : [];
+    }catch(err){
+      characterList = [];
+    }
+  }
+}
+
+function getActiveChar(){
+  if(activeCharId){
+    var exact = characterList.find(function(item){ return item && String(item.id) === String(activeCharId); });
+    if(exact) return exact;
+  }
+  return characterList[0] || null;
+}
+
+function getActiveCharOverride(){
+  var char = getActiveChar();
+  if(!char) return { timeAwarenessEnabled:null, allowCalendarComments:true, allowChatQuotes:true };
+  return Object.assign({ timeAwarenessEnabled:null, allowCalendarComments:true, allowChatQuotes:true }, scheduleState.charOverrides[String(char.id)] || {});
+}
+
+function getActiveCharState(){
+  var char = getActiveChar();
+  return ScheduleShared.getCharState(scheduleState, char && char.id);
+}
+
+function persistState(){
+  scheduleState.lastViewedCharId = String(activeCharId || '').trim();
+  return ScheduleShared.saveState(scheduleState).then(function(saved){
+    scheduleState = ScheduleShared.normalizeState(saved);
+    return scheduleState;
+  });
+}
+
+function renderCharSelector(){
+  var host = document.getElementById('charSelector');
+  if(!host) return;
+  if(!characterList.length){
+    host.innerHTML = '<button class="schedule-char-chip active" type="button">暂无角色</button>';
+    return;
+  }
+  host.innerHTML = characterList.map(function(char){
+    var active = String(char.id) === String(activeCharId) ? ' active' : '';
+    return '<button class="schedule-char-chip' + active + '" type="button" onclick="selectChar(\'' + esc(String(char.id)) + '\')">' + esc(getCharacterName(char)) + '</button>';
+  }).join('');
+}
+
+function monthDateFromKey(key){
+  var match = String(key || '').match(/^(\d{4})-(\d{2})$/);
+  if(!match) return new Date();
+  return new Date(parseInt(match[1], 10), parseInt(match[2], 10) - 1, 1);
+}
+
+function formatMonthHead(date){
+  var d = date instanceof Date ? date : new Date(date);
+  var monthNames = ['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+  document.getElementById('monthIndex').textContent = String(d.getMonth() + 1).padStart(2, '0');
+  document.getElementById('monthLabel').textContent = monthNames[d.getMonth()] || '';
+  document.getElementById('yearLabel').textContent = String(d.getFullYear());
+  document.getElementById('monthName').textContent = (monthNames[d.getMonth()] || '') + ' ' + d.getFullYear();
+}
+
+function getLunarishText(day){
+  var hints = ['初一','初二','初三','初四','初五','初六','初七','初八','初九','初十','十一','十二','十三','十四','十五','十六','十七','十八','十九','二十','廿一','廿二','廿三','廿四','廿五','廿六','廿七','廿八','廿九','三十','月末'];
+  return hints[(day - 1) % hints.length];
+}
+
+function renderCalendar(){
+  var date = monthDateFromKey(viewMonthKey);
+  formatMonthHead(date);
+  var year = date.getFullYear();
+  var month = date.getMonth();
+  var first = new Date(year, month, 1);
+  var firstDay = (first.getDay() + 6) % 7;
+  var daysInMonth = new Date(year, month + 1, 0).getDate();
+  var todayKey = ScheduleShared.toDateKey(new Date());
+  var charState = getActiveCharState();
+  var holidays = ScheduleShared.getHolidayMap(year);
+  var marks = {};
+  charState.events.forEach(function(item){ marks[item.date] = marks[item.date] || {}; marks[item.date].items = true; });
+  charState.todos.forEach(function(item){ marks[item.date] = marks[item.date] || {}; marks[item.date].items = true; });
+  charState.specialDates.forEach(function(item){
+    if(item.yearDate) marks[item.yearDate] = Object.assign(marks[item.yearDate] || {}, { special:true });
+    if(item.monthDay){
+      var key = year + '-' + item.monthDay;
+      marks[key] = Object.assign(marks[key] || {}, { special:true });
+    }
+  });
+  Object.keys(holidays).forEach(function(key){
+    marks[key] = Object.assign(marks[key] || {}, { special:true });
+  });
+  var html = '';
+  for(var i = 0; i < firstDay; i++){
+    html += '<div></div>';
+  }
+  for(var day = 1; day <= daysInMonth; day++){
+    var cellDate = new Date(year, month, day);
+    var key = ScheduleShared.toDateKey(cellDate);
+    var info = marks[key] || {};
+    var classes = ['schedule-day-cell'];
+    if(key === selectedDateKey) classes.push('selected');
+    if(key === todayKey) classes.push('today');
+    var label = '';
+    var holidayItems = holidays[key] || [];
+    if(holidayItems.length) label = holidayItems[0].title;
+    else label = getLunarishText(day);
+    html += '<button class="' + classes.join(' ') + '" type="button" onclick="selectDate(\'' + key + '\')">'
+      + '<span class="schedule-day-inner' + (info.items ? ' has-items' : '') + (info.special ? ' has-special' : '') + '">'
+      + '<span class="schedule-day-number">' + day + '</span>'
+      + '<span class="schedule-day-note">' + esc(label) + '</span>'
+      + '</span></button>';
+  }
+  document.getElementById('calendarGrid').innerHTML = html;
+}
+
+function renderBadges(ctx){
+  var host = document.getElementById('badgeList');
+  if(!host) return;
+  var parts = [];
+  (ctx.holidays || []).forEach(function(item){
+    parts.push('<div class="schedule-badge-item"><div class="schedule-badge-title">' + esc(item.title) + '</div><div class="schedule-badge-note">' + esc(item.note || '节日') + '</div></div>');
+  });
+  (ctx.specialDates || []).forEach(function(item){
+    parts.push('<div class="schedule-badge-item"><div class="schedule-badge-title">' + esc(item.title) + '</div><div class="schedule-badge-note">' + esc(item.note || '重要日子') + '</div></div>');
+  });
+  host.innerHTML = parts.join('');
+}
+
+function getAutoSpecialDatesForDate(dateKey){
+  var items = [];
+  var char = getActiveChar();
+  var safeDay = String(dateKey || '').slice(5);
+  if(char){
+    var charBirthday = ScheduleShared.extractBirthday([
+      char.personality || '',
+      char.description || '',
+      char.system_prompt || ''
+    ].join('\n'));
+    if(charBirthday && charBirthday === safeDay){
+      items.push({ title:getCharacterName(char) + ' 的生日', note:'这一天对他本人是有意义的。', kind:'birthday', source:'system' });
+    }
+  }
+  try{
+    var userPersona = String(localStorage.getItem('user_persona') || '').trim();
+    var userBirthday = ScheduleShared.extractBirthday(userPersona);
+    if(userBirthday && userBirthday === safeDay){
+      items.push({ title:'你的生日', note:'如果这个角色会记得，这一天会变得很特别。', kind:'birthday', source:'system' });
+    }
+  }catch(err){}
+  return items;
+}
+
+function renderTodos(ctx){
+  var host = document.getElementById('todoList');
+  if(!host) return;
+  if(!(ctx.todos || []).length){
+    host.innerHTML = '<div class="schedule-empty">这一天还没有待办。你可以手动写，也可以让他之后在聊天里提醒你。</div>';
+    return;
+  }
+  host.innerHTML = ctx.todos.map(function(item){
+    return '<div class="schedule-todo-item' + (item.done ? ' done' : '') + '">'
+      + '<button class="schedule-todo-toggle" type="button" onclick="toggleTodoDone(\'' + esc(item.id) + '\')">' + (item.done ? '✓' : '') + '</button>'
+      + '<div class="schedule-todo-main"><div class="schedule-todo-text">' + esc(item.text) + '</div>'
+      + (item.note ? '<div class="schedule-todo-meta">' + esc(item.note) + '</div>' : '')
+      + '</div></div>';
+  }).join('');
+}
+
+function renderEvents(ctx){
+  var host = document.getElementById('eventList');
+  if(!host) return;
+  if(!(ctx.events || []).length){
+    host.innerHTML = '<div class="schedule-empty">这一天还没有写进日程的安排。</div>';
+    return;
+  }
+  host.innerHTML = ctx.events.map(function(item){
+    var timeText = item.start ? item.start + (item.end ? (' - ' + item.end) : '') : '未设置时间';
+    var tail = [];
+    if(item.location) tail.push(item.location);
+    if(item.remindChar) tail.push('已交给 char 记着');
+    return '<div class="schedule-event-item"><div class="schedule-event-title">' + esc(item.title) + '</div>'
+      + '<div class="schedule-event-meta">' + esc(timeText + (tail.length ? (' · ' + tail.join(' · ')) : '')) + '</div>'
+      + (item.note ? '<div class="schedule-event-meta">' + esc(item.note) + '</div>' : '')
+      + '</div>';
+  }).join('');
+}
+
+function renderTimeline(ctx){
+  var host = document.getElementById('timelineList');
+  if(!host) return;
+  var items = ctx.charDay && Array.isArray(ctx.charDay.timeline) ? ctx.charDay.timeline : [];
+  if(!items.length){
+    host.innerHTML = '<div class="schedule-empty">这一天的 char 行程还没生成。点上面的“生成Ta的一天”。</div>';
+    return;
+  }
+  host.innerHTML = items.map(function(item){
+    var timeText = item.start || '待定';
+    if(item.end) timeText += ' - ' + item.end;
+    return '<div class="schedule-timeline-item"><div class="schedule-time">' + esc(timeText) + '</div>'
+      + '<div class="schedule-timeline-main"><div class="schedule-timeline-title">' + esc(item.title || '未命名安排') + '</div>'
+      + (item.note ? '<div class="schedule-timeline-note">' + esc(item.note) + '</div>' : '')
+      + '</div></div>';
+  }).join('');
+}
+
+function renderDiary(ctx){
+  var diaryHost = document.getElementById('diaryHost');
+  var noteHost = document.getElementById('calendarNoteHost');
+  if(!diaryHost || !noteHost) return;
+  var charDay = ctx.charDay || null;
+  if(!charDay || (!charDay.diary && !charDay.calendarNote && !charDay.comment)){
+    diaryHost.innerHTML = '<div class="schedule-empty">等这个角色真的“活”起来，这里会出现他今天的一句日记。</div>';
+    noteHost.innerHTML = '<div class="schedule-empty">如果他今天想说点什么，会在这里悄悄留下。</div>';
+    return;
+  }
+  diaryHost.innerHTML = '<div class="schedule-diary-card"><div class="diary-text">' + esc(charDay.diary || '今天没有留下日记。') + '</div>'
+    + (charDay.comment ? '<div class="diary-note">' + esc(charDay.comment) + '</div>' : '')
+    + '</div>';
+  noteHost.innerHTML = charDay.calendarNote
+    ? ('<div class="schedule-diary-card"><div class="diary-text">' + esc(charDay.calendarNote) + '</div></div>')
+    : '<div class="schedule-empty">今天他还没在日历边上写字。</div>';
+}
+
+function renderQuotes(ctx){
+  var host = document.getElementById('quoteList');
+  if(!host) return;
+  var charDay = ctx.charDay || null;
+  var quoteDrafts = charDay && Array.isArray(charDay.quoteDrafts) ? charDay.quoteDrafts : [];
+  if(!quoteDrafts.length){
+    host.innerHTML = '';
+    return;
+  }
+  host.innerHTML = quoteDrafts.map(function(item){
+    return '<div class="schedule-quote-card"><div class="schedule-quote-top">'
+      + '<span class="schedule-quote-tag">' + esc(item.title || '日程引用') + '</span>'
+      + '<button class="schedule-ghost-btn" type="button" onclick="sendQuoteToChat(\'' + esc(item.id) + '\')">发去聊天</button></div>'
+      + '<div class="schedule-quote-text">' + esc(item.excerpt || '') + '</div>'
+      + '<div class="schedule-quote-reply">' + esc(item.reply || '') + '</div></div>';
+  }).join('');
+}
+
+function renderDetails(){
+  var activeChar = getActiveChar();
+  var ctx = ScheduleShared.summarizeDayContext(scheduleState, activeChar && activeChar.id, selectedDateKey);
+  ctx.specialDates = (ctx.specialDates || []).concat(getAutoSpecialDatesForDate(selectedDateKey));
+  var selectedDate = new Date(selectedDateKey + 'T12:00:00');
+  var weekday = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][selectedDate.getDay()] || '';
+  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('selectedDayStamp').textContent = (monthNames[selectedDate.getMonth()] || '').slice(0, 3).toUpperCase() + ' ' + String(selectedDate.getDate()).padStart(2, '0');
+  document.getElementById('detailDateLabel').textContent = (monthNames[selectedDate.getMonth()] || '') + ' ' + selectedDate.getDate();
+  document.getElementById('detailDateSub').textContent = weekday.toUpperCase() + ' · ' + getCharacterName(activeChar);
+  renderBadges(ctx);
+  renderTodos(ctx);
+  renderEvents(ctx);
+  renderTimeline(ctx);
+  renderDiary(ctx);
+  renderQuotes(ctx);
+}
+
+function renderSettings(){
+  var globalSwitch = document.getElementById('globalAwarenessSwitch');
+  var charSwitch = document.getElementById('charAwarenessSwitch');
+  var commentSwitch = document.getElementById('charCommentSwitch');
+  var quoteSwitch = document.getElementById('charQuoteSwitch');
+  var override = getActiveCharOverride();
+  if(globalSwitch) globalSwitch.classList.toggle('on', scheduleState.globalTimeAwareness !== false);
+  if(charSwitch) charSwitch.classList.toggle('on', override.timeAwarenessEnabled !== false);
+  if(commentSwitch) commentSwitch.classList.toggle('on', override.allowCalendarComments !== false);
+  if(quoteSwitch) quoteSwitch.classList.toggle('on', override.allowChatQuotes !== false);
+}
+
+function renderAll(){
+  renderCharSelector();
+  renderCalendar();
+  renderDetails();
+  renderSettings();
+}
+
+function ensureActiveChar(){
+  if(characterList.length && !characterList.some(function(item){ return String(item.id) === String(activeCharId); })){
+    activeCharId = '';
+  }
+  if(!activeCharId){
+    var last = String(scheduleState.lastViewedCharId || '').trim();
+    var shellActive = getActiveCharacterFromShell();
+    if(last && characterList.some(function(item){ return String(item.id) === last; })){
+      activeCharId = last;
+    }else if(shellActive && shellActive.id && characterList.some(function(item){ return String(item.id) === String(shellActive.id); })){
+      activeCharId = String(shellActive.id);
+    }else if(characterList[0]){
+      activeCharId = String(characterList[0].id);
+    }
+  }
+  var charState = getActiveCharState();
+  selectedDateKey = charState.selectedDate || selectedDateKey;
+  viewMonthKey = charState.monthKey || ScheduleShared.toMonthKey(selectedDateKey);
+}
+
+function syncCurrentCharView(){
+  var char = getActiveChar();
+  if(!char) return Promise.resolve();
+  var charState = getActiveCharState();
+  charState.selectedDate = selectedDateKey;
+  charState.monthKey = viewMonthKey;
+  scheduleState = ScheduleShared.setCharState(scheduleState, char.id, charState);
+  scheduleState.lastViewedCharId = String(char.id);
+  return persistState();
+}
+
+function selectChar(charId){
+  activeCharId = String(charId || '').trim();
+  var charState = getActiveCharState();
+  selectedDateKey = charState.selectedDate || ScheduleShared.toDateKey(new Date());
+  viewMonthKey = charState.monthKey || ScheduleShared.toMonthKey(selectedDateKey);
+  syncCurrentCharView().then(renderAll);
+}
+
+function selectDate(dateKey){
+  selectedDateKey = String(dateKey || '');
+  viewMonthKey = selectedDateKey.slice(0, 7);
+  syncCurrentCharView().then(renderAll);
+}
+
+function shiftMonth(delta){
+  var date = monthDateFromKey(viewMonthKey);
+  date.setMonth(date.getMonth() + (Number(delta) || 0));
+  viewMonthKey = ScheduleShared.toMonthKey(date);
+  var selected = new Date(selectedDateKey + 'T12:00:00');
+  if(selected.getFullYear() !== date.getFullYear() || selected.getMonth() !== date.getMonth()){
+    selectedDateKey = ScheduleShared.toDateKey(new Date(date.getFullYear(), date.getMonth(), 1));
+  }
+  syncCurrentCharView().then(renderAll);
+}
+
+function openSettingsDrawer(){
+  document.getElementById('settingsDrawer').classList.add('open');
+}
+
+function closeSettingsDrawer(){
+  document.getElementById('settingsDrawer').classList.remove('open');
+}
+
+function updateOverride(patch){
+  var char = getActiveChar();
+  if(!char) return;
+  var safeId = String(char.id);
+  var current = getActiveCharOverride();
+  scheduleState.charOverrides[safeId] = Object.assign({}, current, patch || {});
+  persistState().then(renderSettings);
+}
+
+function toggleGlobalAwareness(){
+  scheduleState.globalTimeAwareness = scheduleState.globalTimeAwareness === false;
+  persistState().then(renderSettings);
+}
+
+function toggleCharAwareness(){
+  var override = getActiveCharOverride();
+  updateOverride({ timeAwarenessEnabled: override.timeAwarenessEnabled === false });
+}
+
+function toggleCharComments(){
+  var override = getActiveCharOverride();
+  updateOverride({ allowCalendarComments: override.allowCalendarComments === false });
+}
+
+function toggleCharQuotes(){
+  var override = getActiveCharOverride();
+  updateOverride({ allowChatQuotes: override.allowChatQuotes === false });
+}
+
+function handleModalMask(evt){
+  if(evt.target && evt.target.id === 'entryModal') closeEntryModal();
+}
+
+function openEntryModal(mode){
+  entryModalMode = String(mode || 'event');
+  var title = entryModalMode === 'todo' ? '添加待办' : (entryModalMode === 'special' ? '添加重要日期' : '添加行程');
+  document.getElementById('entryModalTitle').textContent = title;
+  var grid = document.getElementById('entryFormGrid');
+  var dateValue = selectedDateKey;
+  if(entryModalMode === 'todo'){
+    grid.innerHTML = ''
+      + '<input class="schedule-input" id="entryTodoText" placeholder="比如：下午三点前把报告交掉">'
+      + '<input class="schedule-input" id="entryTodoDate" type="date" value="' + esc(dateValue) + '">'
+      + '<input class="schedule-input" id="entryTodoNote" placeholder="补一句备注，可选" style="grid-column:1/-1">';
+  }else if(entryModalMode === 'special'){
+    grid.innerHTML = ''
+      + '<input class="schedule-input" id="entrySpecialTitle" placeholder="比如：生日 / 纪念日">'
+      + '<input class="schedule-input" id="entrySpecialDate" type="date" value="' + esc(dateValue) + '">'
+      + '<textarea class="schedule-textarea" id="entrySpecialNote" placeholder="写下这一天对你们意味着什么..."></textarea>';
+  }else{
+    grid.innerHTML = ''
+      + '<input class="schedule-input" id="entryEventTitle" placeholder="比如：和xx去看展">'
+      + '<input class="schedule-input" id="entryEventDate" type="date" value="' + esc(dateValue) + '">'
+      + '<input class="schedule-input" id="entryEventStart" type="time">'
+      + '<input class="schedule-input" id="entryEventEnd" type="time">'
+      + '<input class="schedule-input" id="entryEventLocation" placeholder="地点，可选">'
+      + '<input class="schedule-input" id="entryEventVisibility" placeholder="默认这个 char 可见" value="char可见">'
+      + '<textarea class="schedule-textarea" id="entryEventNote" placeholder="补一句细节，比如：这件事最好提醒我别迟到。"></textarea>';
+  }
+  document.getElementById('entryModal').classList.add('open');
+}
+
+function closeEntryModal(){
+  document.getElementById('entryModal').classList.remove('open');
+}
+
+function saveEntryFromModal(){
+  var char = getActiveChar();
+  if(!char) return;
+  var charState = getActiveCharState();
+  if(entryModalMode === 'todo'){
+    var todo = ScheduleShared.normalizeTodo({
+      date: document.getElementById('entryTodoDate').value,
+      text: document.getElementById('entryTodoText').value,
+      note: document.getElementById('entryTodoNote').value
+    });
+    if(!todo.text){ toast('待办内容不能为空'); return; }
+    charState.todos.unshift(todo);
+  }else if(entryModalMode === 'special'){
+    var rawDate = String(document.getElementById('entrySpecialDate').value || '').trim();
+    var monthDay = rawDate ? rawDate.slice(5) : '';
+    var special = ScheduleShared.normalizeSpecialDate({
+      yearDate: rawDate,
+      monthDay: monthDay,
+      title: document.getElementById('entrySpecialTitle').value,
+      note: document.getElementById('entrySpecialNote').value,
+      kind: 'special'
+    });
+    if(!special.title || (!special.yearDate && !special.monthDay)){ toast('日期和标题都要写'); return; }
+    charState.specialDates.unshift(special);
+  }else{
+    var evt = ScheduleShared.normalizeEvent({
+      date: document.getElementById('entryEventDate').value,
+      start: document.getElementById('entryEventStart').value,
+      end: document.getElementById('entryEventEnd').value,
+      title: document.getElementById('entryEventTitle').value,
+      note: document.getElementById('entryEventNote').value,
+      location: document.getElementById('entryEventLocation').value,
+      visibleToChar: true
+    });
+    if(!evt.title){ toast('日程标题不能为空'); return; }
+    charState.events.unshift(evt);
+  }
+  scheduleState = ScheduleShared.setCharState(scheduleState, char.id, charState);
+  persistState().then(function(){
+    closeEntryModal();
+    renderAll();
+    toast('已写进日程');
+  });
+}
+
+function toggleTodoDone(todoId){
+  var char = getActiveChar();
+  if(!char) return;
+  var charState = getActiveCharState();
+  charState.todos = charState.todos.map(function(item){
+    if(String(item.id) !== String(todoId)) return item;
+    item.done = !item.done;
+    return item;
+  });
+  scheduleState = ScheduleShared.setCharState(scheduleState, char.id, charState);
+  persistState().then(renderAll);
+}
+
+function collectGenerationPayload(){
+  var char = getActiveChar();
+  if(!char) return null;
+  var ctx = ScheduleShared.summarizeDayContext(scheduleState, char.id, selectedDateKey);
+  var mergedSpecialDates = (ctx.specialDates || []).concat(getAutoSpecialDatesForDate(selectedDateKey));
+  return {
+    charId: char.id,
+    dateKey: selectedDateKey,
+    monthKey: viewMonthKey,
+    globalTimeAwareness: scheduleState.globalTimeAwareness !== false,
+    charOverride: getActiveCharOverride(),
+    events: ctx.events,
+    todos: ctx.todos,
+    holidays: ctx.holidays,
+    specialDates: mergedSpecialDates
+  };
+}
+
+async function generateSelectedDay(){
+  var shell = getParentShell();
+  var payload = collectGenerationPayload();
+  if(!payload || !payload.charId){ toast('先选一个角色'); return; }
+  if(!(shell.ScheduleShell && typeof shell.ScheduleShell.generateDayPlan === 'function')){
+    toast('日程生成器还没接上');
+    return;
+  }
+  try{
+    toast('正在写Ta的一天...');
+    var generated = await shell.ScheduleShell.generateDayPlan(payload);
+    if(!generated) throw new Error('没有拿到结果');
+    var char = getActiveChar();
+    var charState = getActiveCharState();
+    charState.charDays[selectedDateKey] = ScheduleShared.normalizeCharDay(generated, selectedDateKey);
+    scheduleState = ScheduleShared.setCharState(scheduleState, char.id, charState);
+    await persistState();
+    renderAll();
+    toast('今天的日程写好了');
+  }catch(err){
+    toast('生成失败：' + (err && err.message ? err.message : '未知错误'));
+  }
+}
+
+function sendQuoteToChat(quoteId){
+  var shell = getParentShell();
+  var char = getActiveChar();
+  if(!(shell.ScheduleShell && typeof shell.ScheduleShell.sendScheduleQuote === 'function') || !char){ return; }
+  var ctx = ScheduleShared.summarizeDayContext(scheduleState, char.id, selectedDateKey);
+  var charDay = ctx.charDay || null;
+  var quote = charDay && Array.isArray(charDay.quoteDrafts) ? charDay.quoteDrafts.find(function(item){ return String(item.id) === String(quoteId); }) : null;
+  if(!quote){ toast('没找到这条引用'); return; }
+  shell.ScheduleShell.sendScheduleQuote({
+    charId: char.id,
+    dateKey: selectedDateKey,
+    title: quote.title,
+    excerpt: quote.excerpt,
+    reply: quote.reply
+  });
+  toast('已经送去聊天里了');
+}
+
+function bindMetadataUpdates(){
+  if(window.MetadataStore && typeof window.MetadataStore.subscribe === 'function'){
+    window.MetadataStore.subscribe(function(topic){
+      if(topic !== 'characters') return;
+      loadCharacters();
+      ensureActiveChar();
+      renderAll();
+    });
+  }
+}
+
+async function initSchedule(){
+  if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
+    try{ await window.MetadataStore.init(); }catch(err){}
+  }
+  loadCharacters();
+  scheduleState = await ScheduleShared.loadState();
+  ensureActiveChar();
+  bindMetadataUpdates();
+  renderAll();
+}
+
+initSchedule();
+</script>
+</body>
+</html>
