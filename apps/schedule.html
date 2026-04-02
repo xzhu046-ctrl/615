@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-02T10:42:00Z"></script>
-<script src="../assetStore.js?v=2026-04-02T10:42:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-02T10:42:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T10:42:00Z"></script>
+<script src="../accountManager.js?v=2026-04-02T10:53:00Z"></script>
+<script src="../assetStore.js?v=2026-04-02T10:53:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-02T10:53:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T10:53:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -537,27 +537,31 @@ function getCharacterName(char){
   return String((char && (char.nickname || char.name)) || '角色');
 }
 
+function isRenderableScheduleAvatarSrc(src){
+  return /^(data:|https?:|blob:|\/|\.\.?\/|assets\/)/i.test(String(src || '').trim());
+}
+
 function getCharacterAvatar(char){
   if(!char) return '';
   var shellResolved = getShellResolvedCharacter(char.id);
   var shellDirect = String((shellResolved && (shellResolved.imageData || shellResolved.avatarUrl || shellResolved.avatar)) || '').trim();
-  if(shellDirect && /^(data:|https?:|blob:|\/|\.\.?\/|assets\/)/i.test(shellDirect)) return shellDirect;
+  if(isRenderableScheduleAvatarSrc(shellDirect)) return shellDirect;
   var liveSrc = getLiveChatAvatarSrcFromShell(char.id);
-  if(liveSrc) return liveSrc;
+  if(isRenderableScheduleAvatarSrc(liveSrc)) return liveSrc;
   var shellSrc = getShellAvatarSrc(char.id);
-  if(shellSrc) return shellSrc;
+  if(isRenderableScheduleAvatarSrc(shellSrc)) return shellSrc;
   var direct = String(char.imageData || char.avatarUrl || char.avatar || '').trim();
-  if(direct && /^(data:|https?:|blob:|\/|\.\.?\/|assets\/)/i.test(direct)) return direct;
+  if(isRenderableScheduleAvatarSrc(direct)) return direct;
   var id = String(char.id || '').trim();
   if(id){
-    if(scheduleAvatarAssetCache[id]) return String(scheduleAvatarAssetCache[id] || '').trim();
+    if(isRenderableScheduleAvatarSrc(scheduleAvatarAssetCache[id])) return String(scheduleAvatarAssetCache[id] || '').trim();
     try{
       var scoped = window.AccountManager && typeof window.AccountManager.scopedKey === 'function'
         ? String(window.AccountManager.scopedKey('char_avatar_' + id) || '').trim()
         : '';
       var stored = (scoped ? localStorage.getItem(scoped) : '') || localStorage.getItem('char_avatar_' + id) || '';
       stored = String(stored || '').trim();
-      if(stored) return stored;
+      if(isRenderableScheduleAvatarSrc(stored)) return stored;
     }catch(err){}
   }
   return '';
@@ -575,7 +579,7 @@ function renderScheduleAvatarButton(btn, char, avatarSrc){
   var fallbackText = esc(getCharacterName(char).slice(0,2) || 'CH');
   btn.style.backgroundImage = 'none';
   btn.innerHTML = '';
-  if(safeSrc){
+  if(isRenderableScheduleAvatarSrc(safeSrc)){
     var media = document.createElement('span');
     media.className = 'schedule-current-char-media';
     media.style.backgroundImage = 'url("' + safeSrc.replace(/(["\\])/g, '\\$1') + '")';
@@ -590,20 +594,23 @@ function resolveCharacterAvatarAsync(char){
   var charId = String(char.id);
   var shellResolved = getShellResolvedCharacter(charId);
   var shellDirect = String((shellResolved && (shellResolved.imageData || shellResolved.avatarUrl || shellResolved.avatar)) || '').trim();
-  if(shellDirect && /^(data:|https?:|blob:|\/|\.\.?\/|assets\/)/i.test(shellDirect)) return Promise.resolve(shellDirect);
+  if(isRenderableScheduleAvatarSrc(shellDirect)) return Promise.resolve(shellDirect);
   var liveSrc = getLiveChatAvatarSrcFromShell(charId);
-  if(liveSrc) return Promise.resolve(liveSrc);
+  if(isRenderableScheduleAvatarSrc(liveSrc)) return Promise.resolve(liveSrc);
   var shellSrc = getShellAvatarSrc(charId);
-  if(shellSrc) return Promise.resolve(shellSrc);
+  if(isRenderableScheduleAvatarSrc(shellSrc)) return Promise.resolve(shellSrc);
   var syncSrc = getCharacterAvatar(char);
-  if(syncSrc) return Promise.resolve(syncSrc);
+  if(isRenderableScheduleAvatarSrc(syncSrc)) return Promise.resolve(syncSrc);
   var fromRoster = getCharacterById(charId);
   var rosterSrc = getCharacterAvatar(fromRoster);
-  if(rosterSrc) return Promise.resolve(rosterSrc);
+  if(isRenderableScheduleAvatarSrc(rosterSrc)) return Promise.resolve(rosterSrc);
   return loadStoredAsset('char_avatar_' + charId).then(function(src){
     var safe = String(src || '').trim();
-    if(safe) scheduleAvatarAssetCache[charId] = safe;
-    return safe;
+    if(isRenderableScheduleAvatarSrc(safe)){
+      scheduleAvatarAssetCache[charId] = safe;
+      return safe;
+    }
+    return '';
   }).catch(function(){
     return '';
   });
