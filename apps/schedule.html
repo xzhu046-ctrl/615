@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-02T07:58:00Z"></script>
-<script src="../assetStore.js?v=2026-04-02T07:58:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-02T07:58:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T07:58:00Z"></script>
+<script src="../accountManager.js?v=2026-04-02T08:12:00Z"></script>
+<script src="../assetStore.js?v=2026-04-02T08:12:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-02T08:12:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T08:12:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -47,7 +47,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-calendar-action.nav-circle{width:52px;height:52px;border-radius:999px}
 .schedule-calendar-action svg{width:20px;height:20px;display:block;fill:#0a0a0a}
 .schedule-calendar-action-text{font-size:20px;line-height:1;font-weight:900;color:#111}
-.schedule-calendar-corner{position:absolute;right:18px;bottom:44px;z-index:3;display:flex;align-items:flex-end;gap:10px}
+.schedule-calendar-corner{position:absolute;right:18px;bottom:112px;z-index:3;display:flex;align-items:flex-end;gap:10px}
 .schedule-char-label{
   font-family:var(--fontcute);font-size:22px;font-weight:700;color:#111;line-height:1;padding:0 0 6px
 }
@@ -244,7 +244,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
         <div class="schedule-grid" id="calendarGrid"></div>
         <div class="schedule-calendar-corner">
           <div class="schedule-char-label">CHAR</div>
-          <button class="schedule-current-char" id="currentCharAvatarBtn" type="button" onclick="toggleCharPicker(event)"></button>
+          <button class="schedule-current-char" id="currentCharAvatarBtn" type="button" onclick="toggleCharPicker(event)"><span class="schedule-current-char-fallback">CH</span></button>
           <div class="schedule-avatar-picker" id="charPicker">
             <div class="schedule-char-row" id="charSelector"></div>
           </div>
@@ -484,7 +484,11 @@ function getActiveChar(){
   if(activeCharId){
     var exact = characterList.find(function(item){ return item && String(item.id) === String(activeCharId); });
     if(exact) return exact;
+    var shellMatch = getActiveCharacterFromShell();
+    if(shellMatch && String(shellMatch.id || '') === String(activeCharId)) return shellMatch;
   }
+  var shellActive = getActiveCharacterFromShell();
+  if(shellActive && shellActive.id) return shellActive;
   return characterList[0] || null;
 }
 
@@ -511,7 +515,17 @@ function renderCharSelector(){
   var host = document.getElementById('charSelector');
   if(!host) return;
   if(!characterList.length){
-    host.innerHTML = '<button class="schedule-char-chip active" type="button"><span class="schedule-char-avatar">?</span><span class="schedule-char-name">暂无角色</span></button>';
+    var fallbackChar = getActiveCharacterFromShell();
+    if(fallbackChar && fallbackChar.id){
+      var fallbackAvatar = getCharacterAvatar(fallbackChar);
+      host.innerHTML = '<button class="schedule-char-chip active" type="button">' +
+        (fallbackAvatar
+          ? ('<span class="schedule-char-avatar"><img src="' + esc(fallbackAvatar) + '" alt=""></span>')
+          : ('<span class="schedule-char-avatar">' + esc(getCharacterName(fallbackChar).slice(0,2)) + '</span>')) +
+        '<span class="schedule-char-name">' + esc(getCharacterName(fallbackChar)) + '</span></button>';
+      return;
+    }
+    host.innerHTML = '<button class="schedule-char-chip active" type="button"><span class="schedule-char-avatar">CH</span><span class="schedule-char-name">暂无角色</span></button>';
     return;
   }
   host.innerHTML = characterList.map(function(char){
@@ -805,7 +819,7 @@ function ensureActiveChar(){
   if(!activeCharId){
     var shellActive = getActiveCharacterFromShell();
     var last = String(scheduleState.lastViewedCharId || '').trim();
-    if(shellActive && shellActive.id && characterList.some(function(item){ return String(item.id) === String(shellActive.id); })){
+    if(shellActive && shellActive.id){
       activeCharId = String(shellActive.id);
     }else if(last && characterList.some(function(item){ return String(item.id) === last; })){
       activeCharId = last;
