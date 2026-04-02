@@ -375,35 +375,49 @@ function renderIconCell(app){
 function pickIcon(cell){
   const app = cell.dataset.app;
   const input = document.createElement('input');
-  input.type='file'; input.accept='image/*';
-  input.onchange = e => {
-    const file = e.target.files[0]; if(!file) return;
-    const r=new FileReader();
-    r.onload=ev=>{
-      const data=ev.target.result;
-      stagedIcons[app] = data;
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.style.position = 'fixed';
+  input.style.left = '-9999px';
+  input.style.opacity = '0';
+  document.body.appendChild(input);
+  input.onchange = function(e){
+    const file = e && e.target && e.target.files ? e.target.files[0] : null;
+    if(!file){
+      input.remove();
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(ev){
+      const data = ev && ev.target ? ev.target.result : '';
+      stagedIcons[app] = data || '';
       renderIconCell(app);
       toast('已更新预览，记得保存');
+      input.remove();
     };
-    r.readAsDataURL(file);
+    reader.onerror = function(){
+      toast('图片读取失败');
+      input.remove();
+    };
+    reader.readAsDataURL(file);
   };
   input.click();
 }
 
-(function loadIcons(){
-  ICON_APPS.forEach(function(app){
+async function loadIcons(){
+  for(const app of ICON_APPS){
     const key = app === 'schedule_cover' ? SCHEDULE_COVER_KEY : ('icon_' + app);
+    let data = '';
     if(window.assetStore){
-      window.assetStore.load(key).then(function(data){
-        stagedIcons[app] = data || '';
-        renderIconCell(app);
-      });
-      return;
+      try{ data = await window.assetStore.load(key); }catch(err){ data = ''; }
+    }else{
+      try{ data = localStorage.getItem(key) || ''; }catch(err){ data = ''; }
     }
-    stagedIcons[app] = localStorage.getItem(key) || '';
+    stagedIcons[app] = data || '';
     renderIconCell(app);
-  });
-})();
+  }
+}
+loadIcons();
 
 function toast(msg){
   const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
@@ -418,22 +432,44 @@ function resetIcons(){
   toast('已重置预览，记得保存');
 }
 
-function saveIcons(){
-  ICON_APPS.forEach(function(app){
+async function persistIconData(key, data){
+  if(window.assetStore){
+    if(data) return !!(await window.assetStore.saveOrFallback(key, data));
+    try{
+      await window.assetStore.remove(key);
+      return true;
+    }catch(err){
+      return false;
+    }
+  }
+  try{
+    if(data) localStorage.setItem(key, data);
+    else localStorage.removeItem(key);
+    return true;
+  }catch(err){
+    return false;
+  }
+}
+
+async function saveIcons(){
+  let failed = false;
+  for(const app of ICON_APPS){
     const data = stagedIcons[app];
     const key = app === 'schedule_cover' ? SCHEDULE_COVER_KEY : ('icon_' + app);
-    if(window.assetStore){
-      if(data) window.assetStore.saveOrFallback(key, data);
-      else window.assetStore.remove(key);
-    }else{
-      if(data) localStorage.setItem(key, data);
-      else localStorage.removeItem(key);
+    const ok = await persistIconData(key, data);
+    if(!ok){
+      failed = true;
+      continue;
     }
     try{
       if(app === 'schedule_cover') window.parent.postMessage({type:'SCHEDULE_COVER_UPDATED', payload:data || null}, '*');
       else window.parent.postMessage({type:'SET_APP_ICON', payload:{app, icon:data || null}}, '*');
     }catch(err){}
-  });
+  }
+  if(failed){
+    toast('有图片没有保存成功');
+    return;
+  }
   try{ window.parent.postMessage({type:'SHOW_HOME_TOAST', payload:'图标已保存'}, '*'); }catch(err){}
   toast('图标已保存');
 }
