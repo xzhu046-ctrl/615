@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T10:01:00Z';
+const APP_BUILD_ID = '2026-04-02T10:14:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2669,6 +2669,8 @@ function getActiveCharacterData(){
 function persistShellActiveCharacter(character){
   var slim = slimChar(character);
   if(!slim || !slim.id) return null;
+  var resolvedAvatar = getCharacterAvatarForBg(character);
+  if(resolvedAvatar) slim.imageData = resolvedAvatar;
   var accountId = getActiveAccountId();
   var cacheKey = getShellAccountCacheKey(accountId);
   shellActiveCharacterCache[cacheKey] = slim;
@@ -2691,7 +2693,19 @@ function getCurrentForegroundCharacter(){
     if(win && currentApp === 'chat'){
       var liveChar = win.character;
       if(liveChar && liveChar.id){
-        return slimChar(liveChar);
+        var slim = slimChar(liveChar);
+        try{
+          var selectors = ['#chatExportIdcAvatar img', '#idcAvatar img', '#csCharAvatar img', '#hdrAvatar img'];
+          for(var i = 0; i < selectors.length; i++){
+            var node = win.document ? win.document.querySelector(selectors[i]) : null;
+            var src = String((node && node.getAttribute && node.getAttribute('src')) || (node && node.src) || '').trim();
+            if(src){
+              slim.imageData = src;
+              break;
+            }
+          }
+        }catch(err){}
+        return slim;
       }
     }
   }catch(e){}
