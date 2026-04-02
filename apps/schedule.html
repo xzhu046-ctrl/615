@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-02T07:42:00Z"></script>
-<script src="../assetStore.js?v=2026-04-02T07:42:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-02T07:42:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T07:42:00Z"></script>
+<script src="../accountManager.js?v=2026-04-02T07:58:00Z"></script>
+<script src="../assetStore.js?v=2026-04-02T07:58:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-02T07:58:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T07:58:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -47,7 +47,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-calendar-action.nav-circle{width:52px;height:52px;border-radius:999px}
 .schedule-calendar-action svg{width:20px;height:20px;display:block;fill:#0a0a0a}
 .schedule-calendar-action-text{font-size:20px;line-height:1;font-weight:900;color:#111}
-.schedule-calendar-corner{position:absolute;right:18px;bottom:18px;z-index:3;display:flex;align-items:flex-end;gap:10px}
+.schedule-calendar-corner{position:absolute;right:18px;bottom:44px;z-index:3;display:flex;align-items:flex-end;gap:10px}
 .schedule-char-label{
   font-family:var(--fontcute);font-size:22px;font-weight:700;color:#111;line-height:1;padding:0 0 6px
 }
@@ -428,6 +428,15 @@ function getActiveCharacterFromShell(){
   try{
     if(window.AccountManager){
       window.AccountManager.ensure();
+      var scopedChatId = window.AccountManager.scopedKey('activeChatCharacterId');
+      var rawChatId = localStorage.getItem(scopedChatId) || localStorage.getItem('activeChatCharacterId') || '';
+      var chatId = String(rawChatId || '').trim();
+      if(chatId){
+        var list = Array.isArray(characterList) ? characterList : [];
+        var matched = list.find(function(item){ return item && String(item.id) === chatId; });
+        if(matched) return matched;
+        return { id: chatId };
+      }
       var scoped = window.AccountManager.scopedKey('activeCharacter');
       var parsed = JSON.parse(localStorage.getItem(scoped) || localStorage.getItem('activeCharacter') || 'null');
       if(parsed && parsed.id) return parsed;
@@ -520,7 +529,8 @@ function renderCurrentCharAvatar(){
   if(!btn) return;
   var char = getActiveChar();
   if(!char){
-    btn.style.display = 'none';
+    btn.style.display = 'flex';
+    btn.innerHTML = '<span class="schedule-current-char-fallback">CH</span>';
     return;
   }
   btn.style.display = 'flex';
@@ -793,12 +803,12 @@ function ensureActiveChar(){
     activeCharId = '';
   }
   if(!activeCharId){
-    var last = String(scheduleState.lastViewedCharId || '').trim();
     var shellActive = getActiveCharacterFromShell();
-    if(last && characterList.some(function(item){ return String(item.id) === last; })){
-      activeCharId = last;
-    }else if(shellActive && shellActive.id && characterList.some(function(item){ return String(item.id) === String(shellActive.id); })){
+    var last = String(scheduleState.lastViewedCharId || '').trim();
+    if(shellActive && shellActive.id && characterList.some(function(item){ return String(item.id) === String(shellActive.id); })){
       activeCharId = String(shellActive.id);
+    }else if(last && characterList.some(function(item){ return String(item.id) === last; })){
+      activeCharId = last;
     }else if(characterList[0]){
       activeCharId = String(characterList[0].id);
     }
@@ -1049,6 +1059,19 @@ function bindMetadataUpdates(){
     });
   }
 }
+function bindShellMessages(){
+  window.addEventListener('message', function(evt){
+    var data = evt && evt.data && typeof evt.data === 'object' ? evt.data : null;
+    if(!data) return;
+    if(data.type !== 'SET_ACTIVE_CHARACTER' && data.type !== 'OPEN_CHAT_WITH') return;
+    var incomingId = String(data.payload && data.payload.id || '').trim();
+    if(!incomingId) return;
+    activeCharId = incomingId;
+    loadCharacters();
+    ensureActiveChar();
+    renderAll();
+  });
+}
 
 document.addEventListener('click', function(evt){
   var pop = document.getElementById('charPicker');
@@ -1063,11 +1086,15 @@ document.addEventListener('click', function(evt){
 async function initSchedule(){
   if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
     try{ await window.MetadataStore.init(); }catch(err){}
+    if(typeof window.MetadataStore.loadCharacters === 'function'){
+      try{ await window.MetadataStore.loadCharacters(true); }catch(err){}
+    }
   }
   loadCharacters();
   scheduleState = await ScheduleShared.loadState();
   ensureActiveChar();
   bindMetadataUpdates();
+  bindShellMessages();
   renderAll();
 }
 
