@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-02T08:49:00Z"></script>
-<script src="../assetStore.js?v=2026-04-02T08:49:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-02T08:49:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T08:49:00Z"></script>
+<script src="../accountManager.js?v=2026-04-02T09:01:00Z"></script>
+<script src="../assetStore.js?v=2026-04-02T09:01:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-02T09:01:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T09:01:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -475,6 +475,40 @@ function getCharacterAvatar(char){
   return '';
 }
 
+function getCharacterById(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return null;
+  return characterList.find(function(item){ return item && String(item.id) === safeId; }) || null;
+}
+
+function renderScheduleAvatarButton(btn, char, avatarSrc){
+  if(!btn) return;
+  var safeSrc = String(avatarSrc || '').trim();
+  var fallbackText = esc(getCharacterName(char).slice(0,2) || 'CH');
+  if(safeSrc){
+    btn.innerHTML = '<img src="' + esc(safeSrc) + '" alt="" onerror="this.onerror=null;this.parentNode.innerHTML=\'<span class=&quot;schedule-current-char-fallback&quot;>' + fallbackText + '</span>\'">';
+    return;
+  }
+  btn.innerHTML = '<span class="schedule-current-char-fallback">' + fallbackText + '</span>';
+}
+
+function resolveCharacterAvatarAsync(char){
+  if(!char || !char.id) return Promise.resolve('');
+  var charId = String(char.id);
+  var syncSrc = getCharacterAvatar(char);
+  if(syncSrc) return Promise.resolve(syncSrc);
+  var fromRoster = getCharacterById(charId);
+  var rosterSrc = getCharacterAvatar(fromRoster);
+  if(rosterSrc) return Promise.resolve(rosterSrc);
+  return loadStoredAsset('char_avatar_' + charId).then(function(src){
+    var safe = String(src || '').trim();
+    if(safe) scheduleAvatarAssetCache[charId] = safe;
+    return safe;
+  }).catch(function(){
+    return '';
+  });
+}
+
 function loadCharacters(){
   if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
     characterList = window.MetadataStore.getCharactersSync().filter(function(item){ return item && item.id; });
@@ -559,20 +593,14 @@ function renderCurrentCharAvatar(){
   }
   btn.style.display = 'flex';
   if(label) label.textContent = getCharacterName(char);
-  var avatar = getCharacterAvatar(char);
-  btn.innerHTML = avatar
-    ? ('<img src="' + esc(avatar) + '" alt="">')
-    : ('<span class="schedule-current-char-fallback">' + esc(getCharacterName(char).slice(0,2)) + '</span>');
-  if(!avatar && char.id){
-    loadStoredAsset('char_avatar_' + char.id).then(function(src){
-      var safe = String(src || '').trim();
-      if(!safe) return;
-      scheduleAvatarAssetCache[String(char.id)] = safe;
+  renderScheduleAvatarButton(btn, char, getCharacterAvatar(char));
+  if(char.id){
+    resolveCharacterAvatarAsync(char).then(function(src){
       if(String(activeCharId || '') !== String(char.id || '')) return;
       var liveBtn = document.getElementById('currentCharAvatarBtn');
       if(!liveBtn) return;
-      liveBtn.innerHTML = '<img src="' + esc(safe) + '" alt="">';
-    }).catch(function(){});
+      renderScheduleAvatarButton(liveBtn, char, src);
+    });
   }
 }
 
