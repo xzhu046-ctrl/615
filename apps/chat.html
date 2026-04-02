@@ -2220,7 +2220,7 @@ function saveContextWindowSize(n){
   var next = parseInt(n || String(DEFAULT_CONTEXT_WINDOW), 10);
   if(Number.isNaN(next)) next = DEFAULT_CONTEXT_WINDOW;
   next = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, next));
-  localStorage.setItem(contextWindowKey(), String(next));
+  safeLocalStorageSet(contextWindowKey(), String(next));
 }
 function loadSummaryEverySize(){
   if(!character) return DEFAULT_SUMMARY_EVERY;
@@ -2233,7 +2233,7 @@ function saveSummaryEverySize(n){
   var next = parseInt(n || String(DEFAULT_SUMMARY_EVERY), 10);
   if(Number.isNaN(next)) next = DEFAULT_SUMMARY_EVERY;
   next = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, next));
-  localStorage.setItem(summaryEveryKey(), String(next));
+  safeLocalStorageSet(summaryEveryKey(), String(next));
 }
 function loadMemoryMergeThreshold(){
   if(!character) return DEFAULT_MEMORY_MERGE_THRESHOLD;
@@ -2246,7 +2246,7 @@ function saveMemoryMergeThreshold(n){
   var next = parseInt(n || String(DEFAULT_MEMORY_MERGE_THRESHOLD), 10);
   if(Number.isNaN(next)) next = DEFAULT_MEMORY_MERGE_THRESHOLD;
   next = Math.max(2, Math.min(50, next));
-  localStorage.setItem(memoryMergeThresholdKey(), String(next));
+  safeLocalStorageSet(memoryMergeThresholdKey(), String(next));
 }
 function loadAutoSummaryEnabled(){
   if(!character) return true;
@@ -2256,7 +2256,7 @@ function loadAutoSummaryEnabled(){
 }
 function saveAutoSummaryEnabled(enabled){
   if(!character) return;
-  localStorage.setItem(autoSummaryEnabledKey(), enabled ? '1' : '0');
+  safeLocalStorageSet(autoSummaryEnabledKey(), enabled ? '1' : '0');
 }
 function loadManualSummarySize(){
   if(!character) return DEFAULT_MANUAL_SUMMARY_SIZE;
@@ -2269,7 +2269,7 @@ function saveManualSummarySize(n){
   var next = parseInt(n || String(DEFAULT_MANUAL_SUMMARY_SIZE), 10);
   if(Number.isNaN(next)) next = DEFAULT_MANUAL_SUMMARY_SIZE;
   next = Math.max(6, Math.min(120, next));
-  localStorage.setItem(manualSummarySizeKey(), String(next));
+  safeLocalStorageSet(manualSummarySizeKey(), String(next));
 }
 function approxTokenCount(text){
   var src = String(text || '');
@@ -4111,6 +4111,26 @@ function saveStoredCharactersSnapshot(list){
   }
   try{ localStorage.setItem('characters', JSON.stringify(list)); }catch(err){}
   return Promise.resolve(Array.isArray(list) ? list : []);
+}
+
+function safeLocalStorageSet(key, value){
+  try{
+    localStorage.setItem(key, value);
+    return true;
+  }catch(err){
+    console.warn('localStorage mirror skipped for', key, err);
+    return false;
+  }
+}
+
+function safeLocalStorageRemove(key){
+  try{
+    localStorage.removeItem(key);
+    return true;
+  }catch(err){
+    console.warn('localStorage remove skipped for', key, err);
+    return false;
+  }
 }
 
 function getStoredWorldbooksSnapshot(){
@@ -7045,7 +7065,7 @@ function getSavedWbBookStates() {
 
 function saveWbBookStates(states) {
   if (!character) return;
-  localStorage.setItem(getWbBookStateKey(), JSON.stringify(states || {}));
+  safeLocalStorageSet(getWbBookStateKey(), JSON.stringify(states || {}));
 }
 function persistWorldbookStateNow(){
   if(!character) return;
@@ -14421,11 +14441,11 @@ function postToShell(msg){
 function persistActiveCharacterSnapshot(slim){
   if(!slim) return;
   if(isDefaultAccountContext()){
-    try{ localStorage.setItem('activeCharacter', JSON.stringify(slim)); }catch(e){}
-    try{ localStorage.setItem('activeChatCharacterId', String((slim && slim.id) || '')); }catch(e){}
+    safeLocalStorageSet('activeCharacter', JSON.stringify(slim));
+    safeLocalStorageSet('activeChatCharacterId', String((slim && slim.id) || ''));
   }
-  try{ localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim)); }catch(e){}
-  try{ localStorage.setItem(accountScopedKey('activeChatCharacterId'), String((slim && slim.id) || '')); }catch(e){}
+  safeLocalStorageSet(accountScopedKey('activeCharacter'), JSON.stringify(slim));
+  safeLocalStorageSet(accountScopedKey('activeChatCharacterId'), String((slim && slim.id) || ''));
 }
 
 function syncActiveCharacterToShell(){
@@ -14499,11 +14519,11 @@ async function saveChatSettings() {
   var presenceSleepReply = document.getElementById('csPresenceSleepReply');
   var presenceCommuteReply = document.getElementById('csPresenceCommuteReply');
   if(isDefault){
-    localStorage.setItem(userKey('user_name'), un);
-    localStorage.setItem(userKey('user_persona'), up);
-    if(character && character.id) localStorage.setItem('user_name_' + character.id, un);
+    safeLocalStorageSet(userKey('user_name'), un);
+    safeLocalStorageSet(userKey('user_persona'), up);
+    if(character && character.id) safeLocalStorageSet('user_name_' + character.id, un);
   }else{
-    try{ localStorage.removeItem(userKey('user_persona')); }catch(e){}
+    safeLocalStorageRemove(userKey('user_persona'));
   }
   saveContextWindowSize(cwin);
   saveSummaryEverySize(severy);
@@ -14560,7 +14580,7 @@ async function saveChatSettings() {
     var slim = compactChar(character);
     persistActiveCharacterSnapshot(slim);
     postToShell({type:'SET_ACTIVE_CHARACTER', payload: slim});
-    localStorage.setItem(getWbEnabledKey(), wbEnabled ? 'true' : 'false');
+    safeLocalStorageSet(getWbEnabledKey(), wbEnabled ? 'true' : 'false');
     var nextStates = {};
     wbBooks.forEach(function(book){ nextStates[book.key] = !!book.enabled; });
     saveWbBookStates(nextStates);
@@ -14592,7 +14612,7 @@ async function saveChatSettings() {
   refreshMemoryUi();
   }catch(err){
     console.error('saveChatSettings failed', err);
-    toast('聊天设置保存失败');
+    toast('聊天设置保存失败：' + (err && err.message ? err.message : '未知错误'));
   }finally{
     chatSettingsSaving = false;
     if(saveBtn) saveBtn.disabled = false;
@@ -14622,13 +14642,11 @@ function persistCharacter(){
       list.push(nextChar);
     }
     return saveStoredCharactersSnapshot(list).catch(function(){ return null; }).then(function(result){
-      if(slim && isDefaultAccountContext()) localStorage.setItem('activeCharacter', JSON.stringify(slim));
-      if(slim) localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim));
+      persistActiveCharacterSnapshot(slim);
       return result;
     });
   }catch(e){}
-  if(slim && isDefaultAccountContext()) localStorage.setItem('activeCharacter', JSON.stringify(slim));
-  if(slim) localStorage.setItem(accountScopedKey('activeCharacter'), JSON.stringify(slim));
+  persistActiveCharacterSnapshot(slim);
   return Promise.resolve();
 }
 
