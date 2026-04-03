@@ -2068,7 +2068,45 @@ async function generateUserDayFromEntry(){
     if(!generated) throw new Error('没有拿到结果');
     var char = getActiveChar();
     var charState = getActiveCharState();
+    var userPersona = '';
+    try{ userPersona = String(localStorage.getItem('user_persona') || '').trim(); }catch(err){}
+    function isGenericLocation(text){
+      text = String(text || '').trim().replace(/\s+/g, '');
+      if(!text || text.length <= 2) return true;
+      return /^(家里|家中|家附近|外面|学校|校园|公司|办公室|食堂|教室|图书馆|宿舍|路上|路边|地铁上|公交上|商场|超市|咖啡店|餐厅)$/.test(text);
+    }
+    function buildDetailedLocation(item){
+      item = item && typeof item === 'object' ? item : {};
+      var title = String(item.title || '').trim();
+      var base = String(item.location || '').trim();
+      var student = /大学|学生|上学|上课|宿舍|校园|考试|备考|论文|图书馆/.test(userPersona);
+      if(/图书馆|自习|复习|论文|写作业|赶稿/.test(title + ' ' + base)) return '图书馆三楼靠窗自习区';
+      if(/食堂|吃饭|午饭|晚饭|早餐/.test(title + ' ' + base)) return student ? '学校食堂靠窗那排' : '附近常去的餐厅角落位';
+      if(/宿舍|洗衣|收拾|整理/.test(title + ' ' + base)) return student ? '宿舍楼公共区' : '家里靠窗的书桌边';
+      if(/上课|选课|实验|汇报/.test(title + ' ' + base)) return student ? '教学楼里常去的那间教室' : '约好的线上会议窗口';
+      if(/运动|跑步|散步/.test(title + ' ' + base)) return student ? '学校操场内圈跑道' : '住处附近常走的那段路';
+      if(student){
+        if(/学校|校园/.test(base)) return '教学楼和图书馆之间那条路';
+        if(/宿舍/.test(base)) return '宿舍楼下的休息区';
+      }
+      return base || (student ? '学校里常待的那一角' : '今天常去的那个地方');
+    }
+    function buildEventNote(item){
+      item = item && typeof item === 'object' ? item : {};
+      var title = String(item.title || '').trim();
+      var note = String(item.note || '').trim();
+      if(note && note.length >= 5 && note !== title && note !== String(item.location || '').trim()) return note;
+      if(/自习|复习|论文|写作业|赶稿/.test(title)) return '把这段时间安静留给手头最要紧的学习任务。';
+      if(/上课|实验|汇报/.test(title)) return '这段时间得把状态提起来，不然很容易跟不上节奏。';
+      if(/吃饭|午饭|晚饭|早餐/.test(title)) return '顺手把这一顿解决掉，也让自己喘口气。';
+      if(/洗衣|整理|收拾/.test(title)) return '拖着也不会自己变好，只能趁现在一起处理掉。';
+      if(/通话|视频|电话/.test(title)) return '想把这段时间专门留出来，好好接住这次联系。';
+      return '把这段时间认真留给这件事，顺手把今天往前推一点。';
+    }
     var userEvents = Array.isArray(generated.events) ? generated.events.map(function(item){
+      item = Object.assign({}, item);
+      item.location = isGenericLocation(item.location) ? buildDetailedLocation(item) : String(item.location || '').trim();
+      item.note = buildEventNote(item);
       return ScheduleShared.normalizeEvent(Object.assign({}, item, {
         date:selectedDateKey,
         source:'user',
