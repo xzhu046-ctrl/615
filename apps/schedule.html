@@ -2236,6 +2236,22 @@ function buildChatPromptFromTarget(kind, item){
   return [title, note].filter(Boolean).join('，');
 }
 
+function appendScheduleChatBurst(char, shell, messages){
+  messages = Array.isArray(messages) ? messages.map(function(item){ return String(item || '').trim(); }).filter(Boolean) : [];
+  if(!messages.length || !char || !shell || !shell.ScheduleShell || typeof shell.ScheduleShell.appendChatMessage !== 'function'){
+    return Promise.resolve();
+  }
+  return messages.reduce(function(chain, text){
+    return chain.then(function(){
+      return shell.ScheduleShell.appendChatMessage({
+        charId: char.id,
+        role: 'assistant',
+        text: text
+      }).catch(function(){});
+    });
+  }, Promise.resolve());
+}
+
 function generateScheduleActionVoice(char, shell, kind, item, extraContext, fallbackText){
   if(!char || !shell || !shell.ScheduleShell || typeof shell.ScheduleShell.generateInlineComment !== 'function'){
     return Promise.resolve(String(fallbackText || '').trim());
@@ -2267,7 +2283,7 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
   var undoneCharTodos = (Array.isArray(day.todos) ? day.todos : []).filter(function(item){ return item && !item.done; }).slice(0, 2);
   var charTimelineItems = (Array.isArray(day.timeline) ? day.timeline : []).filter(function(item){ return item && (item.title || item.note); }).slice(0, 2);
   var chatSeedTarget = primaryTarget || commentCandidate;
-  var chatText = '';
+  var chatTexts = [];
   var actionNotes = [];
   var chain = Promise.resolve();
   pendingTargets.forEach(function(targetRef, index){
@@ -2417,27 +2433,49 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
           '请把这些自然揉进一条像真人会发的消息里，不要逐条念清单，不要像机器人汇报。'
         ].filter(Boolean).join(' ')
       }).then(function(text){
-        chatText = String(text || '').trim();
-        if(!chatText) chatText = buildGlobalScheduleChatFallback(chatSeedTarget, targetItem);
+        var summaryTargetLines = pendingTargets.map(function(targetRef){
+          var refItem = findEntryByKind(targetRef.kind, targetRef.itemId, getActiveCharState()) || {};
+          return '- ' + String(refItem.title || refItem.text || '这件事');
+        }).join('\n');
+        if(shell.ScheduleShell && typeof shell.ScheduleShell.generateChatBurst === 'function'){
+          return shell.ScheduleShell.generateChatBurst({
+            charId: char.id,
+            context: '这是你在日程 app 里看完今天安排之后，真的要发去聊天页面的一小串消息。',
+            targets: summaryTargetLines,
+            actions: actionNotes.join('\n')
+          }).then(function(messages){
+            chatTexts = Array.isArray(messages) ? messages.map(function(item){ return String(item || '').trim(); }).filter(Boolean) : [];
+            if(!chatTexts.length){
+              var single = String(text || '').trim();
+              if(single) chatTexts = [single];
+            }
+            if(!chatTexts.length){
+              chatTexts = [buildGlobalScheduleChatFallback(chatSeedTarget, targetItem)];
+            }
+          }).catch(function(){
+            var single = String(text || '').trim();
+            chatTexts = single ? [single] : [buildGlobalScheduleChatFallback(chatSeedTarget, targetItem)];
+          });
+        }
+        var singleText = String(text || '').trim();
+        chatTexts = singleText ? [singleText] : [buildGlobalScheduleChatFallback(chatSeedTarget, targetItem)];
       });
     });
   }else if(actionNotes.length){
     chain = chain.then(function(){
-      return shell.ScheduleShell.generateInlineComment({
-        charId: char.id,
-        dateKey: selectedDateKey,
-        owner: 'char',
-        item: { title:'今天的安排', note: actionNotes.join(' ') },
-        comments: [],
-        timeStatus: '',
-        extraContext: '你刚刚在日程 app 里连着做了几件事，但没有特定一条用户安排需要直接回复。现在请发一条像真人会发的聊天消息，轻轻带出你刚刚在看今天的安排。'
-      }).then(function(text){
-        chatText = String(text || '').trim();
-      }).catch(function(){});
+      if(shell.ScheduleShell && typeof shell.ScheduleShell.generateChatBurst === 'function'){
+        return shell.ScheduleShell.generateChatBurst({
+          charId: char.id,
+          context: '你刚刚在日程 app 里连着处理了好几件事，现在请真的给用户发去 2 到 4 条聊天消息。',
+          actions: actionNotes.join('\n')
+        }).then(function(messages){
+          chatTexts = Array.isArray(messages) ? messages.map(function(item){ return String(item || '').trim(); }).filter(Boolean) : [];
+        }).catch(function(){});
+      }
     });
   }
 
-  return chain.then(function(){ return chatText; });
+  return chain.then(function(){ return chatTexts; });
 }
 
 function pickCommentTargetForSelectedDay(){
@@ -2505,17 +2543,12 @@ function triggerCharCommentNow(){
   if(!item) return;
   if(commentTriggerSource === 'global'){
     pendingToastToken = showStickyToast('正在听TA怎么想…');
-    maybeApplyGlobalScheduleAction(char, shell, commentTarget).then(function(chatText){
-      chatText = String(chatText || '').trim();
-      if(!chatText) chatText = buildGlobalScheduleChatFallback(commentTarget, item);
+    maybeApplyGlobalScheduleAction(char, shell, commentTarget).then(function(chatTexts){
+      chatTexts = Array.isArray(chatTexts) ? chatTexts.map(function(entry){ return String(entry || '').trim(); }).filter(Boolean) : [];
+      if(!chatTexts.length) chatTexts = [buildGlobalScheduleChatFallback(commentTarget, item)];
       settleStickyToast(pendingToastToken, 'Ta回你了');
       renderAll();
-      if(!chatText || !(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function')) return;
-      return shell.ScheduleShell.appendChatMessage({
-        charId: char.id,
-        role: 'assistant',
-        text: chatText
-      }).catch(function(){});
+      return appendScheduleChatBurst(char, shell, chatTexts);
     }).catch(function(err){
       settleStickyToast(pendingToastToken, '留言失败：' + (err && err.message ? err.message : '未知错误'));
     }).finally(function(){
@@ -2608,6 +2641,19 @@ function attemptSecretPeek(){
     }).catch(function(err){
       console.warn('schedule system notice failed', err);
     });
+  }
+  if(shell.ScheduleShell && typeof shell.ScheduleShell.generateChatBurst === 'function' && noticeCharId){
+    shell.ScheduleShell.generateChatBurst({
+      charId: noticeCharId,
+      context: success
+        ? '用户刚刚成功偷看了你的一条秘密行程。你已经知道这件事了，现在请按人设发几条真聊天消息。'
+        : '用户刚刚试图偷看你的一条秘密行程，但是密码输错了。你已经知道这件事了，现在请按人设发几条真聊天消息。',
+      targets: '- ' + String((item && (item.title || item.publicMask)) || '这条秘密行程'),
+      secretNotice: getSecretAttemptNotice(success, item)
+    }).then(function(messages){
+      var charForBurst = getActiveChar() || getActiveCharacterFromShell() || { id: noticeCharId };
+      return appendScheduleChatBurst(charForBurst, shell, messages);
+    }).catch(function(){});
   }
   if(success){
     rememberTimelineSecretUnlocked(secretTarget.kind, secretTarget.itemId);

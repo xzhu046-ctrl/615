@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T01:34:00Z';
+const APP_BUILD_ID = '2026-04-03T01:48:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2092,6 +2092,51 @@ async function generateScheduleInlineComment(payload){
   return String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
 }
 
+async function generateScheduleChatBurst(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var charId = String(payload.charId || '').trim();
+  if(!charId) throw new Error('缺少角色');
+  var chars = getStoredCharactersSnapshot();
+  var character = chars.find(function(item){ return item && String(item.id || '') === charId; }) || null;
+  if(!character) throw new Error('找不到角色');
+  var cfg = getBackgroundProviderConfig();
+  if(!cfg) throw new Error('请先在设置里配置模型');
+  var localClock = buildScheduleLocalNowContextForCharacter(character, Date.now());
+  var userNow = localClock && localClock.user ? localClock.user : null;
+  var charNow = localClock && localClock.char ? localClock.char : null;
+  var sysPrompt = [
+    '你现在要替这个角色生成一小串真的会发去聊天里的消息。',
+    '只返回严格 JSON，不要 markdown，不要解释。',
+    '格式：{"messages":["...","..."]}',
+    'messages 最少 2 条，最多 4 条。',
+    '每条都要短一点、像聊天，不要写成长段，不要像汇报总结。',
+    '要有连续感，像真人连续发消息，不要四条都一个句型。',
+    '必须严格符合角色人设，用简体中文。'
+  ].join('\n');
+  var userPrompt = [
+    '角色名：' + String(character.nickname || character.name || '角色'),
+    '角色人设：' + String(character.personality || character.description || '').slice(0, 1400),
+    character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 800)) : '',
+    getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
+    userNow ? ('用户当地日期时间：' + String(userNow.dateKey || '') + ' ' + String(userNow.nowTime || '')) : '',
+    charNow ? ('角色当地日期时间：' + String(charNow.dateKey || '') + ' ' + String(charNow.nowTime || '')) : '',
+    payload.context ? ('这次触发背景：' + String(payload.context || '').trim()) : '',
+    payload.targets ? ('你刚刚看过的日程内容：\n' + String(payload.targets || '').trim()) : '',
+    payload.actions ? ('你刚刚已经做过的动作：\n' + String(payload.actions || '').trim()) : '',
+    payload.secretNotice ? ('秘密行程相关：' + String(payload.secretNotice || '').trim()) : '',
+    '请把这些自然揉进 2 到 4 条真实聊天消息里。可以有停顿、转折、小情绪、小吐槽、小关心，不要像系统播报，也不要每条都重复信息。'
+  ].filter(Boolean).join('\n\n');
+  var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
+  var txt = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+  var parsed = null;
+  try{ parsed = JSON.parse(txt); }catch(err){}
+  var messages = parsed && Array.isArray(parsed.messages) ? parsed.messages : [];
+  messages = messages.map(function(item){ return String(item || '').trim(); }).filter(Boolean).slice(0, 4);
+  if(messages.length >= 2) return messages;
+  if(messages.length === 1) return messages;
+  return [];
+}
+
 async function callAiForBackground(cfg, sysPrompt, userPrompt){
   if(cfg.provider === 'openai'){
     var res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -2306,6 +2351,7 @@ window.ScheduleShell = {
   generateDayPlan: generateScheduleDayPlan,
   sendScheduleQuote: sendScheduleQuote,
   appendSystemNotice: appendScheduleSystemNotice,
+  generateChatBurst: generateScheduleChatBurst,
   appendChatMessage: appendScheduleChatMessage,
   generateInlineComment: generateScheduleInlineComment
 };
