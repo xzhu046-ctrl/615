@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T01:02:00Z';
+const APP_BUILD_ID = '2026-04-03T01:18:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1709,6 +1709,75 @@ function getSchedulePresenceContext(character){
   }
 }
 
+function getScheduleLocalClockParts(nowMs, timezoneName, timezoneOffset){
+  var safeNow = Number(nowMs || Date.now()) || Date.now();
+  var safeName = String(timezoneName || '').trim();
+  function fromParts(parts){
+    var year = parseInt(parts.year || '0', 10) || 0;
+    var month = parseInt(parts.month || '0', 10) || 0;
+    var day = parseInt(parts.day || '0', 10) || 0;
+    var hour = parseInt(parts.hour || '0', 10) || 0;
+    var minute = parseInt(parts.minute || '0', 10) || 0;
+    return {
+      dateKey: year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0'),
+      nowTime: String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0')
+    };
+  }
+  if(safeName){
+    try{
+      var partMap = {};
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: safeName,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23'
+      }).formatToParts(new Date(safeNow)).forEach(function(part){
+        if(part.type !== 'literal') partMap[part.type] = part.value;
+      });
+      return fromParts(partMap);
+    }catch(err){}
+  }
+  var shifted = new Date(safeNow + (Number(timezoneOffset || 0) || 0) * 3600000);
+  return fromParts({
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes()
+  });
+}
+
+function buildScheduleLocalNowContextForCharacter(character, nowMs){
+  var safeNow = Number(nowMs || Date.now()) || Date.now();
+  if(!(window.PresenceShared && character && character.id && typeof window.PresenceShared.getPresenceSnapshot === 'function')){
+    var fallbackNow = new Date(safeNow);
+    var fallbackDateKey = window.ScheduleShared ? window.ScheduleShared.toDateKey(fallbackNow) : '';
+    var fallbackTime = String(fallbackNow.getHours()).padStart(2, '0') + ':' + String(fallbackNow.getMinutes()).padStart(2, '0');
+    return {
+      user: { dateKey: fallbackDateKey, nowTime: fallbackTime },
+      char: { dateKey: fallbackDateKey, nowTime: fallbackTime },
+      presence: null
+    };
+  }
+  var snapshot = window.PresenceShared.getPresenceSnapshot(character, safeNow);
+  var user = snapshot && snapshot.user ? snapshot.user : {};
+  var charPresence = snapshot && snapshot.char ? snapshot.char : {};
+  var userOffset = 0;
+  try{
+    if(user.cityId && typeof window.PresenceShared.getCity === 'function'){
+      userOffset = Number((window.PresenceShared.getCity(user.cityId) || {}).tz || 0) || 0;
+    }
+  }catch(err){}
+  return {
+    user: getScheduleLocalClockParts(safeNow, user.timezone, userOffset),
+    char: getScheduleLocalClockParts(safeNow, charPresence.timezoneName, charPresence.timezoneOffset),
+    presence: snapshot || null
+  };
+}
+
 function normalizeScheduleTimelineItems(items){
   return (Array.isArray(items) ? items : []).map(function(item){
     item = item && typeof item === 'object' ? item : {};
@@ -1988,6 +2057,9 @@ async function generateScheduleInlineComment(payload){
   if(!cfg) throw new Error('请先在设置里配置模型');
   var item = payload.item && typeof payload.item === 'object' ? payload.item : {};
   var comments = Array.isArray(payload.comments) ? payload.comments : [];
+  var localClock = buildScheduleLocalNowContextForCharacter(character, Date.now());
+  var userNow = localClock && localClock.user ? localClock.user : null;
+  var charNow = localClock && localClock.char ? localClock.char : null;
   var sysPrompt = [
     '你现在只负责给日程页上的某一条安排写一句短留言。',
     '只返回纯文本，不要 JSON，不要解释。',
@@ -2000,6 +2072,9 @@ async function generateScheduleInlineComment(payload){
     '角色名：' + String(character.nickname || character.name || '角色'),
     '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
     character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 700)) : '',
+    getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
+    userNow ? ('用户当地日期时间：' + String(userNow.dateKey || '') + ' ' + String(userNow.nowTime || '')) : '',
+    charNow ? ('角色当地日期时间：' + String(charNow.dateKey || '') + ' ' + String(charNow.nowTime || '')) : '',
     '今天日期：' + String(payload.dateKey || ''),
     '这条安排属于：' + (payload.owner === 'user' ? '用户' : '角色本人'),
     '安排标题：' + String(item.title || item.text || '').trim(),
@@ -5631,12 +5706,18 @@ async function maybeRunScheduleTodoReminders(){
   try{
     var state = await shared.loadState();
     state = shared.normalizeState(state || null);
-    var now = new Date();
-    var dateKey = shared.toDateKey(now);
-    var nowMinutes = now.getHours() * 60 + now.getMinutes();
     var changed = false;
+    var chars = getStoredCharactersSnapshot();
     for(const charId of Object.keys(state.chars || {})){
       if(!shared.isTimeAwarenessEnabled(state, charId)) continue;
+      var character = chars.find(function(item){ return item && String(item.id || '') === String(charId); }) || null;
+      var localClock = buildScheduleLocalNowContextForCharacter(character, Date.now());
+      var dateKey = String(localClock && localClock.user && localClock.user.dateKey || shared.toDateKey(new Date()));
+      var nowMinutes = scheduleTimeToMinutes(localClock && localClock.user && localClock.user.nowTime);
+      if(nowMinutes < 0){
+        var fallbackNow = new Date();
+        nowMinutes = fallbackNow.getHours() * 60 + fallbackNow.getMinutes();
+      }
       var charState = shared.getCharState(state, charId);
       var todos = Array.isArray(charState.todos) ? charState.todos.slice() : [];
       var charChanged = false;
@@ -5659,9 +5740,14 @@ async function maybeRunScheduleTodoReminders(){
           },
           comments: Array.isArray(todo.comments) ? todo.comments : [],
           timeStatus: todo.done ? '这条待办原本该在现在提醒，但用户已经提前完成了。请像真人一样知道这点，再顺势聊一句。' : '这条待办现在到了提醒时间。请按人设自然提醒用户。',
-          extraContext: todo.done
-            ? '这是日程 app 的提醒待办。用户已经在提醒时间前完成了，所以你不是催促，而是知道他做完了，可以顺势夸一句、问一句，或者自然聊开。'
-            : '这是日程 app 的提醒待办。你现在要真的发一条聊天消息提醒用户，不要像系统通知。'
+          extraContext: [
+            '提醒时间和是否超时，必须按用户地理位置的当地时间来判断，不要用设备时间乱算。',
+            localClock && localClock.user ? ('用户当地现在：' + String(localClock.user.dateKey || '') + ' ' + String(localClock.user.nowTime || '')) : '',
+            localClock && localClock.char ? ('角色当地现在：' + String(localClock.char.dateKey || '') + ' ' + String(localClock.char.nowTime || '')) : '',
+            todo.done
+              ? '这是日程 app 的提醒待办。用户已经在提醒时间前完成了，所以你不是催促，而是知道他做完了，可以顺势夸一句、问一句，或者自然聊开。'
+              : '这是日程 app 的提醒待办。你现在要真的发一条聊天消息提醒用户，不要像系统通知。'
+          ].filter(Boolean).join('\n')
         }).catch(function(){ return ''; });
         text = String(text || '').trim();
         if(text){

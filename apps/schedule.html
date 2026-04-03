@@ -1371,8 +1371,15 @@ function getCommentNoteClass(author){
   return String(author || '') === 'char' ? 'char' : 'user';
 }
 
-function getSecretAttemptNotice(success){
-  return getActiveUserName() + (success ? ('偷看了' + formatScheduleDateZh(selectedDateKey) + '的行程，成功啦。') : ('试图偷偷看一眼' + formatScheduleDateZh(selectedDateKey) + '的行程，失败了。'));
+function getSecretAttemptNotice(success, item){
+  var status = String(getItemTimeStatusText(item) || '').trim();
+  var statusTail = '';
+  if(status.indexOf('正在发生') !== -1) statusTail = ' 那条安排这会儿其实正在发生。';
+  else if(status.indexOf('已经过去') !== -1) statusTail = ' 不过那条安排的时间已经过去了。';
+  else if(status.indexOf('还没开始') !== -1) statusTail = ' 而且那条安排还没开始。';
+  return getActiveUserName() + (success
+    ? ('偷看了' + formatScheduleDateZh(selectedDateKey) + '的行程，成功啦。' + statusTail)
+    : ('试图偷偷看一眼' + formatScheduleDateZh(selectedDateKey) + '的行程，但密码不对，失败了。' + statusTail));
 }
 
 function getTargetCollections(charState){
@@ -2405,6 +2412,10 @@ function pickCommentTargetForSelectedDay(){
     if(live.currentUserItem && live.currentUserItem.id) return { kind:'event', itemId:String(live.currentUserItem.id) };
     if(live.nextUserItem && live.nextUserItem.id) return { kind:'event', itemId:String(live.nextUserItem.id) };
   }
+  if(live && live.enabled !== false && String(selectedDateKey || '') === String(live.charDateKey || '')){
+    if(live.currentCharItem && live.currentCharItem.id) return { kind:'timeline', itemId:String(live.currentCharItem.id) };
+    if(live.nextCharItem && live.nextCharItem.id) return { kind:'timeline', itemId:String(live.nextCharItem.id) };
+  }
   if(ctx.events && ctx.events[0] && ctx.events[0].id) return { kind:'event', itemId:String(ctx.events[0].id) };
   if(ctx.todos && ctx.todos[0] && ctx.todos[0].id) return { kind:'todo', itemId:String(ctx.todos[0].id) };
   if(ctx.charDay && Array.isArray(ctx.charDay.timeline) && ctx.charDay.timeline[0] && ctx.charDay.timeline[0].id) return { kind:'timeline', itemId:String(ctx.charDay.timeline[0].id) };
@@ -2547,7 +2558,7 @@ function attemptSecretPeek(){
   if(shell.ScheduleShell && typeof shell.ScheduleShell.appendSystemNotice === 'function'){
     shell.ScheduleShell.appendSystemNotice({
       charId: noticeCharId,
-      text: getSecretAttemptNotice(success)
+      text: getSecretAttemptNotice(success, item)
     }).then(function(ok){
       if(!ok) console.warn('schedule system notice not persisted');
     }).catch(function(err){
