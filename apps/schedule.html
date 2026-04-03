@@ -120,14 +120,6 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-day-cell:active .schedule-day-inner{transform:translate(1px,1px)}
 .schedule-day-cell.selected .schedule-day-inner{background:#0d0d0d;color:#fff;border-color:#0d0d0d}
 .schedule-day-cell.today .schedule-day-inner{border-color:#0d0d0d}
-.schedule-day-cell.char-today .schedule-day-inner{background:#cfcfcf;border-color:#6f6f6f;color:#111;box-shadow:6px 6px 0 rgba(90,90,90,.26)}
-.schedule-day-cell.char-today .schedule-day-dot.user{background:#8c8c8c}
-.schedule-day-cell.char-today .schedule-day-dot.char{background:#111}
-.schedule-day-char-today-badge{
-  position:absolute;right:7px;top:7px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;
-  background:rgba(255,255,255,.92);border:1.5px solid #6f6f6f;color:#555;display:flex;align-items:center;justify-content:center;
-  font-family:var(--fontd);font-size:8px;font-weight:900;line-height:1;letter-spacing:.06em
-}
 .schedule-day-number{font-family:var(--fontd);font-size:20px;font-weight:900;line-height:1}
 .schedule-day-dots{position:absolute;left:50%;bottom:9px;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:4px}
 .schedule-day-dot{width:5px;height:5px;border-radius:999px}
@@ -1102,46 +1094,6 @@ function formatMonthHead(date){
   document.getElementById('monthName').textContent = (monthNames[d.getMonth()] || '');
 }
 
-function getScheduleTodayKeys(){
-  var char = getActiveChar();
-  if(!(char && window.PresenceShared && typeof window.PresenceShared.getPresenceSnapshot === 'function')) return { userKey:'', charKey:'' };
-  try{
-    var snapshot = window.PresenceShared.getPresenceSnapshot(char, Date.now());
-    var userCityId = snapshot && snapshot.user ? String(snapshot.user.cityId || '').trim() : '';
-    var userCity = userCityId && window.PresenceShared.getCity ? window.PresenceShared.getCity(userCityId) : null;
-    var userTz = userCity ? Number(userCity.tz) : NaN;
-    var userTimezoneName = snapshot && snapshot.user ? String(snapshot.user.timezone || '').trim() : '';
-    var charTz = snapshot && snapshot.char ? Number(snapshot.char.timezoneOffset != null ? snapshot.char.timezoneOffset : (snapshot.char.city && snapshot.char.city.tz)) : NaN;
-    var charTimezoneName = snapshot && snapshot.char ? String(snapshot.char.timezoneName || '').trim() : '';
-    function buildKey(offset, timezoneName){
-      if(timezoneName){
-        try{
-          var parts = new Intl.DateTimeFormat('en-CA', {
-            timeZone: timezoneName,
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit'
-          }).formatToParts(new Date());
-          var map = {};
-          parts.forEach(function(part){ map[part.type] = part.value; });
-          if(map.year && map.month && map.day){
-            return map.year + '-' + map.month + '-' + map.day;
-          }
-        }catch(err){}
-      }
-      if(!Number.isFinite(offset)) return '';
-      var shifted = new Date(Date.now() + offset * 3600000);
-      return shifted.getUTCFullYear() + '-' + String(shifted.getUTCMonth() + 1).padStart(2, '0') + '-' + String(shifted.getUTCDate()).padStart(2, '0');
-    }
-    return {
-      userKey: buildKey(userTz, userTimezoneName),
-      charKey: buildKey(charTz, charTimezoneName)
-    };
-  }catch(err){
-    return { userKey:'', charKey:'' };
-  }
-}
-
 function resetScheduleViewToToday(){
   var today = new Date();
   selectedDateKey = ScheduleShared.toDateKey(today);
@@ -1167,9 +1119,7 @@ function renderCalendar(){
   var first = new Date(year, month, 1);
   var firstDay = (first.getDay() + 6) % 7;
   var daysInMonth = new Date(year, month + 1, 0).getDate();
-  var keys = getScheduleTodayKeys();
-  var todayKey = keys.userKey || ScheduleShared.toDateKey(new Date());
-  var charTodayKey = keys.charKey || '';
+  var todayKey = ScheduleShared.toDateKey(new Date());
   var charState = getActiveCharState();
   var holidays = ScheduleShared.getHolidayMap(year);
   var marks = {};
@@ -1211,10 +1161,6 @@ function renderCalendar(){
     var classes = ['schedule-day-cell'];
     if(key === selectedDateKey) classes.push('selected');
     if(key === todayKey) classes.push('today');
-    if(charTodayKey && charTodayKey !== todayKey && key === charTodayKey) classes.push('char-today');
-    var charTodayBadge = (charTodayKey && charTodayKey !== todayKey && key === charTodayKey)
-      ? '<span class="schedule-day-char-today-badge">TA</span>'
-      : '';
     var dots = '';
     if(info.user || info.char){
       dots = '<span class="schedule-day-dots">'
@@ -1225,7 +1171,6 @@ function renderCalendar(){
     html += '<button class="' + classes.join(' ') + '" type="button" onclick="selectDate(\'' + key + '\')">'
       + '<span class="schedule-day-inner">'
       + '<span class="schedule-day-number">' + day + '</span>'
-      + charTodayBadge
       + dots
       + '</span></button>';
   }
