@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T19:05:00Z';
+const APP_BUILD_ID = '2026-04-02T19:18:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1685,15 +1685,21 @@ function getSchedulePresenceContext(character){
     if(!(snapshot && snapshot.char && snapshot.user)) return '';
     var userLabel = String(snapshot.user.label || snapshot.user.weatherName || '').trim() || String(snapshot.user.cityId || '').trim() || '用户所在城市';
     var charCityName = snapshot.char.city && snapshot.char.city.name ? String(snapshot.char.city.name).trim() : '';
+    var charCountry = snapshot.char.city && snapshot.char.city.country ? String(snapshot.char.city.country).trim() : '';
     var charPlace = String(snapshot.char.placeLabel || '').trim();
     var charActivity = String(snapshot.char.activityLabel || '').trim();
+    var charClock = String(snapshot.char.localTimeLabel || '').trim();
     var distanceLabel = String(snapshot.distanceLabel || '').trim();
     var lines = [
       '用户当前地理位置：' + userLabel,
-      '角色当前地理位置：' + [charCityName, charPlace].filter(Boolean).join(' · '),
+      '角色当前地理位置：' + [charCountry, charCityName, charPlace].filter(Boolean).join(' · '),
+      charClock ? ('角色当前当地时间：' + charClock) : '',
       charActivity ? ('角色当前状态：' + charActivity) : '',
       distanceLabel ? ('双方距离：' + distanceLabel) : ''
     ].filter(Boolean);
+    if(charCityName){
+      lines.push('今天所有地点、行动距离感、移动方式，都必须锁定在这个角色当前所在城市或它合理的附近区域：' + [charCountry, charCityName].filter(Boolean).join(' · ') + '。不要无故跳到别的省市国家，更不要把东京写成江西这种完全无关的地点。');
+    }
     if(snapshot.travel && Number(snapshot.travel.distanceKm || 0) >= 8){
       lines.push('如果双方距离明显不近，就不要乱写“已经在用户家里 / 顺路到她家 / 送她回家 / 站在她楼下”这种已经同处一地的剧情，除非用户当天公开行程明确写了见面、接送、同城同行。地点、互动距离感、移动方式都必须服从这里的地理设定。');
     }

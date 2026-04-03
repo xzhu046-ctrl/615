@@ -84,7 +84,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
   width:68px;height:68px;border:2px dashed #111;border-radius:20px;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;
   box-shadow:5px 5px 0 rgba(0,0,0,.12);overflow:hidden;background-position:center;background-repeat:no-repeat;background-size:cover
 }
-.schedule-current-char-media{display:block;width:100%;height:100%;background-position:center;background-repeat:no-repeat;background-size:cover}
+.schedule-current-char-media{display:block;width:100%;height:100%;background-position:center 58%;background-repeat:no-repeat;background-size:cover}
 .schedule-current-char-fallback{font-family:var(--fontd);font-size:12px;font-weight:900;color:#111}
 .schedule-ghost-btn,.schedule-solid-btn,.schedule-icon-btn{
   border:2px solid #111;background:linear-gradient(180deg,rgba(255,255,255,.998),rgba(246,246,246,.992));box-shadow:4px 4px 0 rgba(0,0,0,.14);cursor:pointer;
@@ -120,6 +120,9 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-day-cell:active .schedule-day-inner{transform:translate(1px,1px)}
 .schedule-day-cell.selected .schedule-day-inner{background:#0d0d0d;color:#fff;border-color:#0d0d0d}
 .schedule-day-cell.today .schedule-day-inner{border-color:#0d0d0d}
+.schedule-day-cell.char-today .schedule-day-inner{background:#d8d8d8;border-color:#a6a6a6;color:#111}
+.schedule-day-cell.char-today .schedule-day-dot.user{background:#8c8c8c}
+.schedule-day-cell.char-today .schedule-day-dot.char{background:#111}
 .schedule-day-number{font-family:var(--fontd);font-size:20px;font-weight:900;line-height:1}
 .schedule-day-dots{position:absolute;left:50%;bottom:9px;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:4px}
 .schedule-day-dot{width:5px;height:5px;border-radius:999px}
@@ -1094,6 +1097,20 @@ function formatMonthHead(date){
   document.getElementById('monthName').textContent = (monthNames[d.getMonth()] || '');
 }
 
+function getCharTodayKey(){
+  var char = getActiveChar();
+  if(!(char && window.PresenceShared && typeof window.PresenceShared.getPresenceSnapshot === 'function')) return '';
+  try{
+    var snapshot = window.PresenceShared.getPresenceSnapshot(char, Date.now());
+    var tz = snapshot && snapshot.char && snapshot.char.city ? Number(snapshot.char.city.tz) : NaN;
+    if(!Number.isFinite(tz)) return '';
+    var shifted = new Date(Date.now() + tz * 3600000);
+    return shifted.getUTCFullYear() + '-' + String(shifted.getUTCMonth() + 1).padStart(2, '0') + '-' + String(shifted.getUTCDate()).padStart(2, '0');
+  }catch(err){
+    return '';
+  }
+}
+
 function resetScheduleViewToToday(){
   var today = new Date();
   selectedDateKey = ScheduleShared.toDateKey(today);
@@ -1120,6 +1137,7 @@ function renderCalendar(){
   var firstDay = (first.getDay() + 6) % 7;
   var daysInMonth = new Date(year, month + 1, 0).getDate();
   var todayKey = ScheduleShared.toDateKey(new Date());
+  var charTodayKey = getCharTodayKey();
   var charState = getActiveCharState();
   var holidays = ScheduleShared.getHolidayMap(year);
   var marks = {};
@@ -1161,6 +1179,7 @@ function renderCalendar(){
     var classes = ['schedule-day-cell'];
     if(key === selectedDateKey) classes.push('selected');
     if(key === todayKey) classes.push('today');
+    if(charTodayKey && charTodayKey !== todayKey && key === charTodayKey) classes.push('char-today');
     var dots = '';
     if(info.user || info.char){
       dots = '<span class="schedule-day-dots">'
@@ -2513,8 +2532,13 @@ function shareTimelineToChar(targetCharId){
         text: reply
       });
     }
+    return true;
   }).then(function(){
     closeShareTargetModal();
+    try{
+      var jumpChar = targetChar || getCharacterById(targetCharId) || getShellResolvedCharacter(targetCharId) || { id: targetCharId, name: '角色' };
+      if(window.parent) window.parent.postMessage({ type:'OPEN_CHAT_WITH', payload: jumpChar }, '*');
+    }catch(err){}
     timelineActionTarget = null;
     toast('已经发到聊天里了');
   }).catch(function(err){
