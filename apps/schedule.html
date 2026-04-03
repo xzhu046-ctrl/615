@@ -605,6 +605,7 @@ var longPressTimer = 0;
 var schedulePeekTimer = 0;
 var schedulePeekQueue = [];
 var currentPeekChar = null;
+var stickyToastToken = 0;
 
 function esc(text){
   return String(text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -634,7 +635,26 @@ function toast(text){
   node.textContent = String(text || '').trim();
   node.classList.add('show');
   clearTimeout(toastTimer);
+  stickyToastToken = 0;
   toastTimer = setTimeout(function(){ node.classList.remove('show'); }, 1900);
+}
+
+function showStickyToast(text){
+  var node = document.getElementById('toast');
+  if(!node) return 0;
+  stickyToastToken = Date.now();
+  node.textContent = String(text || '').trim();
+  node.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = null;
+  return stickyToastToken;
+}
+
+function settleStickyToast(token, text){
+  if(!token) return;
+  if(stickyToastToken && token !== stickyToastToken) return;
+  stickyToastToken = 0;
+  toast(text);
 }
 
 function showScheduleChatPeek(char, text){
@@ -2210,6 +2230,7 @@ function triggerCharCommentNow(){
   var char = getActiveChar();
   var shell = getParentShell();
   var override = getActiveCharOverride();
+  var pendingToastToken = 0;
   if(!char || !(shell.ScheduleShell && typeof shell.ScheduleShell.generateInlineComment === 'function')){
     toast('留言生成器还没接上');
     return;
@@ -2221,7 +2242,7 @@ function triggerCharCommentNow(){
   var item = findEntryByKind(commentTarget.kind, commentTarget.itemId, getActiveCharState());
   if(!item) return;
   if(commentTriggerSource === 'global'){
-    toast('正在听TA怎么想…');
+    pendingToastToken = showStickyToast('正在听TA怎么想…');
   }
   Promise.resolve(shell.ScheduleShell.generateInlineComment({
     charId: char.id,
@@ -2245,7 +2266,7 @@ function triggerCharCommentNow(){
       return target;
     }).then(function(){
       renderCommentStickyGrid();
-      toast('Ta回你了');
+      settleStickyToast(pendingToastToken, 'Ta回你了');
       var shouldPushToChat = false;
       var shouldSilentPeek = true;
       if(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
@@ -2289,7 +2310,7 @@ function triggerCharCommentNow(){
     });
   }).catch(function(err){
     commentTriggerSource = 'modal';
-    toast('留言失败：' + (err && err.message ? err.message : '未知错误'));
+    settleStickyToast(pendingToastToken, '留言失败：' + (err && err.message ? err.message : '未知错误'));
   });
 }
 
