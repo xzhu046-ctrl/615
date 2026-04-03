@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T14:05:00Z';
+const APP_BUILD_ID = '2026-04-02T14:42:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1682,11 +1682,25 @@ function normalizeScheduleTimelineItems(items){
   return (Array.isArray(items) ? items : []).map(function(item){
     item = item && typeof item === 'object' ? item : {};
     return {
+      id: String(item.id || ('timeline_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7))),
       start: String(item.start || item.time || '').trim(),
       end: String(item.end || '').trim(),
       title: String(item.title || '').trim(),
       note: String(item.note || '').trim(),
-      kind: String(item.kind || 'char').trim() || 'char'
+      kind: String(item.kind || 'char').trim() || 'char',
+      secret: !!item.secret,
+      secretPassword: String(item.secretPassword || '').trim(),
+      secretHint: String(item.secretHint || '').trim(),
+      publicMask: String(item.publicMask || item.maskedTitle || '').trim(),
+      comments: Array.isArray(item.comments) ? item.comments.map(function(comment){
+        comment = comment && typeof comment === 'object' ? comment : {};
+        return {
+          id: String(comment.id || ('comment_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7))),
+          author: String(comment.author || comment.role || 'char').trim() || 'char',
+          text: String(comment.text || comment.content || '').trim(),
+          createdAt: Number(comment.createdAt || Date.now()) || Date.now()
+        };
+      }).filter(function(comment){ return comment.text; }) : []
     };
   }).filter(function(item){
     return item.start || item.title || item.note;
@@ -1738,12 +1752,13 @@ async function generateScheduleDayPlan(payload){
   var dateObj = /^\d{4}-\d{2}-\d{2}$/.test(dateKey) ? new Date(dateKey + 'T12:00:00') : new Date();
   var weekday = ['周日','周一','周二','周三','周四','周五','周六'][dateObj.getDay()];
   var eventLines = (Array.isArray(payload.events) ? payload.events : []).map(function(item){
+    var hidden = item && item.visibleToChar === false;
     return [
       String(item.start || '').trim() || '未设时间',
-      String(item.title || '').trim(),
-      String(item.location || '').trim(),
-      String(item.note || '').trim(),
-      item.remindChar ? '用户希望你记住并提醒' : ''
+      hidden ? (String(item.publicMask || '').trim() || '这个时间段有安排') : String(item.title || '').trim(),
+      hidden ? '这是用户没有公开细节的安排' : String(item.location || '').trim(),
+      hidden ? '' : String(item.note || '').trim(),
+      hidden ? '只知道这个时间段忙，不能擅自知道具体内容' : (item.remindChar ? '用户希望你记住并提醒' : '')
     ].filter(Boolean).join(' | ');
   });
   var todoLines = (Array.isArray(payload.todos) ? payload.todos : []).map(function(item){
@@ -1763,10 +1778,11 @@ async function generateScheduleDayPlan(payload){
   var sysPrompt = [
     '你正在生成一个日程 app 里的角色当日日程。',
     '只返回严格 JSON，不要 markdown，不要解释。',
-    'JSON 结构：{"date":"YYYY-MM-DD","diary":"...","calendarNote":"...","comment":"...","timeline":[{"start":"08:30","end":"09:20","title":"...","note":"..."}],"quoteDrafts":[{"title":"待办引用","excerpt":"...","reply":"...","sourceType":"todo|event","sourceId":"..."}]}',
+    'JSON 结构：{"date":"YYYY-MM-DD","diary":"...","calendarNote":"...","comment":"...","timeline":[{"start":"08:30","end":"09:20","title":"...","note":"...","secret":false,"publicMask":"","secretHint":"","secretPassword":""}],"quoteDrafts":[{"title":"待办引用","excerpt":"...","reply":"...","sourceType":"todo|event","sourceId":"..."}]}',
     '所有字段都必须使用简体中文输出，不要夹英文标题，不要夹外语对白，也不要因为角色语言设置改成别的语言。',
     '语言固定是简体中文，但行程安排、语气、态度、细节、作息风格必须服从角色人设。',
     'timeline 是现实里会发生的一天，至少 4 条，最多 8 条。',
+    '如果角色这一天有不想直接说开的安排，允许最多生成 1 条 secret=true 的秘密行程；这种时候 title/note 仍然写真实内容，同时额外提供 publicMask（给对方看到的模糊标题，比如“有点私事”）、secretHint（很短的提示）和 secretPassword（1-6 位简单口令或短词）。如果没有秘密行程，就把这些字段留空。',
     'diary 是角色今天的一句日记，要有人设感。',
     'calendarNote 是写在日历边上的一句留言。',
     'comment 是角色看见用户待办或行程后的点评。',
@@ -1828,6 +1844,73 @@ async function sendScheduleQuote(payload){
     }
   }catch(err){}
   return true;
+}
+
+async function appendScheduleSystemNotice(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var charId = String(payload.charId || '').trim();
+  if(!charId) return false;
+  var accountId = getDefaultAccountId();
+  if(!accountId) return false;
+  var history = await readBackgroundChatHistory(charId, accountId);
+  var now = Date.now();
+  var text = String(payload.text || '').trim();
+  if(!text) return false;
+  var entry = {
+    id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
+    role: 'assistant',
+    content: '[系统提示：' + text + ']',
+    type: 'text',
+    replyToId: null,
+    sentAt: now,
+    readAt: null
+  };
+  history.push(entry);
+  await writeBackgroundChatHistory(charId, accountId, history);
+  renderHomeDockBadges();
+  try{
+    var f = document.getElementById('app-iframe');
+    if(f && f.contentWindow){
+      f.contentWindow.postMessage({ type:'BACKGROUND_AI_MESSAGE', payload:{ charId: charId, entry: entry } }, '*');
+    }
+  }catch(err){}
+  return true;
+}
+
+async function generateScheduleInlineComment(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var charId = String(payload.charId || '').trim();
+  if(!charId) throw new Error('缺少角色');
+  var chars = getStoredCharactersSnapshot();
+  var character = chars.find(function(item){ return item && String(item.id || '') === charId; }) || null;
+  if(!character) throw new Error('找不到角色');
+  var cfg = getBackgroundProviderConfig();
+  if(!cfg) throw new Error('请先在设置里配置模型');
+  var item = payload.item && typeof payload.item === 'object' ? payload.item : {};
+  var comments = Array.isArray(payload.comments) ? payload.comments : [];
+  var sysPrompt = [
+    '你现在只负责给日程页上的某一条安排写一句短留言。',
+    '只返回纯文本，不要 JSON，不要解释。',
+    '这句留言会显示在日程页的小便利贴里，所以要短、自然、有活人感。',
+    '用简体中文。',
+    '要严格符合角色 persona，不要像客服，不要像 AI，总长度控制在 10 到 38 个字。'
+  ].join('\n');
+  var userPrompt = [
+    '角色名：' + String(character.nickname || character.name || '角色'),
+    '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
+    character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 700)) : '',
+    '今天日期：' + String(payload.dateKey || ''),
+    '这条安排属于：' + (payload.owner === 'user' ? '用户' : '角色本人'),
+    '安排标题：' + String(item.title || item.text || '').trim(),
+    item.start ? ('时间：' + String(item.start || '') + (item.end ? (' - ' + String(item.end || '')) : '')) : '',
+    item.note ? ('备注：' + String(item.note || '')) : '',
+    comments.length ? ('已经有的留言：\n- ' + comments.map(function(comment){ return String(comment.author || '') + '：' + String(comment.text || '').trim(); }).join('\n- ')) : '还没有留言。',
+    payload.owner === 'user'
+      ? '请像这个角色看见用户日程后的自然反应，可能是提醒、吃醋、吐槽、关心。'
+      : '请像这个角色在记录自己行程时，顺手留下的一句心情或补充。'
+  ].filter(Boolean).join('\n\n');
+  var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
+  return String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
 }
 
 async function callAiForBackground(cfg, sysPrompt, userPrompt){
@@ -2042,7 +2125,9 @@ async function runAiBackgroundActivity(){
 
 window.ScheduleShell = {
   generateDayPlan: generateScheduleDayPlan,
-  sendScheduleQuote: sendScheduleQuote
+  sendScheduleQuote: sendScheduleQuote,
+  appendSystemNotice: appendScheduleSystemNotice,
+  generateInlineComment: generateScheduleInlineComment
 };
 
 function updateClock() {

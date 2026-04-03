@@ -10,7 +10,7 @@
 <script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../promptManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T14:05:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T14:42:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -4602,21 +4602,41 @@ function buildOfflineSchedulePromptBlock(){
   if((ctx.events || []).length){
     lines.push('用户今天公开给 char 看的日程：');
     ctx.events.slice(0, 5).forEach(function(item){
-      if(item.visibleToChar === false) return;
-      lines.push('- ' + [String(item.start || '').trim() || '未设时间', String(item.title || '').trim(), String(item.location || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | '));
+      var hidden = item.visibleToChar === false;
+      var commentText = Array.isArray(item.comments) && item.comments.length
+        ? ('留言：' + item.comments.slice(0, 2).map(function(comment){
+            return String(comment.author || '') + '：' + String(comment.text || '').trim();
+          }).join(' / '))
+        : '';
+      lines.push('- ' + [
+        String(item.start || '').trim() || '未设时间',
+        hidden ? (String(item.publicMask || '').trim() || '这个时间段有安排') : String(item.title || '').trim(),
+        hidden ? '' : String(item.location || '').trim(),
+        hidden ? '具体内容没有公开' : String(item.note || '').trim(),
+        commentText
+      ].filter(Boolean).join(' | '));
     });
   }
   if((ctx.todos || []).length){
     lines.push('用户今天待办：');
     ctx.todos.slice(0, 6).forEach(function(item){
-      if(item.visibleToChar === false) return;
-      lines.push('- ' + [(item.done ? '已完成' : '待做'), String(item.text || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | '));
+      var commentText = Array.isArray(item.comments) && item.comments.length
+        ? ('留言：' + item.comments.slice(0, 2).map(function(comment){
+            return String(comment.author || '') + '：' + String(comment.text || '').trim();
+          }).join(' / '))
+        : '';
+      lines.push('- ' + [(item.done ? '已完成' : '待做'), String(item.text || '').trim(), String(item.note || '').trim(), commentText].filter(Boolean).join(' | '));
     });
   }
   if(ctx.charDay && Array.isArray(ctx.charDay.timeline) && ctx.charDay.timeline.length){
     lines.push('char 今天自己的时间线：');
     ctx.charDay.timeline.slice(0, 5).forEach(function(item){
-      lines.push('- ' + [String(item.start || '').trim() || '未设时间', String(item.title || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | '));
+      var commentText = Array.isArray(item.comments) && item.comments.length
+        ? ('留言：' + item.comments.slice(0, 2).map(function(comment){
+            return String(comment.author || '') + '：' + String(comment.text || '').trim();
+          }).join(' / '))
+        : '';
+      lines.push('- ' + [String(item.start || '').trim() || '未设时间', String(item.title || '').trim(), String(item.note || '').trim(), commentText].filter(Boolean).join(' | '));
     });
   }
   return lines.join('\n').trim();

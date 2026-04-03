@@ -77,6 +77,16 @@
     return String(prefix || 'id') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
   }
 
+  function normalizeComment(item){
+    item = item && typeof item === 'object' ? item : {};
+    return {
+      id: String(item.id || createId('comment')),
+      author: String(item.author || item.role || 'user').trim() || 'user',
+      text: String(item.text || item.content || '').trim(),
+      createdAt: Number(item.createdAt || Date.now()) || Date.now()
+    };
+  }
+
   function normalizeEvent(item){
     item = item && typeof item === 'object' ? item : {};
     return {
@@ -91,7 +101,12 @@
       visibleToChar: item.visibleToChar !== false,
       remindChar: !!item.remindChar,
       remindUser: !!item.remindUser,
+      secret: !!item.secret,
+      secretPassword: String(item.secretPassword || '').trim(),
+      secretHint: String(item.secretHint || '').trim(),
+      publicMask: String(item.publicMask || item.maskedTitle || '').trim(),
       source: String(item.source || 'user').trim() || 'user',
+      comments: Array.isArray(item.comments) ? item.comments.map(normalizeComment).filter(function(comment){ return comment.text; }) : [],
       createdAt: Number(item.createdAt || Date.now()) || Date.now()
     };
   }
@@ -105,6 +120,7 @@
       note: String(item.note || '').trim(),
       done: !!item.done,
       visibleToChar: item.visibleToChar !== false,
+      comments: Array.isArray(item.comments) ? item.comments.map(normalizeComment).filter(function(comment){ return comment.text; }) : [],
       createdAt: Number(item.createdAt || Date.now()) || Date.now()
     };
   }
@@ -127,11 +143,17 @@
   function normalizeTimelineItem(item){
     item = item && typeof item === 'object' ? item : {};
     return {
+      id: String(item.id || createId('timeline')),
       start: normalizeTimeValue(item.start || item.time),
       end: normalizeTimeValue(item.end),
       title: String(item.title || '').trim(),
       note: String(item.note || '').trim(),
-      kind: String(item.kind || 'char').trim() || 'char'
+      kind: String(item.kind || 'char').trim() || 'char',
+      secret: !!item.secret,
+      secretPassword: String(item.secretPassword || '').trim(),
+      secretHint: String(item.secretHint || '').trim(),
+      publicMask: String(item.publicMask || item.maskedTitle || '').trim(),
+      comments: Array.isArray(item.comments) ? item.comments.map(normalizeComment).filter(function(comment){ return comment.text; }) : []
     };
   }
 
@@ -392,6 +414,7 @@
       if(startMinutes >= 0 && endMinutes < 0) endMinutes = startMinutes + 59;
       return {
         type: type,
+        id: String(source.id || '').trim(),
         title: String(source.title || source.text || '').trim(),
         note: String(source.note || '').trim(),
         start: start,
@@ -403,8 +426,16 @@
     }
 
     var userItems = (ctx.events || [])
-      .filter(function(item){ return item && item.visibleToChar !== false; })
-      .map(function(item){ return normalizeLiveItem(item, 'user'); })
+      .map(function(item){
+        item = item && typeof item === 'object' ? item : {};
+        if(item.visibleToChar === false){
+          item = Object.assign({}, item, {
+            title: String(item.publicMask || '这个时间段有安排').trim() || '这个时间段有安排',
+            note: '具体内容没有公开'
+          });
+        }
+        return normalizeLiveItem(item, 'user');
+      })
       .filter(function(item){ return item.title; });
     var charItems = ((ctx.charDay && Array.isArray(ctx.charDay.timeline)) ? ctx.charDay.timeline : [])
       .map(function(item){ return normalizeLiveItem(item, 'char'); })
