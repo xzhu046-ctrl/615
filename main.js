@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T03:10:00Z';
+const APP_BUILD_ID = '2026-04-03T03:18:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1900,7 +1900,7 @@ async function generateScheduleDayPlan(payload){
     'JSON 结构：{"date":"YYYY-MM-DD","diary":"...","calendarNote":"...","comment":"...","timeline":[{"start":"08:30","end":"09:20","title":"...","note":"...","location":"...","secret":false,"publicMask":"","secretHint":"","secretPassword":""}],"todos":[{"text":"...","note":"...","done":false}],"quoteDrafts":[{"title":"待办引用","excerpt":"...","reply":"...","sourceType":"todo|event","sourceId":"..."}]}',
     '所有字段都必须使用简体中文输出，不要夹英文标题，不要夹外语对白，也不要因为角色语言设置改成别的语言。',
     '语言固定是简体中文，但行程安排、语气、态度、细节、作息风格必须服从角色人设。',
-    'timeline 是现实里会发生的一天，至少 6 条，不设上限。每条尽量带一个简短地点 location，条数按人设自然展开，不要为了凑数乱写。',
+    'timeline 是现实里会发生的一天，至少 6 条，不设上限。每条都要带一个尽量具体的地点 location 和一句简短 note。地点不要只写“家里”“外面”“学校”“公司”，要更像真人会去的落点，比如“图书馆三楼自习区”“宿舍楼下便利店”“公司楼下咖啡店靠窗那排”。',
     'todos 是这个角色今天自己心里或手边会记着的待办，至少 3 条，不设上限，语气和内容都按人设来。',
     '如果角色这一天有不想直接说开的安排，允许最多生成 1 条 secret=true 的秘密行程；这种时候 title/note 仍然写真实内容，同时额外提供 publicMask（给对方看到的模糊标题，比如“有点私事”）、secretHint（很短的密码线索，必须真的和 secretPassword 有关，比如“是今天的日期”“末尾两位”这类）和 secretPassword（严格 4 位数字密码）。如果没有秘密行程，就把这些字段留空。',
     'diary 是角色今天的一句日记，要有人设感。',
@@ -1982,7 +1982,8 @@ async function generateScheduleUserDayPlan(payload){
     'events 至少 4 条，不设上限；todos 至少 3 条，不设上限。',
     '必须认真读取用户设定和角色人设。安排要像用户本人，不要写成角色的生活。',
     '自动生成的用户行程一律公开，不允许秘密行程。秘密行程只能由用户手动添加，所以这里生成的 events 必须全部 visibleToChar=true，publicMask/secretHint/secretPassword 全部留空。',
-    '待办和行程都要贴近真人生活，可以有学习、休息、社交、通勤、准备礼物、给角色留空间等，但不要脱离用户设定。'
+    '待办和行程都要贴近真人生活，可以有学习、休息、社交、通勤、准备礼物、给角色留空间等，但不要脱离用户设定。',
+    '每条 event 都必须写 location 和 note。location 要比大类地点更细一点；note 要是一句小解释，说明这段安排为什么这样排、正在做什么、或者这件事背后的心思，不要留空。'
   ].join('\n');
   var userPrompt = [
     '日期：' + dateKey + ' ' + weekday,
