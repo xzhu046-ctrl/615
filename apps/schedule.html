@@ -220,7 +220,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-todo-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .schedule-todo-actions .schedule-item-chip{background:rgba(17,17,17,.08);color:#111}
 .schedule-comment-note-count{
-  position:absolute;top:-8px;right:-8px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:#ef3d3d;box-shadow:0 0 0 2px rgba(247,247,247,.96);display:none;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:900;line-height:1
+  position:absolute;top:6px;right:6px;z-index:3;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:#ef3d3d;box-shadow:0 0 0 2px rgba(247,247,247,.96);display:none;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:900;line-height:1
 }
 .schedule-todo-item.has-comments .schedule-comment-note-count{display:flex}
 .schedule-mini-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
@@ -1992,11 +1992,10 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
   var ctx = getSelectedDayContext();
   var activeState = getActiveCharState();
   var latestFresh = getLatestUserFreshTarget(ctx);
-  var commentCandidate = latestFresh && (!primaryTarget || String(latestFresh.itemId || '') !== String(primaryTarget.itemId || '') || String(latestFresh.kind || '') !== String(primaryTarget.kind || ''))
-    ? latestFresh
-    : null;
+  var commentCandidate = latestFresh || null;
   var day = activeState.charDays && activeState.charDays[selectedDateKey] ? activeState.charDays[selectedDateKey] : { timeline:[], todos:[] };
   var undoneCharTodo = (Array.isArray(day.todos) ? day.todos : []).find(function(item){ return item && !item.done; }) || null;
+  var firstCharTimeline = (Array.isArray(day.timeline) ? day.timeline : []).find(function(item){ return item && (item.title || item.note); }) || null;
   var chatSeedTarget = primaryTarget || commentCandidate;
   var chatText = '';
   var chain = Promise.resolve();
@@ -2005,6 +2004,10 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
     chain = chain.then(function(){
       var targetItem = findEntryByKind(commentCandidate.kind, commentCandidate.itemId, getActiveCharState());
       if(!targetItem) return;
+      var existingCharComment = Array.isArray(targetItem.comments) && targetItem.comments.some(function(comment){
+        return String(comment.author || '') === 'char';
+      });
+      if(existingCharComment && primaryTarget && String(primaryTarget.kind || '') === String(commentCandidate.kind || '') && String(primaryTarget.itemId || '') === String(commentCandidate.itemId || '')) return;
       return shell.ScheduleShell.generateInlineComment({
         charId: char.id,
         dateKey: selectedDateKey,
@@ -2033,7 +2036,6 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
 
   if(undoneCharTodo){
     chain = chain.then(function(){
-      if(Math.random() >= 0.5) return;
       return mutateEntryByKind('chartodo', undoneCharTodo.id, function(item){
         item = Object.assign({}, item);
         item.done = true;
@@ -2047,11 +2049,28 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
         return item;
       });
     });
+  }else if(firstCharTimeline){
+    chain = chain.then(function(){
+      var nextText = '把「' + String(firstCharTimeline.title || '这件事').trim() + '」收个尾';
+      var charState = getActiveCharState();
+      charState.charDays = charState.charDays || {};
+      charState.charDays[selectedDateKey] = charState.charDays[selectedDateKey] || { date:selectedDateKey, timeline:[], todos:[] };
+      charState.charDays[selectedDateKey].todos = Array.isArray(charState.charDays[selectedDateKey].todos) ? charState.charDays[selectedDateKey].todos.slice() : [];
+      charState.charDays[selectedDateKey].todos.unshift({
+        id: ScheduleShared.createId('chartodo'),
+        text: nextText,
+        note: '刚刚顺手记下来',
+        done: false,
+        comments: [],
+        createdAt: Date.now()
+      });
+      scheduleState = ScheduleShared.setCharState(scheduleState, char.id, charState);
+      return persistState().then(function(){ renderAll(); });
+    });
   }
 
   if(chatSeedTarget){
     chain = chain.then(function(){
-      if(Math.random() >= 0.62) return;
       var targetItem = findEntryByKind(chatSeedTarget.kind, chatSeedTarget.itemId, getActiveCharState());
       if(!targetItem) return;
       return shell.ScheduleShell.generateInlineComment({
@@ -2371,6 +2390,15 @@ function shareTimelineToChar(targetCharId){
   if(itemOwner === 'user'){
     extraContext.push('这是用户主动从日程 app 分享给你的安排。你可以自然回应，不要像系统通知。');
   }
+  function fallbackShareReply(){
+    if(itemOwner === 'char' && sourceChar && targetChar && String(sourceChar.id || '') !== String(targetChar.id || '')){
+      return '这是谁的行程啊？你发给我干嘛。';
+    }
+    if(itemOwner === 'user'){
+      return '我看到了。你今天是要忙这个吗？';
+    }
+    return '我记下了。';
+  }
   Promise.resolve(shell.ScheduleShell.sendScheduleQuote({
     charId: targetCharId,
     role: 'user',
@@ -2387,7 +2415,7 @@ function shareTimelineToChar(targetCharId){
       comments: Array.isArray(item.comments) ? item.comments : [],
       timeStatus: getItemTimeStatusText(item),
       extraContext: extraContext.join('\n')
-    });
+    }).catch(function(){ return fallbackShareReply(); });
   }).then(function(reply){
     reply = String(reply || '').trim();
     if(reply && shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
