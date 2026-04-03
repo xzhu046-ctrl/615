@@ -136,6 +136,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-agenda-title .schedule-kicker{font-size:10px;font-weight:900;letter-spacing:.16em;color:#888;text-transform:uppercase}
 .schedule-agenda-title .schedule-panel-title{font-family:var(--fontd);font-size:18px;font-weight:900}
 .schedule-badge-list,.schedule-todo-list{display:flex;flex-direction:column;gap:8px}
+.schedule-todo-list{max-height:232px;overflow:auto;padding-right:2px}
 .schedule-badge-list{flex-direction:row;flex-wrap:wrap;gap:7px}
 .schedule-badge-item{
   border:none;border-radius:999px;padding:8px 12px;background:linear-gradient(180deg,#141414 0%,#242424 100%);box-shadow:3px 3px 0 rgba(0,0,0,.16);color:#fff
@@ -255,7 +256,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 }
 .schedule-modal.open{display:flex}
 .schedule-modal-card{
-  width:min(520px,100%);max-height:min(84vh,760px);overflow:auto;border:var(--bd);border-radius:30px;background:#fff;box-shadow:0 18px 36px rgba(0,0,0,.16);padding:18px 18px 20px;display:flex;flex-direction:column;gap:14px
+  width:min(520px,100%);max-height:min(84vh,760px);overflow:auto;border:var(--bd);border-radius:30px;background:#fff;box-shadow:8px 8px 0 rgba(0,0,0,.18),0 18px 36px rgba(0,0,0,.1);padding:18px 18px 20px;display:flex;flex-direction:column;gap:14px
 }
 .schedule-modal-card h3{font-family:var(--fontd);font-size:18px;font-weight:900}
 .schedule-modal-sub{font-size:12px;font-weight:800;line-height:1.55;color:#666}
@@ -275,7 +276,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-picker-avatar{display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900}
 .schedule-picker-copy strong{display:block;font-size:13px;font-weight:900}
 .schedule-picker-copy span{display:block;margin-top:2px;font-size:11px;font-weight:800;color:#666}
-.schedule-action-sheet{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.schedule-action-sheet{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
 .schedule-sheet-btn{border:2px solid #111;border-radius:20px;background:linear-gradient(180deg,#fff 0%,#f3f3f3 100%);box-shadow:5px 5px 0 rgba(0,0,0,.12);padding:12px 11px;text-align:left}
 .schedule-sheet-btn strong{display:block;font-size:13px;font-weight:900}
 .schedule-sheet-btn span{display:block;margin-top:4px;font-size:10px;font-weight:800;color:#666;line-height:1.4}
@@ -352,7 +353,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
   .schedule-live-timeline{padding-left:22px}
   .schedule-timeline-item{grid-template-columns:64px 1fr;gap:10px}
   .schedule-time{font-size:11px;padding-top:9px}
-  .schedule-sticky-grid,.schedule-action-sheet{grid-template-columns:1fr}
+  .schedule-sticky-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -773,6 +774,12 @@ function formatScheduleWeekdayZh(dateKey){
   var d = new Date(String(dateKey || '') + 'T12:00:00');
   if(Number.isNaN(d.getTime())) d = new Date();
   return ['周日','周一','周二','周三','周四','周五','周六'][d.getDay()] || '';
+}
+
+function formatCommentClock(value){
+  var d = new Date(Number(value || 0) || Date.now());
+  if(Number.isNaN(d.getTime())) d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
 function getTimelineUnlockKey(kind, itemId){
@@ -1714,13 +1721,14 @@ function renderCommentStickyGrid(){
     return;
   }
   host.innerHTML = comments.slice().sort(function(a, b){
-    return Number(b.createdAt || 0) - Number(a.createdAt || 0);
+    return Number(a.createdAt || 0) - Number(b.createdAt || 0);
   }).map(function(comment){
     return '<div class="schedule-sticky-note ' + esc(getCommentNoteClass(comment.author)) + '">'
-      + '<div class="schedule-sticky-meta">' + esc(getCommentAuthorLabel(comment.author)) + '</div>'
+      + '<div class="schedule-sticky-meta">' + esc(getCommentAuthorLabel(comment.author)) + ' · ' + esc(formatCommentClock(comment.createdAt)) + '</div>'
       + '<div class="schedule-sticky-text">' + esc(comment.text || '') + '</div>'
       + '</div>';
   }).join('');
+  host.scrollTop = host.scrollHeight;
 }
 
 function closeCommentModal(){
@@ -2020,7 +2028,7 @@ function openShareTargetModal(){
   if(!list.length){
     host.innerHTML = '<div class="schedule-empty">先去创建一个角色吧。</div>';
   }
-  closeTimelineActionModal();
+  document.getElementById('timelineActionModal').classList.remove('open');
   document.getElementById('shareTargetModal').classList.add('open');
 }
 
