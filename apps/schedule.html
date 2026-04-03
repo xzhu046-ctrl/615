@@ -976,6 +976,39 @@ function loadCharacters(){
   }
 }
 
+function getShareTargetCharacters(){
+  var seen = {};
+  var list = [];
+  function pushChar(char){
+    if(!char || !char.id) return;
+    var key = String(char.id || '');
+    if(!key || seen[key]) return;
+    seen[key] = true;
+    list.push(char);
+  }
+  try{ characterList.forEach(pushChar); }catch(err){}
+  try{
+    var shell = getParentShell();
+    if(shell && typeof shell.getStoredCharactersSnapshot === 'function'){
+      shell.getStoredCharactersSnapshot().forEach(pushChar);
+    }
+  }catch(err){}
+  try{
+    if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
+      window.MetadataStore.getCharactersSync().forEach(pushChar);
+    }
+  }catch(err){}
+  try{
+    var shell2 = getParentShell();
+    if(shell2 && shell2.MetadataStore && typeof shell2.MetadataStore.getCharactersSync === 'function'){
+      shell2.MetadataStore.getCharactersSync().forEach(pushChar);
+    }
+  }catch(err){}
+  pushChar(getActiveCharacterFromShell());
+  pushChar(getActiveChar());
+  return list;
+}
+
 function getActiveChar(){
   if(activeCharId){
     var exact = characterList.find(function(item){ return item && String(item.id) === String(activeCharId); });
@@ -1916,6 +1949,115 @@ function getItemTimeStatusText(item){
   return '';
 }
 
+function getLatestUserFreshTarget(ctx){
+  var best = null;
+  var bestAt = 0;
+  function scan(kind, list){
+    (Array.isArray(list) ? list : []).forEach(function(item){
+      var at = Number(item && item.createdAt || 0) || 0;
+      if(!at) return;
+      if(at >= bestAt){
+        bestAt = at;
+        best = { kind:kind, itemId:String(item.id || '') };
+      }
+    });
+  }
+  scan('event', ctx && ctx.events);
+  scan('todo', ctx && ctx.todos);
+  return best;
+}
+
+function buildChatPromptFromTarget(kind, item){
+  var promptItem = buildCommentPromptItem(kind, item);
+  var title = String(promptItem.title || '').trim();
+  var note = String(promptItem.note || '').trim();
+  return [title, note].filter(Boolean).join('，');
+}
+
+function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
+  if(!char || !shell || !shell.ScheduleShell || typeof shell.ScheduleShell.generateInlineComment !== 'function') return Promise.resolve('');
+  var ctx = getSelectedDayContext();
+  var activeState = getActiveCharState();
+  var latestFresh = getLatestUserFreshTarget(ctx);
+  var commentCandidate = latestFresh && (!primaryTarget || String(latestFresh.itemId || '') !== String(primaryTarget.itemId || '') || String(latestFresh.kind || '') !== String(primaryTarget.kind || ''))
+    ? latestFresh
+    : null;
+  var day = activeState.charDays && activeState.charDays[selectedDateKey] ? activeState.charDays[selectedDateKey] : { timeline:[], todos:[] };
+  var undoneCharTodo = (Array.isArray(day.todos) ? day.todos : []).find(function(item){ return item && !item.done; }) || null;
+  var chatSeedTarget = primaryTarget || commentCandidate;
+  var chatText = '';
+  var chain = Promise.resolve();
+
+  if(commentCandidate){
+    chain = chain.then(function(){
+      var targetItem = findEntryByKind(commentCandidate.kind, commentCandidate.itemId, getActiveCharState());
+      if(!targetItem) return;
+      return shell.ScheduleShell.generateInlineComment({
+        charId: char.id,
+        dateKey: selectedDateKey,
+        owner: commentCandidate.kind === 'timeline' ? 'char' : 'user',
+        item: buildCommentPromptItem(commentCandidate.kind, targetItem),
+        comments: Array.isArray(targetItem.comments) ? targetItem.comments : [],
+        timeStatus: getItemTimeStatusText(targetItem),
+        extraContext: '这是用户刚刚新添的安排或待办。请像活人一样顺手留一句自然的日程留言。'
+      }).then(function(text){
+        text = String(text || '').trim();
+        if(!text) return;
+        return mutateEntryByKind(commentCandidate.kind, commentCandidate.itemId, function(target){
+          target = Object.assign({}, target);
+          target.comments = Array.isArray(target.comments) ? target.comments.slice() : [];
+          target.comments.unshift({
+            id: ScheduleShared.createId('comment'),
+            author: 'char',
+            text: text,
+            createdAt: Date.now()
+          });
+          return target;
+        });
+      });
+    });
+  }
+
+  if(undoneCharTodo){
+    chain = chain.then(function(){
+      if(Math.random() >= 0.5) return;
+      return mutateEntryByKind('chartodo', undoneCharTodo.id, function(item){
+        item = Object.assign({}, item);
+        item.done = true;
+        item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
+        item.comments.unshift({
+          id: ScheduleShared.createId('comment'),
+          author: 'char',
+          text: '这件事我刚顺手处理掉了。',
+          createdAt: Date.now()
+        });
+        return item;
+      });
+    });
+  }
+
+  if(chatSeedTarget){
+    chain = chain.then(function(){
+      if(Math.random() >= 0.62) return;
+      var targetItem = findEntryByKind(chatSeedTarget.kind, chatSeedTarget.itemId, getActiveCharState());
+      if(!targetItem) return;
+      return shell.ScheduleShell.generateInlineComment({
+        charId: char.id,
+        dateKey: selectedDateKey,
+        owner: chatSeedTarget.kind === 'timeline' ? 'char' : 'user',
+        item: buildCommentPromptItem(chatSeedTarget.kind, targetItem),
+        comments: Array.isArray(targetItem.comments) ? targetItem.comments : [],
+        timeStatus: getItemTimeStatusText(targetItem),
+        extraContext: '这次不是写在日程里的留言，而是真的要发去聊天里的消息。要自然一点，像人在聊天里顺嘴提起日程。'
+      }).then(function(text){
+        chatText = String(text || '').trim();
+      });
+    });
+  }
+
+  return chain.then(function(){ return chatText; });
+}
+
 function pickCommentTargetForSelectedDay(){
   var ctx = getSelectedDayContext();
   var live = (window.ScheduleShared && typeof window.ScheduleShared.getLiveTimeContext === 'function')
@@ -1997,25 +2139,42 @@ function triggerCharCommentNow(){
       renderCommentStickyGrid();
       toast('Ta回你了');
       var shouldPushToChat = false;
+      var shouldSilentPeek = true;
       if(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
         var hasUserComment = Array.isArray(item.comments) && item.comments.some(function(comment){
           return String(comment.author || '') === 'user';
         });
         if(commentTriggerSource === 'global'){
-          shouldPushToChat = hasUserComment || Math.random() < 0.55;
+          shouldPushToChat = false;
         }else{
           shouldPushToChat = Math.random() < 0.28;
         }
       }
+      var sourceWasGlobal = commentTriggerSource === 'global';
       commentTriggerSource = 'modal';
+      var post = Promise.resolve();
       if(shouldPushToChat && shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
-        return shell.ScheduleShell.appendChatMessage({
+        post = shell.ScheduleShell.appendChatMessage({
           charId: char.id,
           role: 'assistant',
           text: reply,
-          silentPeek: true
+          silentPeek: shouldSilentPeek
         }).catch(function(){});
       }
+      if(sourceWasGlobal){
+        post = post.then(function(){
+          return maybeApplyGlobalScheduleAction(char, shell, commentTarget).then(function(chatText){
+            chatText = String(chatText || '').trim();
+            if(!chatText || !(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function')) return;
+            return shell.ScheduleShell.appendChatMessage({
+              charId: char.id,
+              role: 'assistant',
+              text: chatText
+            }).catch(function(){});
+          });
+        });
+      }
+      return post;
     });
   }).catch(function(err){
     commentTriggerSource = 'modal';
@@ -2126,47 +2285,42 @@ function openShareTargetModal(){
   host.innerHTML = '<div class="schedule-empty">正在装进聊天列表…</div>';
   document.getElementById('timelineActionModal').classList.remove('open');
   document.getElementById('shareTargetModal').classList.add('open');
-  Promise.resolve().then(async function(){
+  Promise.resolve().then(function(){
     try{
-      if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
-        try{ await window.MetadataStore.loadCharacters(true); }catch(err){}
-      }
       loadCharacters();
-      var current = getActiveChar();
-      var list = characterList.slice();
-      if(current && current.id && !list.some(function(item){ return String(item.id || '') === String(current.id || ''); })){
-        list.unshift(current);
-      }
-      if(!list.length){
-        host.innerHTML = '<div class="schedule-empty">先去创建一个角色吧。</div>';
-        return;
-      }
-      host.innerHTML = '<div class="schedule-picker-strip">' + list.map(function(char){
-        var avatar = getCharacterAvatar(char) || '';
-        var face = getCharacterName(char).slice(0, 1) || 'C';
-        return '<div class="schedule-picker-chip"><button class="schedule-picker-chip-btn" type="button" data-share-char-id="' + esc(String(char.id || '')) + '">'
-          + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : ('<div class="schedule-picker-chip-avatar">' + esc(face) + '</div>'))
-          + '</button><div class="schedule-picker-chip-label">' + esc(getCharacterName(char)) + '</div></div>';
-      }).join('') + '</div>';
-      Array.prototype.forEach.call(host.querySelectorAll('[data-share-char-id]'), function(btn){
-        btn.addEventListener('click', function(evt){
-          evt.preventDefault();
-          shareTimelineToChar(String(btn.getAttribute('data-share-char-id') || ''));
-        });
-      });
-      list.forEach(function(char){
-        resolveCharacterAvatarAsync(char).then(function(src){
-          src = String(src || '').trim();
-          if(!src) return;
-          var btn = host.querySelector('[data-share-char-id="' + String(char.id || '').replace(/"/g, '&quot;') + '"]');
-          if(!btn) return;
-          btn.innerHTML = '<img src="' + esc(src) + '" alt="">';
-        }).catch(function(){});
-      });
-      host.scrollLeft = 0;
-    }catch(err){
-      host.innerHTML = '<div class="schedule-empty">聊天列表打开失败了，再试一次吧。</div>';
+    }catch(err){}
+    var list = getShareTargetCharacters();
+    if(!list.length){
+      host.innerHTML = '<div class="schedule-empty">先去创建一个角色吧。</div>';
+      return;
     }
+    host.innerHTML = '<div class="schedule-picker-strip">' + list.map(function(char){
+      var avatar = '';
+      try{ avatar = getCharacterAvatar(char) || ''; }catch(err){}
+      var face = getCharacterName(char).slice(0, 1) || 'C';
+      return '<div class="schedule-picker-chip"><button class="schedule-picker-chip-btn" type="button" data-share-char-id="' + esc(String(char.id || '')) + '">'
+        + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : ('<div class="schedule-picker-chip-avatar">' + esc(face) + '</div>'))
+        + '</button><div class="schedule-picker-chip-label">' + esc(getCharacterName(char)) + '</div></div>';
+    }).join('') + '</div>';
+    Array.prototype.forEach.call(host.querySelectorAll('[data-share-char-id]'), function(btn){
+      btn.onclick = function(evt){
+        evt.preventDefault();
+        evt.stopPropagation();
+        shareTimelineToChar(String(btn.getAttribute('data-share-char-id') || ''));
+      };
+    });
+    list.forEach(function(char){
+      resolveCharacterAvatarAsync(char).then(function(src){
+        src = String(src || '').trim();
+        if(!src) return;
+        var btn = host.querySelector('[data-share-char-id="' + String(char.id || '').replace(/"/g, '&quot;') + '"]');
+        if(!btn) return;
+        btn.innerHTML = '<img src="' + esc(src) + '" alt="">';
+      }).catch(function(){});
+    });
+    host.scrollLeft = 0;
+  }).catch(function(){
+    host.innerHTML = '<div class="schedule-empty">聊天列表打开失败了，再试一次吧。</div>';
   });
 }
 

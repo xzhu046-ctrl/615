@@ -102,7 +102,7 @@
       remindChar: !!item.remindChar,
       remindUser: !!item.remindUser,
       secret: !!item.secret,
-      secretPassword: String(item.secretPassword || '').trim(),
+      secretPassword: String(item.secretPassword || '').replace(/\D+/g, '').slice(0, 6),
       secretHint: String(item.secretHint || '').trim(),
       publicMask: String(item.publicMask || item.maskedTitle || '').trim(),
       source: String(item.source || 'user').trim() || 'user',
@@ -162,7 +162,7 @@
       note: String(item.note || '').trim(),
       kind: String(item.kind || 'char').trim() || 'char',
       secret: !!item.secret,
-      secretPassword: String(item.secretPassword || '').trim(),
+      secretPassword: String(item.secretPassword || '').replace(/\D+/g, '').slice(0, 6),
       secretHint: String(item.secretHint || '').trim(),
       publicMask: String(item.publicMask || item.maskedTitle || '').trim(),
       comments: Array.isArray(item.comments) ? item.comments.map(normalizeComment).filter(function(comment){ return comment.text; }) : []
