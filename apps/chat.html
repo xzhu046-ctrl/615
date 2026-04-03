@@ -10,7 +10,7 @@
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T07:24:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-02T14:05:00Z"></script>
 <script src="../presenceShared.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../sunnySupport.js?v=2026-03-31T10:28:00Z"></script>
 <script src="offlineInvite.js?v=2026-04-01T23:27:00Z"></script>
@@ -5664,8 +5664,28 @@ function buildSchedulePromptBlock(){
   if(!state || typeof state !== 'object') return '';
   var todayKey = window.ScheduleShared.toDateKey(new Date());
   var ctx = window.ScheduleShared.summarizeDayContext(state, character.id, todayKey);
+  var live = typeof window.ScheduleShared.getLiveTimeContext === 'function'
+    ? window.ScheduleShared.getLiveTimeContext(state, character.id, new Date())
+    : null;
   var lines = [];
+  if(live && live.enabled){
+    lines.push('【当前现实时间】');
+    lines.push('今天日期：' + String(live.dateKey || todayKey));
+    lines.push('现在时间：' + String(live.nowTime || '未知'));
+    if(live.currentCharItem){
+      lines.push('你此刻更可能正在做：' + [String(live.currentCharItem.start || '').trim() || '现在', String(live.currentCharItem.title || '').trim(), String(live.currentCharItem.note || '').trim()].filter(Boolean).join(' | '));
+    }else if(live.nextCharItem){
+      lines.push('你下一条更接近的安排：' + [String(live.nextCharItem.start || '').trim() || '待定', String(live.nextCharItem.title || '').trim(), String(live.nextCharItem.note || '').trim()].filter(Boolean).join(' | '));
+    }
+    if(live.currentUserItem){
+      lines.push('用户此刻更可能在做：' + [String(live.currentUserItem.start || '').trim() || '现在', String(live.currentUserItem.title || '').trim(), String(live.currentUserItem.note || '').trim()].filter(Boolean).join(' | '));
+    }else if(live.nextUserItem){
+      lines.push('用户接下来更接近的安排：' + [String(live.nextUserItem.start || '').trim() || '待定', String(live.nextUserItem.title || '').trim(), String(live.nextUserItem.note || '').trim()].filter(Boolean).join(' | '));
+    }
+    lines.push('如果用户问“你现在在干嘛/等会儿做什么”，优先严格服从上面的现实时间和命中的安排，不要从今天日程里随便挑一条来答。');
+  }
   if((ctx.events || []).length){
+    if(lines.length) lines.push('');
     lines.push('【用户今天写在日程里的安排】');
     ctx.events.slice(0, 5).forEach(function(item){
       if(item.visibleToChar === false) return;

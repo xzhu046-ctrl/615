@@ -358,6 +358,91 @@
     };
   }
 
+  function timeToMinutes(value){
+    var txt = normalizeTimeValue(value);
+    if(!txt) return -1;
+    var parts = txt.split(':');
+    return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+  }
+
+  function isTimeAwarenessEnabled(state, charId){
+    var next = normalizeState(state);
+    var safeCharId = String(charId || '').trim();
+    var globalEnabled = next.globalTimeAwareness !== false;
+    if(!safeCharId) return globalEnabled;
+    var override = next.charOverrides && next.charOverrides[safeCharId];
+    if(!override || override.timeAwarenessEnabled == null) return globalEnabled;
+    return override.timeAwarenessEnabled !== false;
+  }
+
+  function getLiveTimeContext(state, charId, nowDate){
+    var now = nowDate instanceof Date ? nowDate : new Date(nowDate);
+    if(Number.isNaN(now.getTime())) now = new Date();
+    var dateKey = toDateKey(now);
+    var ctx = summarizeDayContext(state, charId, dateKey);
+    var nowMinutes = now.getHours() * 60 + now.getMinutes();
+    var enabled = isTimeAwarenessEnabled(state, charId);
+
+    function normalizeLiveItem(source, type){
+      source = source && typeof source === 'object' ? source : {};
+      var start = normalizeTimeValue(source.start || source.time);
+      var end = normalizeTimeValue(source.end);
+      var startMinutes = timeToMinutes(start);
+      var endMinutes = timeToMinutes(end);
+      if(startMinutes >= 0 && endMinutes < 0) endMinutes = startMinutes + 59;
+      return {
+        type: type,
+        title: String(source.title || source.text || '').trim(),
+        note: String(source.note || '').trim(),
+        start: start,
+        end: end,
+        startMinutes: startMinutes,
+        endMinutes: endMinutes,
+        raw: cloneJson(source)
+      };
+    }
+
+    var userItems = (ctx.events || [])
+      .filter(function(item){ return item && item.visibleToChar !== false; })
+      .map(function(item){ return normalizeLiveItem(item, 'user'); })
+      .filter(function(item){ return item.title; });
+    var charItems = ((ctx.charDay && Array.isArray(ctx.charDay.timeline)) ? ctx.charDay.timeline : [])
+      .map(function(item){ return normalizeLiveItem(item, 'char'); })
+      .filter(function(item){ return item.title; });
+    var allItems = userItems.concat(charItems).sort(function(a, b){
+      var aa = a.startMinutes >= 0 ? a.startMinutes : 9999;
+      var bb = b.startMinutes >= 0 ? b.startMinutes : 9999;
+      if(aa !== bb) return aa - bb;
+      return String(a.title || '').localeCompare(String(b.title || ''));
+    });
+
+    function findCurrent(items){
+      return items.find(function(item){
+        if(item.startMinutes < 0) return false;
+        if(item.endMinutes >= item.startMinutes) return nowMinutes >= item.startMinutes && nowMinutes <= item.endMinutes;
+        return nowMinutes >= item.startMinutes && nowMinutes <= item.startMinutes + 59;
+      }) || null;
+    }
+
+    function findNext(items){
+      return items.find(function(item){
+        return item.startMinutes >= 0 && item.startMinutes > nowMinutes;
+      }) || null;
+    }
+
+    return {
+      enabled: enabled,
+      dateKey: dateKey,
+      nowTime: pad2(now.getHours()) + ':' + pad2(now.getMinutes()),
+      currentUserItem: findCurrent(userItems),
+      currentCharItem: findCurrent(charItems),
+      nextUserItem: findNext(userItems),
+      nextCharItem: findNext(charItems),
+      allItems: allItems,
+      hasItems: allItems.length > 0
+    };
+  }
+
   global.ScheduleShared = {
     STORE_KEY: STORE_KEY,
     getScopedStoreKey: getScopedStoreKey,
@@ -373,6 +458,8 @@
     normalizeCharDay: normalizeCharDay,
     getHolidayMap: getHolidayMap,
     summarizeDayContext: summarizeDayContext,
+    getLiveTimeContext: getLiveTimeContext,
+    isTimeAwarenessEnabled: isTimeAwarenessEnabled,
     extractBirthday: extractBirthday,
     toDateKey: toDateKey,
     toMonthKey: toMonthKey,
