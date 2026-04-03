@@ -559,6 +559,7 @@ var schedulePersistPromise = Promise.resolve();
 var scheduleKaomoji = ['(>_<)','(｡･ω･｡)','(≧▽≦)','(っ˘ω˘ς )','(｡•̀ᴗ-)✧','(╥﹏╥)','(๑•̀ㅂ•́)و','( ˘͈ ᵕ ˘͈ )','(ง •̀_•́)ง','(｡>﹏<｡)','( ´ ▽ ` )','(￣▽￣*)ゞ'];
 var entryDraft = null;
 var commentTarget = null;
+var commentTriggerSource = 'modal';
 var secretTarget = null;
 var deleteTarget = null;
 var timelineActionTarget = null;
@@ -892,6 +893,13 @@ function resolveCharacterAvatarAsync(char){
 }
 
 function loadCharacters(){
+  var shellList = [];
+  try{
+    var shell = getParentShell();
+    if(shell && typeof shell.getStoredCharactersSnapshot === 'function'){
+      shellList = shell.getStoredCharactersSnapshot().filter(function(item){ return item && item.id; });
+    }
+  }catch(err){}
   if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
     characterList = window.MetadataStore.getCharactersSync().filter(function(item){ return item && item.id; });
   }else{
@@ -901,6 +909,15 @@ function loadCharacters(){
     }catch(err){
       characterList = [];
     }
+  }
+  shellList.forEach(function(item){
+    if(!characterList.some(function(entry){ return String(entry.id || '') === String(item.id || ''); })){
+      characterList.push(item);
+    }
+  });
+  var active = getActiveCharacterFromShell();
+  if(active && active.id && !characterList.some(function(entry){ return String(entry.id || '') === String(active.id || ''); })){
+    characterList.unshift(active);
   }
 }
 
@@ -1819,6 +1836,7 @@ function triggerCharPageComment(){
   var target = pickCommentTargetForSelectedDay();
   if(!target){ toast('先写一条行程或待办吧'); return; }
   commentTarget = { kind:target.kind, itemId:target.itemId };
+  commentTriggerSource = 'global';
   triggerCharCommentNow();
 }
 
@@ -1860,7 +1878,19 @@ function triggerCharCommentNow(){
     }).then(function(){
       renderCommentStickyGrid();
       toast('Ta回你了');
-      if(Math.random() < 0.45 && shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
+      var shouldPushToChat = false;
+      if(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
+        var hasUserComment = Array.isArray(item.comments) && item.comments.some(function(comment){
+          return String(comment.author || '') === 'user';
+        });
+        if(commentTriggerSource === 'global'){
+          shouldPushToChat = hasUserComment || Math.random() < 0.55;
+        }else{
+          shouldPushToChat = Math.random() < 0.28;
+        }
+      }
+      commentTriggerSource = 'modal';
+      if(shouldPushToChat && shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
         return shell.ScheduleShell.appendChatMessage({
           charId: char.id,
           role: 'assistant',
@@ -1871,6 +1901,7 @@ function triggerCharCommentNow(){
       }
     });
   }).catch(function(err){
+    commentTriggerSource = 'modal';
     toast('留言失败：' + (err && err.message ? err.message : '未知错误'));
   });
 }

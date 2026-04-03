@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T16:24:00Z';
+const APP_BUILD_ID = '2026-04-02T16:33:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1944,7 +1944,8 @@ async function generateScheduleInlineComment(payload){
     '只返回纯文本，不要 JSON，不要解释。',
     '这句留言会显示在日程页的小便利贴里，所以要短、自然、有活人感。',
     '用简体中文。',
-    '要严格符合角色 persona，不要像客服，不要像 AI，总长度控制在 10 到 38 个字。'
+    '要严格符合角色 persona，不要像客服，不要像 AI，总长度控制在 10 到 38 个字。',
+    '如果额外上下文或当前时刻判断提到这条安排已经过去、正在发生、还没开始，你必须服从这个时间状态来回应，不要装作没发生。'
   ].join('\n');
   var userPrompt = [
     '角色名：' + String(character.nickname || character.name || '角色'),
