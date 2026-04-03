@@ -1933,6 +1933,16 @@ function buildCommentPromptItem(kind, item){
     return {
       title: String(item.publicMask || '这个时间段有安排').trim() || '这个时间段有安排',
       note: '用户没有公开细节，只知道这段时间很忙。',
+      location: '',
+      start: item.start || '',
+      end: item.end || ''
+    };
+  }
+  if(kind === 'timeline' && item.secret && !isTimelineSecretUnlocked('timeline', item.id)){
+    return {
+      title: getRenderedCharTimelineTitle(item),
+      note: '这是一条秘密行程，还没解锁，不能泄露真实内容。',
+      location: '',
       start: item.start || '',
       end: item.end || ''
     };
@@ -2422,7 +2432,16 @@ function handleShareTargetMask(evt){
 function buildShareExcerpt(item){
   item = item && typeof item === 'object' ? item : {};
   var time = getTimeRangeText(item);
-  return [time, String(item.title || item.text || '').trim(), String(item.location || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' · ');
+  var secretLocked = !!(item.secret && !isTimelineSecretUnlocked('timeline', item.id));
+  var hiddenUser = item.visibleToChar === false;
+  var title = hiddenUser
+    ? (String(item.publicMask || '').trim() || '这个时间段有安排')
+    : (secretLocked ? getRenderedCharTimelineTitle(item) : String(item.title || item.text || '').trim());
+  var location = (hiddenUser || secretLocked) ? '' : String(item.location || '').trim();
+  var note = hiddenUser
+    ? '具体内容没有公开。'
+    : (secretLocked ? '具体内容还没解锁。' : String(item.note || '').trim());
+  return [time, title, location, note].filter(Boolean).join(' · ');
 }
 
 function shareTimelineToChar(targetCharId){
