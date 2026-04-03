@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T03:18:00Z';
+const APP_BUILD_ID = '2026-04-03T03:30:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1858,6 +1858,67 @@ function parseScheduleDayResult(raw, payload){
   };
 }
 
+function isScheduleLocationTooGeneric(location){
+  var text = String(location || '').trim();
+  if(!text) return true;
+  var normalized = text.replace(/\s+/g, '');
+  if(normalized.length <= 2) return true;
+  return /^(家里|家中|家附近|外面|学校|校园|公司|办公室|食堂|教室|图书馆|宿舍|路上|路边|地铁上|公交上|商场|超市|咖啡店|餐厅)$/.test(normalized);
+}
+
+function isScheduleEventNoteTooWeak(item){
+  item = item && typeof item === 'object' ? item : {};
+  var note = String(item.note || '').trim();
+  var title = String(item.title || '').trim();
+  var location = String(item.location || '').trim();
+  if(!note) return true;
+  var normalizedNote = note.replace(/\s+/g, '');
+  var normalizedTitle = title.replace(/\s+/g, '');
+  var normalizedLocation = location.replace(/\s+/g, '');
+  if(normalizedNote.length < 5) return true;
+  if(normalizedNote === normalizedTitle) return true;
+  if(normalizedLocation && normalizedNote === normalizedLocation) return true;
+  return false;
+}
+
+function needsUserDayPlanPolish(result){
+  var events = Array.isArray(result && result.events) ? result.events : [];
+  if(!events.length) return true;
+  return events.some(function(item){
+    return isScheduleLocationTooGeneric(item && item.location) || isScheduleEventNoteTooWeak(item);
+  });
+}
+
+async function polishGeneratedUserDayPlan(cfg, userPrompt, result){
+  var current = result && typeof result === 'object' ? result : { events:[], todos:[] };
+  var sysPrompt = [
+    '你正在修正一份用户日程 JSON。',
+    '只返回严格 JSON，不要 markdown，不要解释。',
+    '格式：{"events":[{"start":"08:30","end":"09:20","title":"...","note":"...","location":"...","visibleToChar":true,"publicMask":"","secretHint":"","secretPassword":""}],"todos":[{"text":"...","note":"...","done":false,"remindEnabled":false,"remindAt":""}]}',
+    '不要推翻整天安排，只修正不够细的 location 和不够像小解释的 note。',
+    '每条 event 都必须有更具体的地点 location，不能只是学校、图书馆、公司、家里这种大类地点。',
+    '每条 event 的 note 都必须是一句小解释，说明这段安排正在做什么、为什么这样排、或者这件事背后的心思，不能留空，也不能只重复 title 或 location。',
+    '自动生成的用户行程一律公开，不允许秘密行程。'
+  ].join('\n');
+  var repairPrompt = [
+    userPrompt,
+    '下面是第一次生成出来的结果，请在不改变这一天大方向的前提下把 location 和 note 修细：',
+    JSON.stringify(current)
+  ].join('\n\n');
+  try{
+    var repairedRaw = await callAiForBackground(cfg, sysPrompt, repairPrompt);
+    var repairedTxt = String(repairedRaw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+    var repaired = JSON.parse(repairedTxt);
+    repaired = repaired && typeof repaired === 'object' ? repaired : {};
+    return {
+      events: Array.isArray(repaired.events) ? repaired.events : current.events,
+      todos: Array.isArray(repaired.todos) ? repaired.todos : current.todos
+    };
+  }catch(err){
+    return current;
+  }
+}
+
 async function generateScheduleDayPlan(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
@@ -2006,10 +2067,14 @@ async function generateScheduleUserDayPlan(payload){
   var parsed = null;
   try{ parsed = JSON.parse(txt); }catch(err){}
   parsed = parsed && typeof parsed === 'object' ? parsed : {};
-  return {
+  var result = {
     events: Array.isArray(parsed.events) ? parsed.events : [],
     todos: Array.isArray(parsed.todos) ? parsed.todos : []
   };
+  if(needsUserDayPlanPolish(result)){
+    result = await polishGeneratedUserDayPlan(cfg, userPrompt, result);
+  }
+  return result;
 }
 
 async function sendScheduleQuote(payload){
