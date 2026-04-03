@@ -567,6 +567,8 @@ var timelineActionTarget = null;
 var unlockedSecretKeys = {};
 var longPressTimer = 0;
 var schedulePeekTimer = 0;
+var schedulePeekQueue = [];
+var currentPeekChar = null;
 
 function esc(text){
   return String(text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -600,6 +602,7 @@ function toast(text){
 }
 
 function showScheduleChatPeek(char, text){
+  currentPeekChar = char || null;
   var card = document.getElementById('scheduleChatPeek');
   var avatar = document.getElementById('scheduleChatPeekAvatar');
   var name = document.getElementById('scheduleChatPeekName');
@@ -613,6 +616,8 @@ function showScheduleChatPeek(char, text){
   clearTimeout(schedulePeekTimer);
   schedulePeekTimer = setTimeout(function(){
     card.classList.remove('show');
+    currentPeekChar = null;
+    processScheduleChatPeekQueue();
   }, 3200);
 }
 
@@ -620,8 +625,23 @@ function openPeekChat(){
   clearTimeout(schedulePeekTimer);
   document.getElementById('scheduleChatPeek').classList.remove('show');
   try{
-    if(window.parent) window.parent.postMessage({ type:'OPEN_CHAT_WITH', payload:getActiveChar() }, '*');
+    if(window.parent) window.parent.postMessage({ type:'OPEN_CHAT_WITH', payload:(currentPeekChar || getActiveChar()) }, '*');
   }catch(err){}
+  currentPeekChar = null;
+  processScheduleChatPeekQueue();
+}
+
+function enqueueScheduleChatPeek(char, text){
+  schedulePeekQueue.push({ char:char || null, text:String(text || '').trim() });
+  processScheduleChatPeekQueue();
+}
+
+function processScheduleChatPeekQueue(){
+  var card = document.getElementById('scheduleChatPeek');
+  if(!card || card.classList.contains('show')) return;
+  var next = schedulePeekQueue.shift();
+  if(!next || !next.text) return;
+  showScheduleChatPeek(next.char, next.text);
 }
 
 function closeScheduleApp(evt){
@@ -1902,9 +1922,8 @@ function triggerCharCommentNow(){
         return shell.ScheduleShell.appendChatMessage({
           charId: char.id,
           role: 'assistant',
-          text: reply
-        }).then(function(){
-          showScheduleChatPeek(char, reply);
+          text: reply,
+          silentPeek: true
         }).catch(function(){});
       }
     });
@@ -2095,7 +2114,6 @@ function shareTimelineToChar(targetCharId){
   }).then(function(){
     closeShareTargetModal();
     timelineActionTarget = null;
-    if(targetChar) showScheduleChatPeek(targetChar, '我刚把一条日程发进聊天里了。');
     toast('已经发到聊天里了');
   }).catch(function(err){
     toast('分享失败：' + (err && err.message ? err.message : '未知错误'));
@@ -2195,6 +2213,31 @@ function bindShellMessages(){
   window.addEventListener('message', function(evt){
     var data = evt && evt.data && typeof evt.data === 'object' ? evt.data : null;
     if(!data) return;
+    if(data.type === 'BACKGROUND_AI_MESSAGE'){
+      var payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
+      var entry = payload.entry && typeof payload.entry === 'object' ? payload.entry : null;
+      var incomingCharId = String(payload.charId || '').trim();
+      if(!entry || !incomingCharId) return;
+      if(String(entry.role || '') !== 'assistant') return;
+      if(entry.silentPeek) return;
+      var char = characterList.find(function(item){ return item && String(item.id || '') === incomingCharId; })
+        || getShellResolvedCharacter(incomingCharId)
+        || { id: incomingCharId, name: String(payload.charName || '角色') };
+      var text = '';
+      if(String(entry.type || '') === 'schedulequote'){
+        try{
+          var parsed = JSON.parse(String(entry.content || '{}'));
+          text = String(parsed.reply || parsed.excerpt || '发来了一条日程消息').trim();
+        }catch(err){
+          text = '发来了一条日程消息';
+        }
+      }else{
+        text = String(entry.content || '').trim();
+      }
+      if(!text) return;
+      enqueueScheduleChatPeek(char, text);
+      return;
+    }
     if(data.type !== 'SET_ACTIVE_CHARACTER' && data.type !== 'OPEN_CHAT_WITH') return;
     var incomingId = String(data.payload && data.payload.id || '').trim();
     if(!incomingId) return;
