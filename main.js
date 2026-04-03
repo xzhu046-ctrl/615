@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T03:52:00Z';
+const APP_BUILD_ID = '2026-04-03T04:02:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1670,11 +1670,18 @@ function getScheduleUserName(charId){
   return String(localStorage.getItem(scoped) || localStorage.getItem('user_name_' + safeId) || localStorage.getItem('user_name') || 'USER').trim() || 'USER';
 }
 
-function getScheduleUserPersona(){
+function getScheduleUserPersona(charId){
+  var safeId = String(charId || '').trim();
   try{
     var active = window.AccountManager && window.AccountManager.getActive ? window.AccountManager.getActive() : null;
     if(active && !active.isDefault) return '';
   }catch(err){}
+  if(safeId){
+    var activeId = getActiveAccountId();
+    var scoped = scopedKeyForAccount('user_persona_' + safeId, activeId);
+    var scopedValue = String(localStorage.getItem(scoped) || localStorage.getItem('user_persona_' + safeId) || '').trim();
+    if(scopedValue) return scopedValue;
+  }
   return String(localStorage.getItem('user_persona') || '').trim();
 }
 
@@ -1977,7 +1984,7 @@ async function generateScheduleDayPlan(payload){
     character.system_prompt ? ('角色系统约束：' + String(character.system_prompt || '').slice(0, 900)) : '',
     getScheduleWorldbookContext() ? ('世界书摘要：\n' + getScheduleWorldbookContext()) : '',
     '用户名字：' + getScheduleUserName(charId),
-    getScheduleUserPersona() ? ('用户设定：' + getScheduleUserPersona().slice(0, 900)) : '',
+    getScheduleUserPersona(charId) ? ('用户设定：' + getScheduleUserPersona(charId).slice(0, 900)) : '',
     getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
     '务必同时认真读取角色人设和用户设定，再决定今天的安排、互动方式和对用户生活状态的理解，不要脱离双方设定乱写。',
     '先直接读懂用户完整设定里的身份、生活状态、作息、处境和日常节奏，再决定和用户有关的互动方式，不要用死板标签套人设。',
@@ -2051,7 +2058,7 @@ async function generateScheduleUserDayPlan(payload){
   var userPrompt = [
     '日期：' + dateKey + ' ' + weekday,
     '用户名字：' + getScheduleUserName(charId),
-    getScheduleUserPersona() ? ('用户设定：' + getScheduleUserPersona().slice(0, 1500)) : '',
+    getScheduleUserPersona(charId) ? ('用户设定：' + getScheduleUserPersona(charId).slice(0, 1500)) : '',
     '角色名：' + String(character.nickname || character.name || '角色'),
     '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
     character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 800)) : '',
