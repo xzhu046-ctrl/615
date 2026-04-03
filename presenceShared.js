@@ -370,6 +370,8 @@
     return {
       settings,
       city,
+      timezoneOffset: Number(city.tz),
+      timezoneName: String((charWeatherLoc && charWeatherLoc.timezone) || '').trim(),
       profile,
       availability: segment.availability,
       placeLabel: segment.place,
