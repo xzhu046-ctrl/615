@@ -332,6 +332,17 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-secret-lock{display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:0 9px;border-radius:999px;background:rgba(255,255,255,.16);font-size:10px;font-weight:900;letter-spacing:.08em}
 .schedule-timeline-item.is-user .schedule-secret-lock{background:rgba(17,17,17,.08)}
 .schedule-pass-result{font-size:12px;font-weight:800;line-height:1.55;color:#666}
+.schedule-secret-input{
+  display:flex;align-items:center;justify-content:center;min-height:48px;border:2px solid #111;border-radius:18px;background:linear-gradient(180deg,#fff 0%,#f4f4f4 100%);
+  box-shadow:5px 5px 0 rgba(0,0,0,.16);font-size:22px;font-weight:900;letter-spacing:.28em;color:#111
+}
+.schedule-secret-input.is-empty{color:#b7b7b7;font-size:13px;letter-spacing:.08em}
+.schedule-secret-keypad{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.schedule-secret-key{
+  border:2px solid #111;border-radius:16px;background:linear-gradient(180deg,#fff 0%,#f2f2f2 100%);box-shadow:5px 5px 0 rgba(0,0,0,.16);
+  min-height:48px;font-size:18px;font-weight:900;cursor:pointer
+}
+.schedule-secret-key.wide{grid-column:span 2}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(12px);background:#0a0a0a;color:#fff;padding:10px 16px;border-radius:999px;font-size:12px;font-weight:900;opacity:0;pointer-events:none;transition:opacity .22s ease,transform .22s ease;z-index:55}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media (max-width: 900px){
@@ -496,7 +507,21 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
       <h3 id="secretModalTitle">查看秘密行程</h3>
       <div class="schedule-modal-sub" id="secretModalSub"></div>
       <div class="schedule-form-grid">
-        <input class="schedule-input" id="secretPasswordInput" placeholder="输入密码">
+        <div class="schedule-secret-input is-empty" id="secretPasswordInput" data-value="">输入数字密码</div>
+        <div class="schedule-secret-keypad">
+          <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(1,'peek')">1</button>
+          <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(2,'peek')">2</button>
+          <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(3,'peek')">3</button>
+          <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(4,'peek')">4</button>
+          <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(5,'peek')">5</button>
+          <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(6,'peek')">6</button>
+          <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(7,'peek')">7</button>
+          <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(8,'peek')">8</button>
+          <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(9,'peek')">9</button>
+          <button class="schedule-secret-key wide" type="button" onclick="clearSecretDigits('peek')">清空</button>
+          <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(0,'peek')">0</button>
+          <button class="schedule-secret-key" type="button" onclick="backspaceSecretDigit('peek')">⌫</button>
+        </div>
       </div>
       <div class="schedule-pass-result" id="secretHintText"></div>
       <div class="schedule-modal-actions">
@@ -564,6 +589,7 @@ var entryDraft = null;
 var commentTarget = null;
 var commentTriggerSource = 'modal';
 var secretTarget = null;
+var secretPeekDraft = '';
 var deleteTarget = null;
 var timelineActionTarget = null;
 var unlockedSecretKeys = {};
@@ -1556,8 +1582,56 @@ function syncEntryDraftFromInputs(){
   if(noteNode) entryDraft.note = String(noteNode.value || '').trim();
   if(locationNode) entryDraft.location = String(locationNode.value || '').trim();
   if(maskNode) entryDraft.publicMask = String(maskNode.value || '').trim();
-  if(passNode) entryDraft.secretPassword = String(passNode.value || '').trim();
+  if(passNode) entryDraft.secretPassword = String(passNode.getAttribute('data-value') || '').replace(/\D+/g, '').slice(0, 6);
   if(hintNode) entryDraft.secretHint = String(hintNode.value || '').trim();
+}
+
+function renderSecretInput(node, value, placeholder){
+  if(!node) return;
+  var safe = String(value || '').replace(/\D+/g, '').slice(0, 6);
+  node.setAttribute('data-value', safe);
+  if(!safe){
+    node.textContent = String(placeholder || '输入数字密码');
+    node.classList.add('is-empty');
+    return;
+  }
+  node.textContent = safe.split('').join(' ');
+  node.classList.remove('is-empty');
+}
+
+function tapSecretDigit(digit, target){
+  var safeDigit = String(digit || '').replace(/\D+/g, '').slice(-1);
+  if(!safeDigit) return;
+  if(String(target || '') === 'peek'){
+    secretPeekDraft = (String(secretPeekDraft || '').replace(/\D+/g, '') + safeDigit).slice(0, 6);
+    renderSecretInput(document.getElementById('secretPasswordInput'), secretPeekDraft, '输入数字密码');
+    return;
+  }
+  syncEntryDraftFromInputs();
+  entryDraft.secretPassword = (String(entryDraft.secretPassword || '').replace(/\D+/g, '') + safeDigit).slice(0, 6);
+  renderSecretInput(document.getElementById('entryTextPassword'), entryDraft.secretPassword, '设置数字密码');
+}
+
+function backspaceSecretDigit(target){
+  if(String(target || '') === 'peek'){
+    secretPeekDraft = String(secretPeekDraft || '').slice(0, -1);
+    renderSecretInput(document.getElementById('secretPasswordInput'), secretPeekDraft, '输入数字密码');
+    return;
+  }
+  syncEntryDraftFromInputs();
+  entryDraft.secretPassword = String(entryDraft.secretPassword || '').slice(0, -1);
+  renderSecretInput(document.getElementById('entryTextPassword'), entryDraft.secretPassword, '设置数字密码');
+}
+
+function clearSecretDigits(target){
+  if(String(target || '') === 'peek'){
+    secretPeekDraft = '';
+    renderSecretInput(document.getElementById('secretPasswordInput'), secretPeekDraft, '输入数字密码');
+    return;
+  }
+  syncEntryDraftFromInputs();
+  entryDraft.secretPassword = '';
+  renderSecretInput(document.getElementById('entryTextPassword'), entryDraft.secretPassword, '设置数字密码');
 }
 
 function buildTimeChipHtml(field){
@@ -1617,7 +1691,21 @@ function renderEntryForm(){
       + (entryDraft.visibleToChar === false
         ? '<div class="schedule-secret-fields" style="grid-column:1/-1">'
           + '<input class="schedule-input" id="entryTextMask" placeholder="给Ta看到的模糊说法，比如：这段时间有约" value="' + esc(entryDraft.publicMask || '') + '">'
-          + '<input class="schedule-input" id="entryTextPassword" placeholder="设置一个密码" value="' + esc(entryDraft.secretPassword || '') + '">'
+          + '<div class="schedule-secret-input' + (entryDraft.secretPassword ? '' : ' is-empty') + '" id="entryTextPassword" data-value="' + esc(String(entryDraft.secretPassword || '').replace(/\D+/g, '').slice(0, 6)) + '">' + esc(entryDraft.secretPassword ? String(entryDraft.secretPassword || '').replace(/\D+/g, '').slice(0, 6).split('').join(' ') : '设置数字密码') + '</div>'
+          + '<div class="schedule-secret-keypad">'
+            + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(1,\'entry\')">1</button>'
+            + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(2,\'entry\')">2</button>'
+            + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(3,\'entry\')">3</button>'
+            + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(4,\'entry\')">4</button>'
+            + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(5,\'entry\')">5</button>'
+            + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(6,\'entry\')">6</button>'
+            + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(7,\'entry\')">7</button>'
+            + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(8,\'entry\')">8</button>'
+            + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(9,\'entry\')">9</button>'
+            + '<button class="schedule-secret-key wide" type="button" onclick="clearSecretDigits(\'entry\')">清空</button>'
+            + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(0,\'entry\')">0</button>'
+            + '<button class="schedule-secret-key" type="button" onclick="backspaceSecretDigit(\'entry\')">⌫</button>'
+          + '</div>'
           + '<input class="schedule-input" id="entryTextHint" placeholder="小提示，可选" value="' + esc(entryDraft.secretHint || '') + '">'
           + '</div>'
         : '');
@@ -1941,7 +2029,8 @@ function openSecretModal(kind, itemId){
   secretTarget = { kind:String(kind || ''), itemId:String(itemId || '') };
   document.getElementById('secretModalTitle').textContent = '查看秘密行程';
   document.getElementById('secretModalSub').textContent = formatScheduleDateZh(selectedDateKey) + ' · ' + (String(item.publicMask || '这段时间有安排').trim() || '这段时间有安排');
-  document.getElementById('secretPasswordInput').value = '';
+  secretPeekDraft = '';
+  renderSecretInput(document.getElementById('secretPasswordInput'), '', '输入数字密码');
   document.getElementById('secretHintText').textContent = item.secretHint ? ('提示：' + String(item.secretHint || '').trim()) : '输对密码才能看到完整内容。';
   document.getElementById('secretModal').classList.add('open');
 }
@@ -1949,6 +2038,7 @@ function openSecretModal(kind, itemId){
 function closeSecretModal(){
   document.getElementById('secretModal').classList.remove('open');
   secretTarget = null;
+  secretPeekDraft = '';
 }
 
 function handleSecretModalMask(evt){
@@ -1959,7 +2049,7 @@ function attemptSecretPeek(){
   if(!secretTarget) return;
   var item = findEntryByKind(secretTarget.kind, secretTarget.itemId, getActiveCharState());
   if(!item){ closeSecretModal(); return; }
-  var input = String(document.getElementById('secretPasswordInput').value || '').trim();
+  var input = String(secretPeekDraft || '').replace(/\D+/g, '').trim();
   var success = !String(item.secretPassword || '').trim() || input === String(item.secretPassword || '').trim();
   var shell = getParentShell();
   if(shell.ScheduleShell && typeof shell.ScheduleShell.appendSystemNotice === 'function'){
@@ -2052,7 +2142,7 @@ function openShareTargetModal(){
         return;
       }
       host.innerHTML = '<div class="schedule-picker-strip">' + list.map(function(char){
-        var avatar = resolveScheduleAvatarFromObject(char) || '';
+        var avatar = getCharacterAvatar(char) || '';
         var face = getCharacterName(char).slice(0, 1) || 'C';
         return '<div class="schedule-picker-chip"><button class="schedule-picker-chip-btn" type="button" data-share-char-id="' + esc(String(char.id || '')) + '">'
           + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : ('<div class="schedule-picker-chip-avatar">' + esc(face) + '</div>'))
@@ -2063,6 +2153,15 @@ function openShareTargetModal(){
           evt.preventDefault();
           shareTimelineToChar(String(btn.getAttribute('data-share-char-id') || ''));
         });
+      });
+      list.forEach(function(char){
+        resolveCharacterAvatarAsync(char).then(function(src){
+          src = String(src || '').trim();
+          if(!src) return;
+          var btn = host.querySelector('[data-share-char-id="' + String(char.id || '').replace(/"/g, '&quot;') + '"]');
+          if(!btn) return;
+          btn.innerHTML = '<img src="' + esc(src) + '" alt="">';
+        }).catch(function(){});
       });
       host.scrollLeft = 0;
     }catch(err){
