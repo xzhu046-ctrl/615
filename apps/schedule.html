@@ -8,7 +8,8 @@
 <script src="../accountManager.js?v=2026-04-02T15:41:00Z"></script>
 <script src="../assetStore.js?v=2026-04-02T15:41:00Z"></script>
 <script src="../metadataStore.js?v=2026-04-02T15:41:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T15:41:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-03T01:02:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-03T01:02:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -586,8 +587,8 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 var scheduleState = ScheduleShared.normalizeState(null);
 var characterList = [];
 var activeCharId = '';
-var viewMonthKey = ScheduleShared.toMonthKey(new Date());
-var selectedDateKey = ScheduleShared.toDateKey(new Date());
+var viewMonthKey = '';
+var selectedDateKey = '';
 var entryModalMode = '';
 var toastTimer = null;
 var scheduleAvatarAssetCache = {};
@@ -717,6 +718,101 @@ function getParentShell(){
     if(window.parent && window.parent !== window) return window.parent;
   }catch(err){}
   return window;
+}
+
+function getPresenceShared(){
+  try{
+    if(window.PresenceShared) return window.PresenceShared;
+    var shell = getParentShell();
+    if(shell && shell !== window && shell.PresenceShared) return shell.PresenceShared;
+  }catch(err){}
+  return null;
+}
+
+function getLocalClockParts(nowMs, timezoneName, timezoneOffset){
+  var safeNow = Number(nowMs || Date.now()) || Date.now();
+  var safeName = String(timezoneName || '').trim();
+  function fromParts(parts){
+    var year = parseInt(parts.year || '0', 10) || 0;
+    var month = parseInt(parts.month || '0', 10) || 0;
+    var day = parseInt(parts.day || '0', 10) || 0;
+    var hour = parseInt(parts.hour || '0', 10) || 0;
+    var minute = parseInt(parts.minute || '0', 10) || 0;
+    var weekday = Number(parts.weekdayIndex);
+    return {
+      dateKey: year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0'),
+      monthKey: year + '-' + String(month).padStart(2, '0'),
+      nowTime: String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0'),
+      weekdayIndex: Number.isFinite(weekday) ? weekday : 0
+    };
+  }
+  if(safeName){
+    try{
+      var partMap = {};
+      var weekdayRaw = '';
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: safeName,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        weekday: 'short',
+        hourCycle: 'h23'
+      }).formatToParts(new Date(safeNow)).forEach(function(part){
+        if(part.type === 'weekday') weekdayRaw = String(part.value || '').toLowerCase();
+        else if(part.type !== 'literal') partMap[part.type] = part.value;
+      });
+      partMap.weekdayIndex = ['mon','tue','wed','thu','fri','sat','sun'].indexOf(weekdayRaw.slice(0, 3));
+      return fromParts(partMap);
+    }catch(err){}
+  }
+  var shifted = new Date(safeNow + (Number(timezoneOffset || 0) || 0) * 3600000);
+  return fromParts({
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
+    weekdayIndex: (shifted.getUTCDay() + 6) % 7
+  });
+}
+
+function buildScheduleGeoTimeContext(char){
+  var safeNow = Date.now();
+  var ps = getPresenceShared();
+  var snapshot = null;
+  try{
+    if(ps && char && typeof ps.getPresenceSnapshot === 'function'){
+      snapshot = ps.getPresenceSnapshot(char, safeNow);
+    }
+  }catch(err){}
+  var user = snapshot && snapshot.user ? snapshot.user : null;
+  var charPresence = snapshot && snapshot.char ? snapshot.char : null;
+  var userOffset = 0;
+  var userTimezoneName = '';
+  try{
+    if(ps && user){
+      userTimezoneName = String(user.timezone || '').trim();
+      if(user.cityId && typeof ps.getCity === 'function'){
+        userOffset = Number((ps.getCity(user.cityId) || {}).tz || 0) || 0;
+      }
+    }
+  }catch(err){}
+  var charOffset = Number(charPresence && charPresence.timezoneOffset || userOffset || 0) || 0;
+  var charTimezoneName = String(charPresence && charPresence.timezoneName || '').trim();
+  var userLocal = getLocalClockParts(safeNow, userTimezoneName, userOffset);
+  var charLocal = getLocalClockParts(safeNow, charTimezoneName, charOffset);
+  return {
+    user: userLocal,
+    char: charLocal,
+    liveInput: {
+      userDateKey: userLocal.dateKey,
+      userNowTime: userLocal.nowTime,
+      charDateKey: charLocal.dateKey,
+      charNowTime: charLocal.nowTime
+    }
+  };
 }
 
 function getActiveCharacterFromShell(){
@@ -1115,9 +1211,9 @@ function formatMonthHead(date){
 }
 
 function resetScheduleViewToToday(){
-  var today = new Date();
-  selectedDateKey = ScheduleShared.toDateKey(today);
-  viewMonthKey = ScheduleShared.toMonthKey(today);
+  var clock = buildScheduleGeoTimeContext(getActiveChar());
+  selectedDateKey = String(clock.user.dateKey || ScheduleShared.toDateKey(new Date()));
+  viewMonthKey = String(clock.user.monthKey || ScheduleShared.toMonthKey(new Date()));
 }
 
 function getLunarishText(day){
@@ -1129,7 +1225,8 @@ function renderCalendar(){
   var date = monthDateFromKey(viewMonthKey);
   formatMonthHead(date);
   var weekdayNodes = Array.prototype.slice.call(document.querySelectorAll('.schedule-day-head [data-weekday-index]'));
-  var todayWeekdayIndex = (new Date().getDay() + 6) % 7;
+  var clock = buildScheduleGeoTimeContext(getActiveChar());
+  var todayWeekdayIndex = Number(clock.user.weekdayIndex);
   weekdayNodes.forEach(function(node){
     var nodeIndex = parseInt(node.getAttribute('data-weekday-index') || '-1', 10);
     node.classList.toggle('is-today-weekday', nodeIndex === todayWeekdayIndex);
@@ -1139,7 +1236,7 @@ function renderCalendar(){
   var first = new Date(year, month, 1);
   var firstDay = (first.getDay() + 6) % 7;
   var daysInMonth = new Date(year, month + 1, 0).getDate();
-  var todayKey = ScheduleShared.toDateKey(new Date());
+  var todayKey = String(clock.user.dateKey || ScheduleShared.toDateKey(new Date()));
   var charState = getActiveCharState();
   var holidays = ScheduleShared.getHolidayMap(year);
   var marks = {};
@@ -1986,18 +2083,32 @@ function buildCommentPromptItem(kind, item){
   };
 }
 
+function getItemTimeOwner(item){
+  item = item && typeof item === 'object' ? item : {};
+  if(String(item.owner || '').trim()) return String(item.owner).trim();
+  if(item.kind === 'timeline' || item.kind === 'chartodo') return 'char';
+  if(item.kind === 'event' || item.kind === 'todo') return 'user';
+  if(Object.prototype.hasOwnProperty.call(item, 'visibleToChar')) return 'user';
+  if(Object.prototype.hasOwnProperty.call(item, 'remindEnabled') || Object.prototype.hasOwnProperty.call(item, 'remindAt')) return 'user';
+  if(Object.prototype.hasOwnProperty.call(item, 'start') && Object.prototype.hasOwnProperty.call(item, 'location') && !Object.prototype.hasOwnProperty.call(item, 'visibleToChar')) return 'char';
+  return 'user';
+}
+
 function getItemTimeStatusText(item){
   item = item && typeof item === 'object' ? item : {};
+  var owner = getItemTimeOwner(item);
+  var clock = buildScheduleGeoTimeContext(getActiveChar());
   var live = (window.ScheduleShared && typeof window.ScheduleShared.getLiveTimeContext === 'function')
-    ? window.ScheduleShared.getLiveTimeContext(scheduleState, activeCharId, new Date())
+    ? window.ScheduleShared.getLiveTimeContext(scheduleState, activeCharId, clock.liveInput)
     : null;
   if(!live || live.enabled === false) return '';
-  if(String(selectedDateKey || '') !== String(live.dateKey || '')) return '';
+  var liveDateKey = owner === 'char' ? String(live.charDateKey || '') : String(live.userDateKey || live.dateKey || '');
+  if(String(selectedDateKey || '') !== liveDateKey) return '';
   var nowMinutes = (function(txt){
     txt = String(txt || '');
     var parts = txt.split(':');
     return parts.length === 2 ? ((parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0)) : -1;
-  })(live.nowTime);
+  })(owner === 'char' ? live.charNowTime : live.userNowTime || live.nowTime);
   var start = String(item.start || '').trim();
   var end = String(item.end || '').trim();
   var startParts = start.split(':');
@@ -2268,8 +2379,9 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
 
 function pickCommentTargetForSelectedDay(){
   var ctx = getSelectedDayContext();
+  var clock = buildScheduleGeoTimeContext(getActiveChar());
   var live = (window.ScheduleShared && typeof window.ScheduleShared.getLiveTimeContext === 'function')
-    ? window.ScheduleShared.getLiveTimeContext(scheduleState, activeCharId, new Date())
+    ? window.ScheduleShared.getLiveTimeContext(scheduleState, activeCharId, clock.liveInput)
     : null;
   var latestUserCommentTarget = null;
   var latestUserCommentAt = 0;
@@ -2289,7 +2401,7 @@ function pickCommentTargetForSelectedDay(){
   ((ctx.charDay && ctx.charDay.timeline) || []).forEach(function(item){ scanComments('timeline', item); });
   ((ctx.charDay && ctx.charDay.todos) || []).forEach(function(item){ scanComments('chartodo', item); });
   if(latestUserCommentTarget) return latestUserCommentTarget;
-  if(live && live.enabled !== false && String(selectedDateKey || '') === String(live.dateKey || '')){
+  if(live && live.enabled !== false && String(selectedDateKey || '') === String(live.userDateKey || live.dateKey || '')){
     if(live.currentUserItem && live.currentUserItem.id) return { kind:'event', itemId:String(live.currentUserItem.id) };
     if(live.nextUserItem && live.nextUserItem.id) return { kind:'event', itemId:String(live.nextUserItem.id) };
   }

@@ -10,8 +10,8 @@
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-02T15:41:00Z"></script>
-<script src="../presenceShared.js?v=2026-03-31T10:28:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-03T01:02:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-03T01:02:00Z"></script>
 <script src="../sunnySupport.js?v=2026-03-31T10:28:00Z"></script>
 <script src="offlineInvite.js?v=2026-04-01T23:27:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
@@ -5658,20 +5658,99 @@ function renderScheduleQuoteBubble(host, raw){
     + (payload.reply ? ('<div class="schedule-quote-bubble-reply">' + esc(payload.reply) + '</div>') : '')
     + '</div>';
 }
+function getScheduleLocalClockParts(nowMs, timezoneName, timezoneOffset){
+  var safeNow = Number(nowMs || Date.now()) || Date.now();
+  var safeName = String(timezoneName || '').trim();
+  function fromParts(parts){
+    var year = parseInt(parts.year || '0', 10) || 0;
+    var month = parseInt(parts.month || '0', 10) || 0;
+    var day = parseInt(parts.day || '0', 10) || 0;
+    var hour = parseInt(parts.hour || '0', 10) || 0;
+    var minute = parseInt(parts.minute || '0', 10) || 0;
+    return {
+      dateKey: year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0'),
+      nowTime: String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0')
+    };
+  }
+  if(safeName){
+    try{
+      var partMap = {};
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: safeName,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23'
+      }).formatToParts(new Date(safeNow)).forEach(function(part){
+        if(part.type !== 'literal') partMap[part.type] = part.value;
+      });
+      return fromParts(partMap);
+    }catch(err){}
+  }
+  var shifted = new Date(safeNow + (Number(timezoneOffset || 0) || 0) * 3600000);
+  return fromParts({
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes()
+  });
+}
+function buildScheduleLocalNowContext(character){
+  var safeNow = Date.now();
+  if(!(window.PresenceShared && character && character.id && typeof window.PresenceShared.getPresenceSnapshot === 'function')){
+    var now = new Date(safeNow);
+    var fallbackDateKey = window.ScheduleShared.toDateKey(now);
+    var fallbackTime = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    return {
+      user: { dateKey: fallbackDateKey, nowTime: fallbackTime },
+      char: { dateKey: fallbackDateKey, nowTime: fallbackTime },
+      liveInput: { userDateKey: fallbackDateKey, userNowTime: fallbackTime, charDateKey: fallbackDateKey, charNowTime: fallbackTime }
+    };
+  }
+  var snapshot = window.PresenceShared.getPresenceSnapshot(character, safeNow);
+  var user = snapshot && snapshot.user ? snapshot.user : {};
+  var charPresence = snapshot && snapshot.char ? snapshot.char : {};
+  var userOffset = 0;
+  try{
+    if(user.cityId && typeof window.PresenceShared.getCity === 'function'){
+      userOffset = Number((window.PresenceShared.getCity(user.cityId) || {}).tz || 0) || 0;
+    }
+  }catch(err){}
+  var userLocal = getScheduleLocalClockParts(safeNow, user.timezone, userOffset);
+  var charLocal = getScheduleLocalClockParts(safeNow, charPresence.timezoneName, charPresence.timezoneOffset);
+  return {
+    user: userLocal,
+    char: charLocal,
+    liveInput: {
+      userDateKey: userLocal.dateKey,
+      userNowTime: userLocal.nowTime,
+      charDateKey: charLocal.dateKey,
+      charNowTime: charLocal.nowTime
+    }
+  };
+}
 function buildSchedulePromptBlock(){
   if(!character || !window.ScheduleShared || typeof window.ScheduleShared.readStateSync !== 'function') return '';
   var state = window.ScheduleShared.readStateSync();
   if(!state || typeof state !== 'object') return '';
-  var todayKey = window.ScheduleShared.toDateKey(new Date());
-  var ctx = window.ScheduleShared.summarizeDayContext(state, character.id, todayKey);
+  var clock = buildScheduleLocalNowContext(character);
+  var userTodayKey = String(clock.user.dateKey || window.ScheduleShared.toDateKey(new Date()));
+  var charTodayKey = String(clock.char.dateKey || userTodayKey);
+  var ctx = window.ScheduleShared.summarizeDayContext(state, character.id, userTodayKey);
+  var charCtx = window.ScheduleShared.summarizeDayContext(state, character.id, charTodayKey);
   var live = typeof window.ScheduleShared.getLiveTimeContext === 'function'
-    ? window.ScheduleShared.getLiveTimeContext(state, character.id, new Date())
+    ? window.ScheduleShared.getLiveTimeContext(state, character.id, clock.liveInput)
     : null;
   var lines = [];
   if(live && live.enabled){
     lines.push('【当前现实时间】');
-    lines.push('今天日期：' + String(live.dateKey || todayKey));
-    lines.push('现在时间：' + String(live.nowTime || '未知'));
+    lines.push('用户当地日期：' + String(live.userDateKey || userTodayKey));
+    lines.push('用户当地时间：' + String(live.userNowTime || live.nowTime || '未知'));
+    lines.push('char 当地日期：' + String(live.charDateKey || charTodayKey));
+    lines.push('char 当地时间：' + String(live.charNowTime || '未知'));
     if(live.currentCharItem){
       lines.push('你此刻更可能正在做：' + [String(live.currentCharItem.start || '').trim() || '现在', String(live.currentCharItem.title || '').trim(), String(live.currentCharItem.note || '').trim()].filter(Boolean).join(' | '));
     }else if(live.nextCharItem){
@@ -5722,11 +5801,11 @@ function buildSchedulePromptBlock(){
       lines.push('- ' + [String(item.title || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | '));
     });
   }
-  if(ctx.charDay){
+  if(charCtx.charDay){
     if(lines.length) lines.push('');
     lines.push('【你今天自己的日程 / 情绪】');
-    if(ctx.charDay.diary) lines.push('一句日记：' + String(ctx.charDay.diary || '').trim());
-    (Array.isArray(ctx.charDay.timeline) ? ctx.charDay.timeline : []).slice(0, 5).forEach(function(item){
+    if(charCtx.charDay.diary) lines.push('一句日记：' + String(charCtx.charDay.diary || '').trim());
+    (Array.isArray(charCtx.charDay.timeline) ? charCtx.charDay.timeline : []).slice(0, 5).forEach(function(item){
       var commentText = Array.isArray(item.comments) && item.comments.length
         ? ('留言：' + item.comments.slice(0, 2).map(function(comment){
             return String(comment.author || '') + '：' + String(comment.text || '').trim();
@@ -5734,9 +5813,9 @@ function buildSchedulePromptBlock(){
         : '';
       lines.push('- ' + [String(item.start || '').trim() || '未设时间', String(item.title || '').trim(), String(item.note || '').trim(), commentText].filter(Boolean).join(' | '));
     });
-    if(Array.isArray(ctx.charDay.todos) && ctx.charDay.todos.length){
+    if(Array.isArray(charCtx.charDay.todos) && charCtx.charDay.todos.length){
       lines.push('你今天自己记着的待办：');
-      ctx.charDay.todos.slice(0, 4).forEach(function(item){
+      charCtx.charDay.todos.slice(0, 4).forEach(function(item){
         lines.push('- ' + [(item.done ? '已完成' : '待做'), String(item.text || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | '));
       });
     }

@@ -415,12 +415,44 @@
     return override.timeAwarenessEnabled !== false;
   }
 
+  function normalizeLiveNowInput(nowInput){
+    if(nowInput && typeof nowInput === 'object' && !(nowInput instanceof Date)){
+      var userDateKey = /^\d{4}-\d{2}-\d{2}$/.test(String(nowInput.userDateKey || '')) ? String(nowInput.userDateKey) : '';
+      var charDateKey = /^\d{4}-\d{2}-\d{2}$/.test(String(nowInput.charDateKey || '')) ? String(nowInput.charDateKey) : '';
+      var userNowTime = normalizeTimeValue(nowInput.userNowTime || nowInput.nowTime);
+      var charNowTime = normalizeTimeValue(nowInput.charNowTime || nowInput.nowTime);
+      if(userDateKey || charDateKey || userNowTime || charNowTime){
+        var now = new Date();
+        if(!userDateKey) userDateKey = toDateKey(now);
+        if(!charDateKey) charDateKey = userDateKey;
+        if(!userNowTime) userNowTime = pad2(now.getHours()) + ':' + pad2(now.getMinutes());
+        if(!charNowTime) charNowTime = userNowTime;
+        return {
+          userDateKey: userDateKey,
+          charDateKey: charDateKey,
+          userNowTime: userNowTime,
+          charNowTime: charNowTime
+        };
+      }
+    }
+    var base = nowInput instanceof Date ? nowInput : new Date(nowInput);
+    if(Number.isNaN(base.getTime())) base = new Date();
+    var dateKey = toDateKey(base);
+    var nowTime = pad2(base.getHours()) + ':' + pad2(base.getMinutes());
+    return {
+      userDateKey: dateKey,
+      charDateKey: dateKey,
+      userNowTime: nowTime,
+      charNowTime: nowTime
+    };
+  }
+
   function getLiveTimeContext(state, charId, nowDate){
-    var now = nowDate instanceof Date ? nowDate : new Date(nowDate);
-    if(Number.isNaN(now.getTime())) now = new Date();
-    var dateKey = toDateKey(now);
-    var ctx = summarizeDayContext(state, charId, dateKey);
-    var nowMinutes = now.getHours() * 60 + now.getMinutes();
+    var liveNow = normalizeLiveNowInput(nowDate);
+    var userCtx = summarizeDayContext(state, charId, liveNow.userDateKey);
+    var charCtx = summarizeDayContext(state, charId, liveNow.charDateKey);
+    var userNowMinutes = timeToMinutes(liveNow.userNowTime);
+    var charNowMinutes = timeToMinutes(liveNow.charNowTime);
     var enabled = isTimeAwarenessEnabled(state, charId);
 
     function normalizeLiveItem(source, type){
@@ -443,7 +475,7 @@
       };
     }
 
-    var userItems = (ctx.events || [])
+    var userItems = (userCtx.events || [])
       .map(function(item){
         item = item && typeof item === 'object' ? item : {};
         if(item.visibleToChar === false){
@@ -455,7 +487,7 @@
         return normalizeLiveItem(item, 'user');
       })
       .filter(function(item){ return item.title; });
-    var charItems = ((ctx.charDay && Array.isArray(ctx.charDay.timeline)) ? ctx.charDay.timeline : [])
+    var charItems = ((charCtx.charDay && Array.isArray(charCtx.charDay.timeline)) ? charCtx.charDay.timeline : [])
       .map(function(item){ return normalizeLiveItem(item, 'char'); })
       .filter(function(item){ return item.title; });
     var allItems = userItems.concat(charItems).sort(function(a, b){
@@ -465,7 +497,7 @@
       return String(a.title || '').localeCompare(String(b.title || ''));
     });
 
-    function findCurrent(items){
+    function findCurrent(items, nowMinutes){
       return items.find(function(item){
         if(item.startMinutes < 0) return false;
         if(item.endMinutes >= item.startMinutes) return nowMinutes >= item.startMinutes && nowMinutes <= item.endMinutes;
@@ -473,7 +505,7 @@
       }) || null;
     }
 
-    function findNext(items){
+    function findNext(items, nowMinutes){
       return items.find(function(item){
         return item.startMinutes >= 0 && item.startMinutes > nowMinutes;
       }) || null;
@@ -481,12 +513,16 @@
 
     return {
       enabled: enabled,
-      dateKey: dateKey,
-      nowTime: pad2(now.getHours()) + ':' + pad2(now.getMinutes()),
-      currentUserItem: findCurrent(userItems),
-      currentCharItem: findCurrent(charItems),
-      nextUserItem: findNext(userItems),
-      nextCharItem: findNext(charItems),
+      dateKey: liveNow.userDateKey,
+      userDateKey: liveNow.userDateKey,
+      charDateKey: liveNow.charDateKey,
+      nowTime: liveNow.userNowTime,
+      userNowTime: liveNow.userNowTime,
+      charNowTime: liveNow.charNowTime,
+      currentUserItem: findCurrent(userItems, userNowMinutes),
+      currentCharItem: findCurrent(charItems, charNowMinutes),
+      nextUserItem: findNext(userItems, userNowMinutes),
+      nextCharItem: findNext(charItems, charNowMinutes),
       allItems: allItems,
       hasItems: allItems.length > 0
     };
