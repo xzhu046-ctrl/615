@@ -1980,6 +1980,37 @@ function getLatestUserFreshTarget(ctx){
   return best;
 }
 
+function hasCharComment(item){
+  return Array.isArray(item && item.comments) && item.comments.some(function(comment){
+    return String(comment && comment.author || '') === 'char';
+  });
+}
+
+function getFreshUserTargets(ctx, limit){
+  var list = [];
+  function push(kind, item){
+    if(!(item && item.id)) return;
+    var at = Number(item.createdAt || 0) || 0;
+    if(!at) return;
+    list.push({ kind:kind, itemId:String(item.id || ''), createdAt:at });
+  }
+  (Array.isArray(ctx && ctx.events) ? ctx.events : []).forEach(function(item){ push('event', item); });
+  (Array.isArray(ctx && ctx.todos) ? ctx.todos : []).forEach(function(item){ push('todo', item); });
+  return list.sort(function(a, b){
+    return Number(b.createdAt || 0) - Number(a.createdAt || 0);
+  }).slice(0, Math.max(1, Number(limit) || 2));
+}
+
+function buildGlobalScheduleChatFallback(target, item){
+  var charName = getCharacterName(getActiveChar());
+  var status = getItemTimeStatusText(item);
+  var title = String(item && (item.title || item.text) || '').trim() || '这件事';
+  if(status.indexOf('已经过去') !== -1) return charName + '刚刚想到你写的「' + title + '」，这会儿应该已经结束了吧？';
+  if(status.indexOf('正在发生') !== -1) return '我刚好看到你现在这条「' + title + '」，现在应该正在忙这个？';
+  if(status.indexOf('还没开始') !== -1) return '我看见你后面还排了「' + title + '」，你别忘了。';
+  return '我刚刚翻到你今天的日程了，看到「' + title + '」就想起你。';
+}
+
 function buildChatPromptFromTarget(kind, item){
   var promptItem = buildCommentPromptItem(kind, item);
   var title = String(promptItem.title || '').trim();
@@ -1991,35 +2022,35 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
   if(!char || !shell || !shell.ScheduleShell || typeof shell.ScheduleShell.generateInlineComment !== 'function') return Promise.resolve('');
   var ctx = getSelectedDayContext();
   var activeState = getActiveCharState();
-  var latestFresh = getLatestUserFreshTarget(ctx);
+  var freshTargets = getFreshUserTargets(ctx, 2);
+  var latestFresh = freshTargets[0] || null;
   var commentCandidate = latestFresh || null;
   var day = activeState.charDays && activeState.charDays[selectedDateKey] ? activeState.charDays[selectedDateKey] : { timeline:[], todos:[] };
   var undoneCharTodo = (Array.isArray(day.todos) ? day.todos : []).find(function(item){ return item && !item.done; }) || null;
   var firstCharTimeline = (Array.isArray(day.timeline) ? day.timeline : []).find(function(item){ return item && (item.title || item.note); }) || null;
   var chatSeedTarget = primaryTarget || commentCandidate;
   var chatText = '';
+  var actionNotes = [];
   var chain = Promise.resolve();
 
-  if(commentCandidate){
+  freshTargets.forEach(function(targetRef, index){
     chain = chain.then(function(){
-      var targetItem = findEntryByKind(commentCandidate.kind, commentCandidate.itemId, getActiveCharState());
-      if(!targetItem) return;
-      var existingCharComment = Array.isArray(targetItem.comments) && targetItem.comments.some(function(comment){
-        return String(comment.author || '') === 'char';
-      });
-      if(existingCharComment && primaryTarget && String(primaryTarget.kind || '') === String(commentCandidate.kind || '') && String(primaryTarget.itemId || '') === String(commentCandidate.itemId || '')) return;
+      var targetItem = findEntryByKind(targetRef.kind, targetRef.itemId, getActiveCharState());
+      if(!targetItem || hasCharComment(targetItem)) return;
       return shell.ScheduleShell.generateInlineComment({
         charId: char.id,
         dateKey: selectedDateKey,
-        owner: commentCandidate.kind === 'timeline' ? 'char' : 'user',
-        item: buildCommentPromptItem(commentCandidate.kind, targetItem),
+        owner: targetRef.kind === 'timeline' ? 'char' : 'user',
+        item: buildCommentPromptItem(targetRef.kind, targetItem),
         comments: Array.isArray(targetItem.comments) ? targetItem.comments : [],
         timeStatus: getItemTimeStatusText(targetItem),
-        extraContext: '这是用户刚刚新添的安排或待办。请像活人一样顺手留一句自然的日程留言。'
+        extraContext: index === 0
+          ? '这是用户刚刚新添的安排或待办。请像活人一样顺手留一句自然的日程留言。'
+          : '如果你看到今天还有另一条用户刚写下的安排或待办，也可以再顺手留一句。'
       }).then(function(text){
         text = String(text || '').trim();
         if(!text) return;
-        return mutateEntryByKind(commentCandidate.kind, commentCandidate.itemId, function(target){
+        return mutateEntryByKind(targetRef.kind, targetRef.itemId, function(target){
           target = Object.assign({}, target);
           target.comments = Array.isArray(target.comments) ? target.comments.slice() : [];
           target.comments.unshift({
@@ -2029,10 +2060,14 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
             createdAt: Date.now()
           });
           return target;
+        }).then(function(changed){
+          if(changed){
+            actionNotes.push('我顺手给你新写的' + (targetRef.kind === 'todo' ? '待办' : '行程') + '留了句话。');
+          }
         });
       });
     });
-  }
+  });
 
   if(undoneCharTodo){
     chain = chain.then(function(){
@@ -2047,6 +2082,10 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
           createdAt: Date.now()
         });
         return item;
+      }).then(function(changed){
+        if(changed){
+          actionNotes.push('我刚把自己的一条待办划掉了。');
+        }
       });
     });
   }else if(firstCharTimeline){
@@ -2066,6 +2105,8 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
       });
       scheduleState = ScheduleShared.setCharState(scheduleState, char.id, charState);
       return persistState().then(function(){ renderAll(); });
+    }).then(function(){
+      actionNotes.push('我顺手给自己补了一条待办。');
     });
   }
 
@@ -2081,8 +2122,10 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
         comments: Array.isArray(targetItem.comments) ? targetItem.comments : [],
         timeStatus: getItemTimeStatusText(targetItem),
         extraContext: '这次不是写在日程里的留言，而是真的要发去聊天里的消息。要自然一点，像人在聊天里顺嘴提起日程。'
+          + (actionNotes.length ? (' 同时你刚刚在日程 app 里做了这些事：' + actionNotes.join(' ')) : '')
       }).then(function(text){
         chatText = String(text || '').trim();
+        if(!chatText) chatText = buildGlobalScheduleChatFallback(chatSeedTarget, targetItem);
       });
     });
   }
@@ -2423,6 +2466,13 @@ function shareTimelineToChar(targetCharId){
         charId: targetCharId,
         role: 'assistant',
         text: reply
+      });
+    }
+    if(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
+      return shell.ScheduleShell.appendChatMessage({
+        charId: targetCharId,
+        role: 'assistant',
+        text: fallbackShareReply()
       });
     }
   }).then(function(){

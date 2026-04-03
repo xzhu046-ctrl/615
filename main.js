@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T18:01:00Z';
+const APP_BUILD_ID = '2026-04-02T18:16:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1678,6 +1678,31 @@ function getScheduleUserPersona(){
   return String(localStorage.getItem('user_persona') || '').trim();
 }
 
+function getSchedulePresenceContext(character){
+  if(!(window.PresenceShared && character && character.id && typeof window.PresenceShared.getPresenceSnapshot === 'function')) return '';
+  try{
+    var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
+    if(!(snapshot && snapshot.char && snapshot.user)) return '';
+    var userLabel = String(snapshot.user.label || snapshot.user.weatherName || '').trim() || String(snapshot.user.cityId || '').trim() || '用户所在城市';
+    var charCityName = snapshot.char.city && snapshot.char.city.name ? String(snapshot.char.city.name).trim() : '';
+    var charPlace = String(snapshot.char.placeLabel || '').trim();
+    var charActivity = String(snapshot.char.activityLabel || '').trim();
+    var distanceLabel = String(snapshot.distanceLabel || '').trim();
+    var lines = [
+      '用户当前地理位置：' + userLabel,
+      '角色当前地理位置：' + [charCityName, charPlace].filter(Boolean).join(' · '),
+      charActivity ? ('角色当前状态：' + charActivity) : '',
+      distanceLabel ? ('双方距离：' + distanceLabel) : ''
+    ].filter(Boolean);
+    if(snapshot.travel && Number(snapshot.travel.distanceKm || 0) >= 8){
+      lines.push('如果双方距离明显不近，就不要乱写“已经在用户家里 / 顺路到她家 / 送她回家 / 站在她楼下”这种已经同处一地的剧情，除非用户当天公开行程明确写了见面、接送、同城同行。');
+    }
+    return lines.join('\n');
+  }catch(err){
+    return '';
+  }
+}
+
 function normalizeScheduleTimelineItems(items){
   return (Array.isArray(items) ? items : []).map(function(item){
     item = item && typeof item === 'object' ? item : {};
@@ -1816,6 +1841,7 @@ async function generateScheduleDayPlan(payload){
     getScheduleWorldbookContext() ? ('世界书摘要：\n' + getScheduleWorldbookContext()) : '',
     '用户名字：' + getScheduleUserName(charId),
     getScheduleUserPersona() ? ('用户设定：' + getScheduleUserPersona().slice(0, 900)) : '',
+    getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
     '务必同时认真读取角色人设和用户设定，再决定今天的安排、互动方式和对用户生活状态的理解，不要脱离双方设定乱写。',
     '严格时间感知总开关：' + (payload.globalTimeAwareness === false ? '关闭' : '开启'),
     '这个角色的时间感知覆盖：' + (payload.charOverride && payload.charOverride.timeAwarenessEnabled === false ? '关闭' : '开启'),
