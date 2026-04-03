@@ -2086,6 +2086,26 @@ function buildChatPromptFromTarget(kind, item){
   return [title, note].filter(Boolean).join('，');
 }
 
+function generateScheduleActionVoice(char, shell, kind, item, extraContext, fallbackText){
+  if(!char || !shell || !shell.ScheduleShell || typeof shell.ScheduleShell.generateInlineComment !== 'function'){
+    return Promise.resolve(String(fallbackText || '').trim());
+  }
+  return shell.ScheduleShell.generateInlineComment({
+    charId: char.id,
+    dateKey: selectedDateKey,
+    owner: kind === 'timeline' ? 'char' : 'user',
+    item: buildCommentPromptItem(kind, item),
+    comments: Array.isArray(item && item.comments) ? item.comments : [],
+    timeStatus: getItemTimeStatusText(item),
+    extraContext: String(extraContext || '').trim()
+  }).then(function(text){
+    text = String(text || '').trim();
+    return text || String(fallbackText || '').trim();
+  }).catch(function(){
+    return String(fallbackText || '').trim();
+  });
+}
+
 function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
   if(!char || !shell || !shell.ScheduleShell || typeof shell.ScheduleShell.generateInlineComment !== 'function') return Promise.resolve('');
   var ctx = getSelectedDayContext();
@@ -2144,17 +2164,26 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
 
   if(undoneCharTodo){
     chain = chain.then(function(){
-      return mutateEntryByKind('chartodo', undoneCharTodo.id, function(item){
-        item = Object.assign({}, item);
-        item.done = true;
-        item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
-        item.comments.unshift({
-          id: ScheduleShared.createId('comment'),
-          author: 'char',
-          text: '这件事我刚顺手处理掉了。',
-          createdAt: Date.now()
+      return generateScheduleActionVoice(
+        char,
+        shell,
+        'chartodo',
+        undoneCharTodo,
+        '你刚刚亲手完成了自己今天的一条待办。请按人设写一句很像你本人会留在日程里的短话，可以带一点情绪、碎碎念、松一口气、得意、烦躁、敷衍，别写成系统说明，也别太官腔。',
+        '这件事刚处理完。'
+      ).then(function(actionText){
+        return mutateEntryByKind('chartodo', undoneCharTodo.id, function(item){
+          item = Object.assign({}, item);
+          item.done = true;
+          item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
+          item.comments.unshift({
+            id: ScheduleShared.createId('comment'),
+            author: 'char',
+            text: actionText,
+            createdAt: Date.now()
+          });
+          return item;
         });
-        return item;
       }).then(function(changed){
         if(changed){
           actionNotes.push('我刚把自己的一条待办划掉了。');
@@ -2186,17 +2215,26 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
   if(firstCharTimeline){
     chain = chain.then(function(){
       if(String(firstCharTimeline.id || '') === String(primaryTarget && primaryTarget.itemId || '') && String(primaryTarget && primaryTarget.kind || '') === 'timeline') return;
-      return mutateEntryByKind('timeline', firstCharTimeline.id, function(item){
-        item = Object.assign({}, item);
-        if(!shouldCharReplyToTarget(item)) return item;
-        item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
-        item.comments.push({
-          id: ScheduleShared.createId('comment'),
-          author: 'char',
-          text: '这段安排我也重新看了一眼，应该会按这个节奏走。',
-          createdAt: Date.now()
+      return generateScheduleActionVoice(
+        char,
+        shell,
+        'timeline',
+        firstCharTimeline,
+        '你刚刚重新看了一眼自己今天的一条安排。请按人设留一句自然的短话，像是在日程里自言自语，不要写成说明书，也不要太像系统提示。',
+        '这段安排我又看了一眼。'
+      ).then(function(actionText){
+        return mutateEntryByKind('timeline', firstCharTimeline.id, function(item){
+          item = Object.assign({}, item);
+          if(!shouldCharReplyToTarget(item)) return item;
+          item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
+          item.comments.push({
+            id: ScheduleShared.createId('comment'),
+            author: 'char',
+            text: actionText,
+            createdAt: Date.now()
+          });
+          return item;
         });
-        return item;
       }).then(function(changed){
         if(changed){
           actionNotes.push('我还顺手整理了一下自己今天的一条安排。');
