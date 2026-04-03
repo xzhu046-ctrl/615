@@ -337,10 +337,15 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-timeline-item.is-user .schedule-secret-lock{background:rgba(17,17,17,.08)}
 .schedule-pass-result{font-size:12px;font-weight:800;line-height:1.55;color:#666}
 .schedule-secret-input{
-  display:flex;align-items:center;justify-content:center;min-height:48px;border:2px solid #111;border-radius:18px;background:linear-gradient(180deg,#fff 0%,#f4f4f4 100%);
-  box-shadow:5px 5px 0 rgba(0,0,0,.16);font-size:22px;font-weight:900;letter-spacing:.28em;color:#111
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;min-height:64px;border:2px solid #111;border-radius:18px;background:linear-gradient(180deg,#fff 0%,#f4f4f4 100%);
+  box-shadow:5px 5px 0 rgba(0,0,0,.16);padding:10px;color:#111
 }
-.schedule-secret-input.is-empty{color:#b7b7b7;font-size:13px;letter-spacing:.08em}
+.schedule-secret-input.is-empty{color:#b7b7b7}
+.schedule-secret-slot{
+  height:40px;border:2px solid #111;border-radius:12px;background:#fff;box-shadow:3px 3px 0 rgba(0,0,0,.12);
+  display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900;line-height:1;color:#111
+}
+.schedule-secret-slot.is-empty{color:#d5d5d5}
 .schedule-secret-keypad{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
 .schedule-secret-key{
   border:2px solid #111;border-radius:16px;background:linear-gradient(180deg,#fff 0%,#f2f2f2 100%);box-shadow:5px 5px 0 rgba(0,0,0,.16);
@@ -1634,45 +1639,46 @@ function syncEntryDraftFromInputs(){
   if(noteNode) entryDraft.note = String(noteNode.value || '').trim();
   if(locationNode) entryDraft.location = String(locationNode.value || '').trim();
   if(maskNode) entryDraft.publicMask = String(maskNode.value || '').trim();
-  if(passNode) entryDraft.secretPassword = String(passNode.getAttribute('data-value') || '').replace(/\D+/g, '').slice(0, 6);
+  if(passNode) entryDraft.secretPassword = String(passNode.getAttribute('data-value') || '').replace(/\D+/g, '').slice(0, 4);
   if(hintNode) entryDraft.secretHint = String(hintNode.value || '').trim();
 }
 
 function renderSecretInput(node, value, placeholder){
   if(!node) return;
-  var safe = String(value || '').replace(/\D+/g, '').slice(0, 6);
+  var safe = String(value || '').replace(/\D+/g, '').slice(0, 4);
   node.setAttribute('data-value', safe);
-  if(!safe){
-    node.textContent = String(placeholder || '输入数字密码');
-    node.classList.add('is-empty');
-    return;
+  var slots = [];
+  for(var i = 0; i < 4; i++){
+    var digit = safe.charAt(i);
+    slots.push('<span class="schedule-secret-slot' + (digit ? '' : ' is-empty') + '">' + esc(digit || '') + '</span>');
   }
-  node.textContent = safe.split('').join(' ');
-  node.classList.remove('is-empty');
+  node.innerHTML = slots.join('');
+  node.classList.toggle('is-empty', !safe);
+  node.setAttribute('aria-label', String(placeholder || '输入四位数字密码'));
 }
 
 function tapSecretDigit(digit, target){
   var safeDigit = String(digit || '').replace(/\D+/g, '').slice(-1);
   if(!safeDigit) return;
   if(String(target || '') === 'peek'){
-    secretPeekDraft = (String(secretPeekDraft || '').replace(/\D+/g, '') + safeDigit).slice(0, 6);
-    renderSecretInput(document.getElementById('secretPasswordInput'), secretPeekDraft, '输入数字密码');
+    secretPeekDraft = (String(secretPeekDraft || '').replace(/\D+/g, '') + safeDigit).slice(0, 4);
+    renderSecretInput(document.getElementById('secretPasswordInput'), secretPeekDraft, '输入四位数字密码');
     return;
   }
   syncEntryDraftFromInputs();
-  entryDraft.secretPassword = (String(entryDraft.secretPassword || '').replace(/\D+/g, '') + safeDigit).slice(0, 6);
-  renderSecretInput(document.getElementById('entryTextPassword'), entryDraft.secretPassword, '设置数字密码');
+  entryDraft.secretPassword = (String(entryDraft.secretPassword || '').replace(/\D+/g, '') + safeDigit).slice(0, 4);
+  renderSecretInput(document.getElementById('entryTextPassword'), entryDraft.secretPassword, '设置四位数字密码');
 }
 
 function clearSecretDigits(target){
   if(String(target || '') === 'peek'){
     secretPeekDraft = '';
-    renderSecretInput(document.getElementById('secretPasswordInput'), secretPeekDraft, '输入数字密码');
+    renderSecretInput(document.getElementById('secretPasswordInput'), secretPeekDraft, '输入四位数字密码');
     return;
   }
   syncEntryDraftFromInputs();
   entryDraft.secretPassword = '';
-  renderSecretInput(document.getElementById('entryTextPassword'), entryDraft.secretPassword, '设置数字密码');
+  renderSecretInput(document.getElementById('entryTextPassword'), entryDraft.secretPassword, '设置四位数字密码');
 }
 
 function toggleTodoReminder(){
@@ -1738,7 +1744,7 @@ function renderEntryForm(){
       + (entryDraft.visibleToChar === false
         ? '<div class="schedule-secret-fields" style="grid-column:1/-1">'
           + '<input class="schedule-input" id="entryTextMask" placeholder="给Ta看到的模糊说法，比如：这段时间有约" value="' + esc(entryDraft.publicMask || '') + '">'
-          + '<div class="schedule-secret-input' + (entryDraft.secretPassword ? '' : ' is-empty') + '" id="entryTextPassword" data-value="' + esc(String(entryDraft.secretPassword || '').replace(/\D+/g, '').slice(0, 6)) + '">' + esc(entryDraft.secretPassword ? String(entryDraft.secretPassword || '').replace(/\D+/g, '').slice(0, 6).split('').join(' ') : '设置数字密码') + '</div>'
+          + '<div class="schedule-secret-input' + (entryDraft.secretPassword ? '' : ' is-empty') + '" id="entryTextPassword" data-value="' + esc(String(entryDraft.secretPassword || '').replace(/\D+/g, '').slice(0, 4)) + '"></div>'
           + '<div class="schedule-secret-keypad">'
             + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(1,\'entry\')">1</button>'
             + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(2,\'entry\')">2</button>'
@@ -1832,6 +1838,10 @@ function saveEntryFromModal(){
     if(!special.title){ toast('重要日期要写个名字'); return; }
     charState.specialDates.unshift(special);
   }else{
+    if(entryDraft.visibleToChar === false && String(entryDraft.secretPassword || '').replace(/\D+/g, '').length !== 4){
+      toast('秘密行程要设置四位密码');
+      return;
+    }
     var evt = ScheduleShared.normalizeEvent({
       date: selectedDateKey,
       start: entryDraft.start,
@@ -2287,7 +2297,7 @@ function openSecretModal(kind, itemId){
   document.getElementById('secretModalTitle').textContent = '查看秘密行程';
   document.getElementById('secretModalSub').textContent = formatScheduleDateZh(selectedDateKey) + ' · ' + (String(item.publicMask || '这段时间有安排').trim() || '这段时间有安排');
   secretPeekDraft = '';
-  renderSecretInput(document.getElementById('secretPasswordInput'), '', '输入数字密码');
+  renderSecretInput(document.getElementById('secretPasswordInput'), '', '输入四位数字密码');
   document.getElementById('secretHintText').textContent = item.secretHint ? ('提示：' + String(item.secretHint || '').trim()) : '输对密码才能看到完整内容。';
   document.getElementById('secretModal').classList.add('open');
 }
@@ -2306,7 +2316,11 @@ function attemptSecretPeek(){
   if(!secretTarget) return;
   var item = findEntryByKind(secretTarget.kind, secretTarget.itemId, getActiveCharState());
   if(!item){ closeSecretModal(); return; }
-  var input = String(secretPeekDraft || '').replace(/\D+/g, '').trim();
+  var input = String(secretPeekDraft || '').replace(/\D+/g, '').trim().slice(0, 4);
+  if(String(item.secretPassword || '').trim() && input.length < 4){
+    toast('请输入四位密码');
+    return;
+  }
   var success = !String(item.secretPassword || '').trim() || input === String(item.secretPassword || '').trim();
   var shell = getParentShell();
   if(shell.ScheduleShell && typeof shell.ScheduleShell.appendSystemNotice === 'function'){
@@ -2322,7 +2336,7 @@ function attemptSecretPeek(){
     toast('偷看成功');
     return;
   }
-  document.getElementById('secretHintText').textContent = (item.secretHint ? ('提示：' + String(item.secretHint || '').trim() + '。') : '') + ' 再试一次？';
+  document.getElementById('secretHintText').textContent = (item.secretHint ? ('提示：' + String(item.secretHint || '').trim() + '。') : '') + ' 四位密码不对，再试一次？';
   toast('密码不对');
 }
 

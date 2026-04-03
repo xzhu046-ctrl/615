@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T18:53:00Z';
+const APP_BUILD_ID = '2026-04-02T19:05:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1715,7 +1715,7 @@ function normalizeScheduleTimelineItems(items){
       location: String(item.location || '').trim(),
       kind: String(item.kind || 'char').trim() || 'char',
       secret: !!item.secret,
-      secretPassword: String(item.secretPassword || '').trim(),
+      secretPassword: String(item.secretPassword || '').replace(/\D+/g, '').slice(0, 4),
       secretHint: String(item.secretHint || '').trim(),
       publicMask: String(item.publicMask || item.maskedTitle || '').trim(),
       comments: Array.isArray(item.comments) ? item.comments.map(function(comment){
@@ -1827,7 +1827,7 @@ async function generateScheduleDayPlan(payload){
     '语言固定是简体中文，但行程安排、语气、态度、细节、作息风格必须服从角色人设。',
     'timeline 是现实里会发生的一天，至少 6 条，不设上限。每条尽量带一个简短地点 location，条数按人设自然展开，不要为了凑数乱写。',
     'todos 是这个角色今天自己心里或手边会记着的待办，至少 3 条，不设上限，语气和内容都按人设来。',
-    '如果角色这一天有不想直接说开的安排，允许最多生成 1 条 secret=true 的秘密行程；这种时候 title/note 仍然写真实内容，同时额外提供 publicMask（给对方看到的模糊标题，比如“有点私事”）、secretHint（很短的密码线索，必须真的和 secretPassword 有关，比如“是今天的日期”“末尾两位”这类）和 secretPassword（1-6 位数字密码）。如果没有秘密行程，就把这些字段留空。',
+    '如果角色这一天有不想直接说开的安排，允许最多生成 1 条 secret=true 的秘密行程；这种时候 title/note 仍然写真实内容，同时额外提供 publicMask（给对方看到的模糊标题，比如“有点私事”）、secretHint（很短的密码线索，必须真的和 secretPassword 有关，比如“是今天的日期”“末尾两位”这类）和 secretPassword（严格 4 位数字密码）。如果没有秘密行程，就把这些字段留空。',
     'diary 是角色今天的一句日记，要有人设感。',
     'calendarNote 是写在日历边上的一句留言。',
     'comment 是角色看见用户待办或行程后的点评。',
@@ -1906,8 +1906,8 @@ async function appendScheduleSystemNotice(payload){
   if(!text) return false;
   var entry = {
     id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
-    role: 'assistant',
-    content: '[系统提示：' + text + ']',
+    role: 'system',
+    content: text,
     type: 'text',
     replyToId: null,
     sentAt: now,
