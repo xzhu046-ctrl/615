@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T03:44:00Z';
+const APP_BUILD_ID = '2026-04-03T03:52:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2040,11 +2040,13 @@ async function generateScheduleUserDayPlan(payload){
     '只返回严格 JSON，不要 markdown，不要解释。',
     '格式：{"events":[{"start":"08:30","end":"09:20","title":"...","note":"...","location":"...","visibleToChar":true,"publicMask":"","secretHint":"","secretPassword":""}],"todos":[{"text":"...","note":"...","done":false,"remindEnabled":false,"remindAt":""}]}',
     '所有字段都必须使用简体中文输出。',
-    'events 至少 4 条，不设上限；todos 至少 3 条，不设上限。',
-    '必须认真读取用户设定和角色人设。安排要像用户本人，不要写成角色的生活。',
+    'events 至少 6 条，不设上限；todos 至少 3 条，不设上限。',
+    '必须认真读取用户设定和角色人设。安排要像用户本人，不要写成角色的生活，也不要写成没有细节的敷衍流水账。',
     '自动生成的用户行程一律公开，不允许秘密行程。秘密行程只能由用户手动添加，所以这里生成的 events 必须全部 visibleToChar=true，publicMask/secretHint/secretPassword 全部留空。',
     '待办和行程都要贴近真人生活，可以有学习、休息、社交、通勤、准备礼物、给角色留空间等，但不要脱离用户设定。',
-    '每条 event 都必须写 location 和 note。location 要比大类地点更细一点；note 要是一句小解释，说明这段安排为什么这样排、正在做什么、或者这件事背后的心思，不要留空。'
+    'user 的生成逻辑要和 char 一样认真：不是随便拼几条占位事件，而是真正写出这一天的生活节奏、地点和小心思。',
+    '每条 event 都必须写 location 和 note。location 要比大类地点更细一点；note 要是一句小解释，说明这段安排为什么这样排、正在做什么、或者这件事背后的心思，不要留空。',
+    '如果用户设定里出现了专业、学业方向、身份关键词、住校/通勤/实习/课程/社团/论文/考试这些信息，今天的安排要自然体现出来。除非用户人设本来就很松散，否则不要只写空泛的散步、发呆、休息一下这种敷衍事件。'
   ].join('\n');
   var userPrompt = [
     '日期：' + dateKey + ' ' + weekday,
