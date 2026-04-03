@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T02:22:00Z';
+const APP_BUILD_ID = '2026-04-03T02:34:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1919,8 +1919,9 @@ async function generateScheduleDayPlan(payload){
     getScheduleUserPersona() ? ('用户设定：' + getScheduleUserPersona().slice(0, 900)) : '',
     getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
     '务必同时认真读取角色人设和用户设定，再决定今天的安排、互动方式和对用户生活状态的理解，不要脱离双方设定乱写。',
-    '角色今天的安排可以自然地和用户有关，但要服从现实距离和关系状态：异地可以是打电话、视频、寄东西、偷偷准备车票/机票；同城或住一起才可以出现接送、一起吃饭、顺手照顾之类的互动，而且要自然，不要刻意硬塞。',
-    '如果现实距离明显很远，就不要写成已经见面、一起吃午饭、在她家、送她回家、顺路接她这种同地互动；最多写成远程互动、准备票、惦记、寄东西、约之后再见。只有用户当天公开日程明确写了见面/出行/同城同行，才允许写实体见面。',
+    '角色今天的安排可以自然地和用户有关，但要服从现实距离和关系状态：异地可以是打电话、视频、语音、远程一起吃饭、寄东西、偷偷准备车票/机票；同城或住一起才可以出现接送、一起吃饭、顺手照顾之类的互动，而且要自然，不要刻意硬塞。',
+    '如果现实距离明显很远，就严格禁止写成已经见面、一起吃午饭、一起散步、在她家、送她回家、顺路接她、一起通勤、面对面说话这种同地实体互动；最多写成远程互动、准备票、惦记、寄东西、约之后再见。只有用户当天公开日程明确写了见面/出行/同城同行，才允许写实体见面。',
+    '如果双方现实位置很远，宁可写成视频、通话、互相惦记、远程一起做同一件事，也不要偷写现实碰面。',
     '严格时间感知总开关：' + (payload.globalTimeAwareness === false ? '关闭' : '开启'),
     '这个角色的时间感知覆盖：' + (payload.charOverride && payload.charOverride.timeAwarenessEnabled === false ? '关闭' : '开启'),
     specialLines.length ? ('当天节日 / 纪念日：\n- ' + specialLines.join('\n- ')) : '当天没有额外节日或纪念日。',
@@ -1979,7 +1980,7 @@ async function generateScheduleUserDayPlan(payload){
     '所有字段都必须使用简体中文输出。',
     'events 至少 4 条，不设上限；todos 至少 3 条，不设上限。',
     '必须认真读取用户设定和角色人设。安排要像用户本人，不要写成角色的生活。',
-    '如果用户这一天有对角色保密的安排，允许最多 1 条 visibleToChar=false 的秘密行程；此时必须提供 publicMask、secretHint、secretPassword，密码严格 4 位数字，提示必须真的和密码有关。',
+    '自动生成的用户行程一律公开，不允许秘密行程。秘密行程只能由用户手动添加，所以这里生成的 events 必须全部 visibleToChar=true，publicMask/secretHint/secretPassword 全部留空。',
     '待办和行程都要贴近真人生活，可以有学习、休息、社交、通勤、准备礼物、给角色留空间等，但不要脱离用户设定。'
   ].join('\n');
   var userPrompt = [
@@ -1991,7 +1992,7 @@ async function generateScheduleUserDayPlan(payload){
     character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 800)) : '',
     getScheduleWorldbookContext() ? ('世界书摘要：\n' + getScheduleWorldbookContext()) : '',
     getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
-    '如果双方现实位置很远，用户自己的安排也不要写成和角色已经现实见面、一起吃饭、一起通勤，除非已有公开日程明确写了见面或出行；更自然的是远程联系、惦记、通话、准备之后见面。',
+    '如果双方现实位置很远，用户自己的安排也不要写成和角色已经现实见面、一起吃饭、一起通勤、一起散步，除非已有公开日程明确写了见面或出行；更自然的是远程联系、惦记、通话、准备之后见面。',
     specialLines.length ? ('当天节日 / 纪念日：\n- ' + specialLines.join('\n- ')) : '当天没有额外节日或纪念日。',
     eventLines.length ? ('用户现在已有日程：\n- ' + eventLines.join('\n- ')) : '用户现在还没有写别的日程。',
     todoLines.length ? ('用户现在已有待办：\n- ' + todoLines.join('\n- ')) : '用户现在还没有写别的待办。',
