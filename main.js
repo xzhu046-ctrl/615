@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T03:02:00Z';
+const APP_BUILD_ID = '2026-04-03T03:10:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1678,15 +1678,6 @@ function getScheduleUserPersona(){
   return String(localStorage.getItem('user_persona') || '').trim();
 }
 
-function getScheduleUserLifeStage(){
-  var persona = getScheduleUserPersona();
-  if(!persona) return '';
-  if(/大学|大一|大二|大三|大四|研究生|硕士|博士|本科|学生|上学|上课|宿舍|校园|考试|备考|论文|答辩|选课|社团/.test(persona)) return '学生';
-  if(/上班|公司|实习|通勤|会议|职场|打卡|工位|写字楼|出差|老板|同事|项目|值班/.test(persona)) return '职场';
-  if(/自由职业|在家办公|接稿|创作|画稿|直播|拍摄|剪辑|写作|做内容/.test(persona)) return '自由安排';
-  return '未明确';
-}
-
 function getSchedulePresenceContext(character){
   if(!(window.PresenceShared && character && character.id && typeof window.PresenceShared.getPresenceSnapshot === 'function')) return '';
   try{
@@ -1926,10 +1917,9 @@ async function generateScheduleDayPlan(payload){
     getScheduleWorldbookContext() ? ('世界书摘要：\n' + getScheduleWorldbookContext()) : '',
     '用户名字：' + getScheduleUserName(charId),
     getScheduleUserPersona() ? ('用户设定：' + getScheduleUserPersona().slice(0, 900)) : '',
-    getScheduleUserLifeStage() ? ('用户当前生活阶段：' + getScheduleUserLifeStage()) : '',
     getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
     '务必同时认真读取角色人设和用户设定，再决定今天的安排、互动方式和对用户生活状态的理解，不要脱离双方设定乱写。',
-    '先判断用户当前的生活阶段，再决定和用户有关的互动方式。如果某条安排和用户生活阶段冲突，就直接换成符合设定的内容，不要硬写。',
+    '先直接读懂用户完整设定里的身份、生活状态、作息、处境和日常节奏，再决定和用户有关的互动方式，不要用死板标签套人设。',
     '角色今天的安排可以自然地和用户有关，但要服从现实距离和关系状态：异地可以是打电话、视频、语音、远程一起吃饭、寄东西、偷偷准备车票/机票；同城或住一起才可以出现接送、一起吃饭、顺手照顾之类的互动，而且要自然，不要刻意硬塞。',
     '如果现实距离明显很远，就严格禁止写成已经见面、一起吃午饭、一起散步、在她家、送她回家、顺路接她、一起通勤、面对面说话这种同地实体互动；最多写成远程互动、准备票、惦记、寄东西、约之后再见。只有用户当天公开日程明确写了见面/出行/同城同行，才允许写实体见面。',
     '如果双方现实位置很远，宁可写成视频、通话、互相惦记、远程一起做同一件事，也不要偷写现实碰面。',
@@ -1998,7 +1988,6 @@ async function generateScheduleUserDayPlan(payload){
     '日期：' + dateKey + ' ' + weekday,
     '用户名字：' + getScheduleUserName(charId),
     getScheduleUserPersona() ? ('用户设定：' + getScheduleUserPersona().slice(0, 1500)) : '',
-    getScheduleUserLifeStage() ? ('用户当前生活阶段：' + getScheduleUserLifeStage()) : '',
     '角色名：' + String(character.nickname || character.name || '角色'),
     '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
     character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 800)) : '',
@@ -2009,7 +1998,7 @@ async function generateScheduleUserDayPlan(payload){
     eventLines.length ? ('用户现在已有日程：\n- ' + eventLines.join('\n- ')) : '用户现在还没有写别的日程。',
     todoLines.length ? ('用户现在已有待办：\n- ' + todoLines.join('\n- ')) : '用户现在还没有写别的待办。',
     '请补出今天更完整、更像真人的用户安排和待办，并且允许自然带一点和角色有关的互动或顾虑，但不要强行黏在一起。',
-    '所有安排必须先服从用户当前生活阶段：学生就写更像学生的一天，职场就写更像职场的一天，自由安排就写更像自由安排的一天。若某条内容和这个生活阶段冲突，直接改掉。'
+    '所有安排都必须直接服从用户完整人设里的身份、日常、作息和生活状态；如果某条内容和用户设定冲突，就直接改掉，不要套用僵硬标签。'
   ].filter(Boolean).join('\n\n');
   var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
   var txt = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
