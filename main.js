@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T01:56:00Z';
+const APP_BUILD_ID = '2026-04-03T02:10:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2167,6 +2167,9 @@ async function generateScheduleInlineComment(payload){
     charNow ? ('角色当地日期时间：' + String(charNow.dateKey || '') + ' ' + String(charNow.nowTime || '')) : '',
     '今天日期：' + String(payload.dateKey || ''),
     '这条安排属于：' + (payload.owner === 'user' ? '用户' : '角色本人'),
+    payload.owner === 'user'
+      ? '硬规则：这条安排是用户的，不是你的。不要把它说成你自己的待办或你本人要去做的事。'
+      : '硬规则：这条安排是你自己的，不是用户的。不要把它误认成用户要做的事，也不要反问“你还没做吗”。',
     '安排标题：' + String(item.title || item.text || '').trim(),
     item.start ? ('时间：' + String(item.start || '') + (item.end ? (' - ' + String(item.end || '')) : '')) : '',
     item.note ? ('备注：' + String(item.note || '')) : '',

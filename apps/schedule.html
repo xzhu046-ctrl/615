@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-03T01:56:00Z"></script>
-<script src="../assetStore.js?v=2026-04-03T01:56:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-03T01:56:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-03T01:56:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-03T01:56:00Z"></script>
+<script src="../accountManager.js?v=2026-04-03T02:10:00Z"></script>
+<script src="../assetStore.js?v=2026-04-03T02:10:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-03T02:10:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-03T02:10:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-03T02:10:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -2295,13 +2295,7 @@ function collectGlobalCommentTargets(ctx){
 }
 
 function buildGlobalScheduleChatFallback(target, item){
-  var charName = getCharacterName(getActiveChar());
-  var status = getItemTimeStatusText(item);
-  var title = String(item && (item.title || item.text) || '').trim() || '这件事';
-  if(status.indexOf('已经过去') !== -1) return charName + '刚刚想到你写的「' + title + '」，这会儿应该已经结束了吧？';
-  if(status.indexOf('正在发生') !== -1) return '我刚好看到你现在这条「' + title + '」，现在应该正在忙这个？';
-  if(status.indexOf('还没开始') !== -1) return '我看见你后面还排了「' + title + '」，你别忘了。';
-  return '我刚刚翻到你今天的日程了，看到「' + title + '」就想起你。';
+  return '';
 }
 
 function buildChatPromptFromTarget(kind, item){
@@ -2329,7 +2323,7 @@ function appendScheduleChatBurst(char, shell, messages){
 
 function generateScheduleActionVoice(char, shell, kind, item, extraContext, fallbackText){
   if(!char || !shell || !shell.ScheduleShell || typeof shell.ScheduleShell.generateInlineComment !== 'function'){
-    return Promise.resolve(String(fallbackText || '').trim());
+    return Promise.resolve('');
   }
   return shell.ScheduleShell.generateInlineComment({
     charId: char.id,
@@ -2341,9 +2335,9 @@ function generateScheduleActionVoice(char, shell, kind, item, extraContext, fall
     extraContext: String(extraContext || '').trim()
   }).then(function(text){
     text = String(text || '').trim();
-    return text || String(fallbackText || '').trim();
+    return text || '';
   }).catch(function(){
-    return String(fallbackText || '').trim();
+    return '';
   });
 }
 
@@ -2412,18 +2406,20 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
         'chartodo',
         todoItem,
         '你刚刚亲手完成了自己今天的一条待办。请按人设写一句很像你本人会留在日程里的短话，可以带一点情绪、碎碎念、松一口气、得意、烦躁、敷衍，别写成系统说明，也别太官腔。',
-        '这件事刚处理完。'
+        ''
       ).then(function(actionText){
         return mutateEntryByKind('chartodo', todoItem.id, function(item){
           item = Object.assign({}, item);
           item.done = true;
           item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
-          item.comments.unshift({
-            id: ScheduleShared.createId('comment'),
-            author: 'char',
-            text: actionText,
-            createdAt: Date.now()
-          });
+          if(actionText){
+            item.comments.unshift({
+              id: ScheduleShared.createId('comment'),
+              author: 'char',
+              text: actionText,
+              createdAt: Date.now()
+            });
+          }
           return item;
         });
       }).then(function(changed){
@@ -2466,17 +2462,19 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
         index === 0
           ? '你刚刚重新看了一眼自己今天的一条安排。请按人设留一句自然的短话，像是在日程里自言自语，不要写成说明书，也不要太像系统提示。'
           : '你又扫了一眼另一条自己的安排。请按人设留一句不重复的短话，像真的人在整理今天计划。',
-        '这段安排我又看了一眼。'
+        ''
       ).then(function(actionText){
         return mutateEntryByKind('timeline', timelineItem.id, function(item){
           item = Object.assign({}, item);
           item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
-          item.comments.push({
-            id: ScheduleShared.createId('comment'),
-            author: 'char',
-            text: actionText,
-            createdAt: Date.now()
-          });
+          if(actionText){
+            item.comments.push({
+              id: ScheduleShared.createId('comment'),
+              author: 'char',
+              text: actionText,
+              createdAt: Date.now()
+            });
+          }
           return item;
         });
       }).then(function(changed){
@@ -2524,16 +2522,13 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
               var single = String(text || '').trim();
               if(single) chatTexts = [single];
             }
-            if(!chatTexts.length){
-              chatTexts = [buildGlobalScheduleChatFallback(chatSeedTarget, targetItem)];
-            }
           }).catch(function(){
             var single = String(text || '').trim();
-            chatTexts = single ? [single] : [buildGlobalScheduleChatFallback(chatSeedTarget, targetItem)];
+            chatTexts = single ? [single] : [];
           });
         }
         var singleText = String(text || '').trim();
-        chatTexts = singleText ? [singleText] : [buildGlobalScheduleChatFallback(chatSeedTarget, targetItem)];
+        chatTexts = singleText ? [singleText] : [];
       });
     });
   }else if(actionNotes.length){
@@ -2620,7 +2615,7 @@ function triggerCharCommentNow(){
     pendingToastToken = showStickyToast('正在听TA怎么想…');
     maybeApplyGlobalScheduleAction(char, shell, commentTarget).then(function(chatTexts){
       chatTexts = Array.isArray(chatTexts) ? chatTexts.map(function(entry){ return String(entry || '').trim(); }).filter(Boolean) : [];
-      if(!chatTexts.length) chatTexts = [buildGlobalScheduleChatFallback(commentTarget, item)];
+      if(!chatTexts.length) throw new Error('这次没组织好想说的话');
       settleStickyToast(pendingToastToken, 'Ta回你了');
       renderAll();
       return appendScheduleChatBurst(char, shell, chatTexts);
