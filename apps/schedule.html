@@ -2187,6 +2187,38 @@ function getFreshUserTargets(ctx, limit){
   }).slice(0, Math.max(1, Number(limit) || 2));
 }
 
+function collectGlobalCommentTargets(ctx){
+  var result = [];
+  var seen = {};
+  function push(kind, item, reason){
+    if(!(item && item.id)) return;
+    var key = String(kind || '') + ':' + String(item.id || '');
+    if(!key || seen[key]) return;
+    seen[key] = true;
+    result.push({
+      kind: String(kind || ''),
+      itemId: String(item.id || ''),
+      reason: String(reason || 'fresh')
+    });
+  }
+  function scanList(kind, list){
+    (Array.isArray(list) ? list : []).forEach(function(item){
+      if(shouldCharReplyToTarget(item)) push(kind, item, 'reply');
+    });
+  }
+  scanList('event', ctx && ctx.events);
+  scanList('todo', ctx && ctx.todos);
+  scanList('timeline', ctx && ctx.charDay && ctx.charDay.timeline);
+  scanList('chartodo', ctx && ctx.charDay && ctx.charDay.todos);
+  (Array.isArray(ctx && ctx.events) ? ctx.events : []).forEach(function(item){
+    if(!hasCharComment(item)) push('event', item, 'fresh');
+  });
+  (Array.isArray(ctx && ctx.todos) ? ctx.todos : []).forEach(function(item){
+    if(!hasCharComment(item)) push('todo', item, 'fresh');
+  });
+  return result;
+}
+
 function buildGlobalScheduleChatFallback(target, item){
   var charName = getCharacterName(getActiveChar());
   var status = getItemTimeStatusText(item);
@@ -2228,23 +2260,17 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
   if(!char || !shell || !shell.ScheduleShell || typeof shell.ScheduleShell.generateInlineComment !== 'function') return Promise.resolve('');
   var ctx = getSelectedDayContext();
   var activeState = getActiveCharState();
-  var freshTargets = getFreshUserTargets(ctx, 4);
-  var latestFresh = freshTargets[0] || null;
-  var commentCandidate = latestFresh || null;
+  var pendingTargets = collectGlobalCommentTargets(ctx);
+  var latestFresh = getFreshUserTargets(ctx, 6)[0] || null;
+  var commentCandidate = pendingTargets[0] || latestFresh || null;
   var day = activeState.charDays && activeState.charDays[selectedDateKey] ? activeState.charDays[selectedDateKey] : { timeline:[], todos:[] };
-  var undoneCharTodo = (Array.isArray(day.todos) ? day.todos : []).find(function(item){ return item && !item.done; }) || null;
-  var firstCharTimeline = (Array.isArray(day.timeline) ? day.timeline : []).find(function(item){ return item && (item.title || item.note); }) || null;
+  var undoneCharTodos = (Array.isArray(day.todos) ? day.todos : []).filter(function(item){ return item && !item.done; }).slice(0, 2);
+  var charTimelineItems = (Array.isArray(day.timeline) ? day.timeline : []).filter(function(item){ return item && (item.title || item.note); }).slice(0, 2);
   var chatSeedTarget = primaryTarget || commentCandidate;
   var chatText = '';
   var actionNotes = [];
   var chain = Promise.resolve();
-  var primaryKey = primaryTarget ? (String(primaryTarget.kind || '') + ':' + String(primaryTarget.itemId || '')) : '';
-  var extraTargets = freshTargets.filter(function(targetRef){
-    var key = String(targetRef.kind || '') + ':' + String(targetRef.itemId || '');
-    return key && key !== primaryKey;
-  }).slice(0, 2);
-
-  extraTargets.forEach(function(targetRef, index){
+  pendingTargets.forEach(function(targetRef, index){
     chain = chain.then(function(){
       var targetItem = findEntryByKind(targetRef.kind, targetRef.itemId, getActiveCharState());
       if(!targetItem || !shouldCharReplyToTarget(targetItem)) return;
@@ -2255,9 +2281,12 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
         item: buildCommentPromptItem(targetRef.kind, targetItem),
         comments: Array.isArray(targetItem.comments) ? targetItem.comments : [],
         timeStatus: getItemTimeStatusText(targetItem),
-        extraContext: index === 0
-          ? '这是用户刚刚新添的安排或待办。请像活人一样顺手留一句自然的日程留言。'
-          : '如果你看到今天还有另一条用户刚写下的安排或待办，也可以再顺手留一句。'
+        extraContext: [
+          targetRef.reason === 'reply'
+            ? '用户给这条安排留了话，你现在不是敷衍点头，而是要像真人一样认真接住这条留言去回复。'
+            : '这是用户今天写下的新安排或待办。请像真人一样顺手留一句自然的日程留言。',
+          index > 0 ? '这是你这次顺手看的第' + String(index + 1) + '条，不要和上一条重复，不要每句都一个模板。' : ''
+        ].filter(Boolean).join(' ')
       }).then(function(text){
         text = String(text || '').trim();
         if(!text) return;
@@ -2273,24 +2302,28 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
           return target;
         }).then(function(changed){
           if(changed){
-            actionNotes.push('我顺手给你新写的' + (targetRef.kind === 'todo' ? '待办' : '行程') + '留了句话。');
+            actionNotes.push(
+              targetRef.reason === 'reply'
+                ? ('我回了你留在「' + String(targetItem.title || targetItem.text || '这件事') + '」上的话。')
+                : ('我看到了你写的「' + String(targetItem.title || targetItem.text || '这件事') + '」，顺手留了句言。')
+            );
           }
         });
       });
     });
   });
 
-  if(undoneCharTodo){
+  undoneCharTodos.forEach(function(todoItem){
     chain = chain.then(function(){
       return generateScheduleActionVoice(
         char,
         shell,
         'chartodo',
-        undoneCharTodo,
+        todoItem,
         '你刚刚亲手完成了自己今天的一条待办。请按人设写一句很像你本人会留在日程里的短话，可以带一点情绪、碎碎念、松一口气、得意、烦躁、敷衍，别写成系统说明，也别太官腔。',
         '这件事刚处理完。'
       ).then(function(actionText){
-        return mutateEntryByKind('chartodo', undoneCharTodo.id, function(item){
+        return mutateEntryByKind('chartodo', todoItem.id, function(item){
           item = Object.assign({}, item);
           item.done = true;
           item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
@@ -2304,13 +2337,15 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
         });
       }).then(function(changed){
         if(changed){
-          actionNotes.push('我刚把自己的一条待办划掉了。');
+          actionNotes.push('我刚把自己的待办「' + String(todoItem.text || '这件事') + '」处理掉了。');
         }
       });
     });
-  }else if(firstCharTimeline){
+  });
+
+  if(!undoneCharTodos.length && charTimelineItems[0]){
     chain = chain.then(function(){
-      var nextText = '把「' + String(firstCharTimeline.title || '这件事').trim() + '」收个尾';
+      var nextText = '把「' + String(charTimelineItems[0].title || '这件事').trim() + '」收个尾';
       var charState = getActiveCharState();
       charState.charDays = charState.charDays || {};
       charState.charDays[selectedDateKey] = charState.charDays[selectedDateKey] || { date:selectedDateKey, timeline:[], todos:[] };
@@ -2330,20 +2365,20 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
     });
   }
 
-  if(firstCharTimeline){
+  charTimelineItems.forEach(function(timelineItem, index){
     chain = chain.then(function(){
-      if(String(firstCharTimeline.id || '') === String(primaryTarget && primaryTarget.itemId || '') && String(primaryTarget && primaryTarget.kind || '') === 'timeline') return;
       return generateScheduleActionVoice(
         char,
         shell,
         'timeline',
-        firstCharTimeline,
-        '你刚刚重新看了一眼自己今天的一条安排。请按人设留一句自然的短话，像是在日程里自言自语，不要写成说明书，也不要太像系统提示。',
+        timelineItem,
+        index === 0
+          ? '你刚刚重新看了一眼自己今天的一条安排。请按人设留一句自然的短话，像是在日程里自言自语，不要写成说明书，也不要太像系统提示。'
+          : '你又扫了一眼另一条自己的安排。请按人设留一句不重复的短话，像真的人在整理今天计划。',
         '这段安排我又看了一眼。'
       ).then(function(actionText){
-        return mutateEntryByKind('timeline', firstCharTimeline.id, function(item){
+        return mutateEntryByKind('timeline', timelineItem.id, function(item){
           item = Object.assign({}, item);
-          if(!shouldCharReplyToTarget(item)) return item;
           item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
           item.comments.push({
             id: ScheduleShared.createId('comment'),
@@ -2355,11 +2390,11 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
         });
       }).then(function(changed){
         if(changed){
-          actionNotes.push('我还顺手整理了一下自己今天的一条安排。');
+          actionNotes.push('我还顺手看了看自己的安排「' + String(timelineItem.title || '这件事') + '」。');
         }
       });
     });
-  }
+  });
 
   if(chatSeedTarget){
     chain = chain.then(function(){
@@ -2372,12 +2407,33 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
         item: buildCommentPromptItem(chatSeedTarget.kind, targetItem),
         comments: Array.isArray(targetItem.comments) ? targetItem.comments : [],
         timeStatus: getItemTimeStatusText(targetItem),
-        extraContext: '这次不是写在日程里的留言，而是真的要发去聊天里的消息。要自然一点，像人在聊天里顺嘴提起日程。'
-          + (actionNotes.length ? (' 同时你刚刚在日程 app 里做了这些事：' + actionNotes.join(' ')) : '')
+        extraContext: [
+          '这次不是写在日程里的留言，而是真的要发去聊天里的消息。要自然一点，像人在聊天里顺嘴提起日程。',
+          pendingTargets.length ? ('你这次已经看过并处理了这些用户相关内容：' + pendingTargets.map(function(targetRef){
+            var refItem = findEntryByKind(targetRef.kind, targetRef.itemId, getActiveCharState()) || {};
+            return '「' + String(refItem.title || refItem.text || '这件事') + '」';
+          }).join('、') + '。') : '',
+          actionNotes.length ? ('同时你刚刚在日程 app 里做了这些事：' + actionNotes.join(' ')) : '',
+          '请把这些自然揉进一条像真人会发的消息里，不要逐条念清单，不要像机器人汇报。'
+        ].filter(Boolean).join(' ')
       }).then(function(text){
         chatText = String(text || '').trim();
         if(!chatText) chatText = buildGlobalScheduleChatFallback(chatSeedTarget, targetItem);
       });
+    });
+  }else if(actionNotes.length){
+    chain = chain.then(function(){
+      return shell.ScheduleShell.generateInlineComment({
+        charId: char.id,
+        dateKey: selectedDateKey,
+        owner: 'char',
+        item: { title:'今天的安排', note: actionNotes.join(' ') },
+        comments: [],
+        timeStatus: '',
+        extraContext: '你刚刚在日程 app 里连着做了几件事，但没有特定一条用户安排需要直接回复。现在请发一条像真人会发的聊天消息，轻轻带出你刚刚在看今天的安排。'
+      }).then(function(text){
+        chatText = String(text || '').trim();
+      }).catch(function(){});
     });
   }
 
@@ -2449,6 +2505,23 @@ function triggerCharCommentNow(){
   if(!item) return;
   if(commentTriggerSource === 'global'){
     pendingToastToken = showStickyToast('正在听TA怎么想…');
+    maybeApplyGlobalScheduleAction(char, shell, commentTarget).then(function(chatText){
+      chatText = String(chatText || '').trim();
+      if(!chatText) chatText = buildGlobalScheduleChatFallback(commentTarget, item);
+      settleStickyToast(pendingToastToken, 'Ta回你了');
+      renderAll();
+      if(!chatText || !(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function')) return;
+      return shell.ScheduleShell.appendChatMessage({
+        charId: char.id,
+        role: 'assistant',
+        text: chatText
+      }).catch(function(){});
+    }).catch(function(err){
+      settleStickyToast(pendingToastToken, '留言失败：' + (err && err.message ? err.message : '未知错误'));
+    }).finally(function(){
+      commentTriggerSource = 'modal';
+    });
+    return;
   }
   Promise.resolve(shell.ScheduleShell.generateInlineComment({
     charId: char.id,
@@ -2473,44 +2546,15 @@ function triggerCharCommentNow(){
     }).then(function(){
       renderCommentStickyGrid();
       settleStickyToast(pendingToastToken, 'Ta回你了');
-      var shouldPushToChat = false;
-      var shouldSilentPeek = true;
-      if(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
-        var hasUserComment = Array.isArray(item.comments) && item.comments.some(function(comment){
-          return String(comment.author || '') === 'user';
-        });
-        if(commentTriggerSource === 'global'){
-          shouldPushToChat = false;
-        }else{
-          shouldPushToChat = Math.random() < 0.28;
-        }
-      }
-      var sourceWasGlobal = commentTriggerSource === 'global';
       commentTriggerSource = 'modal';
       var post = Promise.resolve();
-      if(shouldPushToChat && shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
+      if(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function' && Math.random() < 0.28){
         post = shell.ScheduleShell.appendChatMessage({
           charId: char.id,
           role: 'assistant',
           text: reply,
-          silentPeek: shouldSilentPeek
+          silentPeek: true
         }).catch(function(){});
-      }
-      if(sourceWasGlobal){
-        post = post.then(function(){
-          return maybeApplyGlobalScheduleAction(char, shell, commentTarget).then(function(chatText){
-            chatText = String(chatText || '').trim();
-            if(!chatText){
-              chatText = buildGlobalScheduleChatFallback(commentTarget, item);
-            }
-            if(!chatText || !(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function')) return;
-            return shell.ScheduleShell.appendChatMessage({
-              charId: char.id,
-              role: 'assistant',
-              text: chatText
-            }).catch(function(){});
-          });
-        });
       }
       return post;
     });
