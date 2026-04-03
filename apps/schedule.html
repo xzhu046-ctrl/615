@@ -178,7 +178,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-comment-badge{
   position:absolute;top:-8px;right:-8px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:#ef3d3d;box-shadow:0 0 0 2px rgba(255,255,255,.95);display:none;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:900;line-height:1
 }
-.schedule-timeline-main.has-comments .schedule-comment-badge{display:block}
+.schedule-timeline-main.has-comments .schedule-comment-badge{display:flex}
 .schedule-timeline-item.is-user .schedule-comment-badge{box-shadow:0 0 0 2px rgba(247,247,247,.96)}
 .schedule-todo-pane{
   border:none;border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(244,244,244,.95));box-shadow:5px 5px 0 rgba(0,0,0,.1);padding:12px 13px
@@ -217,7 +217,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-comment-note-count{
   position:absolute;top:-8px;right:-8px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:#ef3d3d;box-shadow:0 0 0 2px rgba(247,247,247,.96);display:none;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:900;line-height:1
 }
-.schedule-todo-item.has-comments .schedule-comment-note-count{display:block}
+.schedule-todo-item.has-comments .schedule-comment-note-count{display:flex}
 .schedule-mini-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .schedule-mini-actions button{
   border:2px solid #111;border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.99),rgba(244,244,241,.97));box-shadow:4px 4px 0 rgba(0,0,0,.14);padding:7px 10px;font-size:11px;font-weight:900;cursor:pointer
@@ -265,6 +265,16 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 }
 .schedule-textarea{min-height:96px;resize:vertical;grid-column:1/-1}
 .schedule-modal-actions{display:flex;gap:10px;justify-content:flex-end}
+.schedule-picker-list{display:flex;flex-direction:column;gap:10px}
+.schedule-picker-btn{
+  display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;border:2px solid #111;border-radius:18px;background:linear-gradient(180deg,#fff 0%,#f3f3f3 100%);box-shadow:5px 5px 0 rgba(0,0,0,.12);text-align:left
+}
+.schedule-picker-btn img,.schedule-picker-avatar{
+  width:42px;height:42px;border-radius:14px;object-fit:cover;flex-shrink:0;border:2px solid #111;background:#fff
+}
+.schedule-picker-avatar{display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900}
+.schedule-picker-copy strong{display:block;font-size:13px;font-weight:900}
+.schedule-picker-copy span{display:block;margin-top:2px;font-size:11px;font-weight:800;color:#666}
 .schedule-action-sheet{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .schedule-sheet-btn{border:2px solid #111;border-radius:22px;background:linear-gradient(180deg,#fff 0%,#f3f3f3 100%);box-shadow:5px 5px 0 rgba(0,0,0,.12);padding:16px 12px;text-align:left}
 .schedule-sheet-btn strong{display:block;font-size:14px;font-weight:900}
@@ -374,7 +384,8 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
               <div class="schedule-panel-title">时间轴</div>
             </div>
             <div class="schedule-detail-actions">
-              <button type="button" onclick="generateSelectedDay()">生成Ta的一天</button>
+              <button type="button" onclick="generateSelectedDay()">TA在干什么？</button>
+              <button type="button" onclick="triggerCharPageComment()">TA怎么想的？</button>
             </div>
           </div>
 
@@ -497,6 +508,29 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
     </div>
   </div>
 
+  <div class="schedule-modal" id="timelineActionModal" onclick="handleTimelineActionMask(event)">
+    <div class="schedule-modal-card">
+      <h3 id="timelineActionTitle">这条安排</h3>
+      <div class="schedule-modal-sub" id="timelineActionSub">你想怎么处理？</div>
+      <div class="schedule-modal-actions" style="justify-content:flex-start">
+        <button class="schedule-ghost-btn" type="button" id="timelineActionShareBtn" onclick="openShareTargetModal()">分享到聊天</button>
+        <button class="schedule-ghost-btn" type="button" id="timelineActionDeleteBtn" onclick="confirmTimelineActionDelete()">删除</button>
+        <button class="schedule-solid-btn" type="button" onclick="closeTimelineActionModal()">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="schedule-modal" id="shareTargetModal" onclick="handleShareTargetMask(event)">
+    <div class="schedule-modal-card">
+      <h3>分享到聊天</h3>
+      <div class="schedule-modal-sub" id="shareTargetSub">选择一个角色，把这条安排发过去。</div>
+      <div class="schedule-picker-list" id="shareTargetList"></div>
+      <div class="schedule-modal-actions">
+        <button class="schedule-ghost-btn" type="button" onclick="closeShareTargetModal()">取消</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
 <script>
@@ -514,6 +548,7 @@ var entryDraft = null;
 var commentTarget = null;
 var secretTarget = null;
 var deleteTarget = null;
+var timelineActionTarget = null;
 var unlockedSecretKeys = {};
 var longPressTimer = 0;
 
@@ -1190,9 +1225,10 @@ function renderTimeline(ctx){
     return;
   }
   host.innerHTML = items.map(function(item){
-    var attrs = item.owner === 'user'
-      ? (' data-delete-kind="' + esc(item.kind) + '" data-delete-id="' + esc(item.id) + '"')
-      : '';
+    var attrs = ' data-action-kind="' + esc(item.kind) + '" data-action-id="' + esc(item.id) + '"';
+    if(item.owner === 'user'){
+      attrs += ' data-delete-kind="' + esc(item.kind) + '" data-delete-id="' + esc(item.id) + '"';
+    }
     var userSecret = item.owner === 'user' && item.raw && item.raw.visibleToChar === false;
     return '<div class="schedule-timeline-item is-' + esc(item.owner) + '"' + attrs + '>'
       + '<div class="schedule-time">' + esc(getTimeRangeText(item)) + '</div>'
@@ -1205,7 +1241,6 @@ function renderTimeline(ctx){
       + '</div>'
       + '</div>'
       + '<div class="schedule-item-actions">'
-      + (item.owner === 'user' ? '<button class="schedule-item-chip" type="button" onclick="event.stopPropagation();triggerQuickCharComment(\'' + esc(item.kind) + '\',\'' + esc(item.id) + '\')">让Ta回</button>' : '')
       + (item.secretLocked ? '<button class="schedule-item-chip" type="button" onclick="event.stopPropagation();openSecretModal(\'' + esc(item.kind) + '\',\'' + esc(item.id) + '\')">输入密码</button>' : '')
       + (userSecret ? '<span class="schedule-secret-lock">仅自己可见</span>' : '')
       + (item.secretLocked ? '<span class="schedule-secret-lock">秘密行程</span>' : '')
@@ -1272,9 +1307,6 @@ function renderTodos(ctx){
       + '<div class="schedule-todo-text">' + esc(item.text) + '</div>'
       + '<div class="schedule-todo-meta">' + esc(item.label + (item.note ? (' · ' + item.note) : '')) + '</div>'
       + '</div>'
-      + '</div>'
-      + '<div class="schedule-todo-actions">'
-      + (item.owner === 'user' ? '<button class="schedule-item-chip" type="button" onclick="event.stopPropagation();triggerQuickCharComment(\'todo\',\'' + esc(item.id) + '\')">让Ta回</button>' : '')
       + '</div>'
       + '</div></div>';
   }).join('');
@@ -1673,8 +1705,52 @@ function buildCommentPromptItem(kind, item){
   };
 }
 
-function triggerQuickCharComment(kind, itemId){
-  openCommentModal(kind, itemId);
+function getItemTimeStatusText(item){
+  item = item && typeof item === 'object' ? item : {};
+  var live = (window.ScheduleShared && typeof window.ScheduleShared.getLiveTimeContext === 'function')
+    ? window.ScheduleShared.getLiveTimeContext(scheduleState, activeCharId, new Date())
+    : null;
+  if(!live || live.enabled === false) return '';
+  if(String(selectedDateKey || '') !== String(live.dateKey || '')) return '';
+  var nowMinutes = (function(txt){
+    txt = String(txt || '');
+    var parts = txt.split(':');
+    return parts.length === 2 ? ((parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0)) : -1;
+  })(live.nowTime);
+  var start = String(item.start || '').trim();
+  var end = String(item.end || '').trim();
+  var startParts = start.split(':');
+  var endParts = end.split(':');
+  var startMinutes = startParts.length === 2 ? ((parseInt(startParts[0], 10) || 0) * 60 + (parseInt(startParts[1], 10) || 0)) : -1;
+  var endMinutes = endParts.length === 2 ? ((parseInt(endParts[0], 10) || 0) * 60 + (parseInt(endParts[1], 10) || 0)) : -1;
+  if(startMinutes < 0) return '当前已经是这一天里的稍后时段。';
+  if(endMinutes < startMinutes) endMinutes = startMinutes + 59;
+  if(nowMinutes > endMinutes) return '这条安排的时间已经过去了。';
+  if(nowMinutes >= startMinutes && nowMinutes <= endMinutes) return '这条安排现在正在发生。';
+  if(nowMinutes < startMinutes) return '这条安排还没开始。';
+  return '';
+}
+
+function pickCommentTargetForSelectedDay(){
+  var ctx = getSelectedDayContext();
+  var live = (window.ScheduleShared && typeof window.ScheduleShared.getLiveTimeContext === 'function')
+    ? window.ScheduleShared.getLiveTimeContext(scheduleState, activeCharId, new Date())
+    : null;
+  if(live && live.enabled !== false && String(selectedDateKey || '') === String(live.dateKey || '')){
+    if(live.currentUserItem && live.currentUserItem.id) return { kind:'event', itemId:String(live.currentUserItem.id) };
+    if(live.nextUserItem && live.nextUserItem.id) return { kind:'event', itemId:String(live.nextUserItem.id) };
+  }
+  if(ctx.events && ctx.events[0] && ctx.events[0].id) return { kind:'event', itemId:String(ctx.events[0].id) };
+  if(ctx.todos && ctx.todos[0] && ctx.todos[0].id) return { kind:'todo', itemId:String(ctx.todos[0].id) };
+  if(ctx.charDay && Array.isArray(ctx.charDay.timeline) && ctx.charDay.timeline[0] && ctx.charDay.timeline[0].id) return { kind:'timeline', itemId:String(ctx.charDay.timeline[0].id) };
+  if(ctx.charDay && Array.isArray(ctx.charDay.todos) && ctx.charDay.todos[0] && ctx.charDay.todos[0].id) return { kind:'chartodo', itemId:String(ctx.charDay.todos[0].id) };
+  return null;
+}
+
+function triggerCharPageComment(){
+  var target = pickCommentTargetForSelectedDay();
+  if(!target){ toast('先写一条行程或待办吧'); return; }
+  commentTarget = { kind:target.kind, itemId:target.itemId };
   triggerCharCommentNow();
 }
 
@@ -1700,7 +1776,8 @@ function triggerCharCommentNow(){
     dateKey: selectedDateKey,
     owner: commentTarget.kind === 'timeline' ? 'char' : 'user',
     item: buildCommentPromptItem(commentTarget.kind, item),
-    comments: Array.isArray(item.comments) ? item.comments : []
+    comments: Array.isArray(item.comments) ? item.comments : [],
+    timeStatus: getItemTimeStatusText(item)
   })).then(function(reply){
     reply = String(reply || '').trim();
     if(!reply) throw new Error('没有生成内容');
@@ -1793,8 +1870,120 @@ function confirmDeleteTarget(){
   });
 }
 
+function openTimelineActionModal(kind, itemId){
+  var item = findEntryByKind(kind, itemId, getActiveCharState());
+  if(!item) return;
+  timelineActionTarget = { kind:String(kind || ''), itemId:String(itemId || '') };
+  document.getElementById('timelineActionTitle').textContent = String(item.title || item.text || '这条安排');
+  document.getElementById('timelineActionSub').textContent = formatScheduleDateZh(selectedDateKey) + ' · ' + getTimeRangeText(item);
+  document.getElementById('timelineActionDeleteBtn').style.display = kind === 'event' ? 'inline-flex' : 'none';
+  document.getElementById('timelineActionModal').classList.add('open');
+}
+
+function closeTimelineActionModal(){
+  document.getElementById('timelineActionModal').classList.remove('open');
+  timelineActionTarget = null;
+}
+
+function handleTimelineActionMask(evt){
+  if(evt.target && evt.target.id === 'timelineActionModal') closeTimelineActionModal();
+}
+
+function confirmTimelineActionDelete(){
+  if(!timelineActionTarget) return;
+  closeTimelineActionModal();
+  var item = findEntryByKind(timelineActionTarget.kind, timelineActionTarget.itemId, getActiveCharState());
+  openDeleteModal(timelineActionTarget.kind, timelineActionTarget.itemId, String(item && (item.title || item.text) || '这条安排'));
+}
+
+function openShareTargetModal(){
+  if(!timelineActionTarget) return;
+  var host = document.getElementById('shareTargetList');
+  if(!host) return;
+  var current = getActiveChar();
+  host.innerHTML = characterList.map(function(char){
+    var avatar = resolveScheduleAvatarFromObject(char) || '';
+    var face = getCharacterName(char).slice(0, 1) || 'C';
+    return '<button class="schedule-picker-btn" type="button" onclick="shareTimelineToChar(\'' + esc(String(char.id || '')) + '\')">'
+      + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : ('<div class="schedule-picker-avatar">' + esc(face) + '</div>'))
+      + '<div class="schedule-picker-copy"><strong>' + esc(getCharacterName(char)) + '</strong><span>' + (current && String(current.id) === String(char.id) ? '最近聊天对象' : '发到和Ta的聊天里') + '</span></div>'
+      + '</button>';
+  }).join('') || '<div class="schedule-empty">先去创建一个角色吧。</div>';
+  closeTimelineActionModal();
+  document.getElementById('shareTargetModal').classList.add('open');
+}
+
+function closeShareTargetModal(){
+  document.getElementById('shareTargetModal').classList.remove('open');
+}
+
+function handleShareTargetMask(evt){
+  if(evt.target && evt.target.id === 'shareTargetModal') closeShareTargetModal();
+}
+
+function buildShareExcerpt(item){
+  item = item && typeof item === 'object' ? item : {};
+  var time = getTimeRangeText(item);
+  return [time, String(item.title || item.text || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' · ');
+}
+
+function shareTimelineToChar(targetCharId){
+  targetCharId = String(targetCharId || '').trim();
+  if(!timelineActionTarget || !targetCharId) return;
+  var shell = getParentShell();
+  var sourceChar = getActiveChar();
+  var targetChar = characterList.find(function(char){ return String(char && char.id || '') === targetCharId; }) || null;
+  var item = findEntryByKind(timelineActionTarget.kind, timelineActionTarget.itemId, getActiveCharState());
+  if(!item || !shell || !shell.ScheduleShell || typeof shell.ScheduleShell.sendScheduleQuote !== 'function'){
+    toast('分享到聊天还没接上');
+    return;
+  }
+  var excerpt = buildShareExcerpt(item);
+  var itemOwner = timelineActionTarget.kind === 'timeline' ? 'char' : 'user';
+  var extraContext = [];
+  if(itemOwner === 'char' && sourceChar && targetChar && String(sourceChar.id || '') !== String(targetChar.id || '')){
+    extraContext.push('这条被分享的行程并不属于你，而是另一个角色“' + getCharacterName(sourceChar) + '”的安排。请按人设自然表现出困惑、吐槽或追问。');
+  }
+  if(itemOwner === 'user'){
+    extraContext.push('这是用户主动从日程 app 分享给你的安排。你可以自然回应，不要像系统通知。');
+  }
+  Promise.resolve(shell.ScheduleShell.sendScheduleQuote({
+    charId: targetCharId,
+    role: 'user',
+    title: '日程分享',
+    excerpt: excerpt,
+    reply: '',
+    dateKey: selectedDateKey
+  })).then(function(){
+    return shell.ScheduleShell.generateInlineComment({
+      charId: targetCharId,
+      dateKey: selectedDateKey,
+      owner: itemOwner,
+      item: buildCommentPromptItem(timelineActionTarget.kind, item),
+      comments: Array.isArray(item.comments) ? item.comments : [],
+      timeStatus: getItemTimeStatusText(item),
+      extraContext: extraContext.join('\n')
+    });
+  }).then(function(reply){
+    reply = String(reply || '').trim();
+    if(reply && shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
+      return shell.ScheduleShell.appendChatMessage({
+        charId: targetCharId,
+        role: 'assistant',
+        text: reply
+      });
+    }
+  }).then(function(){
+    closeShareTargetModal();
+    timelineActionTarget = null;
+    toast('已经发到聊天里了');
+  }).catch(function(err){
+    toast('分享失败：' + (err && err.message ? err.message : '未知错误'));
+  });
+}
+
 function bindLongPressDeletes(){
-  Array.prototype.slice.call(document.querySelectorAll('[data-delete-kind][data-delete-id]')).forEach(function(node){
+  Array.prototype.slice.call(document.querySelectorAll('[data-action-kind][data-action-id],[data-delete-kind][data-delete-id]')).forEach(function(node){
     var labelNode = node.querySelector('.schedule-timeline-title,.schedule-todo-text');
     var label = labelNode ? String(labelNode.textContent || '').trim() : '这条安排';
     function clearPress(){
@@ -1804,7 +1993,13 @@ function bindLongPressDeletes(){
       if(evt.target && evt.target.closest('button')) return;
       clearPress();
       longPressTimer = setTimeout(function(){
-        openDeleteModal(node.getAttribute('data-delete-kind'), node.getAttribute('data-delete-id'), label);
+        var kind = String(node.getAttribute('data-action-kind') || node.getAttribute('data-delete-kind') || '');
+        var itemId = String(node.getAttribute('data-action-id') || node.getAttribute('data-delete-id') || '');
+        if(kind === 'event' || kind === 'timeline'){
+          openTimelineActionModal(kind, itemId);
+        }else{
+          openDeleteModal(String(node.getAttribute('data-delete-kind') || kind), String(node.getAttribute('data-delete-id') || itemId), label);
+        }
       }, 480);
     };
     node.onpointerup = clearPress;

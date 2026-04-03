@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T15:41:00Z';
+const APP_BUILD_ID = '2026-04-02T15:58:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1841,7 +1841,7 @@ async function sendScheduleQuote(payload){
   var now = Date.now();
   var entry = {
     id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
-    role: 'assistant',
+    role: String(payload.role || 'assistant').trim() === 'user' ? 'user' : 'assistant',
     content: JSON.stringify({
       title: String(payload.title || '日程引用'),
       excerpt: String(payload.excerpt || ''),
@@ -1851,7 +1851,7 @@ async function sendScheduleQuote(payload){
     type: 'schedulequote',
     replyToId: null,
     sentAt: now,
-    readAt: null
+    readAt: String(payload.role || 'assistant').trim() === 'user' ? now : null
   };
   history.push(entry);
   await writeBackgroundChatHistory(charId, accountId, history);
@@ -1896,6 +1896,38 @@ async function appendScheduleSystemNotice(payload){
   return true;
 }
 
+async function appendScheduleChatMessage(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var charId = String(payload.charId || '').trim();
+  if(!charId) return false;
+  var accountId = getDefaultAccountId();
+  if(!accountId) return false;
+  var history = await readBackgroundChatHistory(charId, accountId);
+  var now = Date.now();
+  var text = String(payload.text || '').trim();
+  if(!text) return false;
+  var role = String(payload.role || 'assistant').trim() === 'user' ? 'user' : 'assistant';
+  var entry = {
+    id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
+    role: role,
+    content: text,
+    type: 'text',
+    replyToId: null,
+    sentAt: now,
+    readAt: role === 'user' ? now : null
+  };
+  history.push(entry);
+  await writeBackgroundChatHistory(charId, accountId, history);
+  renderHomeDockBadges();
+  try{
+    var f = document.getElementById('app-iframe');
+    if(f && f.contentWindow){
+      f.contentWindow.postMessage({ type:'BACKGROUND_AI_MESSAGE', payload:{ charId: charId, entry: entry } }, '*');
+    }
+  }catch(err){}
+  return true;
+}
+
 async function generateScheduleInlineComment(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
@@ -1923,7 +1955,9 @@ async function generateScheduleInlineComment(payload){
     '安排标题：' + String(item.title || item.text || '').trim(),
     item.start ? ('时间：' + String(item.start || '') + (item.end ? (' - ' + String(item.end || '')) : '')) : '',
     item.note ? ('备注：' + String(item.note || '')) : '',
+    payload.timeStatus ? ('当前时刻判断：' + String(payload.timeStatus || '')) : '',
     comments.length ? ('已经有的留言：\n- ' + comments.map(function(comment){ return String(comment.author || '') + '：' + String(comment.text || '').trim(); }).join('\n- ')) : '还没有留言。',
+    payload.extraContext ? ('额外上下文：' + String(payload.extraContext || '').trim()) : '',
     payload.owner === 'user'
       ? '请像这个角色看见用户日程后的自然反应，可能是提醒、吃醋、吐槽、关心。'
       : '请像这个角色在记录自己行程时，顺手留下的一句心情或补充。'
@@ -2146,6 +2180,7 @@ window.ScheduleShell = {
   generateDayPlan: generateScheduleDayPlan,
   sendScheduleQuote: sendScheduleQuote,
   appendSystemNotice: appendScheduleSystemNotice,
+  appendChatMessage: appendScheduleChatMessage,
   generateInlineComment: generateScheduleInlineComment
 };
 
