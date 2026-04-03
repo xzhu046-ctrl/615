@@ -276,10 +276,10 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-picker-avatar{display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900}
 .schedule-picker-copy strong{display:block;font-size:13px;font-weight:900}
 .schedule-picker-copy span{display:block;margin-top:2px;font-size:11px;font-weight:800;color:#666}
-.schedule-action-sheet{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start}
-.schedule-sheet-btn{border:2px solid #111;border-radius:20px;background:linear-gradient(180deg,#fff 0%,#f3f3f3 100%);box-shadow:5px 5px 0 rgba(0,0,0,.12);padding:12px 11px;text-align:left}
-.schedule-sheet-btn strong{display:block;font-size:13px;font-weight:900}
-.schedule-sheet-btn span{display:block;margin-top:4px;font-size:10px;font-weight:800;color:#666;line-height:1.4}
+.schedule-action-sheet{display:flex;justify-content:center;align-items:stretch;gap:16px;flex-wrap:nowrap}
+.schedule-sheet-btn{width:148px;max-width:calc(50% - 8px);flex:0 0 148px;border:2px solid #111;border-radius:20px;background:linear-gradient(180deg,#fff 0%,#f3f3f3 100%);box-shadow:6px 6px 0 rgba(0,0,0,.16);padding:13px 12px;text-align:center}
+.schedule-sheet-btn strong{display:block;font-size:13px;font-weight:900;line-height:1.15}
+.schedule-sheet-btn span{display:block;margin-top:5px;font-size:10px;font-weight:800;color:#666;line-height:1.35}
 .schedule-time-group,.schedule-secret-fields,.schedule-comment-composer{display:flex;flex-direction:column;gap:8px}
 .schedule-time-group label{font-size:11px;font-weight:900;color:#666}
 .schedule-chip-row{display:flex;gap:8px;overflow:auto;padding-bottom:2px;max-width:100%}
@@ -354,6 +354,8 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
   .schedule-timeline-item{grid-template-columns:64px 1fr;gap:10px}
   .schedule-time{font-size:11px;padding-top:9px}
   .schedule-sticky-grid{grid-template-columns:1fr}
+  .schedule-action-sheet{gap:12px}
+  .schedule-sheet-btn{width:136px;flex-basis:136px;max-width:calc(50% - 6px)}
 }
 </style>
 </head>
@@ -2031,24 +2033,42 @@ function openShareTargetModal(){
   if(!timelineActionTarget) return;
   var host = document.getElementById('shareTargetList');
   if(!host) return;
-  loadCharacters();
-  var current = getActiveChar();
-  var list = characterList.slice();
-  if(current && current.id && !list.some(function(item){ return String(item.id || '') === String(current.id || ''); })){
-    list.unshift(current);
-  }
-  host.innerHTML = '<div class="schedule-picker-strip">' + list.map(function(char){
-    var avatar = resolveScheduleAvatarFromObject(char) || '';
-    var face = getCharacterName(char).slice(0, 1) || 'C';
-    return '<div class="schedule-picker-chip"><button class="schedule-picker-chip-btn" type="button" onclick="shareTimelineToChar(\'' + esc(String(char.id || '')) + '\')">'
-      + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : ('<div class="schedule-picker-chip-avatar">' + esc(face) + '</div>'))
-      + '</button><div class="schedule-picker-chip-label">' + esc(getCharacterName(char)) + '</div></div>';
-  }).join('') + '</div>';
-  if(!list.length){
-    host.innerHTML = '<div class="schedule-empty">先去创建一个角色吧。</div>';
-  }
+  host.innerHTML = '<div class="schedule-empty">正在装进聊天列表…</div>';
   document.getElementById('timelineActionModal').classList.remove('open');
   document.getElementById('shareTargetModal').classList.add('open');
+  Promise.resolve().then(async function(){
+    try{
+      if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
+        try{ await window.MetadataStore.loadCharacters(true); }catch(err){}
+      }
+      loadCharacters();
+      var current = getActiveChar();
+      var list = characterList.slice();
+      if(current && current.id && !list.some(function(item){ return String(item.id || '') === String(current.id || ''); })){
+        list.unshift(current);
+      }
+      if(!list.length){
+        host.innerHTML = '<div class="schedule-empty">先去创建一个角色吧。</div>';
+        return;
+      }
+      host.innerHTML = '<div class="schedule-picker-strip">' + list.map(function(char){
+        var avatar = resolveScheduleAvatarFromObject(char) || '';
+        var face = getCharacterName(char).slice(0, 1) || 'C';
+        return '<div class="schedule-picker-chip"><button class="schedule-picker-chip-btn" type="button" data-share-char-id="' + esc(String(char.id || '')) + '">'
+          + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : ('<div class="schedule-picker-chip-avatar">' + esc(face) + '</div>'))
+          + '</button><div class="schedule-picker-chip-label">' + esc(getCharacterName(char)) + '</div></div>';
+      }).join('') + '</div>';
+      Array.prototype.forEach.call(host.querySelectorAll('[data-share-char-id]'), function(btn){
+        btn.addEventListener('click', function(evt){
+          evt.preventDefault();
+          shareTimelineToChar(String(btn.getAttribute('data-share-char-id') || ''));
+        });
+      });
+      host.scrollLeft = 0;
+    }catch(err){
+      host.innerHTML = '<div class="schedule-empty">聊天列表打开失败了，再试一次吧。</div>';
+    }
+  });
 }
 
 function closeShareTargetModal(){
