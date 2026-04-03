@@ -1330,6 +1330,7 @@ function getRenderedTimelineItems(ctx){
       end:String(item.end || '').trim(),
       title:locked ? getRenderedCharTimelineTitle(item) : String(item.title || '').trim(),
       note:locked ? getRenderedCharTimelineNote(item) : String(item.note || '').trim(),
+      location:String(item.location || '').trim(),
       commentCount:getCommentCount(item),
       comments:Array.isArray(item.comments) ? item.comments : [],
       secretLocked:locked,
@@ -1347,6 +1348,7 @@ function getRenderedTimelineItems(ctx){
       end:String(item.end || '').trim(),
       title:String(item.title || '').trim() || '未命名安排',
       note:buildUserEventVisibleTail(item),
+      location:String(item.location || '').trim(),
       commentCount:getCommentCount(item),
       comments:Array.isArray(item.comments) ? item.comments : [],
       secretLocked:false,
@@ -1361,6 +1363,13 @@ function getRenderedTimelineItems(ctx){
     if(a.owner !== b.owner) return a.owner === 'char' ? -1 : 1;
     return String(a.title || '').localeCompare(String(b.title || ''));
   });
+}
+
+function getTimelineSecondaryText(item){
+  var parts = [];
+  if(item && item.location) parts.push(String(item.location || '').trim());
+  if(item && item.note) parts.push(String(item.note || '').trim());
+  return parts.filter(Boolean).join(' · ');
 }
 
 function renderTimeline(ctx){
@@ -1384,7 +1393,7 @@ function renderTimeline(ctx){
       + '<div class="schedule-item-top"><div>'
       + '<div class="schedule-timeline-kicker">' + esc(item.label) + '</div>'
       + '<div class="schedule-timeline-title">' + esc(item.title) + '</div>'
-      + (item.note ? ('<div class="schedule-timeline-note">' + esc(item.note) + '</div>') : '')
+      + (getTimelineSecondaryText(item) ? ('<div class="schedule-timeline-note">' + esc(getTimelineSecondaryText(item)) + '</div>') : '')
       + '</div>'
       + '</div>'
       + '<div class="schedule-item-actions">'
@@ -1931,6 +1940,7 @@ function buildCommentPromptItem(kind, item){
   return {
     title: String(item.title || item.text || '').trim(),
     note: String(item.note || '').trim(),
+    location: String(item.location || '').trim(),
     start: item.start || '',
     end: item.end || ''
   };
@@ -2240,6 +2250,9 @@ function triggerCharCommentNow(){
         post = post.then(function(){
           return maybeApplyGlobalScheduleAction(char, shell, commentTarget).then(function(chatText){
             chatText = String(chatText || '').trim();
+            if(!chatText){
+              chatText = buildGlobalScheduleChatFallback(commentTarget, item);
+            }
             if(!chatText || !(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function')) return;
             return shell.ScheduleShell.appendChatMessage({
               charId: char.id,
@@ -2360,10 +2373,8 @@ function openShareTargetModal(){
   host.innerHTML = '<div class="schedule-empty">正在装进聊天列表…</div>';
   document.getElementById('timelineActionModal').classList.remove('open');
   document.getElementById('shareTargetModal').classList.add('open');
-  Promise.resolve().then(function(){
-    try{
-      loadCharacters();
-    }catch(err){}
+  try{
+    loadCharacters();
     var list = getShareTargetCharacters();
     if(!list.length){
       host.innerHTML = '<div class="schedule-empty">先去创建一个角色吧。</div>';
@@ -2394,9 +2405,10 @@ function openShareTargetModal(){
       }).catch(function(){});
     });
     host.scrollLeft = 0;
-  }).catch(function(){
+  }catch(err){
     host.innerHTML = '<div class="schedule-empty">聊天列表打开失败了，再试一次吧。</div>';
-  });
+    console.warn('schedule share modal failed', err);
+  }
 }
 
 function closeShareTargetModal(){
@@ -2410,7 +2422,7 @@ function handleShareTargetMask(evt){
 function buildShareExcerpt(item){
   item = item && typeof item === 'object' ? item : {};
   var time = getTimeRangeText(item);
-  return [time, String(item.title || item.text || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' · ');
+  return [time, String(item.title || item.text || '').trim(), String(item.location || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' · ');
 }
 
 function shareTimelineToChar(targetCharId){
@@ -2460,19 +2472,12 @@ function shareTimelineToChar(targetCharId){
       extraContext: extraContext.join('\n')
     }).catch(function(){ return fallbackShareReply(); });
   }).then(function(reply){
-    reply = String(reply || '').trim();
-    if(reply && shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
-      return shell.ScheduleShell.appendChatMessage({
-        charId: targetCharId,
-        role: 'assistant',
-        text: reply
-      });
-    }
+    reply = String(reply || '').trim() || fallbackShareReply();
     if(shell.ScheduleShell && typeof shell.ScheduleShell.appendChatMessage === 'function'){
       return shell.ScheduleShell.appendChatMessage({
         charId: targetCharId,
         role: 'assistant',
-        text: fallbackShareReply()
+        text: reply
       });
     }
   }).then(function(){

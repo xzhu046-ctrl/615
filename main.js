@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T18:16:00Z';
+const APP_BUILD_ID = '2026-04-02T18:31:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1712,6 +1712,7 @@ function normalizeScheduleTimelineItems(items){
       end: String(item.end || '').trim(),
       title: String(item.title || '').trim(),
       note: String(item.note || '').trim(),
+      location: String(item.location || '').trim(),
       kind: String(item.kind || 'char').trim() || 'char',
       secret: !!item.secret,
       secretPassword: String(item.secretPassword || '').trim(),
@@ -1821,10 +1822,10 @@ async function generateScheduleDayPlan(payload){
   var sysPrompt = [
     '你正在生成一个日程 app 里的角色当日日程。',
     '只返回严格 JSON，不要 markdown，不要解释。',
-    'JSON 结构：{"date":"YYYY-MM-DD","diary":"...","calendarNote":"...","comment":"...","timeline":[{"start":"08:30","end":"09:20","title":"...","note":"...","secret":false,"publicMask":"","secretHint":"","secretPassword":""}],"todos":[{"text":"...","note":"...","done":false}],"quoteDrafts":[{"title":"待办引用","excerpt":"...","reply":"...","sourceType":"todo|event","sourceId":"..."}]}',
+    'JSON 结构：{"date":"YYYY-MM-DD","diary":"...","calendarNote":"...","comment":"...","timeline":[{"start":"08:30","end":"09:20","title":"...","note":"...","location":"...","secret":false,"publicMask":"","secretHint":"","secretPassword":""}],"todos":[{"text":"...","note":"...","done":false}],"quoteDrafts":[{"title":"待办引用","excerpt":"...","reply":"...","sourceType":"todo|event","sourceId":"..."}]}',
     '所有字段都必须使用简体中文输出，不要夹英文标题，不要夹外语对白，也不要因为角色语言设置改成别的语言。',
     '语言固定是简体中文，但行程安排、语气、态度、细节、作息风格必须服从角色人设。',
-    'timeline 是现实里会发生的一天，至少 4 条，最多 8 条。',
+    'timeline 是现实里会发生的一天，至少 4 条，最多 8 条。每条尽量带一个简短地点 location。',
     'todos 是这个角色今天自己心里或手边会记着的待办，0 到 4 条，语气和内容都按人设来。',
     '如果角色这一天有不想直接说开的安排，允许最多生成 1 条 secret=true 的秘密行程；这种时候 title/note 仍然写真实内容，同时额外提供 publicMask（给对方看到的模糊标题，比如“有点私事”）、secretHint（很短的提示）和 secretPassword（1-6 位数字密码）。如果没有秘密行程，就把这些字段留空。',
     'diary 是角色今天的一句日记，要有人设感。',
@@ -1843,6 +1844,7 @@ async function generateScheduleDayPlan(payload){
     getScheduleUserPersona() ? ('用户设定：' + getScheduleUserPersona().slice(0, 900)) : '',
     getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
     '务必同时认真读取角色人设和用户设定，再决定今天的安排、互动方式和对用户生活状态的理解，不要脱离双方设定乱写。',
+    '角色今天的安排可以自然地和用户有关，但要服从现实距离和关系状态：异地可以是打电话、视频、寄东西、偷偷准备车票/机票；同城或住一起才可以出现接送、一起吃饭、顺手照顾之类的互动，而且要自然，不要刻意硬塞。',
     '严格时间感知总开关：' + (payload.globalTimeAwareness === false ? '关闭' : '开启'),
     '这个角色的时间感知覆盖：' + (payload.charOverride && payload.charOverride.timeAwarenessEnabled === false ? '关闭' : '开启'),
     specialLines.length ? ('当天节日 / 纪念日：\n- ' + specialLines.join('\n- ')) : '当天没有额外节日或纪念日。',
