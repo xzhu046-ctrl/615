@@ -2036,6 +2036,24 @@ function hasCharComment(item){
   });
 }
 
+function getLatestCommentAtByAuthor(item, author){
+  var latest = 0;
+  (Array.isArray(item && item.comments) ? item.comments : []).forEach(function(comment){
+    if(String(comment && comment.author || '') !== String(author || '')) return;
+    var at = Number(comment && comment.createdAt || 0) || 0;
+    if(at > latest) latest = at;
+  });
+  return latest;
+}
+
+function shouldCharReplyToTarget(item){
+  if(!(item && typeof item === 'object')) return false;
+  var latestUser = getLatestCommentAtByAuthor(item, 'user');
+  var latestChar = getLatestCommentAtByAuthor(item, 'char');
+  if(latestUser > latestChar) return true;
+  return !hasCharComment(item);
+}
+
 function getFreshUserTargets(ctx, limit){
   var list = [];
   function push(kind, item){
@@ -2072,7 +2090,7 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
   if(!char || !shell || !shell.ScheduleShell || typeof shell.ScheduleShell.generateInlineComment !== 'function') return Promise.resolve('');
   var ctx = getSelectedDayContext();
   var activeState = getActiveCharState();
-  var freshTargets = getFreshUserTargets(ctx, 2);
+  var freshTargets = getFreshUserTargets(ctx, 4);
   var latestFresh = freshTargets[0] || null;
   var commentCandidate = latestFresh || null;
   var day = activeState.charDays && activeState.charDays[selectedDateKey] ? activeState.charDays[selectedDateKey] : { timeline:[], todos:[] };
@@ -2082,11 +2100,16 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
   var chatText = '';
   var actionNotes = [];
   var chain = Promise.resolve();
+  var primaryKey = primaryTarget ? (String(primaryTarget.kind || '') + ':' + String(primaryTarget.itemId || '')) : '';
+  var extraTargets = freshTargets.filter(function(targetRef){
+    var key = String(targetRef.kind || '') + ':' + String(targetRef.itemId || '');
+    return key && key !== primaryKey;
+  }).slice(0, 2);
 
-  freshTargets.forEach(function(targetRef, index){
+  extraTargets.forEach(function(targetRef, index){
     chain = chain.then(function(){
       var targetItem = findEntryByKind(targetRef.kind, targetRef.itemId, getActiveCharState());
-      if(!targetItem || hasCharComment(targetItem)) return;
+      if(!targetItem || !shouldCharReplyToTarget(targetItem)) return;
       return shell.ScheduleShell.generateInlineComment({
         charId: char.id,
         dateKey: selectedDateKey,
@@ -2157,6 +2180,28 @@ function maybeApplyGlobalScheduleAction(char, shell, primaryTarget){
       return persistState().then(function(){ renderAll(); });
     }).then(function(){
       actionNotes.push('我顺手给自己补了一条待办。');
+    });
+  }
+
+  if(firstCharTimeline){
+    chain = chain.then(function(){
+      if(String(firstCharTimeline.id || '') === String(primaryTarget && primaryTarget.itemId || '') && String(primaryTarget && primaryTarget.kind || '') === 'timeline') return;
+      return mutateEntryByKind('timeline', firstCharTimeline.id, function(item){
+        item = Object.assign({}, item);
+        if(!shouldCharReplyToTarget(item)) return item;
+        item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
+        item.comments.push({
+          id: ScheduleShared.createId('comment'),
+          author: 'char',
+          text: '这段安排我也重新看了一眼，应该会按这个节奏走。',
+          createdAt: Date.now()
+        });
+        return item;
+      }).then(function(changed){
+        if(changed){
+          actionNotes.push('我还顺手整理了一下自己今天的一条安排。');
+        }
+      });
     });
   }
 
