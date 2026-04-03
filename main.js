@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T01:48:00Z';
+const APP_BUILD_ID = '2026-04-03T01:56:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1926,6 +1926,7 @@ async function generateScheduleDayPlan(payload){
     eventLines.length ? ('用户当天写下的日程：\n- ' + eventLines.join('\n- ')) : '用户当天没有额外公开日程。',
     todoLines.length ? ('用户当天待办：\n- ' + todoLines.join('\n- ')) : '用户当天没有额外待办。',
     '请像真人一样安排这一天：有人认真规划，有人拖延熬夜，有人松弛散漫，都按人设来。',
+    '今天允许自然出现和用户有关的互动、惦记、顺手调整、电话、准备惊喜、顺路碰面、改计划，但必须服从双方人设、关系状态、现实距离和当天公开安排，不要机械硬塞。',
     '如果用户有行程或待办，可以在 comment 或 quoteDrafts 里自然地关心、提醒、吃醋、吐槽，但不要脱离人设。'
   ].filter(Boolean).join('\n\n');
   var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
@@ -1935,14 +1936,90 @@ async function generateScheduleDayPlan(payload){
   return result;
 }
 
+async function generateScheduleUserDayPlan(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var charId = String(payload.charId || '').trim();
+  if(!charId) throw new Error('缺少角色');
+  var chars = getStoredCharactersSnapshot();
+  var character = chars.find(function(item){ return item && String(item.id || '') === charId; }) || null;
+  if(!character) throw new Error('找不到角色');
+  var cfg = getBackgroundProviderConfig();
+  if(!cfg) throw new Error('请先在设置里配置模型');
+  var dateKey = String(payload.dateKey || '').trim();
+  var dateObj = /^\d{4}-\d{2}-\d{2}$/.test(dateKey) ? new Date(dateKey + 'T12:00:00') : new Date();
+  var weekday = ['周日','周一','周二','周三','周四','周五','周六'][dateObj.getDay()];
+  var eventLines = (Array.isArray(payload.events) ? payload.events : []).map(function(item){
+    var hidden = item && item.visibleToChar === false;
+    return [
+      String(item.start || '').trim() || '未设时间',
+      hidden ? (String(item.publicMask || '').trim() || '这个时间段有安排') : String(item.title || '').trim(),
+      hidden ? '这是还没公开细节的安排' : String(item.location || '').trim(),
+      hidden ? '' : String(item.note || '').trim()
+    ].filter(Boolean).join(' | ');
+  });
+  var todoLines = (Array.isArray(payload.todos) ? payload.todos : []).map(function(item){
+    return [
+      item.done ? '已完成' : '待做',
+      String(item.text || '').trim(),
+      String(item.note || '').trim()
+    ].filter(Boolean).join(' | ');
+  });
+  var specialLines = []
+    .concat((Array.isArray(payload.specialDates) ? payload.specialDates : []).map(function(item){
+      return [String(item.title || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | ');
+    }))
+    .concat((Array.isArray(payload.holidays) ? payload.holidays : []).map(function(item){
+      return [String(item.title || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | ');
+    }));
+  var sysPrompt = [
+    '你正在生成日程 app 里用户这一天的安排。',
+    '只返回严格 JSON，不要 markdown，不要解释。',
+    '格式：{"events":[{"start":"08:30","end":"09:20","title":"...","note":"...","location":"...","visibleToChar":true,"publicMask":"","secretHint":"","secretPassword":""}],"todos":[{"text":"...","note":"...","done":false,"remindEnabled":false,"remindAt":""}]}',
+    '所有字段都必须使用简体中文输出。',
+    'events 至少 4 条，不设上限；todos 至少 3 条，不设上限。',
+    '必须认真读取用户设定和角色人设。安排要像用户本人，不要写成角色的生活。',
+    '如果用户这一天有对角色保密的安排，允许最多 1 条 visibleToChar=false 的秘密行程；此时必须提供 publicMask、secretHint、secretPassword，密码严格 4 位数字，提示必须真的和密码有关。',
+    '待办和行程都要贴近真人生活，可以有学习、休息、社交、通勤、准备礼物、给角色留空间等，但不要脱离用户设定。'
+  ].join('\n');
+  var userPrompt = [
+    '日期：' + dateKey + ' ' + weekday,
+    '用户名字：' + getScheduleUserName(charId),
+    getScheduleUserPersona() ? ('用户设定：' + getScheduleUserPersona().slice(0, 1500)) : '',
+    '角色名：' + String(character.nickname || character.name || '角色'),
+    '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
+    character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 800)) : '',
+    getScheduleWorldbookContext() ? ('世界书摘要：\n' + getScheduleWorldbookContext()) : '',
+    getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
+    specialLines.length ? ('当天节日 / 纪念日：\n- ' + specialLines.join('\n- ')) : '当天没有额外节日或纪念日。',
+    eventLines.length ? ('用户现在已有日程：\n- ' + eventLines.join('\n- ')) : '用户现在还没有写别的日程。',
+    todoLines.length ? ('用户现在已有待办：\n- ' + todoLines.join('\n- ')) : '用户现在还没有写别的待办。',
+    '请补出今天更完整、更像真人的用户安排和待办，并且允许自然带一点和角色有关的互动或顾虑，但不要强行黏在一起。'
+  ].filter(Boolean).join('\n\n');
+  var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
+  var txt = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+  var parsed = null;
+  try{ parsed = JSON.parse(txt); }catch(err){}
+  parsed = parsed && typeof parsed === 'object' ? parsed : {};
+  return {
+    events: Array.isArray(parsed.events) ? parsed.events : [],
+    todos: Array.isArray(parsed.todos) ? parsed.todos : []
+  };
+}
+
 async function sendScheduleQuote(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
   if(!charId) return false;
-  var accountId = getActiveAccountId();
-  if(!accountId) return false;
-  var history = await readBackgroundChatHistory(charId, accountId);
   var now = Date.now();
+  var accountIds = [];
+  function pushAccountId(id){
+    id = String(id || '').trim();
+    if(!id) return;
+    if(accountIds.indexOf(id) === -1) accountIds.push(id);
+  }
+  pushAccountId(getActiveAccountId());
+  pushAccountId(getDefaultAccountId());
+  if(!accountIds.length) return false;
   var entry = {
     id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
     role: String(payload.role || 'assistant').trim() === 'user' ? 'user' : 'assistant',
@@ -1957,8 +2034,11 @@ async function sendScheduleQuote(payload){
     sentAt: now,
     readAt: String(payload.role || 'assistant').trim() === 'user' ? now : null
   };
-  history.push(entry);
-  await writeBackgroundChatHistory(charId, accountId, history);
+  for(var i = 0; i < accountIds.length; i++){
+    var history = await readBackgroundChatHistory(charId, accountIds[i]);
+    history.push(Object.assign({}, entry));
+    await writeBackgroundChatHistory(charId, accountIds[i], history);
+  }
   renderHomeDockBadges();
   try{
     var f = document.getElementById('app-iframe');
@@ -2017,12 +2097,18 @@ async function appendScheduleChatMessage(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
   if(!charId) return false;
-  var accountId = getActiveAccountId();
-  if(!accountId) return false;
-  var history = await readBackgroundChatHistory(charId, accountId);
   var now = Date.now();
   var text = String(payload.text || '').trim();
   if(!text) return false;
+  var accountIds = [];
+  function pushAccountId(id){
+    id = String(id || '').trim();
+    if(!id) return;
+    if(accountIds.indexOf(id) === -1) accountIds.push(id);
+  }
+  pushAccountId(getActiveAccountId());
+  pushAccountId(getDefaultAccountId());
+  if(!accountIds.length) return false;
   var role = String(payload.role || 'assistant').trim() === 'user' ? 'user' : 'assistant';
   var entry = {
     id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
@@ -2034,8 +2120,11 @@ async function appendScheduleChatMessage(payload){
     readAt: role === 'user' ? now : null,
     silentPeek: !!payload.silentPeek
   };
-  history.push(entry);
-  await writeBackgroundChatHistory(charId, accountId, history);
+  for(var i = 0; i < accountIds.length; i++){
+    var history = await readBackgroundChatHistory(charId, accountIds[i]);
+    history.push(Object.assign({}, entry));
+    await writeBackgroundChatHistory(charId, accountIds[i], history);
+  }
   renderHomeDockBadges();
   try{
     var f = document.getElementById('app-iframe');
@@ -2349,6 +2438,7 @@ async function runAiBackgroundActivity(){
 
 window.ScheduleShell = {
   generateDayPlan: generateScheduleDayPlan,
+  generateUserDayPlan: generateScheduleUserDayPlan,
   sendScheduleQuote: sendScheduleQuote,
   appendSystemNotice: appendScheduleSystemNotice,
   generateChatBurst: generateScheduleChatBurst,
