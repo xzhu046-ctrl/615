@@ -120,7 +120,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-day-cell:active .schedule-day-inner{transform:translate(1px,1px)}
 .schedule-day-cell.selected .schedule-day-inner{background:#0d0d0d;color:#fff;border-color:#0d0d0d}
 .schedule-day-cell.today .schedule-day-inner{border-color:#0d0d0d}
-.schedule-day-cell.char-today .schedule-day-inner{background:#d8d8d8;border-color:#a6a6a6;color:#111}
+.schedule-day-cell.char-today .schedule-day-inner{background:#d8d8d8;border-color:#909090;color:#111;box-shadow:5px 5px 0 rgba(120,120,120,.22)}
 .schedule-day-cell.char-today .schedule-day-dot.user{background:#8c8c8c}
 .schedule-day-cell.char-today .schedule-day-dot.char{background:#111}
 .schedule-day-number{font-family:var(--fontd);font-size:20px;font-weight:900;line-height:1}
@@ -1097,17 +1097,26 @@ function formatMonthHead(date){
   document.getElementById('monthName').textContent = (monthNames[d.getMonth()] || '');
 }
 
-function getCharTodayKey(){
+function getScheduleTodayKeys(){
   var char = getActiveChar();
-  if(!(char && window.PresenceShared && typeof window.PresenceShared.getPresenceSnapshot === 'function')) return '';
+  if(!(char && window.PresenceShared && typeof window.PresenceShared.getPresenceSnapshot === 'function')) return { userKey:'', charKey:'' };
   try{
     var snapshot = window.PresenceShared.getPresenceSnapshot(char, Date.now());
     var tz = snapshot && snapshot.char && snapshot.char.city ? Number(snapshot.char.city.tz) : NaN;
-    if(!Number.isFinite(tz)) return '';
-    var shifted = new Date(Date.now() + tz * 3600000);
-    return shifted.getUTCFullYear() + '-' + String(shifted.getUTCMonth() + 1).padStart(2, '0') + '-' + String(shifted.getUTCDate()).padStart(2, '0');
+    var userCityId = snapshot && snapshot.user ? String(snapshot.user.cityId || '').trim() : '';
+    var userCity = userCityId && window.PresenceShared.getCity ? window.PresenceShared.getCity(userCityId) : null;
+    var userTz = userCity ? Number(userCity.tz) : NaN;
+    function buildKey(offset){
+      if(!Number.isFinite(offset)) return '';
+      var shifted = new Date(Date.now() + offset * 3600000);
+      return shifted.getUTCFullYear() + '-' + String(shifted.getUTCMonth() + 1).padStart(2, '0') + '-' + String(shifted.getUTCDate()).padStart(2, '0');
+    }
+    return {
+      userKey: buildKey(userTz),
+      charKey: buildKey(tz)
+    };
   }catch(err){
-    return '';
+    return { userKey:'', charKey:'' };
   }
 }
 
@@ -1136,8 +1145,9 @@ function renderCalendar(){
   var first = new Date(year, month, 1);
   var firstDay = (first.getDay() + 6) % 7;
   var daysInMonth = new Date(year, month + 1, 0).getDate();
-  var todayKey = ScheduleShared.toDateKey(new Date());
-  var charTodayKey = getCharTodayKey();
+  var keys = getScheduleTodayKeys();
+  var todayKey = keys.userKey || ScheduleShared.toDateKey(new Date());
+  var charTodayKey = keys.charKey || '';
   var charState = getActiveCharState();
   var holidays = ScheduleShared.getHolidayMap(year);
   var marks = {};
