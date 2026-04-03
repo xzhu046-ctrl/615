@@ -588,26 +588,32 @@ function safeSet(key, val) {
   catch(e) { console.warn('localStorage set failed for', key, e); return false; }
 }
 async function saveCharsWithFallback(lastCard) {
-  var storedChars = (Array.isArray(chars) ? chars : []).map(makeStoredCharacterCard);
-  chars = storedChars;
+  var fullChars = Array.isArray(chars) ? chars.slice() : [];
+  var storedChars = fullChars.map(makeStoredCharacterCard);
   if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
     try{
-      await window.MetadataStore.saveCharacters(storedChars);
+      await window.MetadataStore.saveCharacters(fullChars);
       return true;
     }catch(err){}
   }
   if (safeSet('characters', JSON.stringify(storedChars))) return true;
   // Fallback 1: drop large fields on the newest card then retry
   var changed = false;
-  if (lastCard) {
-    if (lastCard.imageData) { lastCard.imageData = ''; changed = true; }
-    if (lastCard.character_book) { delete lastCard.character_book; changed = true; }
-    if (lastCard.description && lastCard.description.length > 4000) {
-      lastCard.description = lastCard.description.slice(0, 4000); changed = true;
-    }
+  if (lastCard && lastCard.id) {
+    storedChars = storedChars.map(function(item){
+      if(!item || item.id !== lastCard.id) return item;
+      var slim = Object.assign({}, item);
+      if (slim.imageData) { slim.imageData = ''; changed = true; }
+      if (slim.character_book) { delete slim.character_book; changed = true; }
+      if (slim.world_info) { delete slim.world_info; changed = true; }
+      if (slim.description && slim.description.length > 4000) {
+        slim.description = slim.description.slice(0, 4000); changed = true;
+      }
+      return slim;
+    });
   }
-  if (changed && safeSet('characters', JSON.stringify((Array.isArray(chars) ? chars : []).map(makeStoredCharacterCard)))) {
-    log('存储空间不足，已移除大字段后保存');
+  if (changed && safeSet('characters', JSON.stringify(storedChars))) {
+    log('存储空间不足，已仅对旧 localStorage 回退副本做瘦身；角色完整数据仍保留在新存储里');
     return true;
   }
   log('存储空间超限，未能保存角色；请删除旧角色或使用更小的卡');
@@ -804,11 +810,10 @@ async function createChar() {
     saveStoredAsset('char_avatar_' + id, avatarUpload);
     avatarAssetCache[id] = avatarUpload;
   }
-  var storedCard = makeStoredCharacterCard(c);
-  chars.push(storedCard);
-  var saved = await saveCharsWithFallback(storedCard);
+  chars.push(c);
+  var saved = await saveCharsWithFallback(c);
   if(!saved){
-    chars = chars.filter(function(item){ return !(item && item.id === storedCard.id); });
+    chars = chars.filter(function(item){ return !(item && item.id === c.id); });
     updateCount();
     renderList();
     alert('角色保存失败：存储空间不足');
@@ -1989,22 +1994,22 @@ function parseCard(jsonStr, imageData, filename) {
           var oldId = existingCard.id;
           card.id = oldId;
           storedCard.id = oldId;
-          chars[existIdx] = storedCard;
+          chars[existIdx] = Object.assign({}, existingCard || {}, card);
         }else{
           card.id = mintImportedCharacterId(card.id || card.name || 'c');
           storedCard.id = card.id;
-          chars.push(storedCard);
+          chars.push(card);
           log('检测到角色卡 ID 冲突，已为 ' + card.name + ' 分配新身份');
         }
       } else {
-        chars.push(storedCard);
+        chars.push(card);
       }
       if(card.imageData){
         saveStoredAsset('char_avatar_' + card.id, card.imageData);
         avatarAssetCache[card.id] = card.imageData;
       }
-      if (!(await saveCharsWithFallback(storedCard))) {
-        chars = chars.filter(function(c){ return !(c && c.id === storedCard.id && c.ownerAccountId === storedCard.ownerAccountId); });
+      if (!(await saveCharsWithFallback(card))) {
+        chars = chars.filter(function(c){ return !(c && c.id === card.id && c.ownerAccountId === card.ownerAccountId); });
         renderList();
         updateCount();
         log('导入失败：角色没有保存下来，请先清一点存储空间');
