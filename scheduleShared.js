@@ -125,6 +125,18 @@
     };
   }
 
+  function normalizeCharTodo(item){
+    item = item && typeof item === 'object' ? item : {};
+    return {
+      id: String(item.id || createId('chartodo')),
+      text: String(item.text || item.title || '').trim(),
+      note: String(item.note || '').trim(),
+      done: !!item.done,
+      comments: Array.isArray(item.comments) ? item.comments.map(normalizeComment).filter(function(comment){ return comment.text; }) : [],
+      createdAt: Number(item.createdAt || Date.now()) || Date.now()
+    };
+  }
+
   function normalizeSpecialDate(item){
     item = item && typeof item === 'object' ? item : {};
     return {
@@ -171,6 +183,7 @@
       calendarNote: String(day.calendarNote || '').trim(),
       comment: String(day.comment || '').trim(),
       timeline: timeline,
+      todos: Array.isArray(day.todos || day.todoList) ? (day.todos || day.todoList).map(normalizeCharTodo).filter(function(item){ return item.text; }) : [],
       quoteDrafts: Array.isArray(day.quoteDrafts) ? day.quoteDrafts.map(function(item){
         item = item && typeof item === 'object' ? item : {};
         return {

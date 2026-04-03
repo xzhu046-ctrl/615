@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T15:02:00Z';
+const APP_BUILD_ID = '2026-04-02T15:23:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1735,6 +1735,24 @@ function parseScheduleDayResult(raw, payload){
     comment: String(parsed.comment || parsed.todoComment || '').trim(),
     generatedAt: Date.now(),
     timeline: normalizeScheduleTimelineItems(parsed.timeline || parsed.schedule || []),
+    todos: (Array.isArray(parsed.todos || parsed.todoList) ? (parsed.todos || parsed.todoList) : []).map(function(item){
+      item = item && typeof item === 'object' ? item : {};
+      return {
+        id: String(item.id || ('chartodo_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7))),
+        text: String(item.text || item.title || '').trim(),
+        note: String(item.note || '').trim(),
+        done: !!item.done,
+        comments: Array.isArray(item.comments) ? item.comments.map(function(comment){
+          comment = comment && typeof comment === 'object' ? comment : {};
+          return {
+            id: String(comment.id || ('comment_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7))),
+            author: String(comment.author || comment.role || 'char').trim() || 'char',
+            text: String(comment.text || comment.content || '').trim(),
+            createdAt: Number(comment.createdAt || Date.now()) || Date.now()
+          };
+        }).filter(function(comment){ return comment.text; }) : []
+      };
+    }).filter(function(item){ return item.text; }),
     quoteDrafts: normalizeScheduleQuoteDrafts(parsed.quoteDrafts || parsed.chatQuotes || [])
   };
 }
@@ -1778,10 +1796,11 @@ async function generateScheduleDayPlan(payload){
   var sysPrompt = [
     '你正在生成一个日程 app 里的角色当日日程。',
     '只返回严格 JSON，不要 markdown，不要解释。',
-    'JSON 结构：{"date":"YYYY-MM-DD","diary":"...","calendarNote":"...","comment":"...","timeline":[{"start":"08:30","end":"09:20","title":"...","note":"...","secret":false,"publicMask":"","secretHint":"","secretPassword":""}],"quoteDrafts":[{"title":"待办引用","excerpt":"...","reply":"...","sourceType":"todo|event","sourceId":"..."}]}',
+    'JSON 结构：{"date":"YYYY-MM-DD","diary":"...","calendarNote":"...","comment":"...","timeline":[{"start":"08:30","end":"09:20","title":"...","note":"...","secret":false,"publicMask":"","secretHint":"","secretPassword":""}],"todos":[{"text":"...","note":"...","done":false}],"quoteDrafts":[{"title":"待办引用","excerpt":"...","reply":"...","sourceType":"todo|event","sourceId":"..."}]}',
     '所有字段都必须使用简体中文输出，不要夹英文标题，不要夹外语对白，也不要因为角色语言设置改成别的语言。',
     '语言固定是简体中文，但行程安排、语气、态度、细节、作息风格必须服从角色人设。',
     'timeline 是现实里会发生的一天，至少 4 条，最多 8 条。',
+    'todos 是这个角色今天自己心里或手边会记着的待办，0 到 4 条，语气和内容都按人设来。',
     '如果角色这一天有不想直接说开的安排，允许最多生成 1 条 secret=true 的秘密行程；这种时候 title/note 仍然写真实内容，同时额外提供 publicMask（给对方看到的模糊标题，比如“有点私事”）、secretHint（很短的提示）和 secretPassword（1-6 位简单口令或短词）。如果没有秘密行程，就把这些字段留空。',
     'diary 是角色今天的一句日记，要有人设感。',
     'calendarNote 是写在日历边上的一句留言。',
