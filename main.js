@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T04:20:00Z';
+const APP_BUILD_ID = '2026-04-03T04:24:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1667,13 +1667,32 @@ function getScheduleWorldbookContext(){
 
 function getScheduleUserName(charId){
   var safeId = String(charId || '').trim();
+  if(safeId){
+    try{
+      var chars = getStoredCharactersSnapshot();
+      var hit = Array.isArray(chars) ? chars.find(function(item){ return item && String(item.id || '').trim() === safeId; }) : null;
+      var embedded = String((hit && hit.userNameProfile) || '').trim();
+      if(embedded) return embedded;
+    }catch(err){}
+  }
   var activeId = getActiveAccountId();
   var scoped = scopedKeyForAccount('user_name_' + safeId, activeId);
-  return String(localStorage.getItem(scoped) || localStorage.getItem('user_name_' + safeId) || localStorage.getItem('user_name') || 'USER').trim() || 'USER';
+  var scopedValue = String(localStorage.getItem(scoped) || localStorage.getItem('user_name_' + safeId) || '').trim();
+  if(scopedValue) return scopedValue;
+  if(safeId) return 'USER';
+  return String(localStorage.getItem('user_name') || 'USER').trim() || 'USER';
 }
 
 function getScheduleUserPersona(charId){
   var safeId = String(charId || '').trim();
+  if(safeId){
+    try{
+      var chars = getStoredCharactersSnapshot();
+      var hit = Array.isArray(chars) ? chars.find(function(item){ return item && String(item.id || '').trim() === safeId; }) : null;
+      var embedded = String((hit && hit.userPersonaProfile) || '').trim();
+      if(embedded) return embedded;
+    }catch(err){}
+  }
   try{
     var active = window.AccountManager && window.AccountManager.getActive ? window.AccountManager.getActive() : null;
     if(active && !active.isDefault) return '';
@@ -1683,6 +1702,7 @@ function getScheduleUserPersona(charId){
     var scoped = scopedKeyForAccount('user_persona_' + safeId, activeId);
     var scopedValue = String(localStorage.getItem(scoped) || localStorage.getItem('user_persona_' + safeId) || '').trim();
     if(scopedValue) return scopedValue;
+    return '';
   }
   return String(localStorage.getItem('user_persona') || '').trim();
 }
@@ -2067,6 +2087,8 @@ async function generateScheduleUserDayPlan(payload){
     getScheduleWorldbookContext() ? ('世界书摘要：\n' + getScheduleWorldbookContext()) : '',
     getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
     '如果双方现实位置很远，用户自己的安排也不要写成和角色已经现实见面、一起吃饭、一起通勤、一起散步，除非已有公开日程明确写了见面或出行；更自然的是远程联系、惦记、通话、准备之后见面。',
+    '如果提到和用户互动的对象，只能是当前这个角色，不要把别的角色名字、别的关系状态、别的同居/同住设定串进来。',
+    '如果双方现实位置很远，严禁写成已经住在一起、正在同住、在同一个家里、一起出门、一起吃午饭、面对面陪伴这种同地互动。',
     specialLines.length ? ('当天节日 / 纪念日：\n- ' + specialLines.join('\n- ')) : '当天没有额外节日或纪念日。',
     eventLines.length ? ('用户现在已有日程：\n- ' + eventLines.join('\n- ')) : '用户现在还没有写别的日程。',
     todoLines.length ? ('用户现在已有待办：\n- ' + todoLines.join('\n- ')) : '用户现在还没有写别的待办。',

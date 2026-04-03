@@ -944,6 +944,9 @@ function getCharacterName(char){
 
 function getActiveUserName(){
   try{
+    var activeChar = typeof getActiveChar === 'function' ? getActiveChar() : null;
+    var embedded = String((activeChar && activeChar.userNameProfile) || '').trim();
+    if(embedded) return embedded;
     var shell = getParentShell();
     if(shell && typeof shell.getChatUserName === 'function'){
       var live = String(shell.getChatUserName(activeCharId) || '').trim();
@@ -958,10 +961,14 @@ function getActiveUserName(){
     }
   }catch(err){}
   try{
-    var scoped = window.AccountManager && typeof window.AccountManager.scopedKey === 'function'
-      ? String(window.AccountManager.scopedKey('user_name') || '').trim()
+    var safeCharId = String(activeCharId || '').trim();
+    var scoped = window.AccountManager && typeof window.AccountManager.scopedKey === 'function' && safeCharId
+      ? String(window.AccountManager.scopedKey('user_name_' + safeCharId) || '').trim()
       : '';
-    return String((scoped ? localStorage.getItem(scoped) : '') || localStorage.getItem('user_name') || 'USER').trim() || 'USER';
+    var scopedValue = String((scoped ? localStorage.getItem(scoped) : '') || (safeCharId ? localStorage.getItem('user_name_' + safeCharId) : '') || '').trim();
+    if(scopedValue) return scopedValue;
+    if(safeCharId) return 'USER';
+    return String(localStorage.getItem('user_name') || 'USER').trim() || 'USER';
   }catch(err){}
   return 'USER';
 }
@@ -975,8 +982,10 @@ function getActiveUserPersona(){
     var scoped = window.AccountManager && typeof window.AccountManager.scopedKey === 'function' && safeCharId
       ? String(window.AccountManager.scopedKey('user_persona_' + safeCharId) || '').trim()
       : '';
-    var scopedValue = String((scoped ? localStorage.getItem(scoped) : '') || (safeCharId ? localStorage.getItem('user_persona_' + safeCharId) : '') || localStorage.getItem('user_persona') || '').trim();
-    return scopedValue;
+    var scopedValue = String((scoped ? localStorage.getItem(scoped) : '') || (safeCharId ? localStorage.getItem('user_persona_' + safeCharId) : '') || '').trim();
+    if(scopedValue) return scopedValue;
+    if(safeCharId) return '';
+    return String(localStorage.getItem('user_persona') || '').trim();
   }catch(err){}
   return '';
 }
@@ -1367,7 +1376,7 @@ function getAutoSpecialDatesForDate(dateKey){
     }
   }
   try{
-    var userPersona = String(localStorage.getItem('user_persona') || '').trim();
+    var userPersona = getActiveUserPersona();
     var userBirthday = ScheduleShared.extractBirthday(userPersona);
     if(userBirthday && userBirthday === safeDay){
       items.push({ title:'你的生日', note:'如果这个角色会记得，这一天会变得很特别。', kind:'birthday', source:'system' });
