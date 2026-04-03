@@ -69,7 +69,12 @@
         safeStorageSet(key, MARKER);
         return value;
       }).catch(function(){
-        safeStorageSet(key, value);
+        var text = String(value || '');
+        if(text && !looksLikeAsset(text) && text.length <= 4096){
+          safeStorageSet(key, text);
+        }else{
+          safeStorageRemove(key);
+        }
         return value;
       });
     },

@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T12:12:00Z';
+const APP_BUILD_ID = '2026-04-02T12:28:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1764,7 +1764,8 @@ async function generateScheduleDayPlan(payload){
     '你正在生成一个日程 app 里的角色当日日程。',
     '只返回严格 JSON，不要 markdown，不要解释。',
     'JSON 结构：{"date":"YYYY-MM-DD","diary":"...","calendarNote":"...","comment":"...","timeline":[{"start":"08:30","end":"09:20","title":"...","note":"..."}],"quoteDrafts":[{"title":"待办引用","excerpt":"...","reply":"...","sourceType":"todo|event","sourceId":"..."}]}',
-    '所有字段都用简体中文输出。',
+    '所有字段都必须使用简体中文输出，不要夹英文标题，不要夹外语对白，也不要因为角色语言设置改成别的语言。',
+    '语言固定是简体中文，但行程安排、语气、态度、细节、作息风格必须服从角色人设。',
     'timeline 是现实里会发生的一天，至少 4 条，最多 8 条。',
     'diary 是角色今天的一句日记，要有人设感。',
     'calendarNote 是写在日历边上的一句留言。',

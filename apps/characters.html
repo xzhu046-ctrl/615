@@ -588,13 +588,15 @@ function safeSet(key, val) {
   catch(e) { console.warn('localStorage set failed for', key, e); return false; }
 }
 async function saveCharsWithFallback(lastCard) {
+  var storedChars = (Array.isArray(chars) ? chars : []).map(makeStoredCharacterCard);
+  chars = storedChars;
   if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
     try{
-      await window.MetadataStore.saveCharacters(chars);
+      await window.MetadataStore.saveCharacters(storedChars);
       return true;
     }catch(err){}
   }
-  if (safeSet('characters', JSON.stringify(chars))) return true;
+  if (safeSet('characters', JSON.stringify(storedChars))) return true;
   // Fallback 1: drop large fields on the newest card then retry
   var changed = false;
   if (lastCard) {
@@ -604,7 +606,7 @@ async function saveCharsWithFallback(lastCard) {
       lastCard.description = lastCard.description.slice(0, 4000); changed = true;
     }
   }
-  if (changed && safeSet('characters', JSON.stringify(chars))) {
+  if (changed && safeSet('characters', JSON.stringify((Array.isArray(chars) ? chars : []).map(makeStoredCharacterCard)))) {
     log('存储空间不足，已移除大字段后保存');
     return true;
   }
@@ -802,8 +804,17 @@ async function createChar() {
     saveStoredAsset('char_avatar_' + id, avatarUpload);
     avatarAssetCache[id] = avatarUpload;
   }
-  chars.push(c);
-  await save(); updateCount(); renderList();
+  var storedCard = makeStoredCharacterCard(c);
+  chars.push(storedCard);
+  var saved = await saveCharsWithFallback(storedCard);
+  if(!saved){
+    chars = chars.filter(function(item){ return !(item && item.id === storedCard.id); });
+    updateCount();
+    renderList();
+    alert('角色保存失败：存储空间不足');
+    return;
+  }
+  updateCount(); renderList();
   closeCreate();
   log('已创建: ' + name);
   maybeAskFriendRequest(c.id);
@@ -1967,7 +1978,7 @@ function parseCard(jsonStr, imageData, filename) {
       return seed + '__' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     }
 
-    function doImportNow(){
+    async function doImportNow(){
       var storedCard = makeStoredCharacterCard(card);
       var existIdx = chars.findIndex(function(c){
         return c && c.id === storedCard.id && c.ownerAccountId === storedCard.ownerAccountId;
@@ -1992,7 +2003,7 @@ function parseCard(jsonStr, imageData, filename) {
         saveStoredAsset('char_avatar_' + card.id, card.imageData);
         avatarAssetCache[card.id] = card.imageData;
       }
-      if (!saveCharsWithFallback(storedCard)) {
+      if (!(await saveCharsWithFallback(storedCard))) {
         chars = chars.filter(function(c){ return !(c && c.id === storedCard.id && c.ownerAccountId === storedCard.ownerAccountId); });
         renderList();
         updateCount();
