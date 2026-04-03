@@ -213,6 +213,10 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-todo-main{min-width:0;flex:1}
 .schedule-todo-text,.schedule-event-title,.schedule-badge-title{font-size:13px;font-weight:900;line-height:1.5}
 .schedule-todo-meta,.schedule-event-meta,.schedule-badge-note{margin-top:2px;font-size:11px;color:#666;line-height:1.5;font-weight:700}
+.schedule-todo-bell{
+  display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:#111;color:#fff;
+  font-size:10px;font-weight:900;box-shadow:3px 3px 0 rgba(0,0,0,.16)
+}
 .schedule-todo-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .schedule-todo-actions .schedule-item-chip{background:rgba(17,17,17,.08);color:#111}
 .schedule-comment-note-count{
@@ -520,7 +524,6 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
           <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(9,'peek')">9</button>
           <button class="schedule-secret-key wide" type="button" onclick="clearSecretDigits('peek')">清空</button>
           <button class="schedule-secret-key" type="button" onclick="tapSecretDigit(0,'peek')">0</button>
-          <button class="schedule-secret-key" type="button" onclick="backspaceSecretDigit('peek')">⌫</button>
         </div>
       </div>
       <div class="schedule-pass-result" id="secretHintText"></div>
@@ -1406,6 +1409,8 @@ function getRenderedTodoItems(ctx){
       text:String(item.text || '').trim(),
       note:String(item.note || '').trim(),
       done:!!item.done,
+      remindEnabled: !!item.remindEnabled,
+      remindAt: String(item.remindAt || '').trim(),
       commentCount:getCommentCount(item),
       comments:Array.isArray(item.comments) ? item.comments : [],
       raw:item
@@ -1421,6 +1426,8 @@ function getRenderedTodoItems(ctx){
       text:String(item.text || '').trim(),
       note:String(item.note || '').trim(),
       done:!!item.done,
+      remindEnabled:false,
+      remindAt:'',
       commentCount:getCommentCount(item),
       comments:Array.isArray(item.comments) ? item.comments : [],
       raw:item
@@ -1453,8 +1460,9 @@ function renderTodoListIntoHost(ctx, hostId){
       + '<div class="schedule-todo-head">'
       + '<div class="schedule-todo-main">'
       + '<div class="schedule-todo-text">' + esc(item.text) + '</div>'
-      + '<div class="schedule-todo-meta">' + esc(item.label + (item.note ? (' · ' + item.note) : '')) + '</div>'
+      + '<div class="schedule-todo-meta">' + esc(item.label + (item.note ? (' · ' + item.note) : '') + (item.remindEnabled && item.remindAt ? (' · ' + item.remindAt + ' 提醒') : '')) + '</div>'
       + '</div>'
+      + (item.remindEnabled ? '<span class="schedule-todo-bell" title="到点提醒">铃</span>' : '')
       + '</div>'
       + '</div></div>';
   }).join('');
@@ -1596,6 +1604,8 @@ function ensureEntryDraft(mode){
     location: '',
     start: '09:00',
     end: '10:00',
+    remindEnabled: false,
+    remindAt: '18:00',
     visibleToChar: true,
     publicMask: '这个时间段有安排',
     secretPassword: '',
@@ -1645,17 +1655,6 @@ function tapSecretDigit(digit, target){
   renderSecretInput(document.getElementById('entryTextPassword'), entryDraft.secretPassword, '设置数字密码');
 }
 
-function backspaceSecretDigit(target){
-  if(String(target || '') === 'peek'){
-    secretPeekDraft = String(secretPeekDraft || '').slice(0, -1);
-    renderSecretInput(document.getElementById('secretPasswordInput'), secretPeekDraft, '输入数字密码');
-    return;
-  }
-  syncEntryDraftFromInputs();
-  entryDraft.secretPassword = String(entryDraft.secretPassword || '').slice(0, -1);
-  renderSecretInput(document.getElementById('entryTextPassword'), entryDraft.secretPassword, '设置数字密码');
-}
-
 function clearSecretDigits(target){
   if(String(target || '') === 'peek'){
     secretPeekDraft = '';
@@ -1665,6 +1664,12 @@ function clearSecretDigits(target){
   syncEntryDraftFromInputs();
   entryDraft.secretPassword = '';
   renderSecretInput(document.getElementById('entryTextPassword'), entryDraft.secretPassword, '设置数字密码');
+}
+
+function toggleTodoReminder(){
+  syncEntryDraftFromInputs();
+  entryDraft.remindEnabled = !entryDraft.remindEnabled;
+  renderEntryForm();
 }
 
 function buildTimeChipHtml(field){
@@ -1737,7 +1742,6 @@ function renderEntryForm(){
             + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(9,\'entry\')">9</button>'
             + '<button class="schedule-secret-key wide" type="button" onclick="clearSecretDigits(\'entry\')">清空</button>'
             + '<button class="schedule-secret-key" type="button" onclick="tapSecretDigit(0,\'entry\')">0</button>'
-            + '<button class="schedule-secret-key" type="button" onclick="backspaceSecretDigit(\'entry\')">⌫</button>'
           + '</div>'
           + '<input class="schedule-input" id="entryTextHint" placeholder="小提示，可选" value="' + esc(entryDraft.secretHint || '') + '">'
           + '</div>'
@@ -1747,7 +1751,14 @@ function renderEntryForm(){
   if(entryModalMode === 'todo'){
     grid.innerHTML = ''
       + '<input class="schedule-input" id="entryTextTitle" placeholder="比如：下午三点前把报告交掉" value="' + esc(entryDraft.title || '') + '" style="grid-column:1/-1">'
-      + '<input class="schedule-input" id="entryTextNote" placeholder="补一句备注，可选" value="' + esc(entryDraft.note || '') + '" style="grid-column:1/-1">';
+      + '<input class="schedule-input" id="entryTextNote" placeholder="补一句备注，可选" value="' + esc(entryDraft.note || '') + '" style="grid-column:1/-1">'
+      + '<div class="schedule-switch-tile" style="grid-column:1/-1">'
+      + '<div class="schedule-switch-copy"><strong>是否提醒？</strong><span>默认关闭。到点后 Ta 会主动发消息提醒你。</span></div>'
+      + '<button class="schedule-mini-switch' + (entryDraft.remindEnabled ? ' on' : '') + '" type="button" onclick="toggleTodoReminder()"></button>'
+      + '</div>'
+      + (entryDraft.remindEnabled
+        ? '<div class="schedule-time-group" style="grid-column:1/-1"><label>提醒时间</label><div class="schedule-time-wheel">' + buildTimeWheelHtml('remindAt', false) + '</div></div>'
+        : '');
     return;
   }
   grid.innerHTML = ''
@@ -1793,6 +1804,8 @@ function saveEntryFromModal(){
       date: selectedDateKey,
       text: entryDraft.title,
       note: entryDraft.note,
+      remindEnabled: !!entryDraft.remindEnabled,
+      remindAt: entryDraft.remindEnabled ? entryDraft.remindAt : '',
       visibleToChar: true,
       source: 'user'
     });

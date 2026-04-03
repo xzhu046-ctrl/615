@@ -119,6 +119,10 @@
       text: String(item.text || '').trim(),
       note: String(item.note || '').trim(),
       done: !!item.done,
+      remindEnabled: !!item.remindEnabled,
+      remindAt: normalizeTimeValue(item.remindAt),
+      remindedAt: Number(item.remindedAt || 0) || 0,
+      remindedDate: /^\d{4}-\d{2}-\d{2}$/.test(String(item.remindedDate || '')) ? String(item.remindedDate) : '',
       visibleToChar: item.visibleToChar !== false,
       comments: Array.isArray(item.comments) ? item.comments.map(normalizeComment).filter(function(comment){ return comment.text; }) : [],
       createdAt: Number(item.createdAt || Date.now()) || Date.now()

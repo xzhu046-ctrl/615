@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-04-02T17:34:00Z';
+const CACHE_VERSION = '2026-04-02T17:47:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -8,6 +8,7 @@ const CORE_URLS = [
   './assetStore.js',
   './chatStorage.js',
   './metadataStore.js',
+  './scheduleShared.js',
   './presenceShared.js',
   './manifest.webmanifest',
   './version.json',

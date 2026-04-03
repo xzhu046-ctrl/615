@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T17:34:00Z';
+const APP_BUILD_ID = '2026-04-02T17:47:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -5556,12 +5556,93 @@ function isViewingCharacterChat(charId){
 
 let aiBgTickTimer = null;
 let aiBgRunning = false;
+let scheduleReminderRunning = false;
 
 function getAiBgIntervalMs(){
   var min = parseInt(localStorage.getItem(AI_BG_INTERVAL_KEY) || '6', 10);
   if(Number.isNaN(min)) min = 6;
   min = Math.max(1, Math.min(120, min));
   return min * 60 * 1000;
+}
+
+function getScheduleSharedApi(){
+  return window.ScheduleShared && typeof window.ScheduleShared.loadState === 'function' ? window.ScheduleShared : null;
+}
+
+function scheduleTimeToMinutes(value){
+  var txt = String(value || '').trim();
+  var match = txt.match(/^(\d{1,2}):(\d{2})$/);
+  if(!match) return -1;
+  return (parseInt(match[1], 10) || 0) * 60 + (parseInt(match[2], 10) || 0);
+}
+
+async function maybeRunScheduleTodoReminders(){
+  if(scheduleReminderRunning) return;
+  var shared = getScheduleSharedApi();
+  if(!shared) return;
+  scheduleReminderRunning = true;
+  try{
+    var state = await shared.loadState();
+    state = shared.normalizeState(state || null);
+    var now = new Date();
+    var dateKey = shared.toDateKey(now);
+    var nowMinutes = now.getHours() * 60 + now.getMinutes();
+    var changed = false;
+    for(const charId of Object.keys(state.chars || {})){
+      if(!shared.isTimeAwarenessEnabled(state, charId)) continue;
+      var charState = shared.getCharState(state, charId);
+      var todos = Array.isArray(charState.todos) ? charState.todos.slice() : [];
+      var charChanged = false;
+      for(let i = 0; i < todos.length; i++){
+        var todo = Object.assign({}, todos[i] || {});
+        if(String(todo.date || '') !== dateKey) continue;
+        if(!todo.remindEnabled || !String(todo.remindAt || '').trim()) continue;
+        if(String(todo.remindedDate || '') === dateKey) continue;
+        var dueMinutes = scheduleTimeToMinutes(todo.remindAt);
+        if(dueMinutes < 0 || nowMinutes < dueMinutes) continue;
+        var text = await generateScheduleInlineComment({
+          charId: charId,
+          dateKey: dateKey,
+          owner: 'user',
+          item: {
+            title: String(todo.text || '').trim(),
+            note: String(todo.note || '').trim(),
+            start: String(todo.remindAt || '').trim(),
+            end: ''
+          },
+          comments: Array.isArray(todo.comments) ? todo.comments : [],
+          timeStatus: todo.done ? '这条待办原本该在现在提醒，但用户已经提前完成了。请像真人一样知道这点，再顺势聊一句。' : '这条待办现在到了提醒时间。请按人设自然提醒用户。',
+          extraContext: todo.done
+            ? '这是日程 app 的提醒待办。用户已经在提醒时间前完成了，所以你不是催促，而是知道他做完了，可以顺势夸一句、问一句，或者自然聊开。'
+            : '这是日程 app 的提醒待办。你现在要真的发一条聊天消息提醒用户，不要像系统通知。'
+        }).catch(function(){ return ''; });
+        text = String(text || '').trim();
+        if(text){
+          await appendScheduleChatMessage({
+            charId: charId,
+            role: 'assistant',
+            text: text
+          }).catch(function(){});
+        }
+        todo.remindedAt = Date.now();
+        todo.remindedDate = dateKey;
+        todos[i] = todo;
+        charChanged = true;
+      }
+      if(charChanged){
+        charState.todos = todos;
+        state = shared.setCharState(state, charId, charState);
+        changed = true;
+      }
+    }
+    if(changed){
+      await shared.saveState(state);
+    }
+  }catch(err){
+    console.error('[schedule-reminder] failed:', err);
+  }finally{
+    scheduleReminderRunning = false;
+  }
 }
 
 async function maybeRunAiBgTick(force){
@@ -5592,8 +5673,10 @@ function setupAiBgScheduler(){
   }
   aiBgTickTimer = setInterval(function(){
     maybeRunAiBgTick(false);
+    maybeRunScheduleTodoReminders();
   }, 20000);
   setTimeout(function(){ maybeRunAiBgTick(false); }, 1200);
+  setTimeout(function(){ maybeRunScheduleTodoReminders(); }, 1600);
 }
 
 function restoreState(){
@@ -5751,6 +5834,7 @@ document.addEventListener('visibilitychange', ()=>{
     renderHomeDockBadges();
     refreshQqUnreadCountCache();
     maybeRunAiBgTick(false);
+    maybeRunScheduleTodoReminders();
   }
 });
 window.addEventListener('resize', ()=>{
