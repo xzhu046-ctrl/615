@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-03T02:34:00Z"></script>
-<script src="../assetStore.js?v=2026-04-03T02:34:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-03T02:34:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-03T02:34:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-03T02:34:00Z"></script>
+<script src="../accountManager.js?v=2026-04-03T02:49:00Z"></script>
+<script src="../assetStore.js?v=2026-04-03T02:49:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-03T02:49:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-03T02:49:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-03T02:49:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -487,6 +487,15 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
           <button class="schedule-switch" id="charQuoteSwitch" type="button" onclick="toggleCharQuotes()"></button>
         </div>
       </div>
+      <div class="schedule-field">
+        <div class="schedule-switch-row">
+          <div>
+            <label>清空当天行程</label>
+            <p>会一起清掉这一天里 char 和 user 的行程与待办。</p>
+          </div>
+          <button class="schedule-ghost-btn" type="button" onclick="openClearDayModal()">清空</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -555,6 +564,17 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
       <div class="schedule-modal-actions">
         <button class="schedule-ghost-btn" type="button" onclick="closeDeleteModal()">取消</button>
         <button class="schedule-solid-btn" type="button" onclick="confirmDeleteTarget()">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="schedule-modal" id="clearDayModal" onclick="handleClearDayModalMask(event)">
+    <div class="schedule-modal-card">
+      <h3>清空当天行程？</h3>
+      <div class="schedule-modal-sub">会一起清掉这一天里 char 和 user 的行程与待办。</div>
+      <div class="schedule-modal-actions">
+        <button class="schedule-ghost-btn" type="button" onclick="closeClearDayModal()">取消</button>
+        <button class="schedule-solid-btn" type="button" onclick="confirmClearDaySchedule()">确定</button>
       </div>
     </div>
   </div>
@@ -2062,16 +2082,12 @@ async function generateUserDayFromEntry(){
     var userTodos = Array.isArray(generated.todos) ? generated.todos.map(function(item){
       return ScheduleShared.normalizeTodo(Object.assign({}, item, { date:selectedDateKey, source:'user', visibleToChar:true }));
     }).filter(function(item){ return item && item.text; }) : [];
-    if(userEvents.length){
-      charState.events = userEvents.concat(Array.isArray(charState.events) ? charState.events.filter(function(item){
-        return String(item && item.date || '') !== String(selectedDateKey || '') || String(item && item.source || '') !== 'user';
-      }) : []);
-    }
-    if(userTodos.length){
-      charState.todos = userTodos.concat(Array.isArray(charState.todos) ? charState.todos.filter(function(item){
-        return String(item && item.date || '') !== String(selectedDateKey || '') || String(item && item.source || '') !== 'user';
-      }) : []);
-    }
+    charState.events = userEvents.concat(Array.isArray(charState.events) ? charState.events.filter(function(item){
+      return String(item && item.date || '') !== String(selectedDateKey || '') || String(item && item.source || '') !== 'user';
+    }) : []);
+    charState.todos = userTodos.concat(Array.isArray(charState.todos) ? charState.todos.filter(function(item){
+      return String(item && item.date || '') !== String(selectedDateKey || '') || String(item && item.source || '') !== 'user';
+    }) : []);
     scheduleState = ScheduleShared.setCharState(scheduleState, char.id, charState);
     await persistState();
     renderAll();
@@ -2761,6 +2777,43 @@ function openDeleteModal(kind, itemId, label){
 function closeDeleteModal(){
   document.getElementById('deleteModal').classList.remove('open');
   deleteTarget = null;
+}
+
+function openClearDayModal(){
+  closeSettingsDrawer();
+  document.getElementById('clearDayModal').classList.add('open');
+}
+
+function closeClearDayModal(){
+  document.getElementById('clearDayModal').classList.remove('open');
+}
+
+function handleClearDayModalMask(evt){
+  if(evt.target && evt.target.id === 'clearDayModal') closeClearDayModal();
+}
+
+function confirmClearDaySchedule(){
+  var char = getActiveChar();
+  if(!char){
+    closeClearDayModal();
+    return;
+  }
+  var charState = getActiveCharState();
+  charState.events = (Array.isArray(charState.events) ? charState.events : []).filter(function(item){
+    return String(item && item.date || '') !== String(selectedDateKey || '');
+  });
+  charState.todos = (Array.isArray(charState.todos) ? charState.todos : []).filter(function(item){
+    return String(item && item.date || '') !== String(selectedDateKey || '');
+  });
+  if(charState.charDays && charState.charDays[selectedDateKey]){
+    delete charState.charDays[selectedDateKey];
+  }
+  scheduleState = ScheduleShared.setCharState(scheduleState, char.id, charState);
+  persistState().then(function(){
+    closeClearDayModal();
+    renderAll();
+    toast('这一天已经清空了');
+  });
 }
 
 function handleDeleteModalMask(evt){
