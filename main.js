@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-02T19:18:00Z';
+const APP_BUILD_ID = '2026-04-02T19:28:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1904,12 +1904,18 @@ async function appendScheduleSystemNotice(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
   if(!charId) return false;
-  var accountId = getActiveAccountId();
-  if(!accountId) return false;
-  var history = await readBackgroundChatHistory(charId, accountId);
   var now = Date.now();
   var text = String(payload.text || '').trim();
   if(!text) return false;
+  var accountIds = [];
+  function pushAccountId(id){
+    id = String(id || '').trim();
+    if(!id) return;
+    if(accountIds.indexOf(id) === -1) accountIds.push(id);
+  }
+  pushAccountId(getActiveAccountId());
+  pushAccountId(getDefaultAccountId());
+  if(!accountIds.length) return false;
   var entry = {
     id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
     role: 'system',
@@ -1919,8 +1925,15 @@ async function appendScheduleSystemNotice(payload){
     sentAt: now,
     readAt: null
   };
-  history.push(entry);
-  await writeBackgroundChatHistory(charId, accountId, history);
+  var wrote = false;
+  for(var i = 0; i < accountIds.length; i++){
+    var accountId = accountIds[i];
+    var history = await readBackgroundChatHistory(charId, accountId);
+    history.push(Object.assign({}, entry));
+    await writeBackgroundChatHistory(charId, accountId, history);
+    wrote = true;
+  }
+  if(!wrote) return false;
   renderHomeDockBadges();
   try{
     var f = document.getElementById('app-iframe');
