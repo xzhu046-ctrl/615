@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-04T00:18:00Z';
+const APP_BUILD_ID = '2026-04-04T10:48:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1571,6 +1571,42 @@ function shouldSuppressChatNotification(charId){
   return !!(foreground && String(foreground.id || '') === String(charId || ''));
 }
 
+var SHELL_NOTIFY_ENABLED_KEY = 'shell_notify_enabled';
+var SHELL_NOTIFY_APP_NAME_KEY = 'shell_notify_app_name';
+var SHELL_NOTIFY_VIBRATION_ENABLED_KEY = 'shell_notify_vibration_enabled';
+var SHELL_NOTIFY_VIBRATION_PATTERN_KEY = 'shell_notify_vibration_pattern';
+var SHELL_NOTIFY_NOTIFY_IN_CHAT_KEY = 'shell_notify_in_chat_page';
+var SHELL_NOTIFY_DISABLE_INTERNAL_KEY = 'shell_notify_disable_internal';
+
+function getShellNotificationSettings(){
+  var enabled = localStorage.getItem(SHELL_NOTIFY_ENABLED_KEY);
+  var vibrationEnabled = localStorage.getItem(SHELL_NOTIFY_VIBRATION_ENABLED_KEY);
+  return {
+    enabled: enabled == null ? true : enabled === '1',
+    appName: String(localStorage.getItem(SHELL_NOTIFY_APP_NAME_KEY) || 'EPhone').trim() || 'EPhone',
+    vibrationEnabled: vibrationEnabled == null ? true : vibrationEnabled === '1',
+    vibrationPattern: String(localStorage.getItem(SHELL_NOTIFY_VIBRATION_PATTERN_KEY) || 'medium').trim() || 'medium',
+    notifyInChat: localStorage.getItem(SHELL_NOTIFY_NOTIFY_IN_CHAT_KEY) === '1',
+    disableInternal: localStorage.getItem(SHELL_NOTIFY_DISABLE_INTERNAL_KEY) === '1'
+  };
+}
+
+function getShellNotificationVibration(pattern){
+  var key = String(pattern || '').trim();
+  if(key === 'short') return [160];
+  if(key === 'long') return [220, 90, 220, 90, 220];
+  return [180, 70, 180];
+}
+
+function getShellNotificationPermissionInfo(){
+  var permission = (typeof Notification !== 'undefined' && Notification && Notification.permission) ? Notification.permission : 'unsupported';
+  return {
+    permission: permission,
+    granted: permission === 'granted',
+    supported: permission !== 'unsupported'
+  };
+}
+
 async function ensureShellNotificationPermission(){
   try{
     if(typeof window === 'undefined' || !('Notification' in window)) return false;
@@ -1585,11 +1621,13 @@ async function ensureShellNotificationPermission(){
 async function showSystemShellNotification(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   try{
+    var settings = getShellNotificationSettings();
+    if(!settings.enabled) return false;
     if(typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return false;
     if(!(await ensureShellNotificationPermission())) return false;
     var reg = await navigator.serviceWorker.ready.catch(function(){ return null; });
     if(!reg || typeof reg.showNotification !== 'function') return false;
-    var title = String(payload.name || '角色').trim() || '角色';
+    var title = String(payload.name || settings.appName || '角色').trim() || (settings.appName || 'EPhone');
     var text = String(payload.text || '').trim() || '有新动静';
     var app = String(payload.app || 'chat').trim() || 'chat';
     var charId = String(payload.charId || '').trim();
@@ -1601,7 +1639,7 @@ async function showSystemShellNotification(payload){
       tag: 'shell-' + app + '-' + (charId || 'generic'),
       requireInteraction: true,
       renotify: true,
-      vibrate: [180, 70, 180],
+      vibrate: settings.vibrationEnabled ? getShellNotificationVibration(settings.vibrationPattern) : [],
       data: {
         type: 'shell-app-notify',
         app: app,
@@ -1622,21 +1660,25 @@ function maybeShowShellActivityNotification(payload){
   var kind = String(payload.kind || '').trim();
   var charId = String(payload.charId || '').trim();
   var text = String(payload.text || '').trim();
+  var settings = getShellNotificationSettings();
+  if(!settings.enabled) return;
   if(!kind || !text) return;
-  if(kind === 'chat' && shouldSuppressChatNotification(charId)) return;
+  if(kind === 'chat' && shouldSuppressChatNotification(charId) && !settings.notifyInChat) return;
   if(kind === 'schedule' && currentApp === 'schedule') return;
   if(kind === 'moments' && currentApp === 'qq') return;
   var chars = getStoredCharactersSnapshot();
   var character = chars.find(function(item){ return item && String(item.id || '') === charId; }) || null;
   var name = String((character && (character.nickname || character.name)) || payload.name || '角色').trim() || '角色';
   var avatar = getCharacterAvatarForBg(character || { id: charId }) || '';
-  showAppNotificationCard({
-    app: kind === 'moments' ? 'moments' : (kind === 'schedule' ? 'schedule' : 'chat'),
-    charId: charId,
-    name: name,
-    avatar: avatar,
-    text: text
-  });
+  if(!settings.disableInternal){
+    showAppNotificationCard({
+      app: kind === 'moments' ? 'moments' : (kind === 'schedule' ? 'schedule' : 'chat'),
+      charId: charId,
+      name: name,
+      avatar: avatar,
+      text: text
+    });
+  }
   showSystemShellNotification({
     app: kind === 'moments' ? 'moments' : (kind === 'schedule' ? 'schedule' : 'chat'),
     charId: charId,
@@ -1644,6 +1686,33 @@ function maybeShowShellActivityNotification(payload){
     avatar: avatar,
     text: text
   }).catch(function(){});
+}
+
+async function testShellNotification(kind){
+  var type = String(kind || 'chat').trim() || 'chat';
+  maybeShowShellActivityNotification({
+    kind: type === 'moments' ? 'moments' : (type === 'schedule' ? 'schedule' : 'chat'),
+    charId: String((getCurrentForegroundCharacter() && getCurrentForegroundCharacter().id) || (persistedShellActiveCharacter && persistedShellActiveCharacter.id) || ''),
+    name: '测试角色',
+    text: type === 'schedule' ? '刚刚改了一条日程' : (type === 'moments' ? '刚刚发了一条朋友圈' : '给你发来了一条新消息')
+  });
+}
+
+async function debugShellNotification(){
+  var settings = getShellNotificationSettings();
+  var permission = getShellNotificationPermissionInfo();
+  return [
+    '[shell-notify-debug]',
+    'enabled=' + settings.enabled,
+    'appName=' + settings.appName,
+    'vibrationEnabled=' + settings.vibrationEnabled,
+    'vibrationPattern=' + settings.vibrationPattern,
+    'notifyInChat=' + settings.notifyInChat,
+    'disableInternal=' + settings.disableInternal,
+    'permission=' + permission.permission,
+    'currentApp=' + String(currentApp || ''),
+    'foregroundChar=' + String((getCurrentForegroundCharacter() && getCurrentForegroundCharacter().id) || '')
+  ].join('\n');
 }
 
 async function appendBackgroundAiMessage(character, accountId, content){

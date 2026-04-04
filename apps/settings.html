@@ -287,6 +287,72 @@ textarea{resize:none}
     </div>
   </div>
 
+  <div class="card">
+    <div class="card-header">
+      <h3>系统通知</h3>
+      <span style="font-size:11px;color:#666;font-weight:800">调试 / 震动</span>
+    </div>
+    <div class="card-body" style="gap:12px">
+      <div class="switch-row">
+        <div class="switch-meta">
+          <label style="margin:0">启用系统通知</label>
+          <div class="hint">照常保留页内小卡片，也会尝试发真的系统通知。</div>
+        </div>
+        <button class="switch" id="sys-notify-switch" type="button" onclick="toggleShellNotifySetting('enabled')"></button>
+      </div>
+      <div class="settings-item">
+        <label style="margin:0;text-transform:none;letter-spacing:0;color:#222;font-size:13px;font-weight:800">权限状态</label>
+        <div class="settings-right">
+          <span id="sys-notify-permission" style="font-size:12px;color:#666;font-weight:800">未检测</span>
+          <button class="settings-mini-btn" type="button" onclick="requestShellNotificationPermissionFromSettings()">授权</button>
+        </div>
+      </div>
+      <div class="settings-item">
+        <label style="margin:0;text-transform:none;letter-spacing:0;color:#222;font-size:13px;font-weight:800">显示名称</label>
+        <div class="settings-right" style="flex:1;min-width:0">
+          <input type="text" id="sys-notify-app-name" placeholder="EPhone" maxlength="20" oninput="markDirty()" style="max-width:180px">
+        </div>
+      </div>
+      <div class="switch-row">
+        <div class="switch-meta">
+          <label style="margin:0">聊天页内也通知</label>
+          <div class="hint">打开后，即使你正在聊天页，也会照样弹系统通知。</div>
+        </div>
+        <button class="switch" id="sys-notify-in-chat-switch" type="button" onclick="toggleShellNotifySetting('notifyInChat')"></button>
+      </div>
+      <div class="switch-row">
+        <div class="switch-meta">
+          <label style="margin:0">关闭页内小卡片</label>
+          <div class="hint">只保留真的系统通知，不弹 app 内黑白小卡片。</div>
+        </div>
+        <button class="switch" id="sys-notify-disable-internal-switch" type="button" onclick="toggleShellNotifySetting('disableInternal')"></button>
+      </div>
+      <div class="switch-row">
+        <div class="switch-meta">
+          <label style="margin:0">消息震动</label>
+          <div class="hint">模仿老师那套，系统通知会带震动节奏。</div>
+        </div>
+        <button class="switch" id="sys-notify-vibration-switch" type="button" onclick="toggleShellNotifySetting('vibrationEnabled')"></button>
+      </div>
+      <div class="settings-item">
+        <label style="margin:0;text-transform:none;letter-spacing:0;color:#222;font-size:13px;font-weight:800">震动模式</label>
+        <div class="settings-right">
+          <select id="sys-notify-vibration-pattern" onchange="markDirty()" style="max-width:168px">
+            <option value="short">短震（1次）</option>
+            <option value="medium">中震（2次）</option>
+            <option value="long">长震（3次）</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-white btn-full" type="button" onclick="sendShellNotificationTest('chat')">测试聊天通知</button>
+        <button class="btn btn-white btn-full" type="button" onclick="sendShellNotificationTest('schedule')">测试日程通知</button>
+      </div>
+      <button class="btn btn-black btn-full" type="button" onclick="debugShellNotificationFromSettings()">通知调试</button>
+      <div class="debug-box" id="sys-notify-debug-box" style="display:none;min-height:88px;max-height:220px"></div>
+    </div>
+  </div>
+
   <!-- Reset / Format -->
   <div class="card">
     <div class="card-header">
@@ -386,6 +452,14 @@ var lastImportRollbackPayload = null;
 var pendingImportPayload = null;
 var pendingImportInput = null;
 var lastSettingsRemoteBuild = '';
+var shellNotifySettingsState = {
+  enabled: true,
+  appName: 'EPhone',
+  vibrationEnabled: true,
+  vibrationPattern: 'medium',
+  notifyInChat: false,
+  disableInternal: false
+};
 
 function init() {
   importOverlayLocked = false;
@@ -412,6 +486,7 @@ function init() {
   var aiBgEnabled = localStorage.getItem(AI_BG_ENABLED_KEY) === '1';
   document.getElementById('ai-bg-switch').classList.toggle('on', aiBgEnabled);
   document.getElementById('ai-bg-interval').value = localStorage.getItem(AI_BG_INTERVAL_KEY) || '6';
+  loadShellNotificationSettings();
   readCurrentBuildId().then(function(currentBuild){
     updateSettingsUpdateStatus(currentBuild, '', '等待检查');
   });
@@ -591,6 +666,106 @@ function showToast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(function(){ t.classList.remove('show'); }, 2200);
+}
+
+function getParentShellNotificationSettings(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.getShellNotificationSettings === 'function'){
+      return window.parent.getShellNotificationSettings();
+    }
+  }catch(err){}
+  return null;
+}
+
+function getParentShellNotificationPermission(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.getShellNotificationPermissionInfo === 'function'){
+      return window.parent.getShellNotificationPermissionInfo();
+    }
+  }catch(err){}
+  return { permission: ('Notification' in window ? Notification.permission : 'unsupported') };
+}
+
+function renderShellNotificationSettings(){
+  document.getElementById('sys-notify-switch').classList.toggle('on', !!shellNotifySettingsState.enabled);
+  document.getElementById('sys-notify-in-chat-switch').classList.toggle('on', !!shellNotifySettingsState.notifyInChat);
+  document.getElementById('sys-notify-disable-internal-switch').classList.toggle('on', !!shellNotifySettingsState.disableInternal);
+  document.getElementById('sys-notify-vibration-switch').classList.toggle('on', !!shellNotifySettingsState.vibrationEnabled);
+  document.getElementById('sys-notify-app-name').value = shellNotifySettingsState.appName || 'EPhone';
+  setSelectValue('sys-notify-vibration-pattern', shellNotifySettingsState.vibrationPattern || 'medium');
+  var permission = getParentShellNotificationPermission();
+  var map = { granted:'已允许', denied:'已拒绝', default:'未请求', unsupported:'不支持' };
+  document.getElementById('sys-notify-permission').textContent = map[permission.permission] || permission.permission || '未检测';
+}
+
+function loadShellNotificationSettings(){
+  var fromParent = getParentShellNotificationSettings();
+  if(fromParent && typeof fromParent === 'object'){
+    shellNotifySettingsState = {
+      enabled: !!fromParent.enabled,
+      appName: String(fromParent.appName || 'EPhone'),
+      vibrationEnabled: !!fromParent.vibrationEnabled,
+      vibrationPattern: String(fromParent.vibrationPattern || 'medium'),
+      notifyInChat: !!fromParent.notifyInChat,
+      disableInternal: !!fromParent.disableInternal
+    };
+  }else{
+    shellNotifySettingsState = {
+      enabled: localStorage.getItem('shell_notify_enabled') == null ? true : localStorage.getItem('shell_notify_enabled') === '1',
+      appName: String(localStorage.getItem('shell_notify_app_name') || 'EPhone'),
+      vibrationEnabled: localStorage.getItem('shell_notify_vibration_enabled') == null ? true : localStorage.getItem('shell_notify_vibration_enabled') === '1',
+      vibrationPattern: String(localStorage.getItem('shell_notify_vibration_pattern') || 'medium'),
+      notifyInChat: localStorage.getItem('shell_notify_in_chat_page') === '1',
+      disableInternal: localStorage.getItem('shell_notify_disable_internal') === '1'
+    };
+  }
+  renderShellNotificationSettings();
+}
+
+function toggleShellNotifySetting(key){
+  shellNotifySettingsState[key] = !shellNotifySettingsState[key];
+  renderShellNotificationSettings();
+  markDirty();
+}
+
+async function requestShellNotificationPermissionFromSettings(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.ensureShellNotificationPermission === 'function'){
+      await window.parent.ensureShellNotificationPermission();
+    }else if('Notification' in window){
+      await Notification.requestPermission();
+    }
+  }catch(err){}
+  renderShellNotificationSettings();
+}
+
+async function sendShellNotificationTest(kind){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.testShellNotification === 'function'){
+      await window.parent.testShellNotification(kind);
+      showToast('测试通知已发送');
+      return;
+    }
+  }catch(err){
+    console.error(err);
+  }
+  showToast('测试通知发送失败');
+}
+
+async function debugShellNotificationFromSettings(){
+  var box = document.getElementById('sys-notify-debug-box');
+  if(!box) return;
+  try{
+    var text = '';
+    if(window.parent && window.parent !== window && typeof window.parent.debugShellNotification === 'function'){
+      text = await window.parent.debugShellNotification();
+    }
+    box.style.display = 'block';
+    box.textContent = String(text || '[shell-notify-debug]\n(empty)');
+  }catch(err){
+    box.style.display = 'block';
+    box.textContent = '[shell-notify-debug]\n' + String(err && err.message || err || 'unknown error');
+  }
 }
 
 function escapeHtml(value){
@@ -1567,6 +1742,14 @@ function saveAll() {
     if(Number.isNaN(aiBgInterval)) aiBgInterval = 6;
     aiBgInterval = Math.max(1, Math.min(120, aiBgInterval));
     localStorage.setItem(AI_BG_INTERVAL_KEY, String(aiBgInterval));
+    shellNotifySettingsState.appName = String(document.getElementById('sys-notify-app-name').value || '').trim() || 'EPhone';
+    shellNotifySettingsState.vibrationPattern = String(document.getElementById('sys-notify-vibration-pattern').value || 'medium').trim() || 'medium';
+    localStorage.setItem('shell_notify_enabled', shellNotifySettingsState.enabled ? '1' : '0');
+    localStorage.setItem('shell_notify_app_name', shellNotifySettingsState.appName);
+    localStorage.setItem('shell_notify_vibration_enabled', shellNotifySettingsState.vibrationEnabled ? '1' : '0');
+    localStorage.setItem('shell_notify_vibration_pattern', shellNotifySettingsState.vibrationPattern);
+    localStorage.setItem('shell_notify_in_chat_page', shellNotifySettingsState.notifyInChat ? '1' : '0');
+    localStorage.setItem('shell_notify_disable_internal', shellNotifySettingsState.disableInternal ? '1' : '0');
     dirty = false;
     showToast('设置已保存');
     try{
@@ -1575,7 +1758,8 @@ function saveAll() {
         payload: {
           provider: curProvider,
           aiBgEnabled: document.getElementById('ai-bg-switch').classList.contains('on'),
-          aiBgIntervalMin: aiBgInterval
+          aiBgIntervalMin: aiBgInterval,
+          shellNotifySettings: Object.assign({}, shellNotifySettingsState)
         }
       }, '*');
     }catch(err){}
