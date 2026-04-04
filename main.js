@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T06:34:00Z';
+const APP_BUILD_ID = '2026-04-03T06:58:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1565,6 +1565,34 @@ function getCharacterAvatarForBg(character){
   return '';
 }
 
+function shouldSuppressChatNotification(charId){
+  if(currentApp !== 'chat') return false;
+  var foreground = getCurrentForegroundCharacter();
+  return !!(foreground && String(foreground.id || '') === String(charId || ''));
+}
+
+function maybeShowShellActivityNotification(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var kind = String(payload.kind || '').trim();
+  var charId = String(payload.charId || '').trim();
+  var text = String(payload.text || '').trim();
+  if(!kind || !text) return;
+  if(kind === 'chat' && shouldSuppressChatNotification(charId)) return;
+  if(kind === 'schedule' && currentApp === 'schedule') return;
+  if(kind === 'moments' && currentApp === 'qq') return;
+  var chars = getStoredCharactersSnapshot();
+  var character = chars.find(function(item){ return item && String(item.id || '') === charId; }) || null;
+  var name = String((character && (character.nickname || character.name)) || payload.name || '角色').trim() || '角色';
+  var avatar = getCharacterAvatarForBg(character || { id: charId }) || '';
+  showAppNotificationCard({
+    app: kind === 'moments' ? 'moments' : (kind === 'schedule' ? 'schedule' : 'chat'),
+    charId: charId,
+    name: name,
+    avatar: avatar,
+    text: text
+  });
+}
+
 async function appendBackgroundAiMessage(character, accountId, content){
   if(!character || !character.id) return false;
   if(!isCharBgEnabled(character.id, accountId || getDefaultAccountId())) return false;
@@ -1588,6 +1616,11 @@ async function appendBackgroundAiMessage(character, accountId, content){
       f.contentWindow.postMessage({ type:'BACKGROUND_AI_MESSAGE', payload:{ charId: character.id, entry: entry } }, '*');
     }
   }catch(e){}
+  maybeShowShellActivityNotification({
+    kind:'chat',
+    charId: character.id,
+    text: String(entry.content || '').trim()
+  });
   return true;
 }
 
@@ -1616,6 +1649,11 @@ async function appendBackgroundMoment(character, accountId, action, content, ima
   });
   await writeBackgroundMoments(accountId, posts);
   renderHomeDockBadges();
+  maybeShowShellActivityNotification({
+    kind:'moments',
+    charId: character.id,
+    text: action === 'dynamic' ? '发了一条新动态' : '发了一条新说说'
+  });
   return true;
 }
 
@@ -1978,6 +2016,92 @@ function hasInvalidDistantInteraction(item){
   return /(住一起|同住|同居|在她家|在他家|在你家|在我家|一起吃(?:饭|午饭|晚饭)|一起散步|面对面|顺路接|送她回家|送他回家|见面了|已经见到|当面|楼下等|一起通勤)/.test(text);
 }
 
+function getSchedulePresenceLocaleGuard(character){
+  if(!(window.PresenceShared && character && character.id && typeof window.PresenceShared.getPresenceSnapshot === 'function')) return null;
+  try{
+    var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
+    if(!(snapshot && snapshot.user && snapshot.char)) return null;
+    var allowed = [];
+    function pushToken(value){
+      value = String(value || '').trim();
+      if(!value || value.length < 2) return;
+      if(allowed.indexOf(value) === -1) allowed.push(value);
+    }
+    pushToken(snapshot.user.label);
+    pushToken(snapshot.user.weatherName);
+    try{
+      if(snapshot.user.cityId && typeof window.PresenceShared.getCity === 'function'){
+        var userCity = window.PresenceShared.getCity(snapshot.user.cityId);
+        pushToken(userCity && userCity.name);
+        pushToken(userCity && userCity.country);
+      }
+    }catch(err){}
+    pushToken(snapshot.char.city && snapshot.char.city.name);
+    pushToken(snapshot.char.city && snapshot.char.city.country);
+    pushToken(snapshot.char.placeLabel);
+    return { allowed: allowed };
+  }catch(err){
+    return null;
+  }
+}
+
+function textHasForeignLocaleDrift(text, guard){
+  text = String(text || '').trim();
+  guard = guard && typeof guard === 'object' ? guard : null;
+  if(!text || !(guard && Array.isArray(guard.allowed) && guard.allowed.length)) return false;
+  var allowed = guard.allowed;
+  var watched = [
+    '中国','Canada','加拿大','USA','美国','Japan','日本','Tokyo','东京','Beijing','北京','Shanghai','上海',
+    'Seoul','首尔','Korea','韩国','Edmonton','埃德蒙顿','Calgary','卡尔加里','Vancouver','温哥华','Toronto','多伦多'
+  ];
+  var mentioned = watched.filter(function(token){
+    return token && text.indexOf(token) !== -1;
+  });
+  if(!mentioned.length) return false;
+  return mentioned.some(function(token){
+    return !allowed.some(function(ok){
+      ok = String(ok || '').trim();
+      return ok && (ok.indexOf(token) !== -1 || token.indexOf(ok) !== -1);
+    });
+  });
+}
+
+function scheduleDayPlanNeedsRepair(result, character){
+  var guard = getSchedulePresenceLocaleGuard(character);
+  var timeline = Array.isArray(result && result.timeline) ? result.timeline : [];
+  var todos = Array.isArray(result && result.todos) ? result.todos : [];
+  return timeline.some(function(item){
+    var text = [item && item.title, item && item.note, item && item.location].filter(Boolean).join(' ');
+    return (!!guard && textHasForeignLocaleDrift(text, guard)) || (!!isScheduleFarDistance(character) && hasInvalidDistantInteraction(item));
+  }) || todos.some(function(item){
+    var text = [item && item.text, item && item.note].filter(Boolean).join(' ');
+    return !!guard && textHasForeignLocaleDrift(text, guard);
+  });
+}
+
+async function repairGeneratedScheduleDayPlan(cfg, userPrompt, result, character){
+  var guard = getSchedulePresenceLocaleGuard(character);
+  var sysPrompt = [
+    '你正在修正一份角色当日日程 JSON。',
+    '只返回严格 JSON，不要 markdown，不要解释。',
+    '保持原来的人设和大方向，只修正地理位置、距离感、互动方式。',
+    '地点、寄送对象、互动方式必须服从现实地理位置设定；不要无故跳到别的国家城市。',
+    '如果双方现实很远，严禁写成已经见面、一起吃饭、在对方家里、接送、面对面互动。',
+    guard && guard.allowed && guard.allowed.length ? ('这次允许出现的地点语境只有：' + guard.allowed.join('、') + '。') : ''
+  ].filter(Boolean).join('\n');
+  var repairPrompt = [
+    userPrompt,
+    '下面是需要修正的结果：',
+    JSON.stringify(result || {})
+  ].join('\n\n');
+  try{
+    var raw = await callAiForBackground(cfg, sysPrompt, repairPrompt);
+    return parseScheduleDayResult(raw, { dateKey: result && result.date });
+  }catch(err){
+    return result;
+  }
+}
+
 function needsUserDayPlanPolish(result, guard){
   var events = Array.isArray(result && result.events) ? result.events : [];
   if(!events.length) return true;
@@ -2101,6 +2225,9 @@ async function generateScheduleDayPlan(payload){
   ].filter(Boolean).join('\n\n');
   var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
   var result = parseScheduleDayResult(raw, payload);
+  if(scheduleDayPlanNeedsRepair(result, character)){
+    result = await repairGeneratedScheduleDayPlan(cfg, userPrompt, result, character);
+  }
   if(!result.timeline.length) throw new Error('没有生成出有效时间轴');
   if(!result.diary) result.diary = '今天像被轻轻摁住的一页纸，直到最后还是有一点在想你。';
   return result;
@@ -2190,6 +2317,11 @@ async function appendScheduleSystemNotice(payload){
       f.contentWindow.postMessage({ type:'BACKGROUND_AI_MESSAGE', payload:{ charId: charId, entry: entry } }, '*');
     }
   }catch(err){}
+  maybeShowShellActivityNotification({
+    kind:'chat',
+    charId: charId,
+    text: text
+  });
   return true;
 }
 
@@ -2232,6 +2364,13 @@ async function appendScheduleChatMessage(payload){
       f.contentWindow.postMessage({ type:'BACKGROUND_AI_MESSAGE', payload:{ charId: charId, entry: entry } }, '*');
     }
   }catch(err){}
+  if(role !== 'user'){
+    maybeShowShellActivityNotification({
+      kind:'chat',
+      charId: charId,
+      text: text
+    });
+  }
   return true;
 }
 
@@ -2634,6 +2773,49 @@ function summarizeScheduleItemsForPrompt(list, owner){
   }).filter(Boolean).slice(0, 18).join('\n- ');
 }
 
+function inferFallbackSchedulePlanFromUserText(userText){
+  var text = String(userText || '').replace(/\s+/g, ' ').trim();
+  if(!text) return null;
+  var normalized = text
+    .replace(/^[好嗯哦啊呀诶欸，。！？!?\s]+/, '')
+    .replace(/(记得|别忘了|待会|一会儿|一会|等会|等下|回头|稍后|抽空|顺手|帮我|麻烦你|记一下|你去|你先|你得)/g, '')
+    .replace(/^[你你先请麻烦]+/, '')
+    .trim();
+  if(!normalized) return null;
+  if(/(你|麻烦你|帮我|记得|别忘了|待会|一会|等会|等下|顺手|抽空)/.test(text)){
+    return {
+      charTodoAdd: {
+        text: normalized.slice(0, 24),
+        note: '这是聊天里顺手答应下来的事。'
+      },
+      chatContext: '我顺手把刚刚答应你的事记进待办里了。'
+    };
+  }
+  if(/(我|我要|我得|我会|我准备|我今天|我待会|我一会|我等会)/.test(text)){
+    return {
+      userTodoAdd: {
+        text: normalized.slice(0, 24),
+        note: '这是用户在聊天里提到、值得记下来的安排。'
+      },
+      chatContext: '我顺手记下了你刚刚提到的那件事。'
+    };
+  }
+  return null;
+}
+
+function schedulePlanHasActions(plan){
+  if(!(plan && typeof plan === 'object')) return false;
+  return !!(
+    (plan.userTodoAdd && String(plan.userTodoAdd.text || '').trim()) ||
+    (plan.userEventAdd && String(plan.userEventAdd.title || '').trim()) ||
+    plan.completeCharTodo ||
+    (plan.charTodoAdd && String(plan.charTodoAdd.text || '').trim()) ||
+    plan.completeCharTimeline ||
+    (plan.charTimelineAdd && String(plan.charTimelineAdd.title || '').trim()) ||
+    String(plan.charTimelineComment || '').trim()
+  );
+}
+
 async function generateScheduleChatSyncPlan(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
@@ -2695,6 +2877,7 @@ async function syncScheduleActivityFromChat(payload){
   var character = chars.find(function(item){ return item && String(item.id || '').trim() === charId; }) || null;
   if(!character) return { changed:false, messages:0 };
   var localClock = buildScheduleLocalNowContextForCharacter(character, Date.now());
+  var localeGuard = getSchedulePresenceLocaleGuard(character);
   var dateKey = String(localClock.user && localClock.user.dateKey || shared.toDateKey(new Date()));
   var state = shared.normalizeState(await shared.loadState());
   var charState = shared.getCharState(state, charId);
@@ -2771,6 +2954,9 @@ async function syncScheduleActivityFromChat(payload){
     charTimeline: day.timeline,
     charTodos: day.todos
   });
+  if(!schedulePlanHasActions(plan)){
+    plan = inferFallbackSchedulePlanFromUserText(userText) || plan || null;
+  }
 
   if(plan && plan.userTodoAdd && String(plan.userTodoAdd.text || '').trim()){
     charState.todos = Array.isArray(charState.todos) ? charState.todos.slice() : [];
@@ -2785,6 +2971,8 @@ async function syncScheduleActivityFromChat(payload){
     actionNotes.push('我顺手帮你记了一条待办。');
   }
   if(plan && plan.userEventAdd && String(plan.userEventAdd.title || '').trim()){
+    var userEventLocaleText = [plan.userEventAdd.title, plan.userEventAdd.note, plan.userEventAdd.location].filter(Boolean).join(' ');
+    if(!(localeGuard && textHasForeignLocaleDrift(userEventLocaleText, localeGuard))){
     charState.events = Array.isArray(charState.events) ? charState.events.slice() : [];
     charState.events.unshift(shared.normalizeEvent({
       date: dateKey,
@@ -2798,6 +2986,7 @@ async function syncScheduleActivityFromChat(payload){
     }));
     changed = true;
     actionNotes.push('我还顺手给你补了一条行程。');
+    }
   }
   if(plan && plan.completeCharTodo){
     var nextTodo = (Array.isArray(day.todos) ? day.todos : []).find(function(item){ return item && !item.done; }) || null;
@@ -2828,6 +3017,8 @@ async function syncScheduleActivityFromChat(payload){
     }
   }
   if(plan && plan.charTodoAdd && String(plan.charTodoAdd.text || '').trim()){
+    var charTodoLocaleText = [plan.charTodoAdd.text, plan.charTodoAdd.note].filter(Boolean).join(' ');
+    if(!(localeGuard && textHasForeignLocaleDrift(charTodoLocaleText, localeGuard))){
     day.todos = Array.isArray(day.todos) ? day.todos.slice() : [];
     day.todos.unshift({
       id: shared.createId('chartodo'),
@@ -2839,8 +3030,11 @@ async function syncScheduleActivityFromChat(payload){
     });
     changed = true;
     actionNotes.push('我给自己补了一条待办。');
+    }
   }
   if(plan && plan.charTimelineAdd && String(plan.charTimelineAdd.title || '').trim()){
+    var charTimelineLocaleText = [plan.charTimelineAdd.title, plan.charTimelineAdd.note, plan.charTimelineAdd.location].filter(Boolean).join(' ');
+    if(!(localeGuard && textHasForeignLocaleDrift(charTimelineLocaleText, localeGuard))){
     day.timeline = Array.isArray(day.timeline) ? day.timeline.slice() : [];
     day.timeline.push({
       id: shared.createId('timeline'),
@@ -2862,6 +3056,7 @@ async function syncScheduleActivityFromChat(payload){
     });
     changed = true;
     actionNotes.push('我把今天的安排临时改了一下。');
+    }
   }
   if(plan && String(plan.charTimelineComment || '').trim()){
     var timelineTarget = (Array.isArray(day.timeline) ? day.timeline : []).find(function(item){
@@ -2890,6 +3085,11 @@ async function syncScheduleActivityFromChat(payload){
     charState.charDays[dateKey] = shared.normalizeCharDay(day, dateKey);
     state = shared.setCharState(state, charId, charState);
     await shared.saveState(state);
+    maybeShowShellActivityNotification({
+      kind:'schedule',
+      charId: charId,
+      text: actionNotes.slice(0, 2).join(' ') || '悄悄改了今日日程'
+    });
   }
 
   var burstTargets = pendingUserTargets.map(function(ref){
@@ -2978,6 +3178,79 @@ function showHomeToast(text){
   t.textContent = text || '更换成功';
   t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+let appNotifyTimer = 0;
+let appNotifyPayload = null;
+let appNotifyQueue = [];
+let appNotifyPointerStartY = 0;
+let appNotifyPointerDragging = false;
+
+function dismissAppNotification(){
+  var shell = document.getElementById('app-notify-shell');
+  if(!shell) return;
+  shell.classList.remove('show');
+  if(appNotifyTimer){
+    clearTimeout(appNotifyTimer);
+    appNotifyTimer = 0;
+  }
+  setTimeout(function(){
+    if(!shell.classList.contains('show')){
+      shell.hidden = true;
+      if(appNotifyQueue.length){
+        showAppNotificationCard(appNotifyQueue.shift());
+      }
+    }
+  }, 220);
+}
+
+function openAppNotificationTarget(){
+  var payload = appNotifyPayload || {};
+  dismissAppNotification();
+  if(payload.app === 'schedule'){
+    openApp('schedule');
+    return;
+  }
+  if(payload.app === 'moments'){
+    openApp('qq');
+    return;
+  }
+  if(payload.app === 'chat' && payload.charId){
+    var chars = getStoredCharactersSnapshot();
+    var match = chars.find(function(item){ return item && String(item.id || '') === String(payload.charId || ''); }) || { id: payload.charId, name: payload.name || '角色' };
+    const slim = persistShellActiveCharacter(match) || slimChar(match);
+    try{ localStorage.setItem('pendingChatChar', JSON.stringify(slim)); }catch(err){}
+    try{ localStorage.setItem('pendingChatCharId', String((slim && slim.id) || '')); }catch(err){}
+    pendingOpenChatCharId = String((slim && slim.id) || '').trim();
+    pendingOpenChatNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+    replaceApp('chat');
+  }
+}
+
+function showAppNotificationCard(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var shell = document.getElementById('app-notify-shell');
+  var card = document.getElementById('app-notify-card');
+  var avatar = document.getElementById('app-notify-avatar');
+  var name = document.getElementById('app-notify-name');
+  var body = document.getElementById('app-notify-body');
+  if(!shell || !card || !avatar || !name || !body) return;
+  var title = String(payload.name || '角色').trim() || '角色';
+  var text = String(payload.text || '').trim() || '有新动静';
+  var avatarSrc = String(payload.avatar || '').trim();
+  if(shell.classList.contains('show')){
+    appNotifyQueue.push(payload);
+    return;
+  }
+  appNotifyPayload = payload;
+  name.textContent = title;
+  body.textContent = text;
+  avatar.style.backgroundImage = avatarSrc ? ('url("' + avatarSrc.replace(/"/g, '&quot;') + '")') : '';
+  avatar.textContent = avatarSrc ? '' : String(title || '角').slice(0, 1);
+  shell.hidden = false;
+  requestAnimationFrame(function(){ shell.classList.add('show'); });
+  if(appNotifyTimer) clearTimeout(appNotifyTimer);
+  appNotifyTimer = setTimeout(dismissAppNotification, 5200);
 }
 
 function getCharNoteText(){
@@ -6522,6 +6795,34 @@ window.addEventListener('load', ()=>{
     frame.addEventListener('load', function(){
       applyIframeSafeAreaOverrides();
       setTimeout(applyIframeSafeAreaOverrides, 120);
+    });
+  }
+  var notifyCard = document.getElementById('app-notify-card');
+  if(notifyCard){
+    notifyCard.addEventListener('click', function(evt){
+      if(appNotifyPointerDragging) return;
+      evt.preventDefault();
+      openAppNotificationTarget();
+    });
+    notifyCard.addEventListener('pointerdown', function(evt){
+      appNotifyPointerStartY = evt.clientY;
+      appNotifyPointerDragging = false;
+    });
+    notifyCard.addEventListener('pointermove', function(evt){
+      if(appNotifyPointerStartY && evt.clientY < appNotifyPointerStartY - 26){
+        appNotifyPointerDragging = true;
+      }
+    });
+    notifyCard.addEventListener('pointerup', function(evt){
+      if(appNotifyPointerDragging && evt.clientY < appNotifyPointerStartY - 26){
+        dismissAppNotification();
+      }
+      appNotifyPointerStartY = 0;
+      setTimeout(function(){ appNotifyPointerDragging = false; }, 0);
+    });
+    notifyCard.addEventListener('pointercancel', function(){
+      appNotifyPointerStartY = 0;
+      appNotifyPointerDragging = false;
     });
   }
 });
