@@ -5563,6 +5563,9 @@ function getConversationElapsedContext(){
     lines.push('用户当地时间：' + String(localClock.user.nowTime || '未知') + '（' + String(localClock.user.dateKey || '未知日期') + '）');
     lines.push('char 当地时间：' + String(localClock.char.nowTime || '未知') + '（' + String(localClock.char.dateKey || '未知日期') + '）');
   }
+  lines.push('先根据“现在的当地时间”判断上一轮话题是不是早就过去了：早餐/早饭/上午/午饭/中午/下午茶/晚饭/晚上/睡前这种时段性内容，绝不能在时间已经过去后还当成正在发生。');
+  lines.push('如果对方隔了一小时、半天、一天、两天才回，你的第一句必须先接住“为什么这么久才回、现在已经几点了、上一轮那件事早就过了”这种现实时间差，再继续聊正题。');
+  lines.push('严禁把这次回复写成上一轮的无缝下一秒。你必须明确知道：现实世界里时间已经继续往前走了。');
   if(anchorSnippet){
     lines.push('上一段你需要接住的话题是：' + anchorSnippet);
   }
@@ -15081,6 +15084,15 @@ async function deliverAiReply(text, limitOverride){
     if(!cleaned) return [];
     var inlineMixedParts = splitTextAndMemeMarkers(cleaned);
     if(inlineMixedParts.length >= 2) return inlineMixedParts;
+    var paragraphParts = cleaned.split(/\n{2,}/).map(function(p){
+      var piece = p.trim();
+      if(!piece) return null;
+      var mixed = splitTextAndMemeMarkers(piece);
+      if(mixed.length >= 2) return mixed;
+      var maybeMeme = parseMemeMarker(piece);
+      return { text: maybeMeme || piece, t: maybeMeme ? 'meme' : 'text' };
+    }).filter(Boolean).flat();
+    if(paragraphParts.length >= 2) return paragraphParts;
     var msgParts = cleaned.split(/<msg>/i).map(function(p){
       var piece = p.trim();
       var mixed = splitTextAndMemeMarkers(piece);

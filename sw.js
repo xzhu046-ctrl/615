@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-04-04T11:06:00Z';
+const CACHE_VERSION = '2026-04-04T11:24:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -112,6 +112,7 @@ self.addEventListener('message', (event)=>{
 self.addEventListener('notificationclick', (event)=>{
   var data = event && event.notification && event.notification.data ? event.notification.data : {};
   event.notification && event.notification.close && event.notification.close();
+  if(event && event.action === 'dismiss') return;
   event.waitUntil((async function(){
     var allClients = await self.clients.matchAll({ type:'window', includeUncontrolled:true }).catch(function(){ return []; });
     var targetClient = allClients && allClients[0] ? allClients[0] : null;

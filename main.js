@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-04T11:06:00Z';
+const APP_BUILD_ID = '2026-04-04T11:24:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1620,6 +1620,59 @@ function getShellNotificationVibration(pattern){
   return [180, 70, 180];
 }
 
+function getShellNotificationIcon(){
+  try{
+    return new URL('./apps/assets/海边小屋.webp', window.location.href).toString();
+  }catch(err){
+    return './apps/assets/海边小屋.webp';
+  }
+}
+
+function triggerShellNotificationVibration(pattern){
+  try{
+    if(typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return false;
+    var pulse = Array.isArray(pattern) && pattern.length ? pattern : getShellNotificationVibration(getShellNotificationSettings().vibrationPattern);
+    navigator.vibrate(pulse);
+    return true;
+  }catch(err){
+    return false;
+  }
+}
+
+async function resolveShellNotificationAvatar(charId, preferredAvatar){
+  var direct = normalizeShellAssetSrc(preferredAvatar || '');
+  if(isRenderableShellAvatarSrc(direct)) return direct;
+  var id = String(charId || '').trim();
+  if(!id) return '';
+  var candidates = [];
+  var foreground = getCurrentForegroundCharacter();
+  if(foreground && String(foreground.id || '') === id) candidates.push(foreground);
+  if(persistedShellActiveCharacter && String(persistedShellActiveCharacter.id || '') === id) candidates.push(persistedShellActiveCharacter);
+  getStoredCharactersSnapshot().forEach(function(item){
+    if(item && String(item.id || '') === id) candidates.push(item);
+  });
+  for(var idx = 0; idx < candidates.length; idx += 1){
+    var src = getCharacterAvatarForBg(candidates[idx]);
+    if(isRenderableShellAvatarSrc(src)) return src;
+  }
+  try{
+    var stored = await loadStoredAsset('char_avatar_' + id).catch(function(){ return ''; });
+    stored = normalizeShellAssetSrc(stored || '');
+    if(isRenderableShellAvatarSrc(stored)) return stored;
+  }catch(err){}
+  try{
+    var scopedKey = '';
+    try{
+      if(window.AccountManager && typeof window.AccountManager.scopedKey === 'function'){
+        scopedKey = String(window.AccountManager.scopedKey('char_avatar_' + id) || '').trim();
+      }
+    }catch(err){}
+    var mirrored = normalizeShellAssetSrc((scopedKey ? localStorage.getItem(scopedKey) : '') || localStorage.getItem('char_avatar_' + id) || '');
+    if(isRenderableShellAvatarSrc(mirrored)) return mirrored;
+  }catch(err){}
+  return '';
+}
+
 function getShellNotificationPermissionInfo(){
   var permission = (typeof Notification !== 'undefined' && Notification && Notification.permission) ? Notification.permission : 'unsupported';
   return {
@@ -1645,32 +1698,68 @@ async function showSystemShellNotification(payload){
   try{
     var settings = getShellNotificationSettings();
     if(payload.force !== true && !settings.enabled) return false;
-    if(typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return false;
     if(!(await ensureShellNotificationPermission())) return false;
-    var reg = await navigator.serviceWorker.ready.catch(function(){ return null; });
-    if(!reg || typeof reg.showNotification !== 'function') return false;
-    var title = String(payload.name || settings.appName || '角色').trim() || (settings.appName || '0615');
+    var appName = String(settings.appName || '0615').trim() || '0615';
+    var senderName = String(payload.name || '角色').trim() || '角色';
+    var title = String(payload.title || (appName + ' - ' + senderName)).trim() || appName;
     var text = String(payload.text || '').trim() || '有新动静';
     var app = String(payload.app || 'chat').trim() || 'chat';
     var charId = String(payload.charId || '').trim();
-    var avatar = String(payload.avatar || '').trim();
-    await reg.showNotification(title, {
+    var heroAvatar = normalizeShellAssetSrc(payload.avatar || '');
+    var notifyData = {
+      type: 'shell-app-notify',
+      app: app,
+      charId: charId,
+      name: senderName,
+      text: text
+    };
+    var options = {
       body: text,
-      icon: avatar || './apps/assets/海边小屋.webp',
-      badge: avatar || './apps/assets/海边小屋.webp',
-      tag: 'shell-' + app + '-' + (charId || 'generic'),
+      icon: getShellNotificationIcon(),
+      badge: getShellNotificationIcon(),
+      tag: 'shell-' + app + '-' + (charId || 'generic') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
       requireInteraction: true,
       renotify: true,
       vibrate: settings.vibrationEnabled ? getShellNotificationVibration(settings.vibrationPattern) : [],
-      data: {
-        type: 'shell-app-notify',
-        app: app,
-        charId: charId,
-        name: title,
-        text: text
+      silent: false,
+      timestamp: Date.now(),
+      actions: [
+        { action: 'open', title: '打开' },
+        { action: 'dismiss', title: '关闭' }
+      ],
+      data: notifyData
+    };
+    if(isRenderableShellAvatarSrc(heroAvatar) && String(heroAvatar).length < 120000){
+      options.image = heroAvatar;
+    }
+    var shown = false;
+    if(typeof navigator !== 'undefined' && 'serviceWorker' in navigator){
+      try{
+        var reg = await navigator.serviceWorker.ready.catch(function(){ return null; });
+        if(reg && typeof reg.showNotification === 'function'){
+          await reg.showNotification(title, options);
+          shown = true;
+        }
+      }catch(err){
+        console.warn('[shell-notify] service worker notification failed', err);
       }
-    });
-    return true;
+    }
+    if(!shown && typeof Notification !== 'undefined' && Notification.permission === 'granted'){
+      try{
+        var fallback = new Notification(title, options);
+        fallback.onclick = function(){
+          try{ openShellNotificationPayload(notifyData); }catch(err){}
+          try{ fallback.close(); }catch(err){}
+        };
+        shown = true;
+      }catch(err){
+        console.warn('[shell-notify] notification constructor failed', err);
+      }
+    }
+    if(shown && settings.vibrationEnabled){
+      triggerShellNotificationVibration(options.vibrate);
+    }
+    return shown;
   }catch(err){
     console.warn('[shell-notify] system notification failed', err);
     return false;
@@ -1691,30 +1780,36 @@ function maybeShowShellActivityNotification(payload){
   var chars = getStoredCharactersSnapshot();
   var character = chars.find(function(item){ return item && String(item.id || '') === charId; }) || null;
   var name = String((character && (character.nickname || character.name)) || payload.name || '角色').trim() || '角色';
-  var avatar = getCharacterAvatarForBg(character || { id: charId }) || '';
-  if(!settings.disableInternal){
-    showAppNotificationCard({
-      app: kind === 'moments' ? 'moments' : (kind === 'schedule' ? 'schedule' : 'chat'),
-      charId: charId,
-      name: name,
-      avatar: avatar,
-      text: text
+  var appName = kind === 'moments' ? 'moments' : (kind === 'schedule' ? 'schedule' : 'chat');
+  Promise.resolve(resolveShellNotificationAvatar(charId, payload.avatar || getCharacterAvatarForBg(character || { id: charId }) || ''))
+    .catch(function(){ return ''; })
+    .then(function(avatar){
+      if(!settings.disableInternal){
+        showAppNotificationCard({
+          app: appName,
+          charId: charId,
+          name: name,
+          avatar: avatar,
+          text: text
+        });
+      }
+      showSystemShellNotification({
+        app: appName,
+        charId: charId,
+        name: name,
+        avatar: avatar,
+        text: text
+      }).catch(function(){});
     });
-  }
-  showSystemShellNotification({
-    app: kind === 'moments' ? 'moments' : (kind === 'schedule' ? 'schedule' : 'chat'),
-    charId: charId,
-    name: name,
-    avatar: avatar,
-    text: text
-  }).catch(function(){});
 }
 
 async function testShellNotification(kind){
   var type = String(kind || 'chat').trim() || 'chat';
+  var activeCharId = String((getCurrentForegroundCharacter() && getCurrentForegroundCharacter().id) || (persistedShellActiveCharacter && persistedShellActiveCharacter.id) || '');
+  var avatar = await resolveShellNotificationAvatar(activeCharId, '').catch(function(){ return ''; });
   var payload = {
     kind: type === 'moments' ? 'moments' : (type === 'schedule' ? 'schedule' : 'chat'),
-    charId: String((getCurrentForegroundCharacter() && getCurrentForegroundCharacter().id) || (persistedShellActiveCharacter && persistedShellActiveCharacter.id) || ''),
+    charId: activeCharId,
     name: '测试角色',
     text: type === 'schedule' ? '刚刚改了一条日程' : (type === 'moments' ? '刚刚发了一条朋友圈' : '给你发来了一条新消息')
   };
@@ -1724,19 +1819,82 @@ async function testShellNotification(kind){
       app: payload.kind === 'moments' ? 'moments' : (payload.kind === 'schedule' ? 'schedule' : 'chat'),
       charId: payload.charId,
       name: payload.name,
-      avatar: '',
+      avatar: avatar,
       text: payload.text
     });
   }
   return showSystemShellNotification({
     app: payload.kind === 'moments' ? 'moments' : (payload.kind === 'schedule' ? 'schedule' : 'chat'),
     charId: payload.charId,
-    name: settings.appName || '0615',
-    avatar: '',
+    name: payload.name,
+    avatar: avatar,
     text: payload.text,
     force: true
   });
 }
+
+window.notificationManager = {
+  init: async function(){
+    try{
+      if(typeof navigator !== 'undefined' && navigator.serviceWorker){
+        await navigator.serviceWorker.ready.catch(function(){ return null; });
+      }
+      return true;
+    }catch(err){
+      return false;
+    }
+  },
+  checkPermission: async function(){
+    return getShellNotificationPermissionInfo();
+  },
+  requestPermission: async function(){
+    return ensureShellNotificationPermission();
+  },
+  showNotification: async function(title, options){
+    options = options && typeof options === 'object' ? options : {};
+    return showSystemShellNotification({
+      title: title,
+      name: options.name || title || '角色',
+      text: options.body || options.text || '有新消息',
+      charId: options.charId || '',
+      avatar: options.avatar || options.icon || '',
+      app: options.app || 'chat',
+      force: true
+    });
+  },
+  notifyNewMessage: async function(chatName, messageContent, chatId){
+    var avatar = await resolveShellNotificationAvatar(chatId, '').catch(function(){ return ''; });
+    return showSystemShellNotification({
+      title: (getShellNotificationSettings().appName || '0615') + ' - ' + String(chatName || '角色'),
+      name: chatName,
+      text: messageContent,
+      charId: chatId,
+      avatar: avatar,
+      app: 'chat',
+      force: true
+    });
+  },
+  notifySystem: async function(message){
+    return showSystemShellNotification({
+      title: getShellNotificationSettings().appName || '0615',
+      name: getShellNotificationSettings().appName || '0615',
+      text: message,
+      app: 'chat',
+      force: true
+    });
+  },
+  testNotification: async function(){
+    return testShellNotification('chat');
+  },
+  getPermissionStatus: function(){
+    var permission = getShellNotificationPermissionInfo();
+    return {
+      permission: permission.permission,
+      granted: permission.granted,
+      initialized: true
+    };
+  }
+};
 
 async function debugShellNotification(){
   var settings = getShellNotificationSettings();
