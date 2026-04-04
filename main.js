@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T08:04:00Z';
+const APP_BUILD_ID = '2026-04-03T08:17:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2033,6 +2033,22 @@ function isScheduleFarDistance(character){
   return false;
 }
 
+function getScheduleWeatherDistanceKm(user, char){
+  if(!(user && char)) return 0;
+  var lat1 = Number(user.latitude);
+  var lon1 = Number(user.longitude);
+  var lat2 = Number(char.latitude);
+  var lon2 = Number(char.longitude);
+  if(!isFinite(lat1) || !isFinite(lon1) || !isFinite(lat2) || !isFinite(lon2)) return 0;
+  var toRad = Math.PI / 180;
+  var dLat = (lat2 - lat1) * toRad;
+  var dLon = (lon2 - lon1) * toRad;
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+    + Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return 6371 * c;
+}
+
 function hasForbiddenOtherCharReference(item, otherNames){
   var text = [
     String(item && item.title || ''),
@@ -2053,47 +2069,71 @@ function hasInvalidDistantInteraction(item){
   return /(住一起|同住|同居|在她家|在他家|在你家|在我家|一起吃(?:饭|午饭|晚饭)|一起散步|面对面|顺路接|送她回家|送他回家|见面了|已经见到|当面|楼下等|一起通勤)/.test(text);
 }
 
-function getSchedulePresenceLocaleGuard(character){
-  if(!(window.PresenceShared && character && character.id && typeof window.PresenceShared.getPresenceSnapshot === 'function')) return null;
-  try{
-    var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
-    if(!(snapshot && snapshot.user && snapshot.char)) return null;
-    var allowed = [];
-    var otherNames = [];
-    function pushToken(value){
-      value = String(value || '').trim();
-      if(!value || value.length < 2) return;
-      if(allowed.indexOf(value) === -1) allowed.push(value);
-    }
-    function pushOtherName(value){
-      value = String(value || '').trim();
-      if(!value || value.length < 2) return;
-      if(otherNames.indexOf(value) === -1) otherNames.push(value);
-    }
-    pushToken(snapshot.user.label);
-    pushToken(snapshot.user.weatherName);
+function getSchedulePresenceLocaleGuard(character, payload){
+  var allowed = [];
+  var otherNames = [];
+  function pushToken(value){
+    value = String(value || '').trim();
+    if(!value || value.length < 2) return;
+    if(allowed.indexOf(value) === -1) allowed.push(value);
+  }
+  function pushOtherName(value){
+    value = String(value || '').trim();
+    if(!value || value.length < 2) return;
+    if(otherNames.indexOf(value) === -1) otherNames.push(value);
+  }
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var userWeather = payload.userWeather && typeof payload.userWeather === 'object' ? payload.userWeather : null;
+  var charWeather = payload.charWeather && typeof payload.charWeather === 'object' ? payload.charWeather : null;
+  if(userWeather || charWeather){
+    [userWeather, charWeather].forEach(function(setting){
+      if(!(setting && typeof setting === 'object')) return;
+      pushToken(setting.aliasName);
+      pushToken(setting.realName);
+      pushToken(setting.resolvedName);
+      pushToken(setting.admin1);
+      pushToken(setting.country);
+    });
+  }else if(window.PresenceShared && character && character.id && typeof window.PresenceShared.getPresenceSnapshot === 'function'){
     try{
-      if(snapshot.user.cityId && typeof window.PresenceShared.getCity === 'function'){
-        var userCity = window.PresenceShared.getCity(snapshot.user.cityId);
-        pushToken(userCity && userCity.name);
-        pushToken(userCity && userCity.country);
+      var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
+      if(snapshot && snapshot.user && snapshot.char){
+        pushToken(snapshot.user.label);
+        pushToken(snapshot.user.weatherName);
+        try{
+          if(snapshot.user.cityId && typeof window.PresenceShared.getCity === 'function'){
+            var userCity = window.PresenceShared.getCity(snapshot.user.cityId);
+            pushToken(userCity && userCity.name);
+            pushToken(userCity && userCity.country);
+          }
+        }catch(err){}
+        pushToken(snapshot.char.city && snapshot.char.city.name);
+        pushToken(snapshot.char.city && snapshot.char.city.country);
+        pushToken(snapshot.char.placeLabel);
       }
     }catch(err){}
-    pushToken(snapshot.char.city && snapshot.char.city.name);
-    pushToken(snapshot.char.city && snapshot.char.city.country);
-    pushToken(snapshot.char.placeLabel);
-    try{
-      var chars = getStoredCharactersSnapshot();
-      (Array.isArray(chars) ? chars : []).forEach(function(item){
-        if(!item || String(item.id || '').trim() === String(character.id || '').trim()) return;
-        pushOtherName(item.nickname || item.name);
-        pushOtherName(item.name);
-      });
-    }catch(err){}
-    return { allowed: allowed, otherNames: otherNames };
-  }catch(err){
-    return null;
   }
+  try{
+    var chars = getStoredCharactersSnapshot();
+    (Array.isArray(chars) ? chars : []).forEach(function(item){
+      if(!item || String(item.id || '').trim() === String(character && character.id || '').trim()) return;
+      pushOtherName(item.nickname || item.name);
+      pushOtherName(item.name);
+    });
+  }catch(err){}
+  var farDistance = false;
+  if(userWeather && charWeather){
+    farDistance = getScheduleWeatherDistanceKm(userWeather, charWeather) >= 8;
+    if(!farDistance){
+      var userPlace = String(userWeather.aliasName || userWeather.realName || userWeather.resolvedName || '').trim();
+      var charPlace = String(charWeather.aliasName || charWeather.realName || charWeather.resolvedName || '').trim();
+      if(userPlace && charPlace && userPlace !== charPlace) farDistance = true;
+      if(String(userWeather.country || '').trim() && String(charWeather.country || '').trim() && String(userWeather.country || '').trim() !== String(charWeather.country || '').trim()) farDistance = true;
+    }
+  }else{
+    farDistance = isScheduleFarDistance(character);
+  }
+  return { allowed: allowed, otherNames: otherNames, farDistance: farDistance };
 }
 
 function textHasForeignLocaleDrift(text, guard){
@@ -2117,15 +2157,15 @@ function textHasForeignLocaleDrift(text, guard){
   });
 }
 
-function scheduleDayPlanNeedsRepair(result, character){
-  var guard = getSchedulePresenceLocaleGuard(character);
+function scheduleDayPlanNeedsRepair(result, character, payload){
+  var guard = getSchedulePresenceLocaleGuard(character, payload);
   var timeline = Array.isArray(result && result.timeline) ? result.timeline : [];
   var todos = Array.isArray(result && result.todos) ? result.todos : [];
   return timeline.some(function(item){
     var text = [item && item.title, item && item.note, item && item.location].filter(Boolean).join(' ');
     return (!!guard && textHasForeignLocaleDrift(text, guard))
       || hasForbiddenOtherCharReference(item, guard && guard.otherNames)
-      || (!!isScheduleFarDistance(character) && hasInvalidDistantInteraction(item));
+      || (!!(guard && guard.farDistance) && hasInvalidDistantInteraction(item));
   }) || todos.some(function(item){
     var text = [item && item.text, item && item.note].filter(Boolean).join(' ');
     return (!!guard && textHasForeignLocaleDrift(text, guard))
@@ -2133,14 +2173,14 @@ function scheduleDayPlanNeedsRepair(result, character){
   });
 }
 
-async function repairGeneratedScheduleDayPlan(cfg, userPrompt, result, character){
-  var guard = getSchedulePresenceLocaleGuard(character);
+async function repairGeneratedScheduleDayPlan(cfg, userPrompt, result, character, payload){
+  var guard = getSchedulePresenceLocaleGuard(character, payload);
   var sysPrompt = [
     '你正在修正一份角色当日日程 JSON。',
     '只返回严格 JSON，不要 markdown，不要解释。',
     '保持原来的人设和大方向，只修正地理位置、距离感、互动方式。',
     '地点、寄送对象、互动方式必须服从现实地理位置设定；不要无故跳到别的国家城市。',
-    '如果双方现实很远，严禁写成已经见面、一起吃饭、在对方家里、接送、面对面互动。',
+    (guard && guard.farDistance) ? '如果双方现实很远，严禁写成已经见面、一起吃饭、在对方家里、接送、面对面互动。' : '',
     guard && guard.allowed && guard.allowed.length ? ('这次允许出现的地点语境只有：' + guard.allowed.join('、') + '。') : '',
     guard && guard.otherNames && guard.otherNames.length ? ('绝对不要提到这些别的角色名字：' + guard.otherNames.join('、') + '。') : ''
   ].filter(Boolean).join('\n');
@@ -2280,8 +2320,8 @@ async function generateScheduleDayPlan(payload){
   ].filter(Boolean).join('\n\n');
   var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
   var result = parseScheduleDayResult(raw, payload);
-  if(scheduleDayPlanNeedsRepair(result, character)){
-    result = await repairGeneratedScheduleDayPlan(cfg, userPrompt, result, character);
+  if(scheduleDayPlanNeedsRepair(result, character, payload)){
+    result = await repairGeneratedScheduleDayPlan(cfg, userPrompt, result, character, payload);
   }
   if(!result.timeline.length) throw new Error('没有生成出有效时间轴');
   if(!result.diary) result.diary = '今天像被轻轻摁住的一页纸，直到最后还是有一点在想你。';
