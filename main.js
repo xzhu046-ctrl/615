@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T09:45:00Z';
+const APP_BUILD_ID = '2026-04-03T10:02:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1799,17 +1799,13 @@ function buildScheduleWeatherPresenceContext(payload){
   var user = payload.userWeather && typeof payload.userWeather === 'object' ? payload.userWeather : null;
   var char = payload.charWeather && typeof payload.charWeather === 'object' ? payload.charWeather : null;
   if(!(user || char)) return '';
-  function bestPlace(setting, fallback){
+  function displayPlace(setting, fallback){
     if(!(setting && typeof setting === 'object')) return String(fallback || '').trim();
-    return [
-      String(setting.country || '').trim(),
-      String(setting.admin1 || '').trim(),
-      String(setting.aliasName || '').trim() || String(setting.realName || '').trim() || String(setting.resolvedName || '').trim()
-    ].filter(Boolean).join(' · ') || String(fallback || '').trim();
+    return String(setting.aliasName || '').trim() || String(setting.realName || '').trim() || String(setting.resolvedName || '').trim() || String(fallback || '').trim();
   }
   var lines = [
-    user ? ('用户当前地理位置：' + bestPlace(user, '用户所在城市')) : '',
-    char ? ('角色当前地理位置：' + bestPlace(char, '角色所在城市')) : ''
+    user ? ('用户当前显示地理位置：' + displayPlace(user, '用户所在城市')) : '',
+    char ? ('角色当前显示地理位置：' + displayPlace(char, '角色所在城市')) : ''
   ].filter(Boolean);
   if(user && String(user.timezone || '').trim()){
     lines.push('用户当前当地时区：' + String(user.timezone || '').trim());
@@ -1818,9 +1814,12 @@ function buildScheduleWeatherPresenceContext(payload){
     lines.push('角色当前当地时区：' + String(char.timezone || '').trim());
   }
   if(user && char){
-    var userPlace = String(user.aliasName || user.realName || user.resolvedName || '').trim();
-    var charPlace = String(char.aliasName || char.realName || char.resolvedName || '').trim();
+    var userPlace = displayPlace(user, '');
+    var charPlace = displayPlace(char, '');
     var sameCountry = !!String(user.country || '').trim() && String(user.country || '').trim() === String(char.country || '').trim();
+    if(user.aliasName || char.aliasName){
+      lines.push('如果设置里同时存在真实定位城市和显示城市，所有会展示给用户看的地点名称一律使用显示城市，不要说出真实定位城市名。');
+    }
     if(userPlace && charPlace && userPlace !== charPlace){
       lines.push('双方当前不在同一个城市。除非用户当天公开日程明确写了见面或同行，否则不要写成已经见面、同住、一起吃饭、一起散步、顺路接送、在她家、在他家这种同地实体互动。');
     }
@@ -2314,6 +2313,7 @@ async function generateScheduleDayPlan(payload){
     '所有字段都必须使用简体中文输出，不要夹英文标题，不要夹外语对白，也不要因为角色语言设置改成别的语言。',
     '语言固定是简体中文，但行程安排、语气、态度、细节、作息风格必须服从角色人设。',
     'timeline 是现实里会发生的一天，至少 6 条，不设上限。每条都要带一个尽量具体的地点 location 和一句简短 note。地点不要只写“家里”“外面”“学校”“公司”，要更像真人会去的落点，比如“图书馆三楼自习区”“宿舍楼下便利店”“公司楼下咖啡店靠窗那排”。',
+    '如果位置设置里同时有真实定位城市和显示城市，location 一律写显示城市语境下的地点，不要把真实定位城市名直接写出来。',
     'todos 是这个角色今天自己心里或手边会记着的待办，至少 3 条，不设上限，语气和内容都按人设来。',
     '如果角色这一天有不想直接说开的安排，允许最多生成 1 条 secret=true 的秘密行程；这种时候 title/note 仍然写真实内容，同时额外提供 publicMask（给对方看到的模糊标题，比如“有点私事”）、secretHint（很短的密码线索，必须真的和 secretPassword 有关，比如“是今天的日期”“末尾两位”这类）和 secretPassword（严格 4 位数字密码）。如果没有秘密行程，就把这些字段留空。',
     'diary 是角色今天的一句日记，要有人设感。',

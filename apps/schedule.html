@@ -819,6 +819,53 @@ function getPresenceShared(){
   return null;
 }
 
+function getScheduleDisplayLocationLabel(role){
+  role = role === 'char' ? 'char' : 'user';
+  var safeCharId = String((getActiveChar() && getActiveChar().id) || '').trim();
+  if(!safeCharId) return '';
+  try{
+    var raw = localStorage.getItem(((window.__activeAccountId ? '__acct_' + window.__activeAccountId + '__' : '') + (role === 'char' ? 'real_weather_char_' : 'real_weather_user_') + safeCharId)) || '';
+    if(raw){
+      var parsed = JSON.parse(raw);
+      var alias = String(parsed && parsed.aliasName || '').trim();
+      if(alias) return alias;
+    }
+  }catch(err){}
+  try{
+    var fallbackRaw = localStorage.getItem((role === 'char' ? 'real_weather_char_' : 'real_weather_user_') + safeCharId) || '';
+    if(fallbackRaw){
+      var fallbackParsed = JSON.parse(fallbackRaw);
+      var fallbackAlias = String(fallbackParsed && fallbackParsed.aliasName || '').trim();
+      if(fallbackAlias) return fallbackAlias;
+    }
+  }catch(err){}
+  return '';
+}
+
+function renderScheduleDisplayLocation(owner, location){
+  var text = String(location || '').trim();
+  if(!text) return '';
+  var alias = getScheduleDisplayLocationLabel(owner);
+  if(!alias) return text;
+  var userReal = '';
+  var charReal = '';
+  try{
+    var safeCharId = String((getActiveChar() && getActiveChar().id) || '').trim();
+    if(safeCharId){
+      var userRaw = localStorage.getItem('real_weather_user_' + safeCharId) || '';
+      var charRaw = localStorage.getItem('real_weather_char_' + safeCharId) || '';
+      userReal = String((userRaw && JSON.parse(userRaw).resolvedName) || (userRaw && JSON.parse(userRaw).realName) || '').trim();
+      charReal = String((charRaw && JSON.parse(charRaw).resolvedName) || (charRaw && JSON.parse(charRaw).realName) || '').trim();
+    }
+  }catch(err){}
+  [userReal, charReal].filter(Boolean).forEach(function(realName){
+    if(realName && text.indexOf(realName) !== -1){
+      text = text.split(realName).join(alias);
+    }
+  });
+  return text;
+}
+
 function getLocalClockParts(nowMs, timezoneName, timezoneOffset){
   var safeNow = Number(nowMs || Date.now()) || Date.now();
   var safeName = String(timezoneName || '').trim();
@@ -1587,7 +1634,7 @@ function getRenderedTimelineItems(ctx){
       end:String(item.end || '').trim(),
       title:locked ? getRenderedCharTimelineTitle(item) : String(item.title || '').trim(),
       note:locked ? getRenderedCharTimelineNote(item) : String(item.note || '').trim(),
-      location:String(item.location || '').trim(),
+      location:renderScheduleDisplayLocation('char', item.location),
       done: !!item.done,
       commentCount:getCommentCount(item),
       comments:Array.isArray(item.comments) ? item.comments : [],
@@ -1606,7 +1653,7 @@ function getRenderedTimelineItems(ctx){
       end:String(item.end || '').trim(),
       title:String(item.title || '').trim() || '未命名安排',
       note:buildUserEventVisibleTail(item),
-      location:String(item.location || '').trim(),
+      location:renderScheduleDisplayLocation('user', item.location),
       done: !!item.done,
       commentCount:getCommentCount(item),
       comments:Array.isArray(item.comments) ? item.comments : [],
