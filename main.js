@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T04:34:00Z';
+const APP_BUILD_ID = '2026-04-03T04:42:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1910,15 +1910,68 @@ function isScheduleEventNoteTooWeak(item){
   return false;
 }
 
-function needsUserDayPlanPolish(result){
-  var events = Array.isArray(result && result.events) ? result.events : [];
-  if(!events.length) return true;
-  return events.some(function(item){
-    return isScheduleLocationTooGeneric(item && item.location) || isScheduleEventNoteTooWeak(item);
+function getScheduleOtherCharacterNames(currentCharId){
+  var safeCurrent = String(currentCharId || '').trim();
+  var seen = {};
+  var names = [];
+  try{
+    var chars = getStoredCharactersSnapshot();
+    (Array.isArray(chars) ? chars : []).forEach(function(item){
+      if(!item) return;
+      var id = String(item.id || '').trim();
+      if(!id || id === safeCurrent) return;
+      [item.nickname, item.name].forEach(function(raw){
+        var text = String(raw || '').trim();
+        if(!text || seen[text]) return;
+        seen[text] = true;
+        names.push(text);
+      });
+    });
+  }catch(err){}
+  return names;
+}
+
+function isScheduleFarDistance(character){
+  if(!(window.PresenceShared && character && character.id && typeof window.PresenceShared.getPresenceSnapshot === 'function')) return false;
+  try{
+    var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
+    return !!(snapshot && snapshot.travel && Number(snapshot.travel.distanceKm || 0) >= 8);
+  }catch(err){}
+  return false;
+}
+
+function hasForbiddenOtherCharReference(item, otherNames){
+  var text = [
+    String(item && item.title || ''),
+    String(item && item.note || ''),
+    String(item && item.location || '')
+  ].join(' ');
+  return (Array.isArray(otherNames) ? otherNames : []).some(function(name){
+    return name && text.indexOf(name) !== -1;
   });
 }
 
-async function polishGeneratedUserDayPlan(cfg, userPrompt, result){
+function hasInvalidDistantInteraction(item){
+  var text = [
+    String(item && item.title || ''),
+    String(item && item.note || ''),
+    String(item && item.location || '')
+  ].join(' ');
+  return /(住一起|同住|同居|在她家|在他家|在你家|在我家|一起吃(?:饭|午饭|晚饭)|一起散步|面对面|顺路接|送她回家|送他回家|见面了|已经见到|当面|楼下等|一起通勤)/.test(text);
+}
+
+function needsUserDayPlanPolish(result, guard){
+  var events = Array.isArray(result && result.events) ? result.events : [];
+  if(!events.length) return true;
+  return events.some(function(item){
+    return isScheduleLocationTooGeneric(item && item.location)
+      || isScheduleEventNoteTooWeak(item)
+      || hasForbiddenOtherCharReference(item, guard && guard.otherNames)
+      || (!!(guard && guard.farDistance) && hasInvalidDistantInteraction(item));
+  });
+}
+
+async function polishGeneratedUserDayPlan(cfg, userPrompt, result, guard){
   var current = result && typeof result === 'object' ? result : { events:[], todos:[] };
   var sysPrompt = [
     '你正在修正一份用户日程 JSON。',
@@ -1927,7 +1980,9 @@ async function polishGeneratedUserDayPlan(cfg, userPrompt, result){
     '不要推翻整天安排，只修正不够细的 location 和不够像小解释的 note。',
     '每条 event 都必须有更具体的地点 location，不能只是学校、图书馆、公司、家里这种大类地点。',
     '每条 event 的 note 都必须是一句小解释，说明这段安排正在做什么、为什么这样排、或者这件事背后的心思，不能留空，也不能只重复 title 或 location。',
-    '自动生成的用户行程一律公开，不允许秘密行程。'
+    '自动生成的用户行程一律公开，不允许秘密行程。',
+    Array.isArray(guard && guard.otherNames) && guard.otherNames.length ? ('绝对不要提到这些别的角色名字：' + guard.otherNames.join('、') + '。') : '',
+    guard && guard.farDistance ? '双方现实位置很远，所以严禁写成住一起、同住、面对面见面、一起吃饭、一起散步、顺路接送这些同地互动。' : ''
   ].join('\n');
   var repairPrompt = [
     userPrompt,
@@ -2103,6 +2158,16 @@ async function generateScheduleUserDayPlan(payload){
     '请补出今天更完整、更像真人的用户安排和待办，并且允许自然带一点和角色有关的互动或顾虑，但不要强行黏在一起。',
     '所有安排都必须直接服从用户完整人设里的身份、日常、作息和生活状态；如果某条内容和用户设定冲突，就直接改掉，不要套用僵硬标签。'
   ].filter(Boolean).join('\n\n');
+  var userPlanGuard = {
+    otherNames: getScheduleOtherCharacterNames(charId),
+    farDistance: isScheduleFarDistance(character)
+  };
+  if(userPlanGuard.otherNames.length){
+    userPrompt += '\n\n不要提到这些别的角色名字：' + userPlanGuard.otherNames.join('、') + '。如果需要写和人互动，只能写当前这个角色。';
+  }
+  if(userPlanGuard.farDistance){
+    userPrompt += '\n\n双方现实位置很远，所以不能写成住一起、见面、一起吃午饭、一起散步、在同一个家里这种同地互动，只能写远程联系、惦记、通话、视频、准备之后见面。';
+  }
   var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
   var txt = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
   var parsed = null;
@@ -2112,8 +2177,8 @@ async function generateScheduleUserDayPlan(payload){
     events: Array.isArray(parsed.events) ? parsed.events : [],
     todos: Array.isArray(parsed.todos) ? parsed.todos : []
   };
-  if(needsUserDayPlanPolish(result)){
-    result = await polishGeneratedUserDayPlan(cfg, userPrompt, result);
+  if(needsUserDayPlanPolish(result, userPlanGuard)){
+    result = await polishGeneratedUserDayPlan(cfg, userPrompt, result, userPlanGuard);
   }
   return result;
 }
