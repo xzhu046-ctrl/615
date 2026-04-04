@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T05:00:00Z';
+const APP_BUILD_ID = '2026-04-03T05:08:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1891,8 +1891,8 @@ function countScheduleUserInteractionItems(items, userName){
   var safeUser = String(userName || '').trim();
   var patterns = [
     safeUser ? new RegExp(safeUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : null,
-    /(和你|跟你|给你|为你|想你|惦记你|提醒你|陪你|接你|送你|约你|见你|找你|给她|为她|想她|惦记她|提醒她|陪她|接她|送她|约她|见她|找她|给他|为他|想他|惦记他|提醒他|陪他|接他|送他|约他|见他|找他)/,
-    /(打电话|通话|语音|视频|远程一起|一起吃|一起做|一起看|一起听|准备车票|准备机票|寄东西|给她发消息|给他发消息|给你发消息|联系她|联系他|联系你)/
+    /(和你|跟你|给你|为你|想你|惦记你|提醒你|陪你|接你|送你|约你|见你|找你|等你|问你|看你|帮你|给你带|替你|陪着你|和她|跟她|给她|为她|想她|惦记她|提醒她|陪她|接她|送她|约她|见她|找她|等她|问她|看她|帮她|给她带|替她|和他|跟他|给他|为他|想他|惦记他|提醒他|陪他|接他|送他|约他|见他|找他|等他|问他|看他|帮他|给他带|替他)/,
+    /(打电话|通话|语音|视频|远程一起|一起吃|一起做|一起看|一起听|准备车票|准备机票|寄东西|发消息|联系她|联系他|联系你|给她带|给他带|给你带|同步一下|等她回|等他回|等你回|顺手问一句|顺便问问|惦记一下|看看她|看看他|看看你)/
   ].filter(Boolean);
   return (Array.isArray(items) ? items : []).filter(function(item){
     var text = [
@@ -1927,6 +1927,16 @@ async function polishGeneratedCharDayPlan(cfg, userPrompt, result, payload){
   }catch(err){
     return current;
   }
+}
+
+async function ensureMinimumScheduleInteractions(cfg, userPrompt, result, payload){
+  var current = result && typeof result === 'object' ? result : {};
+  var userName = String(payload && payload.userName || '').trim();
+  for(var pass = 0; pass < 3; pass++){
+    if(countScheduleUserInteractionItems(current.timeline, userName) >= 3) return current;
+    current = await polishGeneratedCharDayPlan(cfg, userPrompt, current, payload);
+  }
+  return current;
 }
 
 function isScheduleLocationTooGeneric(location){
@@ -2126,12 +2136,10 @@ async function generateScheduleDayPlan(payload){
   var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
   var result = parseScheduleDayResult(raw, payload);
   if(!result.timeline.length) throw new Error('没有生成出有效时间轴');
-  if(countScheduleUserInteractionItems(result.timeline, getScheduleUserName(charId)) < 3){
-    result = await polishGeneratedCharDayPlan(cfg, userPrompt, result, {
-      dateKey: dateKey,
-      userName: getScheduleUserName(charId)
-    });
-  }
+  result = await ensureMinimumScheduleInteractions(cfg, userPrompt, result, {
+    dateKey: dateKey,
+    userName: getScheduleUserName(charId)
+  });
   if(!result.diary) result.diary = '今天像被轻轻摁住的一页纸，直到最后还是有一点在想你。';
   return result;
 }
