@@ -5818,11 +5818,11 @@ async function generateOpeningIfNeeded(){
     var openingContext = [
       '请写这场线下见面的第一个场景。',
       buildOfflineInvitePromptLine('见面起点：'),
-      '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 1800 : 2800) || '无'),
+      '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 680 : 1080) || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
     try{
-      var fastCombinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt(), openingContext, Math.min(plan.mainTimeout, 90000));
+      var fastCombinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt({ compactLevel: 2 }), openingContext, Math.min(plan.mainTimeout, 90000));
       var fastCombinedObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(fastCombinedRaw));
       if(hasValidOfflineOpeningCombinedPayload(fastCombinedObj)){
         openingThoughtChain = fastCombinedObj.thought_chain;
@@ -5846,7 +5846,7 @@ async function generateOpeningIfNeeded(){
     for(var attempt = 0; attempt < plan.attempts; attempt += 1){
       if(openingTextLength(openingText) >= openingMinChars && openingTitle && openingQuote) break;
       try{
-        var compactLevel = attempt >= 3 ? 2 : (attempt >= 1 ? 1 : 0);
+        var compactLevel = attempt >= 2 ? 2 : 1;
         var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: compactLevel }), openingContext, plan.mainTimeout);
         var bodyObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(bodyRaw));
         if(!hasValidOfflineBodyPayload(bodyObj)) throw new Error('正文结构不完整');
@@ -5909,7 +5909,7 @@ async function generateOpeningIfNeeded(){
     if(!openingThoughtChain && String(openingText || '').trim()){
       try{
         var openingThoughtRaw = await callAIWithTimeout(
-          buildOfflineThoughtSystemPrompt({ compactLevel: 0 }),
+          buildOfflineThoughtSystemPrompt({ compactLevel: 2 }),
           [
             openingContext,
             '这是已经拿到的首幕正文，请只补一份 thought_chain，不要重写正文：',
@@ -5927,7 +5927,7 @@ async function generateOpeningIfNeeded(){
     }
     if((!openingTitle || !openingQuote || !String(openingText || '').trim() || !openingThoughtChain)){
       try{
-        var combinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt({ compactLevel: 0 }), openingContext, Math.min(plan.mainTimeout, 110000));
+        var combinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt({ compactLevel: 2 }), openingContext, Math.min(plan.mainTimeout, 110000));
         var combinedObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(combinedRaw));
         if(hasValidOfflineOpeningCombinedPayload(combinedObj)){
           openingThoughtChain = combinedObj.thought_chain;
