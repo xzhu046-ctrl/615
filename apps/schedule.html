@@ -753,6 +753,63 @@ function getParentShell(){
   return window;
 }
 
+function getScheduleActiveAccountId(){
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      var active = window.AccountManager.getActive && window.AccountManager.getActive();
+      return String(active && active.id || '').trim();
+    }
+  }catch(err){}
+  return '';
+}
+
+function getScheduleScopedKey(base){
+  var safeBase = String(base || '').trim();
+  if(!safeBase) return '';
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      return window.AccountManager.scopedKey(safeBase);
+    }
+  }catch(err){}
+  var activeId = getScheduleActiveAccountId();
+  return activeId ? (safeBase + '__acct_' + activeId) : safeBase;
+}
+
+function getScheduleWeatherSetting(role, charId){
+  var safeRole = role === 'char' ? 'char' : 'user';
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return null;
+  var baseKey = (safeRole === 'char' ? 'real_weather_char_' : 'real_weather_user_') + safeCharId;
+  var keys = [getScheduleScopedKey(baseKey), baseKey].filter(Boolean);
+  for(var i = 0; i < keys.length; i++){
+    try{
+      var raw = localStorage.getItem(keys[i]);
+      if(!raw) continue;
+      var parsed = JSON.parse(raw);
+      if(parsed && typeof parsed === 'object') return parsed;
+    }catch(err){}
+  }
+  return null;
+}
+
+function buildScheduleWeatherSnapshot(role, charId){
+  var setting = getScheduleWeatherSetting(role, charId);
+  if(!(setting && typeof setting === 'object')) return null;
+  return {
+    aliasName: String(setting.aliasName || '').trim(),
+    realName: String(setting.realName || '').trim(),
+    resolvedName: String(setting.resolvedName || '').trim(),
+    timezone: String(setting.timezone || '').trim(),
+    country: String(setting.country || '').trim(),
+    admin1: String(setting.admin1 || '').trim(),
+    latitude: setting.latitude === null || setting.latitude === '' ? null : Number(setting.latitude),
+    longitude: setting.longitude === null || setting.longitude === '' ? null : Number(setting.longitude),
+    locked: !!setting.locked
+  };
+}
+
 function getPresenceShared(){
   try{
     if(window.PresenceShared) return window.PresenceShared;
@@ -3010,6 +3067,8 @@ function collectGenerationPayload(){
     charSnapshot: Object.assign({}, char),
     userName: getActiveUserName(),
     userPersona: getActiveUserPersona(),
+    userWeather: buildScheduleWeatherSnapshot('user', char.id),
+    charWeather: buildScheduleWeatherSnapshot('char', char.id),
     dateKey: selectedDateKey,
     monthKey: viewMonthKey,
     globalTimeAwareness: scheduleState.globalTimeAwareness !== false,

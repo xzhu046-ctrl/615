@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T07:52:00Z';
+const APP_BUILD_ID = '2026-04-03T08:04:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1794,6 +1794,43 @@ function getSchedulePresenceContext(character){
   }
 }
 
+function buildScheduleWeatherPresenceContext(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var user = payload.userWeather && typeof payload.userWeather === 'object' ? payload.userWeather : null;
+  var char = payload.charWeather && typeof payload.charWeather === 'object' ? payload.charWeather : null;
+  if(!(user || char)) return '';
+  function bestPlace(setting, fallback){
+    if(!(setting && typeof setting === 'object')) return String(fallback || '').trim();
+    return [
+      String(setting.country || '').trim(),
+      String(setting.admin1 || '').trim(),
+      String(setting.aliasName || '').trim() || String(setting.realName || '').trim() || String(setting.resolvedName || '').trim()
+    ].filter(Boolean).join(' · ') || String(fallback || '').trim();
+  }
+  var lines = [
+    user ? ('用户当前地理位置：' + bestPlace(user, '用户所在城市')) : '',
+    char ? ('角色当前地理位置：' + bestPlace(char, '角色所在城市')) : ''
+  ].filter(Boolean);
+  if(user && String(user.timezone || '').trim()){
+    lines.push('用户当前当地时区：' + String(user.timezone || '').trim());
+  }
+  if(char && String(char.timezone || '').trim()){
+    lines.push('角色当前当地时区：' + String(char.timezone || '').trim());
+  }
+  if(user && char){
+    var userPlace = String(user.aliasName || user.realName || user.resolvedName || '').trim();
+    var charPlace = String(char.aliasName || char.realName || char.resolvedName || '').trim();
+    var sameCountry = !!String(user.country || '').trim() && String(user.country || '').trim() === String(char.country || '').trim();
+    if(userPlace && charPlace && userPlace !== charPlace){
+      lines.push('双方当前不在同一个城市。除非用户当天公开日程明确写了见面或同行，否则不要写成已经见面、同住、一起吃饭、一起散步、顺路接送、在她家、在他家这种同地实体互动。');
+    }
+    if(!sameCountry){
+      lines.push('双方当前甚至不在同一个国家，默认只能写远程互动、想念、语音、视频、寄东西、准备票这类跨地区互动，不要硬写现实碰面。');
+    }
+  }
+  return lines.join('\n');
+}
+
 function getScheduleLocalClockParts(nowMs, timezoneName, timezoneOffset){
   var safeNow = Number(nowMs || Date.now()) || Date.now();
   var safeName = String(timezoneName || '').trim();
@@ -2226,7 +2263,7 @@ async function generateScheduleDayPlan(payload){
     getScheduleWorldbookContext() ? ('世界书摘要：\n' + getScheduleWorldbookContext()) : '',
     '用户名字：' + String(payload.userName || getScheduleUserName(charId) || 'USER'),
     String(payload.userPersona || getScheduleUserPersona(charId) || '').trim() ? ('用户设定：' + String(payload.userPersona || getScheduleUserPersona(charId) || '').trim().slice(0, 900)) : '',
-    getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
+    buildScheduleWeatherPresenceContext(payload) ? ('现实地理位置 / 距离感：\n' + buildScheduleWeatherPresenceContext(payload)) : (getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : ''),
     '务必同时认真读取角色人设和用户设定，再决定今天的安排、互动方式和对用户生活状态的理解，不要脱离双方设定乱写。',
     '先直接读懂用户完整设定里的身份、生活状态、作息、处境和日常节奏，再决定和用户有关的互动方式，不要用死板标签套人设。',
     '角色今天的安排可以自然地和用户有关，但要服从现实距离和关系状态：异地可以是打电话、视频、语音、远程一起吃饭、寄东西、偷偷准备车票/机票；同城或住一起才可以出现接送、一起吃饭、顺手照顾之类的互动，而且要自然，不要刻意硬塞。',
