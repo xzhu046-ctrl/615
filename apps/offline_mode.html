@@ -10,8 +10,8 @@
 <script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../promptManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-03T06:58:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-03T06:58:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-03T08:52:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-03T08:52:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -4560,7 +4560,10 @@ function buildOfflineCoreSettingSummary(compactLevel){
   var userWeather = buildWeatherMoodPrompt(getOfflineWeatherSnapshot('user'));
   var inviteWeather = String(session && session.invite && session.invite.weather || '').trim();
   var weatherRule = [inviteWeather, charWeather, userWeather].filter(Boolean).join('；');
-  var scheduleRule = buildOfflineSchedulePromptBlock();
+  var scheduleRule = clipOfflinePromptText(
+    buildOfflineSchedulePromptBlock(),
+    offlinePromptLimit(isMobileOfflineRuntime() ? 320 : 520, level, 140)
+  );
   return [
     '角色 persona：' + (persona || '未提供'),
     '用户 persona：' + (userPersona || '未提供'),
@@ -4661,6 +4664,19 @@ function buildOfflineSchedulePromptBlock(){
   var live = typeof window.ScheduleShared.getLiveTimeContext === 'function'
     ? window.ScheduleShared.getLiveTimeContext(state, character.id, clock.liveInput)
     : null;
+  function oneLine(value, maxChars){
+    return clipOfflinePromptText(String(value || '').replace(/\s+/g, ' ').trim(), maxChars || 72);
+  }
+  function itemLine(item, owner){
+    if(!item || typeof item !== 'object') return '';
+    var hidden = owner === 'user' && item.visibleToChar === false;
+    return [
+      oneLine(item.start || (owner === 'chartodo' || owner === 'todo' ? (item.done ? '已完成' : '待做') : ''), 18),
+      oneLine(hidden ? (String(item.publicMask || '').trim() || '这个时间段有安排') : (item.title || item.text || ''), 40),
+      oneLine(hidden ? '' : (item.location || ''), 22),
+      oneLine(hidden ? '具体内容没有公开' : (item.note || ''), 42)
+    ].filter(Boolean).join(' | ');
+  }
   var lines = [];
   if(live && live.enabled){
     lines.push('用户当地日期：' + String(live.userDateKey || userTodayKey));
@@ -4668,61 +4684,39 @@ function buildOfflineSchedulePromptBlock(){
     lines.push('char 当地日期：' + String(live.charDateKey || charTodayKey));
     lines.push('char 当地时间：' + String(live.charNowTime || '未知'));
     if(live.currentCharItem){
-      lines.push('char 此刻更可能正在做：' + [String(live.currentCharItem.start || '').trim() || '现在', String(live.currentCharItem.title || '').trim(), String(live.currentCharItem.note || '').trim()].filter(Boolean).join(' | '));
+      lines.push('char 此刻更可能正在做：' + itemLine(live.currentCharItem, 'char'));
     }else if(live.nextCharItem){
-      lines.push('char 接下来更接近的安排：' + [String(live.nextCharItem.start || '').trim() || '待定', String(live.nextCharItem.title || '').trim(), String(live.nextCharItem.note || '').trim()].filter(Boolean).join(' | '));
+      lines.push('char 接下来更接近的安排：' + itemLine(live.nextCharItem, 'char'));
     }
     if(live.currentUserItem){
-      lines.push('用户此刻更可能在做：' + [String(live.currentUserItem.start || '').trim() || '现在', String(live.currentUserItem.title || '').trim(), String(live.currentUserItem.note || '').trim()].filter(Boolean).join(' | '));
+      lines.push('用户此刻更可能在做：' + itemLine(live.currentUserItem, 'user'));
     }else if(live.nextUserItem){
-      lines.push('用户接下来更接近的安排：' + [String(live.nextUserItem.start || '').trim() || '待定', String(live.nextUserItem.title || '').trim(), String(live.nextUserItem.note || '').trim()].filter(Boolean).join(' | '));
+      lines.push('用户接下来更接近的安排：' + itemLine(live.nextUserItem, 'user'));
     }
     lines.push('如果用户在线上或线下问“现在在干嘛/等会儿做什么”，必须优先按上面的现实时间命中安排来回答，不要随便从今天行程里挑一条。');
   }
   if((ctx.events || []).length){
     lines.push('用户今天公开给 char 看的日程：');
-    ctx.events.slice(0, 5).forEach(function(item){
-      var hidden = item.visibleToChar === false;
-      var commentText = Array.isArray(item.comments) && item.comments.length
-        ? ('留言：' + item.comments.slice(0, 2).map(function(comment){
-            return String(comment.author || '') + '：' + String(comment.text || '').trim();
-          }).join(' / '))
-        : '';
-      lines.push('- ' + [
-        String(item.start || '').trim() || '未设时间',
-        hidden ? (String(item.publicMask || '').trim() || '这个时间段有安排') : String(item.title || '').trim(),
-        hidden ? '' : String(item.location || '').trim(),
-        hidden ? '具体内容没有公开' : String(item.note || '').trim(),
-        commentText
-      ].filter(Boolean).join(' | '));
+    ctx.events.slice(0, 2).forEach(function(item){
+      lines.push('- ' + itemLine(item, 'user'));
     });
   }
   if((ctx.todos || []).length){
     lines.push('用户今天待办：');
-    ctx.todos.slice(0, 6).forEach(function(item){
-      var commentText = Array.isArray(item.comments) && item.comments.length
-        ? ('留言：' + item.comments.slice(0, 2).map(function(comment){
-            return String(comment.author || '') + '：' + String(comment.text || '').trim();
-          }).join(' / '))
-        : '';
-      lines.push('- ' + [(item.done ? '已完成' : '待做'), String(item.text || '').trim(), String(item.note || '').trim(), commentText].filter(Boolean).join(' | '));
+    ctx.todos.slice(0, 2).forEach(function(item){
+      lines.push('- ' + itemLine(item, 'todo'));
     });
   }
   if(charCtx.charDay && Array.isArray(charCtx.charDay.timeline) && charCtx.charDay.timeline.length){
     lines.push('char 今天自己的时间线：');
-    charCtx.charDay.timeline.slice(0, 5).forEach(function(item){
-      var commentText = Array.isArray(item.comments) && item.comments.length
-        ? ('留言：' + item.comments.slice(0, 2).map(function(comment){
-            return String(comment.author || '') + '：' + String(comment.text || '').trim();
-          }).join(' / '))
-        : '';
-      lines.push('- ' + [String(item.start || '').trim() || '未设时间', String(item.title || '').trim(), String(item.note || '').trim(), commentText].filter(Boolean).join(' | '));
+    charCtx.charDay.timeline.slice(0, 2).forEach(function(item){
+      lines.push('- ' + itemLine(item, 'char'));
     });
   }
   if(charCtx.charDay && Array.isArray(charCtx.charDay.todos) && charCtx.charDay.todos.length){
     lines.push('char 今天自己记着的待办：');
-    charCtx.charDay.todos.slice(0, 4).forEach(function(item){
-      lines.push('- ' + [(item.done ? '已完成' : '待做'), String(item.text || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | '));
+    charCtx.charDay.todos.slice(0, 2).forEach(function(item){
+      lines.push('- ' + itemLine(item, 'chartodo'));
     });
   }
   return lines.join('\n').trim();
