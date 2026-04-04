@@ -3310,11 +3310,23 @@ function buildInnerVoiceLanguagePrompt(){
 function shouldOfferMessageTranslation(entry){
   if(!isCharacterTranslationEnabled()) return false;
   if(!(entry && entry.role === 'assistant')) return false;
-  var payload = getChatPreviewPayload(entry);
-  var kind = normalizeMessageType(payload.type || entry.type || 'text');
-  var text = String(payload.content || entry.content || '').trim();
+  var kind = normalizeMessageType(entry && entry.type || 'text');
+  var text = getMessageTranslationSourceText(entry);
   if(!text) return false;
   return (kind === 'text' || kind === 'voice' || kind === 'image' || kind === 'moneypacket' || kind === 'offlineinvite') && getCharacterReplyLanguage() !== 'zh';
+}
+function getMessageTranslationSourceText(entry){
+  if(!entry) return '';
+  var kind = normalizeMessageType(entry.type || 'text');
+  if(kind === 'moneypacket'){
+    var money = parseMoneyPacketPayload(entry.content) || {};
+    return [
+      String(money.summary || '').trim(),
+      String(money.note || '').trim()
+    ].filter(Boolean).join('\n');
+  }
+  var payload = getChatPreviewPayload(entry);
+  return String(payload.content || entry.content || '').trim();
 }
 function syncReplyLanguageButtons(containerId, value, enabled){
   var container = document.getElementById(containerId);
@@ -3511,6 +3523,7 @@ async function requestChatMessageTranslation(msgId, options){
   var opts = options || {};
   if(!shouldOfferMessageTranslation(entry)) return;
   var previewPayload = getChatPreviewPayload(entry);
+  var sourceText = getMessageTranslationSourceText(entry);
   entry.translationLoading = true;
   if(opts.showOnReady !== false) entry.translationVisible = true;
   renderChatLog(false);
@@ -3545,7 +3558,7 @@ async function requestChatMessageTranslation(msgId, options){
       ].join('\n');
       var userPrompt = JSON.stringify({
         sourceLanguage: getReplyLanguageOption(getCharacterReplyLanguage()).nativeLabel,
-        text: String(previewPayload.content || entry.content || '').trim()
+        text: sourceText
       });
       var translated = String(await callAIWithCustomPrompts(systemPrompt, userPrompt) || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
       if(!translated) throw new Error('empty translation');
