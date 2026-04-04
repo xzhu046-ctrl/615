@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T04:52:00Z';
+const APP_BUILD_ID = '2026-04-03T05:00:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2136,101 +2136,6 @@ async function generateScheduleDayPlan(payload){
   return result;
 }
 
-async function generateScheduleUserDayPlan(payload){
-  payload = payload && typeof payload === 'object' ? payload : {};
-  var charId = String(payload.charId || '').trim();
-  if(!charId) throw new Error('缺少角色');
-  var chars = getStoredCharactersSnapshot();
-  var character = chars.find(function(item){ return item && String(item.id || '') === charId; }) || null;
-  var payloadChar = payload.charSnapshot && typeof payload.charSnapshot === 'object' ? payload.charSnapshot : null;
-  if(payloadChar && String(payloadChar.id || '') === charId){
-    character = Object.assign({}, character || {}, payloadChar);
-  }
-  if(!character) throw new Error('找不到角色');
-  var cfg = getBackgroundProviderConfig();
-  if(!cfg) throw new Error('请先在设置里配置模型');
-  var dateKey = String(payload.dateKey || '').trim();
-  var dateObj = /^\d{4}-\d{2}-\d{2}$/.test(dateKey) ? new Date(dateKey + 'T12:00:00') : new Date();
-  var weekday = ['周日','周一','周二','周三','周四','周五','周六'][dateObj.getDay()];
-  var eventLines = (Array.isArray(payload.events) ? payload.events : []).map(function(item){
-    var hidden = item && item.visibleToChar === false;
-    return [
-      String(item.start || '').trim() || '未设时间',
-      hidden ? (String(item.publicMask || '').trim() || '这个时间段有安排') : String(item.title || '').trim(),
-      hidden ? '这是还没公开细节的安排' : String(item.location || '').trim(),
-      hidden ? '' : String(item.note || '').trim()
-    ].filter(Boolean).join(' | ');
-  });
-  var todoLines = (Array.isArray(payload.todos) ? payload.todos : []).map(function(item){
-    return [
-      item.done ? '已完成' : '待做',
-      String(item.text || '').trim(),
-      String(item.note || '').trim()
-    ].filter(Boolean).join(' | ');
-  });
-  var specialLines = []
-    .concat((Array.isArray(payload.specialDates) ? payload.specialDates : []).map(function(item){
-      return [String(item.title || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | ');
-    }))
-    .concat((Array.isArray(payload.holidays) ? payload.holidays : []).map(function(item){
-      return [String(item.title || '').trim(), String(item.note || '').trim()].filter(Boolean).join(' | ');
-    }));
-  var sysPrompt = [
-    '你正在生成日程 app 里用户这一天的安排。',
-    '只返回严格 JSON，不要 markdown，不要解释。',
-    '格式：{"events":[{"start":"08:30","end":"09:20","title":"...","note":"...","location":"...","visibleToChar":true,"publicMask":"","secretHint":"","secretPassword":""}],"todos":[{"text":"...","note":"...","done":false,"remindEnabled":false,"remindAt":""}]}',
-    '所有字段都必须使用简体中文输出。',
-    'events 至少 6 条，不设上限；todos 至少 3 条，不设上限。',
-    '必须认真读取用户设定和角色人设。安排要像用户本人，不要写成角色的生活，也不要写成没有细节的敷衍流水账。',
-    '自动生成的用户行程一律公开，不允许秘密行程。秘密行程只能由用户手动添加，所以这里生成的 events 必须全部 visibleToChar=true，publicMask/secretHint/secretPassword 全部留空。',
-    '待办和行程都要贴近真人生活，可以有学习、休息、社交、通勤、准备礼物、给角色留空间等，但不要脱离用户设定。',
-    'user 的生成逻辑要和 char 一样认真：不是随便拼几条占位事件，而是真正写出这一天的生活节奏、地点和小心思。',
-    '每条 event 都必须写 location 和 note。location 要比大类地点更细一点；note 要是一句小解释，说明这段安排为什么这样排、正在做什么、或者这件事背后的心思，不要留空。',
-    '如果用户设定里出现了专业、学业方向、身份关键词、住校/通勤/实习/课程/社团/论文/考试这些信息，今天的安排要自然体现出来。除非用户人设本来就很松散，否则不要只写空泛的散步、发呆、休息一下这种敷衍事件。'
-  ].join('\n');
-  var userPrompt = [
-    '日期：' + dateKey + ' ' + weekday,
-    '用户名字：' + String(payload.userName || getScheduleUserName(charId) || 'USER'),
-    String(payload.userPersona || getScheduleUserPersona(charId) || '').trim() ? ('用户设定：' + String(payload.userPersona || getScheduleUserPersona(charId) || '').trim().slice(0, 1500)) : '',
-    '角色名：' + String(character.nickname || character.name || '角色'),
-    '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
-    character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 800)) : '',
-    getScheduleWorldbookContext() ? ('世界书摘要：\n' + getScheduleWorldbookContext()) : '',
-    getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
-    '如果双方现实位置很远，用户自己的安排也不要写成和角色已经现实见面、一起吃饭、一起通勤、一起散步，除非已有公开日程明确写了见面或出行；更自然的是远程联系、惦记、通话、准备之后见面。',
-    '如果提到和用户互动的对象，只能是当前这个角色，不要把别的角色名字、别的关系状态、别的同居/同住设定串进来。',
-    '如果双方现实位置很远，严禁写成已经住在一起、正在同住、在同一个家里、一起出门、一起吃午饭、面对面陪伴这种同地互动。',
-    specialLines.length ? ('当天节日 / 纪念日：\n- ' + specialLines.join('\n- ')) : '当天没有额外节日或纪念日。',
-    eventLines.length ? ('用户现在已有日程：\n- ' + eventLines.join('\n- ')) : '用户现在还没有写别的日程。',
-    todoLines.length ? ('用户现在已有待办：\n- ' + todoLines.join('\n- ')) : '用户现在还没有写别的待办。',
-    '请补出今天更完整、更像真人的用户安排和待办，并且允许自然带一点和角色有关的互动或顾虑，但不要强行黏在一起。',
-    '所有安排都必须直接服从用户完整人设里的身份、日常、作息和生活状态；如果某条内容和用户设定冲突，就直接改掉，不要套用僵硬标签。'
-  ].filter(Boolean).join('\n\n');
-  var userPlanGuard = {
-    otherNames: getScheduleOtherCharacterNames(charId),
-    farDistance: isScheduleFarDistance(character)
-  };
-  if(userPlanGuard.otherNames.length){
-    userPrompt += '\n\n不要提到这些别的角色名字：' + userPlanGuard.otherNames.join('、') + '。如果需要写和人互动，只能写当前这个角色。';
-  }
-  if(userPlanGuard.farDistance){
-    userPrompt += '\n\n双方现实位置很远，所以不能写成住一起、见面、一起吃午饭、一起散步、在同一个家里这种同地互动，只能写远程联系、惦记、通话、视频、准备之后见面。';
-  }
-  var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
-  var txt = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
-  var parsed = null;
-  try{ parsed = JSON.parse(txt); }catch(err){}
-  parsed = parsed && typeof parsed === 'object' ? parsed : {};
-  var result = {
-    events: Array.isArray(parsed.events) ? parsed.events : [],
-    todos: Array.isArray(parsed.todos) ? parsed.todos : []
-  };
-  if(needsUserDayPlanPolish(result, userPlanGuard)){
-    result = await polishGeneratedUserDayPlan(cfg, userPrompt, result, userPlanGuard);
-  }
-  return result;
-}
-
 async function sendScheduleQuote(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
@@ -2666,7 +2571,6 @@ async function runAiBackgroundActivity(){
 
 window.ScheduleShell = {
   generateDayPlan: generateScheduleDayPlan,
-  generateUserDayPlan: generateScheduleUserDayPlan,
   sendScheduleQuote: sendScheduleQuote,
   appendSystemNotice: appendScheduleSystemNotice,
   generateChatBurst: generateScheduleChatBurst,
