@@ -5399,6 +5399,7 @@ async function maybeRunAiMomentsFromChat(text, msgType){
 
   var shouldPostByMood = !forceActions.length && (sig.emotional || sig.reflective || sig.imageHint || (pending && (pending.emotional || pending.reflective))) && Math.random() < freq.moodPostChance;
   if(onlySocialAction) shouldPostByMood = false;
+  if(freq.level === 'low' && !explicitPostRequest) shouldPostByMood = false;
   if(shouldPostByMood) forceActions.push('post');
   if(!forceActions.length && posts.length && Math.random() < freq.idleLikeChance) forceActions.push('like');
   if(!forceActions.length) return;
@@ -8322,7 +8323,7 @@ async function sendOnly() {
     await saveChat(true);
     hideError();
     captureUserMomentIntent(text, 'text');
-    maybeQueueScheduleBackgroundSync(text, 'text');
+    maybeQueueScheduleBackgroundSync(text, 'text', 'user');
   }catch(err){
     console.error('sendOnly error:', err);
     var msg = humanizeAiError(err);
@@ -8365,7 +8366,7 @@ function getScheduleShellHost(){
 
 var scheduleChatSyncBusy = false;
 var scheduleChatSyncLatest = null;
-function maybeQueueScheduleBackgroundSync(text, msgType){
+function maybeQueueScheduleBackgroundSync(text, msgType, speaker){
   if(!(character && character.id)) return;
   if(!loadCharBgEnabled(character.id)) return;
   var shellHost = getScheduleShellHost();
@@ -8375,7 +8376,8 @@ function maybeQueueScheduleBackgroundSync(text, msgType){
   scheduleChatSyncLatest = {
     charId: character.id,
     userText: safeText,
-    msgType: String(msgType || 'text')
+    msgType: String(msgType || 'text'),
+    speaker: String(speaker || 'user').trim().toLowerCase() || 'user'
   };
   if(scheduleChatSyncBusy) return;
   scheduleChatSyncBusy = true;
@@ -8417,7 +8419,7 @@ async function triggerReply() {
       clearReplyTarget();
       await saveChat(true);
       captureUserMomentIntent(text, 'text');
-      maybeQueueScheduleBackgroundSync(text, 'text');
+      maybeQueueScheduleBackgroundSync(text, 'text', 'user');
     }else{
       registerPresenceNudge('request');
     }
@@ -11567,7 +11569,7 @@ async function sendVoiceInput(){
   await saveChat();
   clearReplyTarget();
   captureUserMomentIntent(text, 'voice');
-  maybeQueueScheduleBackgroundSync(text, 'voice');
+  maybeQueueScheduleBackgroundSync(text, 'voice', 'user');
 }
 
 async function sendImageCardInput(){
@@ -11584,7 +11586,7 @@ async function sendImageCardInput(){
   await saveChat();
   clearReplyTarget();
   captureUserMomentIntent(text, 'image');
-  maybeQueueScheduleBackgroundSync(text, 'image');
+  maybeQueueScheduleBackgroundSync(text, 'image', 'user');
 }
 
 function openImageViewer(text){
@@ -15477,6 +15479,7 @@ async function deliverAiReply(text, limitOverride){
       sentTexts.push(seedLine);
     }
     sentCount++;
+    maybeQueueScheduleBackgroundSync(p.text, t, 'assistant');
     if(!isSunnyChat()){
       maybeRunAiMomentsFromChat(p.text, t).catch(function(err){
         console.error('moments side effect failed', err);

@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T08:26:00Z';
+const APP_BUILD_ID = '2026-04-03T08:40:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2925,8 +2925,9 @@ function inferFallbackSchedulePlanFromUserText(userText){
   return null;
 }
 
-function buildScheduleHeuristicPlanFromUserText(userText, localClock){
+function buildScheduleHeuristicPlanFromUserText(userText, localClock, speaker){
   var text = String(userText || '').replace(/\s+/g, ' ').trim();
+  var role = String(speaker || 'user').trim().toLowerCase();
   if(!text) return null;
   var clean = text
     .replace(/^[嗯啊哦诶欸呀呢吧啦哈嘿哎呀，。！？!?\s]+/, '')
@@ -2945,6 +2946,7 @@ function buildScheduleHeuristicPlanFromUserText(userText, localClock){
   };
   var hasCharAsk = /(记得|别忘了|待会|一会|等会|等下|回头|稍后|抽空|顺手|麻烦你|帮我|你去|你先|你得|提醒我|记一下|替我|去一趟|去做|顺便|顺路)/.test(text);
   var hasUserPlan = /(我待会|我一会|我等会|我等下|我今天|我要|我得|我准备|我会去|我打算|我得去|我可能会|我之后)/.test(text);
+  var hasCharCommit = role === 'assistant' && /(我(会|去|来|先|顺手|帮你|给你|替你|记下|记住|安排|补上|处理|改一下|看看|留意|提醒)|好(的|呀|啊|呢|哦)?|行(吧|啊|呀)?|知道了|记住了|我来|我去|我帮你|我给你|我待会|我一会|我等会|我等下|我之后)/.test(text);
   var hasTimeCue = /(早上|上午|中午|下午|傍晚|晚上|夜里|今晚|今天|明天|待会|一会|等会|等下|稍后|回头|\d{1,2}[:：]\d{2})/.test(text);
   var shortClean = clean.slice(0, 28);
   function nextTimeSlot(offsetMinutes, durationMinutes){
@@ -2975,6 +2977,23 @@ function buildScheduleHeuristicPlanFromUserText(userText, localClock){
       };
     }
     plan.chatContext = '我把刚刚答应你的事顺手记进日程了。';
+  }
+  if(hasCharCommit){
+    plan.charTodoAdd = {
+      text: shortClean || '刚刚在聊天里答应你的那件事',
+      note: '这是角色刚刚亲口答应下来的安排。'
+    };
+    if(hasTimeCue){
+      var commitSlot = nextTimeSlot(20, 70);
+      plan.charTimelineAdd = {
+        start: commitSlot.start,
+        end: commitSlot.end,
+        title: shortClean || '把刚刚答应你的事安排进去',
+        note: '这是角色在聊天里顺手加进今天的新安排。',
+        location: ''
+      };
+    }
+    plan.chatContext = '我把刚刚答应你的事真的记进今天了。';
   }
   if(hasUserPlan){
     if(hasTimeCue){
@@ -3031,6 +3050,7 @@ async function generateScheduleChatSyncPlan(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
   var userText = String(payload.userText || '').trim();
+  var speaker = String(payload.speaker || 'user').trim().toLowerCase();
   if(!charId || !userText) return null;
   var chars = getStoredCharactersSnapshot();
   var character = chars.find(function(item){ return item && String(item.id || '').trim() === charId; }) || null;
@@ -3058,7 +3078,7 @@ async function generateScheduleChatSyncPlan(payload){
     buildSchedulePresenceContextForCharId(charId, character) ? ('现实地理位置 / 距离感：\n' + buildSchedulePresenceContextForCharId(charId, character)) : '',
     localClock.user ? ('用户当地时间：' + String(localClock.user.dateKey || '') + ' ' + String(localClock.user.nowTime || '')) : '',
     localClock.char ? ('角色当地时间：' + String(localClock.char.dateKey || '') + ' ' + String(localClock.char.nowTime || '')) : '',
-    '最新用户聊天内容：' + userText,
+    speaker === 'assistant' ? ('角色刚刚在聊天里亲口说的话：' + userText) : ('最新用户聊天内容：' + userText),
     payload.userEvents ? ('用户今天行程：\n- ' + summarizeScheduleItemsForPrompt(payload.userEvents, 'user')) : '用户今天行程：无',
     payload.userTodos ? ('用户今天待办：\n- ' + summarizeScheduleItemsForPrompt(payload.userTodos, 'user')) : '用户今天待办：无',
     payload.charTimeline ? ('角色今天行程：\n- ' + summarizeScheduleItemsForPrompt(payload.charTimeline, 'char')) : '角色今天行程：无',
@@ -3079,16 +3099,20 @@ async function syncScheduleActivityFromChat(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
   var userText = String(payload.userText || '').trim();
+  var speaker = String(payload.speaker || 'user').trim().toLowerCase();
   if(!charId || !userText) return { changed:false, messages:0 };
-  var defaultId = getDefaultAccountId();
-  if(!isCharBgEnabled(charId, defaultId)) return { changed:false, messages:0 };
+  var accountId = getActiveAccountId() || getDefaultAccountId();
+  if(!isCharBgEnabled(charId, accountId)) return { changed:false, messages:0 };
   var shared = getScheduleSharedApi();
   if(!shared) return { changed:false, messages:0 };
   var chars = getStoredCharactersSnapshot();
   var character = chars.find(function(item){ return item && String(item.id || '').trim() === charId; }) || null;
   if(!character) return { changed:false, messages:0 };
   var localClock = buildScheduleLocalNowContextForCharacter(character, Date.now());
-  var localeGuard = getSchedulePresenceLocaleGuard(character);
+  var localeGuard = getSchedulePresenceLocaleGuard(character, {
+    userWeather: loadScheduleWeatherSettingByCharId('user', charId),
+    charWeather: loadScheduleWeatherSettingByCharId('char', charId)
+  });
   var dateKey = String(localClock.user && localClock.user.dateKey || shared.toDateKey(new Date()));
   var state = shared.normalizeState(await shared.loadState());
   var charState = shared.getCharState(state, charId);
@@ -3160,14 +3184,15 @@ async function syncScheduleActivityFromChat(payload){
   var plan = await generateScheduleChatSyncPlan({
     charId: charId,
     userText: userText,
+    speaker: speaker,
     userEvents: userEvents,
     userTodos: userTodos,
     charTimeline: day.timeline,
     charTodos: day.todos
   });
   var heuristicPlan = mergeSchedulePlans(
-    inferFallbackSchedulePlanFromUserText(userText) || null,
-    buildScheduleHeuristicPlanFromUserText(userText, localClock) || null
+    speaker === 'user' ? (inferFallbackSchedulePlanFromUserText(userText) || null) : null,
+    buildScheduleHeuristicPlanFromUserText(userText, localClock, speaker) || null
   );
   if(schedulePlanHasActions(plan)){
     plan = mergeSchedulePlans(plan, heuristicPlan || null);
