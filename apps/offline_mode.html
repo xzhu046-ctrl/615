@@ -5503,6 +5503,68 @@ function getOfflineOpeningAttemptPlan(){
 function getOfflineReplyTimeoutMs(){
   return isMobileOfflineRuntime() ? 45000 : 32000;
 }
+function buildOfflineEmergencyOpeningSystemPrompt(){
+  var storyPrefs = getOfflineStoryPrefs();
+  return [
+    '你在生成“线下见面模式”的第一幕正文。',
+    '这是超轻量应急模式，只保留最必要上下文，目标是先把第一幕稳定写出来。',
+    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."]}。',
+    '不要代码块，不要解释，不要 status_card。',
+    'title、quote、正文旁白必须是简体中文；只有 asides 和引号里的角色台词跟随当前语言设置。',
+    offlinePerspectiveRuleLine(getOfflineStoryPrefs().perspective),
+    '正文长度尽量写在 ' + Math.max(220, storyPrefs.minChars - 120) + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间。',
+    '正文至少 3 个自然段，必须至少有 1 句 char 说出口的引号台词。',
+    '镜头和感知中心必须是 char 本人。',
+    '这已经是一场自然开始的线下见面，不要提邀请、赴约、申请之类的元叙事。'
+  ].join('\n');
+}
+function buildOfflineEmergencyOpeningUserPrompt(){
+  var compactLevel = 2;
+  var lines = [
+    '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
+    '角色 persona：' + clipOfflinePromptText(character ? (character.personality || character.description || '') : '', offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 860, compactLevel, 240)),
+    '用户名字：' + resolveUserName(),
+    '用户 persona：' + clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 320 : 460, compactLevel, 120)),
+    buildOfflineInvitePromptLine('见面起点：'),
+    '最近线上聊天：' + (clipOfflinePromptText(session && session.chatHistory ? session.chatHistory : '无', isMobileOfflineRuntime() ? 420 : 620) || '无'),
+    '请直接写完整第一幕正文，不要偷懒。'
+  ];
+  return lines.filter(Boolean).join('\n\n');
+}
+async function tryEmergencyOfflineOpening(plan, openingMinChars){
+  var raw = await callAIWithTimeout(
+    buildOfflineEmergencyOpeningSystemPrompt(),
+    buildOfflineEmergencyOpeningUserPrompt(),
+    Math.min((plan && plan.mainTimeout) || 52000, 52000)
+  );
+  var obj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(raw));
+  if(!hasValidOfflineOpeningCombinedPayload(obj)) throw new Error('应急首幕生成结果无效');
+  var payload = {
+    title: String(obj.title || '').trim(),
+    quote: String(obj.quote || '').trim(),
+    text: ensureOfflineSpeechPresence(String(obj.text || '').trim()),
+    asides: normalizeOfflineAsides(obj.asides)
+  };
+  var finalized = await finalizeOfflineBodyPayload(payload, {
+    opening: true,
+    minChars: openingMinChars,
+    perspective: getOfflineStoryPrefs().perspective,
+    requireSpeech: true,
+    context: buildOfflineEmergencyOpeningUserPrompt(),
+    thoughtChain: obj.thought_chain || null,
+    compactLevel: 2,
+    timeoutMs: Math.min((plan && plan.repairTimeout) || 28000, 28000)
+  });
+  var issues = Array.isArray(finalized && finalized.issues) ? finalized.issues : [];
+  if(issues.length) throw new Error('应急首幕仍未通过：' + issues.join('、'));
+  return {
+    thoughtChain: obj.thought_chain || null,
+    title: String(finalized && finalized.payload && finalized.payload.title || payload.title || '').trim(),
+    quote: String(finalized && finalized.payload && finalized.payload.quote || payload.quote || '').trim(),
+    text: String(finalized && finalized.payload && finalized.payload.text || payload.text || '').trim(),
+    asides: normalizeOfflineAsides(finalized && finalized.payload ? finalized.payload.asides : payload.asides)
+  };
+}
 function loadPendingOfflineResumeSnapshot(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return null;
@@ -6022,6 +6084,45 @@ async function generateOpeningIfNeeded(){
     hideFlightOverlay();
     return true;
   }catch(e){
+    if(isOfflineQuotaLikeError(e)){
+      try{
+        var emergency = await tryEmergencyOfflineOpening(plan, openingMinChars);
+        var emergencyLabels = nowLabels();
+        var emergencyEntry = {
+          role:'assistant',
+          text:String(emergency.text || '').trim(),
+          title:String(emergency.title || '').trim(),
+          quote:String(emergency.quote || '').trim(),
+          asides:normalizeOfflineAsides(emergency.asides),
+          heart:'♥',
+          thoughtChain: normalizeOfflineThoughtChain(emergency.thoughtChain, emergency.text),
+          statusCard:null,
+          statusPending:false,
+          statusPendingAt:0,
+          bubbles:['终于见到你','过来一点'],
+          timeLabel:emergencyLabels.timeLabel,
+          meta:emergencyLabels.meta,
+          fullLabel: emergencyLabels.fullLabel,
+          createdAt: emergencyLabels.createdAt
+        };
+        Object.assign(emergencyEntry, buildOfflineEntryMeta(emergencyEntry, 'assistant', emergencyLabels, {
+          generationMs: Date.now() - openingStartedAt
+        }));
+        session.entries.push(emergencyEntry);
+        session.openingFailed = false;
+        session.lastOpeningError = '';
+        session.pendingOpening = false;
+        saveSession();
+        queueOfflineInlineTranslationsPrefetch(emergencyEntry);
+        queueOfflineSummaryGeneration(emergencyEntry);
+        queueOfflineStageSummaryGeneration();
+        hideFlightOverlay();
+        toast('这轮上下文太满了，我已经切成超轻开场重试成功');
+        return true;
+      }catch(emergencyErr){
+        e = emergencyErr;
+      }
+    }
     session.openingFailed = true;
     session.pendingOpening = false;
     session.pendingAnimation = false;
