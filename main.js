@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-04T10:48:00Z';
+const APP_BUILD_ID = '2026-04-04T11:06:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1577,18 +1577,40 @@ var SHELL_NOTIFY_VIBRATION_ENABLED_KEY = 'shell_notify_vibration_enabled';
 var SHELL_NOTIFY_VIBRATION_PATTERN_KEY = 'shell_notify_vibration_pattern';
 var SHELL_NOTIFY_NOTIFY_IN_CHAT_KEY = 'shell_notify_in_chat_page';
 var SHELL_NOTIFY_DISABLE_INTERNAL_KEY = 'shell_notify_disable_internal';
+var SHELL_NOTIFY_SETTINGS_RECORD_ID = 'shell_notify_settings';
+var shellNotificationSettingsCache = null;
+
+function normalizeShellNotificationSettings(raw){
+  raw = raw && typeof raw === 'object' ? raw : {};
+  return {
+    enabled: raw.enabled == null ? true : !!raw.enabled,
+    appName: String(raw.appName || raw.displayName || localStorage.getItem(SHELL_NOTIFY_APP_NAME_KEY) || '0615').trim() || '0615',
+    vibrationEnabled: raw.vibrationEnabled == null
+      ? (localStorage.getItem(SHELL_NOTIFY_VIBRATION_ENABLED_KEY) == null ? true : localStorage.getItem(SHELL_NOTIFY_VIBRATION_ENABLED_KEY) === '1')
+      : !!raw.vibrationEnabled,
+    vibrationPattern: String(raw.vibrationPattern || localStorage.getItem(SHELL_NOTIFY_VIBRATION_PATTERN_KEY) || 'medium').trim() || 'medium',
+    notifyInChat: raw.notifyInChat == null ? localStorage.getItem(SHELL_NOTIFY_NOTIFY_IN_CHAT_KEY) === '1' : !!raw.notifyInChat,
+    disableInternal: raw.disableInternal == null ? localStorage.getItem(SHELL_NOTIFY_DISABLE_INTERNAL_KEY) === '1' : !!raw.disableInternal
+  };
+}
+
+async function hydrateShellNotificationSettingsCache(){
+  try{
+    if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+      var record = await window.PhoneStorage.get('kv', SHELL_NOTIFY_SETTINGS_RECORD_ID).catch(function(){ return null; });
+      if(record && typeof record === 'object'){
+        shellNotificationSettingsCache = normalizeShellNotificationSettings(record.value || record.data || record.settings || {});
+        return shellNotificationSettingsCache;
+      }
+    }
+  }catch(err){}
+  shellNotificationSettingsCache = normalizeShellNotificationSettings(null);
+  return shellNotificationSettingsCache;
+}
 
 function getShellNotificationSettings(){
-  var enabled = localStorage.getItem(SHELL_NOTIFY_ENABLED_KEY);
-  var vibrationEnabled = localStorage.getItem(SHELL_NOTIFY_VIBRATION_ENABLED_KEY);
-  return {
-    enabled: enabled == null ? true : enabled === '1',
-    appName: String(localStorage.getItem(SHELL_NOTIFY_APP_NAME_KEY) || 'EPhone').trim() || 'EPhone',
-    vibrationEnabled: vibrationEnabled == null ? true : vibrationEnabled === '1',
-    vibrationPattern: String(localStorage.getItem(SHELL_NOTIFY_VIBRATION_PATTERN_KEY) || 'medium').trim() || 'medium',
-    notifyInChat: localStorage.getItem(SHELL_NOTIFY_NOTIFY_IN_CHAT_KEY) === '1',
-    disableInternal: localStorage.getItem(SHELL_NOTIFY_DISABLE_INTERNAL_KEY) === '1'
-  };
+  if(shellNotificationSettingsCache) return normalizeShellNotificationSettings(shellNotificationSettingsCache);
+  return normalizeShellNotificationSettings(null);
 }
 
 function getShellNotificationVibration(pattern){
@@ -1622,12 +1644,12 @@ async function showSystemShellNotification(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   try{
     var settings = getShellNotificationSettings();
-    if(!settings.enabled) return false;
+    if(payload.force !== true && !settings.enabled) return false;
     if(typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return false;
     if(!(await ensureShellNotificationPermission())) return false;
     var reg = await navigator.serviceWorker.ready.catch(function(){ return null; });
     if(!reg || typeof reg.showNotification !== 'function') return false;
-    var title = String(payload.name || settings.appName || '角色').trim() || (settings.appName || 'EPhone');
+    var title = String(payload.name || settings.appName || '角色').trim() || (settings.appName || '0615');
     var text = String(payload.text || '').trim() || '有新动静';
     var app = String(payload.app || 'chat').trim() || 'chat';
     var charId = String(payload.charId || '').trim();
@@ -1690,11 +1712,29 @@ function maybeShowShellActivityNotification(payload){
 
 async function testShellNotification(kind){
   var type = String(kind || 'chat').trim() || 'chat';
-  maybeShowShellActivityNotification({
+  var payload = {
     kind: type === 'moments' ? 'moments' : (type === 'schedule' ? 'schedule' : 'chat'),
     charId: String((getCurrentForegroundCharacter() && getCurrentForegroundCharacter().id) || (persistedShellActiveCharacter && persistedShellActiveCharacter.id) || ''),
     name: '测试角色',
     text: type === 'schedule' ? '刚刚改了一条日程' : (type === 'moments' ? '刚刚发了一条朋友圈' : '给你发来了一条新消息')
+  };
+  var settings = getShellNotificationSettings();
+  if(!settings.disableInternal){
+    showAppNotificationCard({
+      app: payload.kind === 'moments' ? 'moments' : (payload.kind === 'schedule' ? 'schedule' : 'chat'),
+      charId: payload.charId,
+      name: payload.name,
+      avatar: '',
+      text: payload.text
+    });
+  }
+  return showSystemShellNotification({
+    app: payload.kind === 'moments' ? 'moments' : (payload.kind === 'schedule' ? 'schedule' : 'chat'),
+    charId: payload.charId,
+    name: settings.appName || '0615',
+    avatar: '',
+    text: payload.text,
+    force: true
   });
 }
 
@@ -6495,6 +6535,9 @@ window.addEventListener('message',(e)=>{
   if(type==='CLOSE_APP'){ closeApp(); }
   if(type==='FORMAT_EPHONE'){ formatEphone(); }
   if(type==='SETTINGS_SAVED'){
+    if(payload && payload.shellNotifySettings){
+      shellNotificationSettingsCache = normalizeShellNotificationSettings(payload.shellNotifySettings);
+    }
     setupAiBgScheduler();
     maybeRunAiBgTick(false);
   }
@@ -7179,6 +7222,7 @@ if(document.readyState === 'loading'){
 }
 
 window.addEventListener('load', ()=>{
+  hydrateShellNotificationSettingsCache().catch(function(){});
   clearHostedRefreshParams();
   syncAppHeight();
   renderHomePages(true);

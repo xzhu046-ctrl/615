@@ -310,7 +310,7 @@ textarea{resize:none}
       <div class="settings-item">
         <label style="margin:0;text-transform:none;letter-spacing:0;color:#222;font-size:13px;font-weight:800">显示名称</label>
         <div class="settings-right" style="flex:1;min-width:0">
-          <input type="text" id="sys-notify-app-name" placeholder="EPhone" maxlength="20" oninput="markDirty()" style="max-width:180px">
+          <input type="text" id="sys-notify-app-name" placeholder="0615" maxlength="20" oninput="markDirty()" style="max-width:180px">
         </div>
       </div>
       <div class="switch-row">
@@ -454,7 +454,7 @@ var pendingImportInput = null;
 var lastSettingsRemoteBuild = '';
 var shellNotifySettingsState = {
   enabled: true,
-  appName: 'EPhone',
+  appName: '0615',
   vibrationEnabled: true,
   vibrationPattern: 'medium',
   notifyInChat: false,
@@ -691,7 +691,7 @@ function renderShellNotificationSettings(){
   document.getElementById('sys-notify-in-chat-switch').classList.toggle('on', !!shellNotifySettingsState.notifyInChat);
   document.getElementById('sys-notify-disable-internal-switch').classList.toggle('on', !!shellNotifySettingsState.disableInternal);
   document.getElementById('sys-notify-vibration-switch').classList.toggle('on', !!shellNotifySettingsState.vibrationEnabled);
-  document.getElementById('sys-notify-app-name').value = shellNotifySettingsState.appName || 'EPhone';
+  document.getElementById('sys-notify-app-name').value = shellNotifySettingsState.appName || '0615';
   setSelectValue('sys-notify-vibration-pattern', shellNotifySettingsState.vibrationPattern || 'medium');
   var permission = getParentShellNotificationPermission();
   var map = { granted:'已允许', denied:'已拒绝', default:'未请求', unsupported:'不支持' };
@@ -703,7 +703,7 @@ function loadShellNotificationSettings(){
   if(fromParent && typeof fromParent === 'object'){
     shellNotifySettingsState = {
       enabled: !!fromParent.enabled,
-      appName: String(fromParent.appName || 'EPhone'),
+      appName: String(fromParent.appName || '0615'),
       vibrationEnabled: !!fromParent.vibrationEnabled,
       vibrationPattern: String(fromParent.vibrationPattern || 'medium'),
       notifyInChat: !!fromParent.notifyInChat,
@@ -712,7 +712,7 @@ function loadShellNotificationSettings(){
   }else{
     shellNotifySettingsState = {
       enabled: localStorage.getItem('shell_notify_enabled') == null ? true : localStorage.getItem('shell_notify_enabled') === '1',
-      appName: String(localStorage.getItem('shell_notify_app_name') || 'EPhone'),
+      appName: String(localStorage.getItem('shell_notify_app_name') || '0615'),
       vibrationEnabled: localStorage.getItem('shell_notify_vibration_enabled') == null ? true : localStorage.getItem('shell_notify_vibration_enabled') === '1',
       vibrationPattern: String(localStorage.getItem('shell_notify_vibration_pattern') || 'medium'),
       notifyInChat: localStorage.getItem('shell_notify_in_chat_page') === '1',
@@ -742,14 +742,46 @@ async function requestShellNotificationPermissionFromSettings(){
 async function sendShellNotificationTest(kind){
   try{
     if(window.parent && window.parent !== window && typeof window.parent.testShellNotification === 'function'){
-      await window.parent.testShellNotification(kind);
-      showToast('测试通知已发送');
+      var ok = await window.parent.testShellNotification(kind);
+      showToast(ok === false ? '测试通知失败' : '测试通知已发送');
       return;
     }
   }catch(err){
     console.error(err);
   }
   showToast('测试通知发送失败');
+}
+
+function safeStorageSet(key, value){
+  try{
+    if(value == null || value === ''){
+      localStorage.removeItem(key);
+    }else{
+      localStorage.setItem(key, String(value));
+    }
+    return true;
+  }catch(err){
+    return false;
+  }
+}
+
+async function persistShellNotifySettingsState(){
+  try{
+    var payload = {
+      id: 'shell_notify_settings',
+      value: Object.assign({}, shellNotifySettingsState),
+      updatedAt: Date.now()
+    };
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.put === 'function'){
+      await window.parent.PhoneStorage.put('kv', payload);
+      return true;
+    }
+    if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+      await window.PhoneStorage.put('kv', payload);
+      return true;
+    }
+  }catch(err){}
+  return false;
 }
 
 async function debugShellNotificationFromSettings(){
@@ -1721,35 +1753,31 @@ async function confirmFormat() {
   }, 450);
 }
 
-function saveAll() {
+async function saveAll() {
   try{
-    localStorage.setItem('provider', curProvider);
+    safeStorageSet('provider', curProvider);
     ['openai','claude','gemini','openrouter','custom'].forEach(function(p) {
       var k = document.getElementById('key-'+p);
-      if(k && k.value) localStorage.setItem('key_'+p, k.value);
+      if(k && k.value) safeStorageSet('key_'+p, k.value);
       var m = document.getElementById('model-'+p);
-      if(m && m.value) localStorage.setItem('model_'+p, m.value);
+      if(m && m.value) safeStorageSet('model_'+p, m.value);
       var t = document.getElementById('temp-'+p);
-      if(t) localStorage.setItem('temp_'+p, t.value || '1');
+      if(t) safeStorageSet('temp_'+p, t.value || '1');
     });
     var cu = document.getElementById('key-custom-url');
-    if(cu) localStorage.setItem('custom_url', cu.value);
+    if(cu) safeStorageSet('custom_url', cu.value);
     var mm = document.getElementById('model-custom-manual');
-    if(mm && mm.value) localStorage.setItem('model_custom_manual', mm.value);
-    localStorage.setItem('sysprompt', document.getElementById('sysprompt').value);
-    localStorage.setItem(AI_BG_ENABLED_KEY, document.getElementById('ai-bg-switch').classList.contains('on') ? '1' : '0');
+    if(mm && mm.value) safeStorageSet('model_custom_manual', mm.value);
+    safeStorageSet('sysprompt', document.getElementById('sysprompt').value);
+    safeStorageSet(AI_BG_ENABLED_KEY, document.getElementById('ai-bg-switch').classList.contains('on') ? '1' : '0');
     var aiBgInterval = parseInt(document.getElementById('ai-bg-interval').value || '6', 10);
     if(Number.isNaN(aiBgInterval)) aiBgInterval = 6;
     aiBgInterval = Math.max(1, Math.min(120, aiBgInterval));
-    localStorage.setItem(AI_BG_INTERVAL_KEY, String(aiBgInterval));
-    shellNotifySettingsState.appName = String(document.getElementById('sys-notify-app-name').value || '').trim() || 'EPhone';
+    safeStorageSet(AI_BG_INTERVAL_KEY, String(aiBgInterval));
+    shellNotifySettingsState.appName = String(document.getElementById('sys-notify-app-name').value || '').trim() || '0615';
     shellNotifySettingsState.vibrationPattern = String(document.getElementById('sys-notify-vibration-pattern').value || 'medium').trim() || 'medium';
-    localStorage.setItem('shell_notify_enabled', shellNotifySettingsState.enabled ? '1' : '0');
-    localStorage.setItem('shell_notify_app_name', shellNotifySettingsState.appName);
-    localStorage.setItem('shell_notify_vibration_enabled', shellNotifySettingsState.vibrationEnabled ? '1' : '0');
-    localStorage.setItem('shell_notify_vibration_pattern', shellNotifySettingsState.vibrationPattern);
-    localStorage.setItem('shell_notify_in_chat_page', shellNotifySettingsState.notifyInChat ? '1' : '0');
-    localStorage.setItem('shell_notify_disable_internal', shellNotifySettingsState.disableInternal ? '1' : '0');
+    await persistShellNotifySettingsState();
+    safeStorageSet('shell_notify_app_name', shellNotifySettingsState.appName);
     dirty = false;
     showToast('设置已保存');
     try{
