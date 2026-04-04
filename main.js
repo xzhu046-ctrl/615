@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T06:58:00Z';
+const APP_BUILD_ID = '2026-04-03T07:12:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2803,6 +2803,95 @@ function inferFallbackSchedulePlanFromUserText(userText){
   return null;
 }
 
+function buildScheduleHeuristicPlanFromUserText(userText, localClock){
+  var text = String(userText || '').replace(/\s+/g, ' ').trim();
+  if(!text) return null;
+  var clean = text
+    .replace(/^[嗯啊哦诶欸呀呢吧啦哈嘿哎呀，。！？!?\s]+/, '')
+    .replace(/[。！？!?]+$/g, '')
+    .trim();
+  if(!clean) return null;
+  var plan = {
+    userTodoAdd: null,
+    userEventAdd: null,
+    completeCharTodo: false,
+    charTodoAdd: null,
+    completeCharTimeline: false,
+    charTimelineAdd: null,
+    charTimelineComment: '',
+    chatContext: ''
+  };
+  var hasCharAsk = /(记得|别忘了|待会|一会|等会|等下|回头|稍后|抽空|顺手|麻烦你|帮我|你去|你先|你得|提醒我|记一下|替我|去一趟|去做|顺便|顺路)/.test(text);
+  var hasUserPlan = /(我待会|我一会|我等会|我等下|我今天|我要|我得|我准备|我会去|我打算|我得去|我可能会|我之后)/.test(text);
+  var hasTimeCue = /(早上|上午|中午|下午|傍晚|晚上|夜里|今晚|今天|明天|待会|一会|等会|等下|稍后|回头|\d{1,2}[:：]\d{2})/.test(text);
+  var shortClean = clean.slice(0, 28);
+  function nextTimeSlot(offsetMinutes, durationMinutes){
+    var nowText = String(localClock && localClock.char && localClock.char.nowTime || '');
+    var match = nowText.match(/^(\d{1,2}):(\d{2})$/);
+    var nowMinutes = match ? ((parseInt(match[1], 10) || 0) * 60 + (parseInt(match[2], 10) || 0)) : 12 * 60;
+    var startMinutes = Math.max(0, Math.min(23 * 60 + 20, nowMinutes + Math.max(10, offsetMinutes || 30)));
+    var endMinutes = Math.max(startMinutes + 20, Math.min(23 * 60 + 59, startMinutes + Math.max(35, durationMinutes || 60)));
+    function pad(n){ return String(n).padStart(2, '0'); }
+    return {
+      start: pad(Math.floor(startMinutes / 60)) + ':' + pad(startMinutes % 60),
+      end: pad(Math.floor(endMinutes / 60)) + ':' + pad(endMinutes % 60)
+    };
+  }
+  if(hasCharAsk){
+    plan.charTodoAdd = {
+      text: shortClean || '刚刚答应你的那件事',
+      note: '这是聊天里顺手答应下来的事。'
+    };
+    if(hasTimeCue){
+      var slot = nextTimeSlot(25, 70);
+      plan.charTimelineAdd = {
+        start: slot.start,
+        end: slot.end,
+        title: shortClean || '顺手处理刚刚答应你的事',
+        note: '这是聊天里临时加进来的安排。',
+        location: ''
+      };
+    }
+    plan.chatContext = '我把刚刚答应你的事顺手记进日程了。';
+  }
+  if(hasUserPlan){
+    if(hasTimeCue){
+      var userSlot = nextTimeSlot(20, 90);
+      plan.userEventAdd = {
+        start: userSlot.start,
+        end: userSlot.end,
+        title: shortClean || '你刚刚提到的安排',
+        note: '这是你在聊天里提到、值得记下来的安排。',
+        location: '',
+        visibleToChar: true
+      };
+    }else{
+      plan.userTodoAdd = {
+        text: shortClean || '你刚刚提到的那件事',
+        note: '这是你在聊天里提到、值得记下来的待办。'
+      };
+    }
+    if(!plan.chatContext) plan.chatContext = '我顺手把你刚刚提到的安排记下来了。';
+  }
+  return schedulePlanHasActions(plan) ? plan : null;
+}
+
+function mergeSchedulePlans(primary, secondary){
+  primary = primary && typeof primary === 'object' ? primary : {};
+  secondary = secondary && typeof secondary === 'object' ? secondary : {};
+  if(!schedulePlanHasActions(secondary) && !String(secondary.chatContext || '').trim()) return primary;
+  return {
+    userTodoAdd: primary.userTodoAdd && String(primary.userTodoAdd.text || '').trim() ? primary.userTodoAdd : secondary.userTodoAdd,
+    userEventAdd: primary.userEventAdd && String(primary.userEventAdd.title || '').trim() ? primary.userEventAdd : secondary.userEventAdd,
+    completeCharTodo: !!(primary.completeCharTodo || secondary.completeCharTodo),
+    charTodoAdd: primary.charTodoAdd && String(primary.charTodoAdd.text || '').trim() ? primary.charTodoAdd : secondary.charTodoAdd,
+    completeCharTimeline: !!(primary.completeCharTimeline || secondary.completeCharTimeline),
+    charTimelineAdd: primary.charTimelineAdd && String(primary.charTimelineAdd.title || '').trim() ? primary.charTimelineAdd : secondary.charTimelineAdd,
+    charTimelineComment: String(primary.charTimelineComment || '').trim() || String(secondary.charTimelineComment || '').trim(),
+    chatContext: String(primary.chatContext || '').trim() || String(secondary.chatContext || '').trim()
+  };
+}
+
 function schedulePlanHasActions(plan){
   if(!(plan && typeof plan === 'object')) return false;
   return !!(
@@ -2954,8 +3043,14 @@ async function syncScheduleActivityFromChat(payload){
     charTimeline: day.timeline,
     charTodos: day.todos
   });
-  if(!schedulePlanHasActions(plan)){
-    plan = inferFallbackSchedulePlanFromUserText(userText) || plan || null;
+  var heuristicPlan = mergeSchedulePlans(
+    inferFallbackSchedulePlanFromUserText(userText) || null,
+    buildScheduleHeuristicPlanFromUserText(userText, localClock) || null
+  );
+  if(schedulePlanHasActions(plan)){
+    plan = mergeSchedulePlans(plan, heuristicPlan || null);
+  }else{
+    plan = heuristicPlan || plan || null;
   }
 
   if(plan && plan.userTodoAdd && String(plan.userTodoAdd.text || '').trim()){
