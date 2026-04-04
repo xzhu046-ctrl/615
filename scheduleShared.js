@@ -166,6 +166,7 @@
       title: String(item.title || '').trim(),
       note: String(item.note || '').trim(),
       location: String(item.location || '').trim(),
+      done: !!item.done,
       kind: String(item.kind || 'char').trim() || 'char',
       secret: !!item.secret,
       secretPassword: String(item.secretPassword || '').replace(/\D+/g, '').slice(0, 4),

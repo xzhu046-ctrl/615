@@ -32,9 +32,10 @@ const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
+const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T06:03:00Z';
+const APP_BUILD_ID = '2026-04-03T06:34:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1236,6 +1237,23 @@ function getDefaultAccountId(){
     }
   }catch(e){}
   return '';
+}
+
+function normalizeShellMomentsFreq(value){
+  var v = String(value || '').toLowerCase();
+  if(v === 'low' || v === 'high' || v === 'medium') return v;
+  return DEFAULT_MOMENTS_FREQ;
+}
+
+function loadShellCharMomentsFreq(charId, accountId){
+  charId = String(charId || '').trim();
+  if(!charId) return DEFAULT_MOMENTS_FREQ;
+  try{
+    var scoped = scopedKeyForAccount('char_moments_freq_' + charId, accountId || getActiveAccountId());
+    return normalizeShellMomentsFreq(localStorage.getItem(scoped) || localStorage.getItem('char_moments_freq_' + charId) || DEFAULT_MOMENTS_FREQ);
+  }catch(err){
+    return DEFAULT_MOMENTS_FREQ;
+  }
 }
 
 function getActiveAccountId(){
@@ -2514,11 +2532,388 @@ async function runAiBackgroundActivity(){
   if(!isCharBgEnabled(character.id, defaultId)) return false;
   var parsed = coerceBgAction(parseBgAction(rawReply), convoState);
   if(!parsed) return false;
+  if(parsed.action !== 'message' && loadShellCharMomentsFreq(character.id, defaultId) === 'low'){
+    return false;
+  }
   if(parsed.action === 'message'){
     return await appendBackgroundAiMessage(character, defaultId, parsed.content);
   }else{
     return await appendBackgroundMoment(character, defaultId, parsed.action, parsed.content, parsed.imageText);
   }
+}
+
+function getScheduleCommentLatestAt(item, author){
+  var latest = 0;
+  (Array.isArray(item && item.comments) ? item.comments : []).forEach(function(comment){
+    if(String(comment && comment.author || '').trim() !== String(author || '').trim()) return;
+    var at = Number(comment && comment.createdAt || 0) || 0;
+    if(at > latest) latest = at;
+  });
+  return latest;
+}
+
+function scheduleItemNeedsCharReply(item){
+  if(!(item && typeof item === 'object')) return false;
+  var latestUser = getScheduleCommentLatestAt(item, 'user');
+  var latestChar = getScheduleCommentLatestAt(item, 'char');
+  if(latestUser > latestChar) return true;
+  return !(Array.isArray(item.comments) && item.comments.some(function(comment){
+    return String(comment && comment.author || '').trim() === 'char';
+  }));
+}
+
+function buildSchedulePromptItemFromState(kind, item){
+  item = item && typeof item === 'object' ? item : {};
+  if(kind === 'event' && item.visibleToChar === false){
+    return {
+      title: String(item.publicMask || '这个时间段有安排').trim(),
+      note: '这是用户没有公开细节的安排，不能擅自知道具体内容。',
+      location: '',
+      start: String(item.start || '').trim(),
+      end: String(item.end || '').trim()
+    };
+  }
+  if(kind === 'timeline' && item.secret){
+    return {
+      title: String(item.publicMask || '这段时间有安排').trim(),
+      note: '这是一条秘密行程，不能泄露真实内容。',
+      location: '',
+      start: String(item.start || '').trim(),
+      end: String(item.end || '').trim()
+    };
+  }
+  return {
+    title: String(item.title || item.text || '').trim(),
+    note: String(item.note || '').trim(),
+    location: String(item.location || '').trim(),
+    start: String(item.start || '').trim(),
+    end: String(item.end || '').trim()
+  };
+}
+
+function getScheduleEntryTimeStatusText(item, owner, dateKey, localClock){
+  item = item && typeof item === 'object' ? item : {};
+  owner = String(owner || '').trim() === 'char' ? 'char' : 'user';
+  localClock = localClock && typeof localClock === 'object' ? localClock : {};
+  if(item.done) return '这条安排已经完成，或者被顺手改掉了。';
+  var liveDateKey = owner === 'char'
+    ? String(localClock.char && localClock.char.dateKey || '')
+    : String(localClock.user && localClock.user.dateKey || '');
+  if(!liveDateKey || String(dateKey || '') !== liveDateKey) return '';
+  var liveNow = owner === 'char'
+    ? String(localClock.char && localClock.char.nowTime || '')
+    : String(localClock.user && localClock.user.nowTime || '');
+  var nowParts = liveNow.split(':');
+  var nowMinutes = nowParts.length === 2 ? ((parseInt(nowParts[0], 10) || 0) * 60 + (parseInt(nowParts[1], 10) || 0)) : -1;
+  if(nowMinutes < 0) return '';
+  var start = String(item.start || '').trim();
+  var end = String(item.end || '').trim();
+  var startParts = start.split(':');
+  var endParts = end.split(':');
+  var startMinutes = startParts.length === 2 ? ((parseInt(startParts[0], 10) || 0) * 60 + (parseInt(startParts[1], 10) || 0)) : -1;
+  var endMinutes = endParts.length === 2 ? ((parseInt(endParts[0], 10) || 0) * 60 + (parseInt(endParts[1], 10) || 0)) : -1;
+  if(startMinutes < 0) return '当前已经是这一天里的稍后时段。';
+  if(endMinutes < startMinutes) endMinutes = startMinutes + 59;
+  if(nowMinutes > endMinutes) return '这条安排的时间已经过去了。';
+  if(nowMinutes >= startMinutes && nowMinutes <= endMinutes) return '这条安排现在正在发生。';
+  if(nowMinutes < startMinutes) return '这条安排还没开始。';
+  return '';
+}
+
+function summarizeScheduleItemsForPrompt(list, owner){
+  return (Array.isArray(list) ? list : []).map(function(item){
+    item = item && typeof item === 'object' ? item : {};
+    return [
+      owner === 'char' ? '角色' : '用户',
+      String(item.start || '').trim() || '未定时间',
+      String(item.title || item.text || '').trim(),
+      String(item.location || '').trim(),
+      String(item.note || '').trim(),
+      item.done ? '已完成' : ''
+    ].filter(Boolean).join(' | ');
+  }).filter(Boolean).slice(0, 18).join('\n- ');
+}
+
+async function generateScheduleChatSyncPlan(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var charId = String(payload.charId || '').trim();
+  var userText = String(payload.userText || '').trim();
+  if(!charId || !userText) return null;
+  var chars = getStoredCharactersSnapshot();
+  var character = chars.find(function(item){ return item && String(item.id || '').trim() === charId; }) || null;
+  if(!character) return null;
+  var cfg = getBackgroundProviderConfig();
+  if(!cfg) return null;
+  var localClock = buildScheduleLocalNowContextForCharacter(character, Date.now());
+  var sysPrompt = [
+    '你正在根据聊天内容，轻微地改动一个角色的日程 app。',
+    '只返回严格 JSON，不要 markdown，不要解释。',
+    '格式：{"userTodoAdd":{"text":"...","note":"..."}|null,"userEventAdd":{"start":"09:00","end":"10:00","title":"...","note":"...","location":"...","visibleToChar":true}|null,"completeCharTodo":true|false,"charTodoAdd":{"text":"...","note":"..."}|null,"completeCharTimeline":true|false,"charTimelineAdd":{"start":"18:30","end":"19:20","title":"...","note":"...","location":"..."}|null,"charTimelineComment":"...","chatContext":"..."}',
+    '这是轻微调整，不要大改整天计划，不要重写所有内容。',
+    '只有当最新聊天内容真的值得记下来、提醒、改计划、临时插入安排时，才返回对应字段；否则返回 null 或 false。',
+    '如果用户在聊天里提到“记得/提醒/稍后/待会/别忘了/要去做”，可以顺手给用户加一条待办或短行程。',
+    '如果角色因为聊天内容想顺手改一下自己的安排、加一条待办、补一条临时行程，甚至划掉当前一条安排再补一条新的，都可以自然返回。',
+    '地点、互动距离感、移动方式必须服从现实地理位置设定；异地不要偷写成已经见面、一起吃饭、在对方家里。',
+    '不要泄露任何秘密行程。',
+    'chatContext 是一句给后续聊天生成看的中文摘要，说明你刚刚在日程 app 里顺手做了什么。'
+  ].join('\n');
+  var userPrompt = [
+    '角色名：' + String(character.nickname || character.name || '角色'),
+    '角色人设：' + String(character.personality || character.description || '').slice(0, 1600),
+    character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 800)) : '',
+    String(getScheduleUserPersona(charId) || '').trim() ? ('用户设定：' + String(getScheduleUserPersona(charId) || '').trim().slice(0, 1000)) : '',
+    getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
+    localClock.user ? ('用户当地时间：' + String(localClock.user.dateKey || '') + ' ' + String(localClock.user.nowTime || '')) : '',
+    localClock.char ? ('角色当地时间：' + String(localClock.char.dateKey || '') + ' ' + String(localClock.char.nowTime || '')) : '',
+    '最新用户聊天内容：' + userText,
+    payload.userEvents ? ('用户今天行程：\n- ' + summarizeScheduleItemsForPrompt(payload.userEvents, 'user')) : '用户今天行程：无',
+    payload.userTodos ? ('用户今天待办：\n- ' + summarizeScheduleItemsForPrompt(payload.userTodos, 'user')) : '用户今天待办：无',
+    payload.charTimeline ? ('角色今天行程：\n- ' + summarizeScheduleItemsForPrompt(payload.charTimeline, 'char')) : '角色今天行程：无',
+    payload.charTodos ? ('角色今天待办：\n- ' + summarizeScheduleItemsForPrompt(payload.charTodos, 'char')) : '角色今天待办：无',
+    '请只做自然、轻微、符合人设的改动，不要为了改而改。'
+  ].filter(Boolean).join('\n\n');
+  try{
+    var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
+    var txt = cleanBgJson(raw);
+    var parsed = JSON.parse(txt || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  }catch(err){
+    return null;
+  }
+}
+
+async function syncScheduleActivityFromChat(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var charId = String(payload.charId || '').trim();
+  var userText = String(payload.userText || '').trim();
+  if(!charId || !userText) return { changed:false, messages:0 };
+  var defaultId = getDefaultAccountId();
+  if(!isCharBgEnabled(charId, defaultId)) return { changed:false, messages:0 };
+  var shared = getScheduleSharedApi();
+  if(!shared) return { changed:false, messages:0 };
+  var chars = getStoredCharactersSnapshot();
+  var character = chars.find(function(item){ return item && String(item.id || '').trim() === charId; }) || null;
+  if(!character) return { changed:false, messages:0 };
+  var localClock = buildScheduleLocalNowContextForCharacter(character, Date.now());
+  var dateKey = String(localClock.user && localClock.user.dateKey || shared.toDateKey(new Date()));
+  var state = shared.normalizeState(await shared.loadState());
+  var charState = shared.getCharState(state, charId);
+  var day = charState.charDays && charState.charDays[dateKey]
+    ? shared.normalizeCharDay(charState.charDays[dateKey], dateKey)
+    : shared.normalizeCharDay({ date:dateKey }, dateKey);
+  var userEvents = (Array.isArray(charState.events) ? charState.events : []).filter(function(item){ return String(item && item.date || '') === dateKey; });
+  var userTodos = (Array.isArray(charState.todos) ? charState.todos : []).filter(function(item){ return String(item && item.date || '') === dateKey; });
+  var pendingUserTargets = []
+    .concat(userEvents.map(function(item){ return { kind:'event', item:item }; }))
+    .concat(userTodos.map(function(item){ return { kind:'todo', item:item }; }))
+    .concat((Array.isArray(day.timeline) ? day.timeline : []).map(function(item){ return { kind:'timeline', item:item }; }))
+    .concat((Array.isArray(day.todos) ? day.todos : []).map(function(item){ return { kind:'chartodo', item:item }; }))
+    .filter(function(ref){ return scheduleItemNeedsCharReply(ref.item); })
+    .slice(0, 8);
+  var actionNotes = [];
+  var changed = false;
+
+  for(var i = 0; i < pendingUserTargets.length; i += 1){
+    var ref = pendingUserTargets[i];
+    var item = ref.item;
+      var noteText = await generateScheduleInlineComment({
+        charId: charId,
+        dateKey: dateKey,
+        owner: (ref.kind === 'timeline' || ref.kind === 'chartodo') ? 'char' : 'user',
+        item: buildSchedulePromptItemFromState(ref.kind, item),
+        comments: Array.isArray(item.comments) ? item.comments : [],
+        timeStatus: getScheduleEntryTimeStatusText(item, (ref.kind === 'timeline' || ref.kind === 'chartodo') ? 'char' : 'user', dateKey, localClock),
+        extraContext: [
+          '你现在是在聊天之余，顺手看了一眼日程 app。',
+          (ref.kind === 'timeline' || ref.kind === 'chartodo')
+            ? '这是你自己的一条安排或待办，但用户在上面留了话。你要像真人一样知道对方在看你的日程，并自然接住。'
+            : '这条安排属于用户，不是你自己。如果用户在这条安排上留过话，要像真人一样把它接住；如果只是他新写下来的安排或待办，也可以自然留一句。'
+        ].join('\n')
+      }).catch(function(){ return ''; });
+    noteText = String(noteText || '').trim();
+    if(!noteText) continue;
+    item = Object.assign({}, item);
+    item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
+    item.comments.push({
+      id: shared.createId('comment'),
+      author: 'char',
+      text: noteText,
+      createdAt: Date.now()
+    });
+    if(ref.kind === 'event'){
+      charState.events = (Array.isArray(charState.events) ? charState.events : []).map(function(entry){
+        if(String(entry && entry.date || '') !== dateKey) return entry;
+        return String(entry && entry.id || '') === String(item.id || '') ? item : entry;
+      });
+    }else if(ref.kind === 'todo'){
+      charState.todos = (Array.isArray(charState.todos) ? charState.todos : []).map(function(entry){
+        if(String(entry && entry.date || '') !== dateKey) return entry;
+        return String(entry && entry.id || '') === String(item.id || '') ? item : entry;
+      });
+    }else if(ref.kind === 'timeline'){
+      day.timeline = (Array.isArray(day.timeline) ? day.timeline : []).map(function(entry){
+        return String(entry && entry.id || '') === String(item.id || '') ? item : entry;
+      });
+    }else if(ref.kind === 'chartodo'){
+      day.todos = (Array.isArray(day.todos) ? day.todos : []).map(function(entry){
+        return String(entry && entry.id || '') === String(item.id || '') ? item : entry;
+      });
+    }
+    changed = true;
+    actionNotes.push('我在日程里回了你关于「' + String(item.title || item.text || '这件事') + '」的留言。');
+  }
+
+  var plan = await generateScheduleChatSyncPlan({
+    charId: charId,
+    userText: userText,
+    userEvents: userEvents,
+    userTodos: userTodos,
+    charTimeline: day.timeline,
+    charTodos: day.todos
+  });
+
+  if(plan && plan.userTodoAdd && String(plan.userTodoAdd.text || '').trim()){
+    charState.todos = Array.isArray(charState.todos) ? charState.todos.slice() : [];
+    charState.todos.unshift(shared.normalizeTodo({
+      date: dateKey,
+      text: String(plan.userTodoAdd.text || '').trim(),
+      note: String(plan.userTodoAdd.note || '').trim(),
+      visibleToChar: true,
+      source: 'user'
+    }));
+    changed = true;
+    actionNotes.push('我顺手帮你记了一条待办。');
+  }
+  if(plan && plan.userEventAdd && String(plan.userEventAdd.title || '').trim()){
+    charState.events = Array.isArray(charState.events) ? charState.events.slice() : [];
+    charState.events.unshift(shared.normalizeEvent({
+      date: dateKey,
+      start: String(plan.userEventAdd.start || '').trim(),
+      end: String(plan.userEventAdd.end || '').trim(),
+      title: String(plan.userEventAdd.title || '').trim(),
+      note: String(plan.userEventAdd.note || '').trim(),
+      location: String(plan.userEventAdd.location || '').trim(),
+      visibleToChar: plan.userEventAdd.visibleToChar !== false,
+      source: 'user'
+    }));
+    changed = true;
+    actionNotes.push('我还顺手给你补了一条行程。');
+  }
+  if(plan && plan.completeCharTodo){
+    var nextTodo = (Array.isArray(day.todos) ? day.todos : []).find(function(item){ return item && !item.done; }) || null;
+    if(nextTodo){
+      day.todos = (Array.isArray(day.todos) ? day.todos : []).map(function(item){
+        if(String(item && item.id || '') !== String(nextTodo.id || '')) return item;
+        item = Object.assign({}, item);
+        item.done = true;
+        return item;
+      });
+      changed = true;
+      actionNotes.push('我把自己的一条待办做完了。');
+    }
+  }
+  if(plan && plan.completeCharTimeline){
+    var currentTimeline = (Array.isArray(day.timeline) ? day.timeline : []).find(function(item){
+      return item && !item.done && getScheduleEntryTimeStatusText(item, 'char', dateKey, localClock) === '这条安排现在正在发生。';
+    }) || (Array.isArray(day.timeline) ? day.timeline : []).find(function(item){ return item && !item.done; }) || null;
+    if(currentTimeline){
+      day.timeline = (Array.isArray(day.timeline) ? day.timeline : []).map(function(item){
+        if(String(item && item.id || '') !== String(currentTimeline.id || '')) return item;
+        item = Object.assign({}, item);
+        item.done = true;
+        return item;
+      });
+      changed = true;
+      actionNotes.push('我把刚刚那段安排顺手划掉，又改了下节奏。');
+    }
+  }
+  if(plan && plan.charTodoAdd && String(plan.charTodoAdd.text || '').trim()){
+    day.todos = Array.isArray(day.todos) ? day.todos.slice() : [];
+    day.todos.unshift({
+      id: shared.createId('chartodo'),
+      text: String(plan.charTodoAdd.text || '').trim(),
+      note: String(plan.charTodoAdd.note || '').trim(),
+      done: false,
+      comments: [],
+      createdAt: Date.now()
+    });
+    changed = true;
+    actionNotes.push('我给自己补了一条待办。');
+  }
+  if(plan && plan.charTimelineAdd && String(plan.charTimelineAdd.title || '').trim()){
+    day.timeline = Array.isArray(day.timeline) ? day.timeline.slice() : [];
+    day.timeline.push({
+      id: shared.createId('timeline'),
+      start: String(plan.charTimelineAdd.start || '').trim(),
+      end: String(plan.charTimelineAdd.end || '').trim(),
+      title: String(plan.charTimelineAdd.title || '').trim(),
+      note: String(plan.charTimelineAdd.note || '').trim(),
+      location: String(plan.charTimelineAdd.location || '').trim(),
+      done: false,
+      kind: 'char',
+      secret: false,
+      secretPassword: '',
+      secretHint: '',
+      publicMask: '',
+      comments: []
+    });
+    day.timeline.sort(function(a, b){
+      return String(a && a.start || '99:99').localeCompare(String(b && b.start || '99:99'));
+    });
+    changed = true;
+    actionNotes.push('我把今天的安排临时改了一下。');
+  }
+  if(plan && String(plan.charTimelineComment || '').trim()){
+    var timelineTarget = (Array.isArray(day.timeline) ? day.timeline : []).find(function(item){
+      return item && getScheduleEntryTimeStatusText(item, 'char', dateKey, localClock) === '这条安排现在正在发生。';
+    }) || ((Array.isArray(day.timeline) ? day.timeline : [])[0] || null);
+    if(timelineTarget){
+      day.timeline = (Array.isArray(day.timeline) ? day.timeline : []).map(function(item){
+        if(String(item && item.id || '') !== String(timelineTarget.id || '')) return item;
+        item = Object.assign({}, item);
+        item.comments = Array.isArray(item.comments) ? item.comments.slice() : [];
+        item.comments.push({
+          id: shared.createId('comment'),
+          author: 'char',
+          text: String(plan.charTimelineComment || '').trim(),
+          createdAt: Date.now()
+        });
+        return item;
+      });
+      changed = true;
+      actionNotes.push('我顺手又看了看自己的安排。');
+    }
+  }
+
+  if(changed){
+    charState.charDays = charState.charDays || {};
+    charState.charDays[dateKey] = shared.normalizeCharDay(day, dateKey);
+    state = shared.setCharState(state, charId, charState);
+    await shared.saveState(state);
+  }
+
+  var burstTargets = pendingUserTargets.map(function(ref){
+    var target = ref.item || {};
+    return '- ' + String(target.title || target.text || '这件事');
+  }).slice(0, 6).join('\n');
+  var burstMessages = [];
+  if(actionNotes.length || (plan && String(plan.chatContext || '').trim())){
+    burstMessages = await generateScheduleChatBurst({
+      charId: charId,
+      context: '这是角色在聊天时顺手看过日程 app 之后，真的要发去聊天里的几条消息。最新用户聊天内容：' + userText,
+      targets: burstTargets,
+      actions: actionNotes.concat(String(plan && plan.chatContext || '').trim() ? [String(plan.chatContext || '').trim()] : []).join('\n')
+    }).catch(function(){ return []; });
+    burstMessages = Array.isArray(burstMessages) ? burstMessages.map(function(text){ return String(text || '').trim(); }).filter(Boolean) : [];
+  }
+  for(var msgIndex = 0; msgIndex < burstMessages.length; msgIndex += 1){
+    await appendScheduleChatMessage({
+      charId: charId,
+      role: 'assistant',
+      text: burstMessages[msgIndex]
+    }).catch(function(){});
+  }
+  return { changed: changed, messages: burstMessages.length };
 }
 
 window.ScheduleShell = {
@@ -2527,7 +2922,8 @@ window.ScheduleShell = {
   appendSystemNotice: appendScheduleSystemNotice,
   generateChatBurst: generateScheduleChatBurst,
   appendChatMessage: appendScheduleChatMessage,
-  generateInlineComment: generateScheduleInlineComment
+  generateInlineComment: generateScheduleInlineComment,
+  syncChatBackground: syncScheduleActivityFromChat
 };
 
 function updateClock() {

@@ -10,8 +10,8 @@
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-03T01:02:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-03T01:02:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-03T06:34:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-03T06:34:00Z"></script>
 <script src="../sunnySupport.js?v=2026-03-31T10:28:00Z"></script>
 <script src="offlineInvite.js?v=2026-04-01T23:27:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
@@ -4723,7 +4723,7 @@ function saveMomentsSocialState(state){
 function getMomentsFreqProfile(){
   var level = loadCharMomentsFreq(character && character.id);
   if(level === 'low'){
-    return { level: level, cooldownMs: 36000, mentionPostChance: 0.3, moodPostChance: 0.34, idleLikeChance: 0.07 };
+    return { level: level, cooldownMs: 72 * 60 * 60 * 1000, mentionPostChance: 0.008, moodPostChance: 0.012, idleLikeChance: 0.002 };
   }
   if(level === 'high'){
     return { level: level, cooldownMs: 9000, mentionPostChance: 0.78, moodPostChance: 0.82, idleLikeChance: 0.22 };
@@ -8318,6 +8318,7 @@ async function sendOnly() {
     await saveChat(true);
     hideError();
     captureUserMomentIntent(text, 'text');
+    maybeQueueScheduleBackgroundSync(text, 'text');
   }catch(err){
     console.error('sendOnly error:', err);
     var msg = humanizeAiError(err);
@@ -8348,6 +8349,47 @@ async function maybeHandlePresenceAutoReply(){
   return true;
 }
 
+function getScheduleShellHost(){
+  try{
+    if(window.parent && window.parent !== window && window.parent.ScheduleShell) return window.parent;
+  }catch(err){}
+  try{
+    if(window.top && window.top !== window && window.top.ScheduleShell) return window.top;
+  }catch(err){}
+  return null;
+}
+
+var scheduleChatSyncBusy = false;
+var scheduleChatSyncLatest = null;
+function maybeQueueScheduleBackgroundSync(text, msgType){
+  if(!(character && character.id)) return;
+  if(!loadCharBgEnabled(character.id)) return;
+  var shellHost = getScheduleShellHost();
+  if(!(shellHost && shellHost.ScheduleShell && typeof shellHost.ScheduleShell.syncChatBackground === 'function')) return;
+  var safeText = String(text || '').trim();
+  if(!safeText) return;
+  scheduleChatSyncLatest = {
+    charId: character.id,
+    userText: safeText,
+    msgType: String(msgType || 'text')
+  };
+  if(scheduleChatSyncBusy) return;
+  scheduleChatSyncBusy = true;
+  Promise.resolve().then(async function(){
+    while(scheduleChatSyncLatest){
+      var payload = scheduleChatSyncLatest;
+      scheduleChatSyncLatest = null;
+      try{
+        await shellHost.ScheduleShell.syncChatBackground(payload);
+      }catch(err){
+        console.warn('schedule background sync failed', err);
+      }
+    }
+  }).finally(function(){
+    scheduleChatSyncBusy = false;
+  });
+}
+
 // Triggers AI to reply (either to existing last message or sends+replies)
 async function triggerReply() {
   try{
@@ -8371,6 +8413,7 @@ async function triggerReply() {
       clearReplyTarget();
       await saveChat(true);
       captureUserMomentIntent(text, 'text');
+      maybeQueueScheduleBackgroundSync(text, 'text');
     }else{
       registerPresenceNudge('request');
     }
@@ -11520,6 +11563,7 @@ async function sendVoiceInput(){
   await saveChat();
   clearReplyTarget();
   captureUserMomentIntent(text, 'voice');
+  maybeQueueScheduleBackgroundSync(text, 'voice');
 }
 
 async function sendImageCardInput(){
@@ -11536,6 +11580,7 @@ async function sendImageCardInput(){
   await saveChat();
   clearReplyTarget();
   captureUserMomentIntent(text, 'image');
+  maybeQueueScheduleBackgroundSync(text, 'image');
 }
 
 function openImageViewer(text){
