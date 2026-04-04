@@ -4578,6 +4578,29 @@ function buildOfflineCoreSettingSummary(compactLevel){
     scheduleRule ? ('日程感知：\n' + scheduleRule) : '日程感知：无'
   ].join('\n');
 }
+function buildOfflineOpeningCoreSettingSummary(compactLevel){
+  var level = Math.max(0, Number(compactLevel) || 0);
+  var persona = clipOfflinePromptText(character ? (character.personality || character.description || '') : '', offlinePromptLimit(isMobileOfflineRuntime() ? 680 : 980, level, 260));
+  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, level, 160));
+  var scenario = clipOfflinePromptText(character ? String(character.scenario || '').trim() : '', offlinePromptLimit(220, level, 80));
+  var systemPrompt = clipOfflinePromptText(character ? String(character.system_prompt || '').trim() : '', offlinePromptLimit(isMobileOfflineRuntime() ? 320 : 480, level, 120));
+  var worldBook = getOfflineWorldbookSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 420 : 620, level, 140));
+  var memoryText = getOfflineMemorySnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 260 : 380, level, 100));
+  var charWeather = buildWeatherMoodPrompt(getOfflineWeatherSnapshot('char'));
+  var userWeather = buildWeatherMoodPrompt(getOfflineWeatherSnapshot('user'));
+  var inviteWeather = String(session && session.invite && session.invite.weather || '').trim();
+  var weatherRule = [inviteWeather, charWeather, userWeather].filter(Boolean).join('；');
+  return [
+    '角色 persona：' + (persona || '未提供'),
+    '用户 persona：' + (userPersona || '未提供'),
+    weatherRule ? ('当前天气/温度/昼夜线索：' + weatherRule) : '当前天气/温度/昼夜线索：无',
+    buildOfflineReplyLanguagePromptLine(),
+    scenario ? ('场景设定：' + scenario) : '场景设定：无',
+    systemPrompt ? ('角色补充规则：' + systemPrompt) : '角色补充规则：无',
+    worldBook ? ('世界书（超轻摘要）：\n' + worldBook) : '世界书（超轻摘要）：无',
+    memoryText ? ('记忆总结（超轻摘要）：\n' + memoryText) : '记忆总结（超轻摘要）：无'
+  ].join('\n');
+}
 function getOfflineScheduleLocalClockParts(nowMs, timezoneName, timezoneOffset){
   var safeNow = Number(nowMs || Date.now()) || Date.now();
   var safeName = String(timezoneName || '').trim();
@@ -5046,15 +5069,6 @@ function buildOfflineOpeningChunkSystemPrompt(){
   var scenario = character ? String(character.scenario || '').trim() : '';
   var systemPrompt = character ? String(character.system_prompt || '').trim() : '';
   var storyPrefs = getOfflineStoryPrefs();
-  var worldBook = clipOfflinePromptText(getOfflineWorldbookSnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1500 : 2200, compactLevel, 520));
-  var memoryText = clipOfflinePromptText(getOfflineMemorySnippet(), offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 420));
-  var onlineChatText = getOfflineRecentOnlineSnippet();
-  onlineChatText = clipOfflinePromptText(onlineChatText, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
-  var historyText = getOfflineHistorySnippetByBudget(compactLevel >= 1 ? 3 : 4, offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360));
-  var compactPersona = clipOfflinePromptText(persona, offlinePromptLimit(isMobileOfflineRuntime() ? 1400 : 2200, compactLevel, 520));
-  var compactUserPersona = clipOfflinePromptText(userPersona, offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, compactLevel, 280));
-  var compactScenario = clipOfflinePromptText(scenario, offlinePromptLimit(500, compactLevel, 180));
-  var compactSystemPrompt = clipOfflinePromptText(systemPrompt, offlinePromptLimit(isMobileOfflineRuntime() ? 1000 : 1600, compactLevel, 320));
   var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), offlinePromptLimit(500, compactLevel, 180));
   return [
     '你在生成“线下见面模式”的第一幕正文。',
@@ -5088,17 +5102,10 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '要直接进入见面的第一幕，不要总结回顾，不要写成说明书，也不要偷懒只写很短一段。',
     '这已经是一场自然开始的线下见面，不要提“邀请/赴约/约会申请/你邀请我”这种元叙事说法。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
-    '角色 persona：' + (compactPersona || '未提供'),
     '用户名字：' + resolveUserName(),
-    '用户 persona：' + (compactUserPersona || '未提供'),
     pendingFriendIntro ? ('用户附言/补充背景：' + pendingFriendIntro) : '用户附言/补充背景：无',
     openingReference ? ('开场白 / 开场参考：' + openingReference) : '开场白 / 开场参考：无',
-    compactScenario ? ('场景设定：' + compactScenario) : '场景设定：无',
-    compactSystemPrompt ? ('角色补充规则：' + compactSystemPrompt) : '角色补充规则：无',
-    worldBook ? ('世界书（已启用条目）：\n' + worldBook) : '世界书（已启用条目）：无',
-    memoryText ? ('记忆总结：\n' + memoryText) : '记忆总结：无',
-    onlineChatText ? ('最近线上聊天：\n' + onlineChatText) : '最近线上聊天：无',
-    historyText ? ('最近线下记录：\n' + historyText) : '最近线下记录：无',
+    buildOfflineOpeningCoreSettingSummary(compactLevel),
     offlineOpeningBanRules()
   ].join('\n');
 }
