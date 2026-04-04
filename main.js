@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T08:17:00Z';
+const APP_BUILD_ID = '2026-04-03T08:26:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1831,6 +1831,33 @@ function buildScheduleWeatherPresenceContext(payload){
   return lines.join('\n');
 }
 
+function loadScheduleWeatherSettingByCharId(role, charId){
+  var safeRole = role === 'char' ? 'char' : 'user';
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return null;
+  var baseKey = (safeRole === 'char' ? 'real_weather_char_' : 'real_weather_user_') + safeCharId;
+  var keys = [scopedKeyForAccount(baseKey, getActiveAccountId()), baseKey].filter(Boolean);
+  for(var i = 0; i < keys.length; i++){
+    try{
+      var raw = localStorage.getItem(keys[i]);
+      if(!raw) continue;
+      var parsed = JSON.parse(raw);
+      if(parsed && typeof parsed === 'object') return parsed;
+    }catch(err){}
+  }
+  return null;
+}
+
+function buildSchedulePresenceContextForCharId(charId, character){
+  var payload = {
+    userWeather: loadScheduleWeatherSettingByCharId('user', charId),
+    charWeather: loadScheduleWeatherSettingByCharId('char', charId)
+  };
+  var weatherText = buildScheduleWeatherPresenceContext(payload);
+  if(weatherText) return weatherText;
+  return getSchedulePresenceContext(character);
+}
+
 function getScheduleLocalClockParts(nowMs, timezoneName, timezoneOffset){
   var safeNow = Number(nowMs || Date.now()) || Date.now();
   var safeName = String(timezoneName || '').trim();
@@ -2496,7 +2523,7 @@ async function generateScheduleInlineComment(payload){
     '角色名：' + String(character.nickname || character.name || '角色'),
     '角色人设：' + String(character.personality || character.description || '').slice(0, 1200),
     character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 700)) : '',
-    getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
+    buildSchedulePresenceContextForCharId(charId, character) ? ('现实地理位置 / 距离感：\n' + buildSchedulePresenceContextForCharId(charId, character)) : '',
     userNow ? ('用户当地日期时间：' + String(userNow.dateKey || '') + ' ' + String(userNow.nowTime || '')) : '',
     charNow ? ('角色当地日期时间：' + String(charNow.dateKey || '') + ' ' + String(charNow.nowTime || '')) : '',
     '今天日期：' + String(payload.dateKey || ''),
@@ -2543,7 +2570,7 @@ async function generateScheduleChatBurst(payload){
     '角色名：' + String(character.nickname || character.name || '角色'),
     '角色人设：' + String(character.personality || character.description || '').slice(0, 1400),
     character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 800)) : '',
-    getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
+    buildSchedulePresenceContextForCharId(charId, character) ? ('现实地理位置 / 距离感：\n' + buildSchedulePresenceContextForCharId(charId, character)) : '',
     userNow ? ('用户当地日期时间：' + String(userNow.dateKey || '') + ' ' + String(userNow.nowTime || '')) : '',
     charNow ? ('角色当地日期时间：' + String(charNow.dateKey || '') + ' ' + String(charNow.nowTime || '')) : '',
     payload.context ? ('这次触发背景：' + String(payload.context || '').trim()) : '',
@@ -3028,7 +3055,7 @@ async function generateScheduleChatSyncPlan(payload){
     '角色人设：' + String(character.personality || character.description || '').slice(0, 1600),
     character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 800)) : '',
     String(getScheduleUserPersona(charId) || '').trim() ? ('用户设定：' + String(getScheduleUserPersona(charId) || '').trim().slice(0, 1000)) : '',
-    getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : '',
+    buildSchedulePresenceContextForCharId(charId, character) ? ('现实地理位置 / 距离感：\n' + buildSchedulePresenceContextForCharId(charId, character)) : '',
     localClock.user ? ('用户当地时间：' + String(localClock.user.dateKey || '') + ' ' + String(localClock.user.nowTime || '')) : '',
     localClock.char ? ('角色当地时间：' + String(localClock.char.dateKey || '') + ' ' + String(localClock.char.nowTime || '')) : '',
     '最新用户聊天内容：' + userText,
