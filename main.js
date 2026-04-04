@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T04:42:00Z';
+const APP_BUILD_ID = '2026-04-03T04:52:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1887,6 +1887,48 @@ function parseScheduleDayResult(raw, payload){
   };
 }
 
+function countScheduleUserInteractionItems(items, userName){
+  var safeUser = String(userName || '').trim();
+  var patterns = [
+    safeUser ? new RegExp(safeUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : null,
+    /(和你|跟你|给你|为你|想你|惦记你|提醒你|陪你|接你|送你|约你|见你|找你|给她|为她|想她|惦记她|提醒她|陪她|接她|送她|约她|见她|找她|给他|为他|想他|惦记他|提醒他|陪他|接他|送他|约他|见他|找他)/,
+    /(打电话|通话|语音|视频|远程一起|一起吃|一起做|一起看|一起听|准备车票|准备机票|寄东西|给她发消息|给他发消息|给你发消息|联系她|联系他|联系你)/
+  ].filter(Boolean);
+  return (Array.isArray(items) ? items : []).filter(function(item){
+    var text = [
+      String(item && item.title || ''),
+      String(item && item.note || ''),
+      String(item && item.location || '')
+    ].join(' ');
+    return patterns.some(function(rule){ return rule.test(text); });
+  }).length;
+}
+
+async function polishGeneratedCharDayPlan(cfg, userPrompt, result, payload){
+  var current = result && typeof result === 'object' ? result : {};
+  var userName = String(payload && payload.userName || '').trim();
+  var sysPrompt = [
+    '你正在修正一份角色当日日程 JSON。',
+    '只返回严格 JSON，不要 markdown，不要解释。',
+    'JSON 结构：{"date":"YYYY-MM-DD","diary":"...","calendarNote":"...","comment":"...","timeline":[{"start":"08:30","end":"09:20","title":"...","note":"...","location":"...","secret":false,"publicMask":"","secretHint":"","secretPassword":""}],"todos":[{"text":"...","note":"...","done":false}],"quoteDrafts":[{"title":"待办引用","excerpt":"...","reply":"...","sourceType":"todo|event","sourceId":"..."}]}',
+    '不要推翻整天安排，只修正得更像活人，并确保至少有 3 条 timeline 是和用户有关的互动、惦记、联系、准备、照应。',
+    '这 3 条互动必须自然，服从双方人设、距离感和当天安排，不能机械凑数。',
+    '如果双方距离很远，互动只能写成通话、视频、远程一起做事、惦记、准备票、寄东西之类，不能偷写成已经现实见面。'
+  ].join('\n');
+  var repairPrompt = [
+    userPrompt,
+    userName ? ('当前用户名字：' + userName) : '',
+    '下面是第一次生成出来的结果，请在不改变这一天大方向的前提下，让这一天里至少 3 条行程和用户有关：',
+    JSON.stringify(current)
+  ].filter(Boolean).join('\n\n');
+  try{
+    var repairedRaw = await callAiForBackground(cfg, sysPrompt, repairPrompt);
+    return parseScheduleDayResult(repairedRaw, payload);
+  }catch(err){
+    return current;
+  }
+}
+
 function isScheduleLocationTooGeneric(location){
   var text = String(location || '').trim();
   if(!text) return true;
@@ -2084,6 +2126,12 @@ async function generateScheduleDayPlan(payload){
   var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
   var result = parseScheduleDayResult(raw, payload);
   if(!result.timeline.length) throw new Error('没有生成出有效时间轴');
+  if(countScheduleUserInteractionItems(result.timeline, getScheduleUserName(charId)) < 3){
+    result = await polishGeneratedCharDayPlan(cfg, userPrompt, result, {
+      dateKey: dateKey,
+      userName: getScheduleUserName(charId)
+    });
+  }
   if(!result.diary) result.diary = '今天像被轻轻摁住的一页纸，直到最后还是有一点在想你。';
   return result;
 }
