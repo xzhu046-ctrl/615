@@ -10,8 +10,8 @@
 <script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../promptManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-03T08:52:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-03T08:52:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-03T09:34:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-03T09:34:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -5890,16 +5890,14 @@ async function generateOpeningIfNeeded(){
       '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 680 : 1080) || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
-    try{
-      var fastCombinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt({ compactLevel: 2 }), openingContext, Math.min(plan.mainTimeout, 90000));
-      var fastCombinedObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(fastCombinedRaw));
-      if(hasValidOfflineOpeningCombinedPayload(fastCombinedObj)){
-        openingThoughtChain = fastCombinedObj.thought_chain;
-        openingStatusCard = fastCombinedObj.status_card || null;
-        openingTitle = String(fastCombinedObj.title || '').trim();
-        openingQuote = String(fastCombinedObj.quote || '').trim();
-        openingText = String(fastCombinedObj.text || '').trim();
-        openingAsides = normalizeOfflineAsides(fastCombinedObj.asides);
+    if(isMobileOfflineRuntime()){
+      try{
+        var emergencyWarmup = await tryEmergencyOfflineOpening(plan, openingMinChars);
+        openingThoughtChain = emergencyWarmup.thoughtChain;
+        openingTitle = String(emergencyWarmup.title || '').trim();
+        openingQuote = String(emergencyWarmup.quote || '').trim();
+        openingText = String(emergencyWarmup.text || '').trim();
+        openingAsides = normalizeOfflineAsides(emergencyWarmup.asides);
         bestText = openingText;
         bestAsides = openingAsides.slice();
         bestDraft = {
@@ -5908,9 +5906,33 @@ async function generateOpeningIfNeeded(){
           text: openingText,
           asides: openingAsides.slice()
         };
+      }catch(emergencyWarmupErr){
+        lastError = emergencyWarmupErr;
       }
-    }catch(fastCombinedErr){
-      lastError = fastCombinedErr;
+    }
+    if(!String(openingText || '').trim()){
+      try{
+        var fastCombinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt({ compactLevel: 2 }), openingContext, Math.min(plan.mainTimeout, 90000));
+        var fastCombinedObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(fastCombinedRaw));
+        if(hasValidOfflineOpeningCombinedPayload(fastCombinedObj)){
+          openingThoughtChain = fastCombinedObj.thought_chain;
+          openingStatusCard = fastCombinedObj.status_card || null;
+          openingTitle = String(fastCombinedObj.title || '').trim();
+          openingQuote = String(fastCombinedObj.quote || '').trim();
+          openingText = String(fastCombinedObj.text || '').trim();
+          openingAsides = normalizeOfflineAsides(fastCombinedObj.asides);
+          bestText = openingText;
+          bestAsides = openingAsides.slice();
+          bestDraft = {
+            title: openingTitle,
+            quote: openingQuote,
+            text: openingText,
+            asides: openingAsides.slice()
+          };
+        }
+      }catch(fastCombinedErr){
+        lastError = fastCombinedErr;
+      }
     }
     for(var attempt = 0; attempt < plan.attempts; attempt += 1){
       if(openingTextLength(openingText) >= openingMinChars && openingTitle && openingQuote) break;
