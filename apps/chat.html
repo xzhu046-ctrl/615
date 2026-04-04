@@ -3309,9 +3309,12 @@ function buildInnerVoiceLanguagePrompt(){
 }
 function shouldOfferMessageTranslation(entry){
   if(!isCharacterTranslationEnabled()) return false;
-  var kind = normalizeMessageType(entry && entry.type || 'text');
-  if(!(entry && entry.role === 'assistant' && String(entry.content || '').trim())) return false;
-  return (kind === 'text' || kind === 'voice' || kind === 'image' || kind === 'offlineinvite') && getCharacterReplyLanguage() !== 'zh';
+  if(!(entry && entry.role === 'assistant')) return false;
+  var payload = getChatPreviewPayload(entry);
+  var kind = normalizeMessageType(payload.type || entry.type || 'text');
+  var text = String(payload.content || entry.content || '').trim();
+  if(!text) return false;
+  return (kind === 'text' || kind === 'voice' || kind === 'image' || kind === 'moneypacket' || kind === 'offlineinvite') && getCharacterReplyLanguage() !== 'zh';
 }
 function syncReplyLanguageButtons(containerId, value, enabled){
   var container = document.getElementById(containerId);
@@ -3507,11 +3510,12 @@ async function requestChatMessageTranslation(msgId, options){
   var entry = getMessageById(msgId);
   var opts = options || {};
   if(!shouldOfferMessageTranslation(entry)) return;
+  var previewPayload = getChatPreviewPayload(entry);
   entry.translationLoading = true;
   if(opts.showOnReady !== false) entry.translationVisible = true;
   renderChatLog(false);
   try{
-    var kind = normalizeMessageType(entry.type || 'text');
+    var kind = normalizeMessageType(previewPayload.type || entry.type || 'text');
     if(kind === 'offlineinvite'){
       var invite = parseOfflineInvitePayload(entry.content || '') || {};
       var inviteSystemPrompt = [
@@ -3541,7 +3545,7 @@ async function requestChatMessageTranslation(msgId, options){
       ].join('\n');
       var userPrompt = JSON.stringify({
         sourceLanguage: getReplyLanguageOption(getCharacterReplyLanguage()).nativeLabel,
-        text: String(entry.content || '').trim()
+        text: String(previewPayload.content || entry.content || '').trim()
       });
       var translated = String(await callAIWithCustomPrompts(systemPrompt, userPrompt) || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
       if(!translated) throw new Error('empty translation');
@@ -9209,7 +9213,7 @@ function addMessage(role, content, doScroll, msgType, msgId) {
     }else if(textOpen){
       var card = document.createElement('div');
       card.innerHTML = buildPlainTranslationCardHtml(
-        translateKind === 'voice' ? '语音消息' : (translateKind === 'image' ? '图片消息' : '简体中文'),
+        translateKind === 'voice' ? '语音消息' : (translateKind === 'image' ? '图片消息' : (translateKind === 'moneypacket' ? '红包 / 转账' : '简体中文')),
         String(entry.translationText || '').trim()
       );
       translateWrap.appendChild(card);
