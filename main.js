@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T07:24:00Z';
+const APP_BUILD_ID = '2026-04-03T07:32:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -3964,6 +3964,12 @@ function getCurrentForegroundCharacter(){
 
 function getChatUserName(charId){
   if(!charId) return 'USER';
+  try{
+    var chars = getStoredCharactersSnapshot();
+    var hit = Array.isArray(chars) ? chars.find(function(item){ return item && String(item.id || '').trim() === String(charId || '').trim(); }) : null;
+    var embedded = String((hit && hit.userNameProfile) || '').trim();
+    if(embedded) return embedded;
+  }catch(err){}
   var activeId = getActiveAccountId();
   var scoped = scopedKeyForAccount('user_name_' + charId, activeId);
   return (localStorage.getItem(scoped) || localStorage.getItem('user_name_' + charId) || '').trim() || 'USER';
