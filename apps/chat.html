@@ -8,10 +8,10 @@
 <script src="../promptManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../chatStorage.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../metadataStore.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-03T06:58:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-03T06:58:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-04T00:18:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-04T00:18:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-04T00:18:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-04T00:18:00Z"></script>
 <script src="../sunnySupport.js?v=2026-03-31T10:28:00Z"></script>
 <script src="offlineInvite.js?v=2026-04-01T23:27:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
@@ -5533,6 +5533,15 @@ function getConversationElapsedContext(){
   var mins = totalMinutes % 60;
   var elapsed = hours > 0 ? (hours + '小时' + (mins ? mins + '分钟' : '')) : (totalMinutes + '分钟');
   var humanGap = describeElapsedGap(delta, dayGap);
+  var awarenessTier = dayGap >= 2
+    ? 'days'
+    : (dayGap >= 1
+      ? 'day'
+      : (hours >= 6
+        ? 'halfday'
+        : (hours >= 1
+          ? 'hours'
+          : 'minutes')));
   var resumedAfterAssistant = !!(latestIsFreshUser && anchor.role === 'assistant');
   var resumedAfterSystem = !!(latestIsFreshUser && anchor.role === 'system');
   var latestSnippet = latestIsFreshUser ? buildElapsedMessageSnippet(latestVisible) : '';
@@ -5567,6 +5576,18 @@ function getConversationElapsedContext(){
   }
   lines.push('这不是上一秒的无缝续聊。回复时先接住这段现实时间差，再接住对方刚发来的内容；不要像双方一直停在原地只等这句回复。');
   lines.push('只要中间已经隔开了一段现实时间，哪怕只有一两分钟，也不能把这次回复当成上一秒的无缝续聊。你的语气、情绪和接话方式里必须轻微体现你意识到了这段间隔。');
+  if(awarenessTier === 'days'){
+    lines.push('硬规则：这次已经隔了至少两天。你的第一条回复必须先接住“这么久才回”这件事，再进入正题；如果第一句完全无视这段消失时间，就算失败。');
+  }else if(awarenessTier === 'day'){
+    lines.push('硬规则：这次已经隔天了。你的第一条回复必须带出“隔了一天才续上”的感觉，不能像还停在同一天。');
+  }else if(awarenessTier === 'halfday'){
+    lines.push('硬规则：这次隔了大半天。你的第一条回复必须自然表现出“隔了挺久才续上”，不能像秒回。');
+  }else if(awarenessTier === 'hours'){
+    lines.push('硬规则：这次隔了几个小时。你的第一条回复至少要轻微体现你知道中间过去了几个小时。');
+  }else{
+    lines.push('硬规则：哪怕只隔了几分钟，你也要像真人一样先轻轻接住这段停顿，再继续聊。');
+  }
+  lines.push('不要直接忽略时间差，更不要第一句就像中间什么都没发生一样无缝往下接。');
   lines.push('不要生硬报时，不要像系统播报；只在合适时轻轻带出这段间隔带来的情绪和语气变化。');
   return lines.join('\n');
 }

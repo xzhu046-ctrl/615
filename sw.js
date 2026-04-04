@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-04-03T10:02:00Z';
+const CACHE_VERSION = '2026-04-04T00:18:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -107,6 +107,30 @@ self.addEventListener('message', (event)=>{
   if(event.data && event.data.type === 'SKIP_WAITING'){
     self.skipWaiting();
   }
+});
+
+self.addEventListener('notificationclick', (event)=>{
+  var data = event && event.notification && event.notification.data ? event.notification.data : {};
+  event.notification && event.notification.close && event.notification.close();
+  event.waitUntil((async function(){
+    var allClients = await self.clients.matchAll({ type:'window', includeUncontrolled:true }).catch(function(){ return []; });
+    var targetClient = allClients && allClients[0] ? allClients[0] : null;
+    if(targetClient){
+      try{ await targetClient.focus(); }catch(err){}
+      try{
+        targetClient.postMessage({
+          type: 'OPEN_SHELL_NOTIFICATION',
+          payload: data || {}
+        });
+      }catch(err){}
+      return;
+    }
+    var nextUrl = new URL('./index.html', self.location.href);
+    var app = String(data && data.app || '').trim();
+    if(app) nextUrl.searchParams.set('openApp', app);
+    if(data && data.charId) nextUrl.searchParams.set('notifyCharId', String(data.charId));
+    await self.clients.openWindow(nextUrl.toString()).catch(function(){ return null; });
+  })());
 });
 
 self.addEventListener('fetch', (event)=>{

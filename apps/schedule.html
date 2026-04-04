@@ -7,9 +7,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
 <script src="../accountManager.js?v=2026-04-03T06:58:00Z"></script>
 <script src="../assetStore.js?v=2026-04-03T06:58:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-03T06:58:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-03T06:58:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-03T06:58:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-04T00:18:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-04T00:18:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-04T00:18:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1342,6 +1342,12 @@ function persistState(){
     });
   });
   return schedulePersistPromise;
+}
+
+async function reloadScheduleStateSnapshot(){
+  scheduleState = ScheduleShared.normalizeState(await ScheduleShared.loadState());
+  ensureActiveChar();
+  renderAll();
 }
 
 function flushScheduleState(){
@@ -3166,6 +3172,10 @@ function bindShellMessages(){
   window.addEventListener('message', function(evt){
     var data = evt && evt.data && typeof evt.data === 'object' ? evt.data : null;
     if(!data) return;
+    if(data.type === 'SCHEDULE_STATE_DIRTY'){
+      reloadScheduleStateSnapshot().catch(function(){});
+      return;
+    }
     if(data.type === 'BACKGROUND_AI_MESSAGE'){
       var payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
       var entry = payload.entry && typeof payload.entry === 'object' ? payload.entry : null;
@@ -3225,15 +3235,19 @@ document.addEventListener('visibilitychange', function(){
     flushScheduleState().catch(function(){});
   }else{
     loadCharacters();
-    ensureActiveChar();
-    renderAll();
+    reloadScheduleStateSnapshot().catch(function(){
+      ensureActiveChar();
+      renderAll();
+    });
   }
 });
 
 window.addEventListener('focus', function(){
   loadCharacters();
-  ensureActiveChar();
-  renderAll();
+  reloadScheduleStateSnapshot().catch(function(){
+    ensureActiveChar();
+    renderAll();
+  });
 });
 
 initSchedule();

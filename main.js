@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T10:02:00Z';
+const APP_BUILD_ID = '2026-04-04T00:18:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1571,6 +1571,52 @@ function shouldSuppressChatNotification(charId){
   return !!(foreground && String(foreground.id || '') === String(charId || ''));
 }
 
+async function ensureShellNotificationPermission(){
+  try{
+    if(typeof window === 'undefined' || !('Notification' in window)) return false;
+    if(Notification.permission === 'granted') return true;
+    if(Notification.permission === 'denied') return false;
+    return (await Notification.requestPermission()) === 'granted';
+  }catch(err){
+    return false;
+  }
+}
+
+async function showSystemShellNotification(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  try{
+    if(typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return false;
+    if(!(await ensureShellNotificationPermission())) return false;
+    var reg = await navigator.serviceWorker.ready.catch(function(){ return null; });
+    if(!reg || typeof reg.showNotification !== 'function') return false;
+    var title = String(payload.name || '角色').trim() || '角色';
+    var text = String(payload.text || '').trim() || '有新动静';
+    var app = String(payload.app || 'chat').trim() || 'chat';
+    var charId = String(payload.charId || '').trim();
+    var avatar = String(payload.avatar || '').trim();
+    await reg.showNotification(title, {
+      body: text,
+      icon: avatar || './apps/assets/海边小屋.webp',
+      badge: avatar || './apps/assets/海边小屋.webp',
+      tag: 'shell-' + app + '-' + (charId || 'generic'),
+      requireInteraction: true,
+      renotify: true,
+      vibrate: [180, 70, 180],
+      data: {
+        type: 'shell-app-notify',
+        app: app,
+        charId: charId,
+        name: title,
+        text: text
+      }
+    });
+    return true;
+  }catch(err){
+    console.warn('[shell-notify] system notification failed', err);
+    return false;
+  }
+}
+
 function maybeShowShellActivityNotification(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var kind = String(payload.kind || '').trim();
@@ -1591,6 +1637,13 @@ function maybeShowShellActivityNotification(payload){
     avatar: avatar,
     text: text
   });
+  showSystemShellNotification({
+    app: kind === 'moments' ? 'moments' : (kind === 'schedule' ? 'schedule' : 'chat'),
+    charId: charId,
+    name: name,
+    avatar: avatar,
+    text: text
+  }).catch(function(){});
 }
 
 async function appendBackgroundAiMessage(character, accountId, content){
@@ -3327,6 +3380,19 @@ async function syncScheduleActivityFromChat(payload){
     charState.charDays[dateKey] = shared.normalizeCharDay(day, dateKey);
     state = shared.setCharState(state, charId, charState);
     await shared.saveState(state);
+    try{
+      var scheduleFrame = document.getElementById('app-iframe');
+      if(scheduleFrame && scheduleFrame.contentWindow){
+        scheduleFrame.contentWindow.postMessage({
+          type: 'SCHEDULE_STATE_DIRTY',
+          payload: {
+            charId: charId,
+            dateKey: dateKey,
+            changedAt: Date.now()
+          }
+        }, '*');
+      }
+    }catch(err){}
     maybeShowShellActivityNotification({
       kind:'schedule',
       charId: charId,
@@ -3448,6 +3514,11 @@ function dismissAppNotification(){
 
 function openAppNotificationTarget(){
   var payload = appNotifyPayload || {};
+  openShellNotificationPayload(payload);
+}
+
+function openShellNotificationPayload(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
   dismissAppNotification();
   if(payload.app === 'schedule'){
     openApp('schedule');
@@ -6401,6 +6472,14 @@ window.addEventListener('message',(e)=>{
   }
 });
 
+if(typeof navigator !== 'undefined' && navigator.serviceWorker && typeof navigator.serviceWorker.addEventListener === 'function'){
+  navigator.serviceWorker.addEventListener('message', function(event){
+    var data = event && event.data || {};
+    if(String(data.type || '').trim() !== 'OPEN_SHELL_NOTIFICATION') return;
+    openShellNotificationPayload(data.payload || {});
+  });
+}
+
 const WALLPAPERS={
   default:'#f7f7f7',
   sakura:'linear-gradient(160deg,#ffe0ec 0%,#ffb3d1 40%,#ff85b3 70%,#d4608a 100%)',
@@ -7035,6 +7114,22 @@ window.addEventListener('load', ()=>{
   syncAppHeight();
   renderHomePages(true);
   bootHostedUpdateCheck();
+  try{
+    var launchUrl = new URL(window.location.href);
+    var notifyApp = String(launchUrl.searchParams.get('openApp') || '').trim();
+    var notifyCharId = String(launchUrl.searchParams.get('notifyCharId') || '').trim();
+    if(notifyApp){
+      setTimeout(function(){
+        openShellNotificationPayload({
+          app: notifyApp,
+          charId: notifyCharId
+        });
+      }, 120);
+      launchUrl.searchParams.delete('openApp');
+      launchUrl.searchParams.delete('notifyCharId');
+      history.replaceState({}, document.title, launchUrl.toString());
+    }
+  }catch(err){}
   if(hostedUpdateCardPending && pendingRemoteAppFingerprint){
     showHostedUpdateCard();
   }
