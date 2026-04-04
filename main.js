@@ -35,7 +35,7 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T07:32:00Z';
+const APP_BUILD_ID = '2026-04-03T07:41:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -2022,10 +2022,16 @@ function getSchedulePresenceLocaleGuard(character){
     var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
     if(!(snapshot && snapshot.user && snapshot.char)) return null;
     var allowed = [];
+    var otherNames = [];
     function pushToken(value){
       value = String(value || '').trim();
       if(!value || value.length < 2) return;
       if(allowed.indexOf(value) === -1) allowed.push(value);
+    }
+    function pushOtherName(value){
+      value = String(value || '').trim();
+      if(!value || value.length < 2) return;
+      if(otherNames.indexOf(value) === -1) otherNames.push(value);
     }
     pushToken(snapshot.user.label);
     pushToken(snapshot.user.weatherName);
@@ -2039,7 +2045,15 @@ function getSchedulePresenceLocaleGuard(character){
     pushToken(snapshot.char.city && snapshot.char.city.name);
     pushToken(snapshot.char.city && snapshot.char.city.country);
     pushToken(snapshot.char.placeLabel);
-    return { allowed: allowed };
+    try{
+      var chars = getStoredCharactersSnapshot();
+      (Array.isArray(chars) ? chars : []).forEach(function(item){
+        if(!item || String(item.id || '').trim() === String(character.id || '').trim()) return;
+        pushOtherName(item.nickname || item.name);
+        pushOtherName(item.name);
+      });
+    }catch(err){}
+    return { allowed: allowed, otherNames: otherNames };
   }catch(err){
     return null;
   }
@@ -2072,10 +2086,13 @@ function scheduleDayPlanNeedsRepair(result, character){
   var todos = Array.isArray(result && result.todos) ? result.todos : [];
   return timeline.some(function(item){
     var text = [item && item.title, item && item.note, item && item.location].filter(Boolean).join(' ');
-    return (!!guard && textHasForeignLocaleDrift(text, guard)) || (!!isScheduleFarDistance(character) && hasInvalidDistantInteraction(item));
+    return (!!guard && textHasForeignLocaleDrift(text, guard))
+      || hasForbiddenOtherCharReference(item, guard && guard.otherNames)
+      || (!!isScheduleFarDistance(character) && hasInvalidDistantInteraction(item));
   }) || todos.some(function(item){
     var text = [item && item.text, item && item.note].filter(Boolean).join(' ');
-    return !!guard && textHasForeignLocaleDrift(text, guard);
+    return (!!guard && textHasForeignLocaleDrift(text, guard))
+      || hasForbiddenOtherCharReference(item, guard && guard.otherNames);
   });
 }
 
@@ -2087,7 +2104,8 @@ async function repairGeneratedScheduleDayPlan(cfg, userPrompt, result, character
     '保持原来的人设和大方向，只修正地理位置、距离感、互动方式。',
     '地点、寄送对象、互动方式必须服从现实地理位置设定；不要无故跳到别的国家城市。',
     '如果双方现实很远，严禁写成已经见面、一起吃饭、在对方家里、接送、面对面互动。',
-    guard && guard.allowed && guard.allowed.length ? ('这次允许出现的地点语境只有：' + guard.allowed.join('、') + '。') : ''
+    guard && guard.allowed && guard.allowed.length ? ('这次允许出现的地点语境只有：' + guard.allowed.join('、') + '。') : '',
+    guard && guard.otherNames && guard.otherNames.length ? ('绝对不要提到这些别的角色名字：' + guard.otherNames.join('、') + '。') : ''
   ].filter(Boolean).join('\n');
   var repairPrompt = [
     userPrompt,
