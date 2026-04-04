@@ -34,7 +34,7 @@ const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-03T05:08:00Z';
+const APP_BUILD_ID = '2026-04-03T05:16:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1887,58 +1887,6 @@ function parseScheduleDayResult(raw, payload){
   };
 }
 
-function countScheduleUserInteractionItems(items, userName){
-  var safeUser = String(userName || '').trim();
-  var patterns = [
-    safeUser ? new RegExp(safeUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : null,
-    /(和你|跟你|给你|为你|想你|惦记你|提醒你|陪你|接你|送你|约你|见你|找你|等你|问你|看你|帮你|给你带|替你|陪着你|和她|跟她|给她|为她|想她|惦记她|提醒她|陪她|接她|送她|约她|见她|找她|等她|问她|看她|帮她|给她带|替她|和他|跟他|给他|为他|想他|惦记他|提醒他|陪他|接他|送他|约他|见他|找他|等他|问他|看他|帮他|给他带|替他)/,
-    /(打电话|通话|语音|视频|远程一起|一起吃|一起做|一起看|一起听|准备车票|准备机票|寄东西|发消息|联系她|联系他|联系你|给她带|给他带|给你带|同步一下|等她回|等他回|等你回|顺手问一句|顺便问问|惦记一下|看看她|看看他|看看你)/
-  ].filter(Boolean);
-  return (Array.isArray(items) ? items : []).filter(function(item){
-    var text = [
-      String(item && item.title || ''),
-      String(item && item.note || ''),
-      String(item && item.location || '')
-    ].join(' ');
-    return patterns.some(function(rule){ return rule.test(text); });
-  }).length;
-}
-
-async function polishGeneratedCharDayPlan(cfg, userPrompt, result, payload){
-  var current = result && typeof result === 'object' ? result : {};
-  var userName = String(payload && payload.userName || '').trim();
-  var sysPrompt = [
-    '你正在修正一份角色当日日程 JSON。',
-    '只返回严格 JSON，不要 markdown，不要解释。',
-    'JSON 结构：{"date":"YYYY-MM-DD","diary":"...","calendarNote":"...","comment":"...","timeline":[{"start":"08:30","end":"09:20","title":"...","note":"...","location":"...","secret":false,"publicMask":"","secretHint":"","secretPassword":""}],"todos":[{"text":"...","note":"...","done":false}],"quoteDrafts":[{"title":"待办引用","excerpt":"...","reply":"...","sourceType":"todo|event","sourceId":"..."}]}',
-    '不要推翻整天安排，只修正得更像活人，并确保至少有 3 条 timeline 是和用户有关的互动、惦记、联系、准备、照应。',
-    '这 3 条互动必须自然，服从双方人设、距离感和当天安排，不能机械凑数。',
-    '如果双方距离很远，互动只能写成通话、视频、远程一起做事、惦记、准备票、寄东西之类，不能偷写成已经现实见面。'
-  ].join('\n');
-  var repairPrompt = [
-    userPrompt,
-    userName ? ('当前用户名字：' + userName) : '',
-    '下面是第一次生成出来的结果，请在不改变这一天大方向的前提下，让这一天里至少 3 条行程和用户有关：',
-    JSON.stringify(current)
-  ].filter(Boolean).join('\n\n');
-  try{
-    var repairedRaw = await callAiForBackground(cfg, sysPrompt, repairPrompt);
-    return parseScheduleDayResult(repairedRaw, payload);
-  }catch(err){
-    return current;
-  }
-}
-
-async function ensureMinimumScheduleInteractions(cfg, userPrompt, result, payload){
-  var current = result && typeof result === 'object' ? result : {};
-  var userName = String(payload && payload.userName || '').trim();
-  for(var pass = 0; pass < 3; pass++){
-    if(countScheduleUserInteractionItems(current.timeline, userName) >= 3) return current;
-    current = await polishGeneratedCharDayPlan(cfg, userPrompt, current, payload);
-  }
-  return current;
-}
-
 function isScheduleLocationTooGeneric(location){
   var text = String(location || '').trim();
   if(!text) return true;
@@ -2130,16 +2078,12 @@ async function generateScheduleDayPlan(payload){
     eventLines.length ? ('用户当天写下的日程：\n- ' + eventLines.join('\n- ')) : '用户当天没有额外公开日程。',
     todoLines.length ? ('用户当天待办：\n- ' + todoLines.join('\n- ')) : '用户当天没有额外待办。',
     '请像真人一样安排这一天：有人认真规划，有人拖延熬夜，有人松弛散漫，都按人设来。',
-    '今天允许自然出现和用户有关的互动、惦记、顺手调整、电话、准备惊喜、顺路碰面、改计划，但必须服从双方人设、关系状态、现实距离和当天公开安排，不要机械硬塞。',
+    '今天的安排里应该自然能看出他和用户之间的联系、牵挂、互动、准备或关照，但要服从双方人设、关系状态、现实距离和当天公开安排，不要机械凑数，也不要像在完成任务。',
     '如果用户有行程或待办，可以在 comment 或 quoteDrafts 里自然地关心、提醒、吃醋、吐槽，但不要脱离人设。'
   ].filter(Boolean).join('\n\n');
   var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
   var result = parseScheduleDayResult(raw, payload);
   if(!result.timeline.length) throw new Error('没有生成出有效时间轴');
-  result = await ensureMinimumScheduleInteractions(cfg, userPrompt, result, {
-    dateKey: dateKey,
-    userName: getScheduleUserName(charId)
-  });
   if(!result.diary) result.diary = '今天像被轻轻摁住的一页纸，直到最后还是有一点在想你。';
   return result;
 }
