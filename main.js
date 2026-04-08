@@ -38,8 +38,8 @@ const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
-const BACKEND_LOG_MAX = 240;
-const APP_BUILD_ID = '2026-04-08T04:20:00Z';
+const BACKEND_LOG_MAX = 1000;
+const APP_BUILD_ID = '2026-04-08T04:48:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -78,6 +78,7 @@ let chatReportedKeyboardShift = 0;
 var shellActiveCharacterCache = {};
 var shellActiveChatIdCache = {};
 var backendLogBroadcastQueued = false;
+var shellConsoleBridgeInstalled = false;
 
 function getBackendLogStorageKey(){
   return BACKEND_LOG_STORAGE_KEY;
@@ -174,6 +175,40 @@ function clearBackendLogs(){
   broadcastBackendLogUpdate(null);
 }
 
+function formatBackendConsoleMessage(argsLike){
+  return Array.prototype.map.call(argsLike || [], function(part){
+    if(part instanceof Error){
+      return (part.name || 'Error') + ': ' + (part.message || '');
+    }
+    if(typeof part === 'string') return part;
+    if(typeof part === 'object'){
+      try{ return JSON.stringify(part, null, 2); }catch(err){ return String(part); }
+    }
+    return String(part);
+  }).join(' ');
+}
+
+function installShellConsoleBridge(){
+  if(shellConsoleBridgeInstalled || !window.console) return;
+  shellConsoleBridgeInstalled = true;
+  ['log', 'info', 'warn', 'error'].forEach(function(method){
+    var original = typeof console[method] === 'function' ? console[method].bind(console) : null;
+    try{
+      console[method] = function(){
+        try{
+          pushBackendLogEntry({
+            level: method === 'error' ? 'error' : (method === 'warn' ? 'warn' : 'info'),
+            app: 'shell',
+            source: 'console.' + method,
+            message: formatBackendConsoleMessage(arguments) || '(empty console ' + method + ')'
+          });
+        }catch(logErr){}
+        if(original) return original.apply(console, arguments);
+      };
+    }catch(err){}
+  });
+}
+
 function installBackendLogBridge(targetWindow, appId){
   try{
     if(!targetWindow || targetWindow.__backendLogBridgeInstalled) return;
@@ -188,17 +223,13 @@ function installBackendLogBridge(targetWindow, appId){
       }));
     };
     var originalConsole = targetWindow.console || {};
-    ['warn', 'error'].forEach(function(method){
+    ['log', 'info', 'warn', 'error'].forEach(function(method){
       var original = typeof originalConsole[method] === 'function' ? originalConsole[method].bind(originalConsole) : null;
       try{
         originalConsole[method] = function(){
-          var text = Array.prototype.map.call(arguments, function(part){
-            if(part instanceof Error) return (part.name || 'Error') + ': ' + (part.message || '');
-            if(typeof part === 'string') return part;
-            try{ return JSON.stringify(part); }catch(err){ return String(part); }
-          }).join(' ');
+          var text = formatBackendConsoleMessage(arguments);
           pushBackendLogEntry({
-            level: method === 'error' ? 'error' : 'warn',
+            level: method === 'error' ? 'error' : (method === 'warn' ? 'warn' : 'info'),
             app: appId || 'app',
             source: 'console.' + method,
             message: text || '(empty console ' + method + ')'
@@ -241,6 +272,8 @@ window.BackstageRuntime = {
   clearLogs: clearBackendLogs,
   push: pushBackendLogEntry
 };
+
+installShellConsoleBridge();
 
 function getTopLevelChatKeyboardShift(){
   var vv = window.visualViewport;

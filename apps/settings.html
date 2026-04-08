@@ -106,6 +106,17 @@ textarea{resize:none}
 .settings-mini-btn{font-family:var(--font-d);font-weight:800;border:var(--border);border-radius:12px;padding:8px 14px;background:#fff;color:#0a0a0a;box-shadow:var(--shadow);cursor:pointer}
 .settings-mini-btn:active{transform:translate(2px,2px);box-shadow:0 0 0 #0a0a0a}
 .update-status{font-size:12px;line-height:1.6;color:#444;background:#fafafa;border:var(--border);border-radius:14px;padding:12px}
+.console-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.console-tab{padding:7px 12px;border:var(--border);border-radius:999px;background:#fff;color:#0a0a0a;box-shadow:2px 2px 0 #0a0a0a;font-family:var(--font-d);font-size:11px;font-weight:900;cursor:pointer}
+.console-tab.active{background:#0a0a0a;color:#fff}
+.console-panel{background:#fff;border:var(--border);border-radius:16px;box-shadow:4px 4px 0 #0a0a0a;padding:10px;display:flex;flex-direction:column;gap:8px}
+.console-content{background:#f8f8f8;border:var(--border);border-radius:14px;min-height:160px;max-height:320px;overflow:auto;padding:10px}
+.console-entry{padding:8px 10px;border-radius:12px;background:#fff;border:1.5px solid rgba(10,10,10,.12);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.console-entry + .console-entry{margin-top:8px}
+.console-entry.warn{border-color:#aa7a00;background:#fffaf0}
+.console-entry.error{border-color:#b10000;background:#fff4f4;color:#b10000}
+.console-timestamp{font-weight:900;color:#666;margin-right:6px}
+.console-empty{padding:18px 12px;text-align:center;font-size:12px;color:#777;font-weight:700}
 </style>
 </head>
 <body>
@@ -353,6 +364,28 @@ textarea{resize:none}
     </div>
   </div>
 
+  <div class="card">
+    <div class="card-header">
+      <h3>移动端控制台</h3>
+      <span style="font-size:11px;color:#666;font-weight:800">运行日志 / 报错</span>
+    </div>
+    <div class="card-body" style="gap:12px">
+      <div class="console-tabs">
+        <button class="console-tab active" type="button" data-console-filter="all" onclick="setMobileConsoleFilter('all', this)">全部</button>
+        <button class="console-tab" type="button" data-console-filter="info" onclick="setMobileConsoleFilter('info', this)">普通</button>
+        <button class="console-tab" type="button" data-console-filter="warn" onclick="setMobileConsoleFilter('warn', this)">警告</button>
+        <button class="console-tab" type="button" data-console-filter="error" onclick="setMobileConsoleFilter('error', this)">报错</button>
+      </div>
+      <div class="console-panel">
+        <div class="btn-row">
+          <button class="btn btn-white btn-full" type="button" onclick="copyMobileConsoleLogs()">复制日志</button>
+          <button class="btn btn-white btn-full" type="button" onclick="clearMobileConsoleLogs()">清空日志</button>
+        </div>
+        <div class="console-content" id="mobile-console-content"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Reset / Format -->
   <div class="card">
     <div class="card-header">
@@ -460,6 +493,7 @@ var shellNotifySettingsState = {
   notifyInChat: false,
   disableInternal: false
 };
+var mobileConsoleFilter = 'all';
 
 function init() {
   importOverlayLocked = false;
@@ -487,6 +521,7 @@ function init() {
   document.getElementById('ai-bg-switch').classList.toggle('on', aiBgEnabled);
   document.getElementById('ai-bg-interval').value = localStorage.getItem(AI_BG_INTERVAL_KEY) || '6';
   loadShellNotificationSettings();
+  renderMobileConsole();
   readCurrentBuildId().then(function(currentBuild){
     updateSettingsUpdateStatus(currentBuild, '', '等待检查');
   });
@@ -798,6 +833,90 @@ async function debugShellNotificationFromSettings(){
     box.style.display = 'block';
     box.textContent = '[shell-notify-debug]\n' + String(err && err.message || err || 'unknown error');
   }
+}
+
+function readMobileConsoleLogs(){
+  try{
+    if(window.parent && window.parent !== window && window.parent.BackstageRuntime && typeof window.parent.BackstageRuntime.getLogs === 'function'){
+      var live = window.parent.BackstageRuntime.getLogs();
+      if(Array.isArray(live)) return live.slice();
+    }
+  }catch(err){}
+  try{
+    var raw = localStorage.getItem('backend_runtime_logs_v1') || '[]';
+    var parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  }catch(err){
+    return [];
+  }
+}
+
+function renderMobileConsole(){
+  var host = document.getElementById('mobile-console-content');
+  if(!host) return;
+  var logs = readMobileConsoleLogs();
+  var filtered = mobileConsoleFilter === 'all'
+    ? logs
+    : logs.filter(function(item){ return String(item && item.level || 'info') === mobileConsoleFilter; });
+  if(!filtered.length){
+    host.innerHTML = '<div class="console-empty">暂无日志</div>';
+    return;
+  }
+  host.innerHTML = filtered.map(function(item){
+    var level = String(item && item.level || 'info');
+    var time = new Date(Number(item && item.ts || Date.now())).toLocaleTimeString('zh-CN', { hour12:false });
+    var source = String(item && item.app || 'shell') + '/' + String(item && item.source || 'runtime');
+    var message = escapeHtml(String(item && item.message || '(empty)'));
+    var detail = String(item && item.detail || '').trim();
+    return '<div class="console-entry ' + escapeHtml(level) + '">'
+      + '<span class="console-timestamp">[' + escapeHtml(time) + '] [' + escapeHtml(source) + ']</span>'
+      + message
+      + (detail ? ('\n' + escapeHtml(detail)) : '')
+      + '</div>';
+  }).join('');
+  host.scrollTop = host.scrollHeight;
+}
+
+function setMobileConsoleFilter(filter, btn){
+  mobileConsoleFilter = String(filter || 'all');
+  Array.prototype.forEach.call(document.querySelectorAll('.console-tab'), function(tab){
+    tab.classList.toggle('active', tab === btn || tab.getAttribute('data-console-filter') === mobileConsoleFilter);
+  });
+  renderMobileConsole();
+}
+
+async function copyMobileConsoleLogs(){
+  var logs = readMobileConsoleLogs();
+  var text = logs.map(function(item){
+    var time = new Date(Number(item && item.ts || Date.now())).toLocaleString('zh-CN', { hour12:false });
+    return '[' + time + '][' + String(item && item.level || 'info').toUpperCase() + '][' + String(item && item.app || 'shell') + '/' + String(item && item.source || 'runtime') + '] '
+      + String(item && item.message || '')
+      + (item && item.detail ? ('\n' + String(item.detail)) : '');
+  }).join('\n\n');
+  if(!text){
+    showToast('还没有日志');
+    return;
+  }
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+      showToast('日志已复制');
+      return;
+    }
+  }catch(err){}
+  alert(text);
+}
+
+function clearMobileConsoleLogs(){
+  try{
+    if(window.parent && window.parent !== window && window.parent.BackstageRuntime && typeof window.parent.BackstageRuntime.clearLogs === 'function'){
+      window.parent.BackstageRuntime.clearLogs();
+    }else{
+      localStorage.removeItem('backend_runtime_logs_v1');
+    }
+  }catch(err){}
+  renderMobileConsole();
+  showToast('日志已清空');
 }
 
 function escapeHtml(value){
@@ -1804,6 +1923,14 @@ window.checkAndUpdateLatestVersion = checkAndUpdateLatestVersion;
 window.refreshLatestVersionFromSettings = refreshLatestVersionFromSettings;
 
 bindTextNormalization();
+window.addEventListener('storage', function(evt){
+  if(evt.key === 'backend_runtime_logs_v1') renderMobileConsole();
+});
+window.addEventListener('message', function(evt){
+  var data = evt.data || {};
+  if(data.type === 'BACKEND_LOG_UPDATED') renderMobileConsole();
+});
+setInterval(renderMobileConsole, 1500);
 init();
 </script>
 </body>

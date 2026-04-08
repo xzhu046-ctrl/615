@@ -1338,6 +1338,40 @@ async function archiveCurrentOfflineMeet(status, reason){
     archivingOfflineMeet = false;
   }
 }
+
+async function forceFallbackArchivePersist(status, reason){
+  if(!session || !character || !character.id) return '';
+  var snapshot = snapshotOfflineSessionState(session);
+  if(!hasMeaningfulOfflineSession(snapshot)) return '';
+  var now = Date.now();
+  var archiveId = String(snapshot.archiveId || session.archiveId || ('offline_archive_' + now + '_' + Math.random().toString(36).slice(2, 8)));
+  var charSnapshot = buildOfflineArchiveCharacterSnapshot(character || {}) || {};
+  var archiveSnapshot = buildOfflineArchiveSessionSnapshot(snapshot);
+  archiveSnapshot.archiveId = archiveId;
+  archiveSnapshot.minimized = false;
+  archiveSnapshot.active = status !== 'ended';
+  var entry = {
+    id: archiveId,
+    charId: String(character.id || ''),
+    charName: String((character.nickname || character.name || '未命名角色')).trim() || '未命名角色',
+    charAvatar: resolveCharAvatar() || charSnapshot.imageData || '',
+    userName: resolveUserName(),
+    status: status === 'ended' ? 'ended' : 'pending',
+    statusLabel: status === 'ended' ? '已结束' : '待续',
+    reason: String(reason || '').trim(),
+    createdAt: Number(snapshot.createdAt || snapshot.updatedAt || now) || now,
+    updatedAt: now,
+    preview: buildOfflineArchivePreview(archiveSnapshot),
+    entryCount: Array.isArray(archiveSnapshot.entries) ? archiveSnapshot.entries.length : 0,
+    characterSnapshot: charSnapshot,
+    snapshot: archiveSnapshot,
+    endedAt: status === 'ended' ? now : 0
+  };
+  await saveOfflineArchiveFallbackRecord(entry);
+  persistOfflineResumeSnapshot(character.id, archiveSnapshot);
+  session.archiveId = archiveId;
+  return archiveId;
+}
 function autoArchiveOfflineMeetIfNeeded(reason){
   if(offlineCloseIntent || exitingOfflineMeet || archivingOfflineMeet) return;
   if(!session || !character || !character.id) return;
@@ -6514,11 +6548,21 @@ async function exitOfflineMeet(){
   try{
     await archiveCurrentOfflineMeet('ended', 'goodbye');
   }catch(err){
-    toast('退出失败：这次约会还没存进档案馆');
-    exitingOfflineMeet = false;
-    offlineCloseIntent = '';
-    setExitMenuBusy(false);
-    return;
+    pushOfflineBackendLog('error', 'archive.exit', '正常存档失败，转入兜底退出', err);
+    try{
+      await forceFallbackArchivePersist('ended', 'goodbye_fallback');
+      var fallbackSnapshot = snapshotOfflineSessionState(session);
+      if(fallbackSnapshot){
+        await queueOfflineEndArtifacts(character.id, fallbackSnapshot);
+      }
+      clearLiveOfflineSession(character.id);
+      session = { active:false, entries:[], minimized:false, archiveId:session && session.archiveId || '' };
+      toast('档案保存异常，已用兜底方式退出');
+    }catch(fallbackErr){
+      pushOfflineBackendLog('error', 'archive.exit.fallback', '兜底存档也失败，改为仅保存恢复快照', fallbackErr);
+      try{ persistOfflineResumeSnapshot(character.id, snapshotOfflineSessionState(session)); }catch(ignore){}
+      toast('档案保存失败，先帮你保住这次内容');
+    }
   }
   try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
   window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*');
@@ -6545,9 +6589,15 @@ async function minimizeOfflineMeet(){
       await archiveCurrentOfflineMeet('pending', 'minimized');
     }
   }catch(e){
-    offlineCloseIntent = '';
-    toast('暂时退出失败：还没成功存进档案馆');
-    return;
+    pushOfflineBackendLog('error', 'archive.minimize', '暂时退出正常存档失败，转入兜底', e);
+    try{
+      await forceFallbackArchivePersist('pending', 'minimized_fallback');
+      toast('待续存档异常，已用兜底方式暂存');
+    }catch(fallbackErr){
+      pushOfflineBackendLog('error', 'archive.minimize.fallback', '暂时退出兜底存档也失败，改为仅保存恢复快照', fallbackErr);
+      try{ persistOfflineResumeSnapshot(character.id, snapshotOfflineSessionState(session)); }catch(ignore){}
+      toast('待续保存异常，先帮你保住这次内容');
+    }
   }
   try{ window.parent.postMessage({ type:'OFFLINE_EXITED' }, '*'); }catch(e){}
   window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'chat' }, '*');
