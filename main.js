@@ -7,6 +7,7 @@ const APP_MAP = {
   customize:  { title: '外观',           src: 'apps/customize.html' },
   worldbook:  { title: '档案',           src: 'apps/worldbook.html' },
   schedule:   { title: '日程',           src: 'apps/schedule.html', hideTopbar: true },
+  backend:    { title: '后台',           src: 'apps/backend.html' },
   map6:       { title: '地图',           src: 'apps/map6.html' },
   offline_archive: { title: '档案馆',    src: 'apps/offline_archive.html' },
   offline:    { title: '线下模式',       src: 'apps/offline_mode.html', hideTopbar: true },
@@ -17,6 +18,7 @@ const HOME_ICON_DEFAULTS = {
   customize: '外观',
   worldbook: '档案',
   schedule: '日程',
+  backend: '后台',
   map6: '地图',
 };
 const PHONE_FRAME_STORAGE_KEY = 'phone_frame_visible';
@@ -35,7 +37,9 @@ const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
-const APP_BUILD_ID = '2026-04-08T03:49:39Z';
+const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
+const BACKEND_LOG_MAX = 240;
+const APP_BUILD_ID = '2026-04-08T04:20:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -73,6 +77,170 @@ let chatInputFocusActive = false;
 let chatReportedKeyboardShift = 0;
 var shellActiveCharacterCache = {};
 var shellActiveChatIdCache = {};
+var backendLogBroadcastQueued = false;
+
+function getBackendLogStorageKey(){
+  return BACKEND_LOG_STORAGE_KEY;
+}
+
+function trimBackendLogText(value, maxLen){
+  var text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  if(!text) return '';
+  if(text.length <= maxLen) return text;
+  return text.slice(0, Math.max(0, maxLen - 1)) + '…';
+}
+
+function summarizeBackendLogDetail(detail){
+  if(detail == null) return '';
+  if(detail instanceof Error){
+    return trimBackendLogText((detail.name || 'Error') + ': ' + (detail.message || ''), 400);
+  }
+  if(typeof detail === 'string') return trimBackendLogText(detail, 400);
+  try{
+    return trimBackendLogText(JSON.stringify(detail), 400);
+  }catch(err){
+    return trimBackendLogText(String(detail), 400);
+  }
+}
+
+function readBackendLogs(){
+  try{
+    var raw = localStorage.getItem(getBackendLogStorageKey()) || '[]';
+    var list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  }catch(err){
+    return [];
+  }
+}
+
+function writeBackendLogs(logs){
+  var safeList = Array.isArray(logs) ? logs.slice(-BACKEND_LOG_MAX) : [];
+  try{
+    localStorage.setItem(getBackendLogStorageKey(), JSON.stringify(safeList));
+    return true;
+  }catch(err){
+    try{
+      localStorage.setItem(getBackendLogStorageKey(), JSON.stringify(safeList.slice(-120)));
+      return true;
+    }catch(innerErr){
+      return false;
+    }
+  }
+}
+
+function sanitizeBackendLogEntry(entry){
+  entry = entry && typeof entry === 'object' ? entry : {};
+  var level = String(entry.level || 'info').trim().toLowerCase();
+  if(level !== 'error' && level !== 'warn') level = 'info';
+  return {
+    id: String(entry.id || (Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8))),
+    ts: Number(entry.ts || Date.now()) || Date.now(),
+    level: level,
+    app: trimBackendLogText(entry.app || currentApp || 'shell', 32) || 'shell',
+    source: trimBackendLogText(entry.source || 'runtime', 80) || 'runtime',
+    message: trimBackendLogText(entry.message || entry.text || '(empty)', 240) || '(empty)',
+    detail: summarizeBackendLogDetail(entry.detail || '')
+  };
+}
+
+function broadcastBackendLogUpdate(entry){
+  try{
+    window.dispatchEvent(new CustomEvent('backend-log-updated', { detail: entry || null }));
+  }catch(err){}
+  if(backendLogBroadcastQueued) return;
+  backendLogBroadcastQueued = true;
+  setTimeout(function(){
+    backendLogBroadcastQueued = false;
+    try{
+      var frame = document.getElementById('app-iframe');
+      if(frame && frame.contentWindow){
+        frame.contentWindow.postMessage({ type:'BACKEND_LOG_UPDATED' }, '*');
+      }
+    }catch(err){}
+  }, 0);
+}
+
+function pushBackendLogEntry(entry){
+  var safeEntry = sanitizeBackendLogEntry(entry);
+  var logs = readBackendLogs();
+  logs.push(safeEntry);
+  writeBackendLogs(logs);
+  broadcastBackendLogUpdate(safeEntry);
+  return safeEntry;
+}
+
+function clearBackendLogs(){
+  try{ localStorage.removeItem(getBackendLogStorageKey()); }catch(err){}
+  broadcastBackendLogUpdate(null);
+}
+
+function installBackendLogBridge(targetWindow, appId){
+  try{
+    if(!targetWindow || targetWindow.__backendLogBridgeInstalled) return;
+    Object.defineProperty(targetWindow, '__backendLogBridgeInstalled', {
+      value: true,
+      configurable: true
+    });
+    targetWindow.__pushBackendLog = function(entry){
+      entry = entry && typeof entry === 'object' ? entry : {};
+      pushBackendLogEntry(Object.assign({}, entry, {
+        app: entry.app || appId || 'app'
+      }));
+    };
+    var originalConsole = targetWindow.console || {};
+    ['warn', 'error'].forEach(function(method){
+      var original = typeof originalConsole[method] === 'function' ? originalConsole[method].bind(originalConsole) : null;
+      try{
+        originalConsole[method] = function(){
+          var text = Array.prototype.map.call(arguments, function(part){
+            if(part instanceof Error) return (part.name || 'Error') + ': ' + (part.message || '');
+            if(typeof part === 'string') return part;
+            try{ return JSON.stringify(part); }catch(err){ return String(part); }
+          }).join(' ');
+          pushBackendLogEntry({
+            level: method === 'error' ? 'error' : 'warn',
+            app: appId || 'app',
+            source: 'console.' + method,
+            message: text || '(empty console ' + method + ')'
+          });
+          if(original) return original.apply(originalConsole, arguments);
+        };
+      }catch(err){}
+    });
+    targetWindow.addEventListener('error', function(evt){
+      pushBackendLogEntry({
+        level: 'error',
+        app: appId || 'app',
+        source: 'window.error',
+        message: trimBackendLogText((evt && evt.message) || '未知错误', 220) || '未知错误',
+        detail: evt && evt.error ? evt.error : ''
+      });
+    });
+    targetWindow.addEventListener('unhandledrejection', function(evt){
+      pushBackendLogEntry({
+        level: 'error',
+        app: appId || 'app',
+        source: 'unhandledrejection',
+        message: trimBackendLogText(summarizeBackendLogDetail(evt && evt.reason ? evt.reason : 'Promise rejected'), 220) || 'Promise rejected',
+        detail: evt && evt.reason ? evt.reason : ''
+      });
+    });
+  }catch(err){
+    pushBackendLogEntry({
+      level: 'warn',
+      app: appId || 'app',
+      source: 'bridge.install',
+      message: '后台日志桥接失败',
+      detail: err
+    });
+  }
+}
+
+window.BackstageRuntime = {
+  getLogs: readBackendLogs,
+  clearLogs: clearBackendLogs,
+  push: pushBackendLogEntry
+};
 
 function getTopLevelChatKeyboardShift(){
   var vv = window.visualViewport;
@@ -1697,8 +1865,24 @@ async function showSystemShellNotification(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   try{
     var settings = getShellNotificationSettings();
-    if(payload.force !== true && !settings.enabled) return false;
-    if(!(await ensureShellNotificationPermission())) return false;
+    if(payload.force !== true && !settings.enabled){
+      pushBackendLogEntry({
+        level: 'info',
+        app: 'shell',
+        source: 'notify.skip',
+        message: '系统通知已关闭，跳过发送'
+      });
+      return false;
+    }
+    if(!(await ensureShellNotificationPermission())){
+      pushBackendLogEntry({
+        level: 'warn',
+        app: 'shell',
+        source: 'notify.permission',
+        message: '系统通知权限未通过'
+      });
+      return false;
+    }
     var appName = String(settings.appName || '0615').trim() || '0615';
     var senderName = String(payload.name || '角色').trim() || '角色';
     var title = String(payload.title || (appName + ' - ' + senderName)).trim() || appName;
@@ -1741,6 +1925,13 @@ async function showSystemShellNotification(payload){
           shown = true;
         }
       }catch(err){
+        pushBackendLogEntry({
+          level: 'error',
+          app: 'shell',
+          source: 'notify.service_worker',
+          message: 'Service Worker 系统通知发送失败',
+          detail: err
+        });
         console.warn('[shell-notify] service worker notification failed', err);
       }
     }
@@ -1753,14 +1944,41 @@ async function showSystemShellNotification(payload){
         };
         shown = true;
       }catch(err){
+        pushBackendLogEntry({
+          level: 'error',
+          app: 'shell',
+          source: 'notify.constructor',
+          message: 'Notification 构造器发送失败',
+          detail: err
+        });
         console.warn('[shell-notify] notification constructor failed', err);
       }
     }
     if(shown && settings.vibrationEnabled){
       triggerShellNotificationVibration(options.vibrate);
     }
+    if(shown){
+      pushBackendLogEntry({
+        level: 'info',
+        app: 'shell',
+        source: 'notify.sent',
+        message: '系统通知已发送',
+        detail: {
+          app: app,
+          charId: charId,
+          title: title
+        }
+      });
+    }
     return shown;
   }catch(err){
+    pushBackendLogEntry({
+      level: 'error',
+      app: 'shell',
+      source: 'notify.fail',
+      message: '系统通知发送异常',
+      detail: err
+    });
     console.warn('[shell-notify] system notification failed', err);
     return false;
   }
@@ -1793,6 +2011,13 @@ function maybeShowShellActivityNotification(payload){
           text: text
         });
       }
+      pushBackendLogEntry({
+        level: 'info',
+        app: appName,
+        source: 'notify.queue',
+        message: name + ' 有新的' + (kind === 'moments' ? '朋友圈' : (kind === 'schedule' ? '日程动态' : '消息')),
+        detail: text
+      });
       showSystemShellNotification({
         app: appName,
         charId: charId,
@@ -4361,6 +4586,10 @@ function openPlaceholderMiniApp(idx){
     openApp('schedule');
     return;
   }
+  if(Number(idx) === 4){
+    openApp('backend');
+    return;
+  }
   if(Number(idx) === 6){
     openApp('map6');
     return;
@@ -6331,6 +6560,12 @@ function buildAppFrameUrl(src){
 function renderApp(id){
   const a=APP_MAP[id]; if(!a) return;
   currentApp=id;
+  pushBackendLogEntry({
+    level: 'info',
+    app: id,
+    source: 'app.open',
+    message: '打开 ' + String(a.title || id)
+  });
   const outer = document.querySelector('.phone-outer');
   const container = document.getElementById('app-container');
   const frame = document.getElementById('app-iframe');
@@ -6651,6 +6886,9 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='OPEN_APP'){ openApp(payload); }
   if(type==='OPEN_APP_REPLACE'){ replaceApp(payload); }
+  if(type==='BACKEND_LOG_PUSH'){
+    pushBackendLogEntry(payload || {});
+  }
   if(type==='SET_CHAT_SHELL_BACKGROUND'){
     setChatShellBackground(payload);
   }
@@ -7380,6 +7618,12 @@ if(document.readyState === 'loading'){
 }
 
 window.addEventListener('load', ()=>{
+  pushBackendLogEntry({
+    level: 'info',
+    app: 'shell',
+    source: 'shell.load',
+    message: '主壳已启动'
+  });
   hydrateShellNotificationSettingsCache().catch(function(){});
   clearHostedRefreshParams();
   syncAppHeight();
@@ -7408,6 +7652,13 @@ window.addEventListener('load', ()=>{
   if(frame){
     frame.addEventListener('load', function(){
       applyIframeSafeAreaOverrides();
+      installBackendLogBridge(frame.contentWindow, currentApp || 'app');
+      pushBackendLogEntry({
+        level: 'info',
+        app: currentApp || 'app',
+        source: 'app.load',
+        message: '页面已加载'
+      });
       setTimeout(applyIframeSafeAreaOverrides, 120);
     });
   }
@@ -7439,6 +7690,26 @@ window.addEventListener('load', ()=>{
       appNotifyPointerDragging = false;
     });
   }
+});
+
+window.addEventListener('error', function(evt){
+  pushBackendLogEntry({
+    level: 'error',
+    app: 'shell',
+    source: 'window.error',
+    message: trimBackendLogText((evt && evt.message) || '主壳错误', 220) || '主壳错误',
+    detail: evt && evt.error ? evt.error : ''
+  });
+});
+
+window.addEventListener('unhandledrejection', function(evt){
+  pushBackendLogEntry({
+    level: 'error',
+    app: 'shell',
+    source: 'unhandledrejection',
+    message: trimBackendLogText(summarizeBackendLogDetail(evt && evt.reason ? evt.reason : 'Promise rejected'), 220) || 'Promise rejected',
+    detail: evt && evt.reason ? evt.reason : ''
+  });
 });
 
 window.addEventListener('online', function(){

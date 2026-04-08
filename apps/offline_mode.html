@@ -5851,6 +5851,11 @@ async function generateOpeningIfNeeded(){
     hideFlightOverlay();
     return false;
   }
+  pushOfflineBackendLog('info', 'opening.start', '线下首幕开始生成', {
+    charId: String((character && character.id) || (session && session.charId) || '').trim(),
+    entries: Array.isArray(session && session.entries) ? session.entries.length : 0,
+    pendingOpening: !!(session && session.pendingOpening)
+  });
   var storyPrefs = getOfflineStoryPrefs();
   var plan = getOfflineOpeningAttemptPlan();
   var minChars = storyPrefs.minChars;
@@ -6087,6 +6092,10 @@ async function generateOpeningIfNeeded(){
     queueOfflineStageSummaryGeneration();
     if(openingEntry.statusCard) queueOfflineStatusTranslationPrefetch(openingEntry);
     hideFlightOverlay();
+    pushOfflineBackendLog('info', 'opening.success', '线下首幕生成成功', {
+      chars: openingTextLength(openingEntry.text || ''),
+      title: String(openingEntry.title || '').trim()
+    });
     return true;
   }catch(e){
     if(isOfflineQuotaLikeError(e)){
@@ -6123,6 +6132,7 @@ async function generateOpeningIfNeeded(){
         queueOfflineStageSummaryGeneration();
         hideFlightOverlay();
         toast('这轮上下文太满了，我已经切成超轻开场重试成功');
+        pushOfflineBackendLog('warn', 'opening.emergency_retry', '首幕触发超轻重试并成功', e);
         return true;
       }catch(emergencyErr){
         e = emergencyErr;
@@ -6136,6 +6146,7 @@ async function generateOpeningIfNeeded(){
     renderStory();
     toast('线下首幕生成失败：' + summarizeOfflineError(e), { sticky:true });
     hideFlightOverlay();
+    pushOfflineBackendLog('error', 'opening.fail', '线下首幕生成失败', e);
     return false;
   }
 }
@@ -6600,11 +6611,28 @@ function renderOfflineInviteDebugCard(finalCharId){
   line3.innerHTML = '<strong>线下最终读取：</strong> ' + esc(String(finalCharId || parsed.offlineFinalCharId || '(empty)'));
   card.classList.add('show');
 }
+function pushOfflineBackendLog(level, source, message, detail){
+  try{
+    if(window.parent && typeof window.parent.postMessage === 'function'){
+      window.parent.postMessage({
+        type: 'BACKEND_LOG_PUSH',
+        payload: {
+          level: String(level || 'info').trim() || 'info',
+          app: 'offline',
+          source: String(source || 'runtime').trim() || 'runtime',
+          message: String(message || '').trim() || '(empty)',
+          detail: detail || ''
+        }
+      }, '*');
+    }
+  }catch(err){}
+}
 function reportOfflineStartupFailure(stage, err){
   var message = String(stage || 'startup') + '：' + summarizeOfflineError(err);
   try{
     console.error('offline startup failed', stage, err);
   }catch(e){}
+  pushOfflineBackendLog('error', 'startup.' + String(stage || 'unknown'), message, err);
   try{
     var card = document.getElementById('offlineInviteDebugCard');
     var line1 = document.getElementById('offlineInviteDebugLine1');
@@ -6625,6 +6653,7 @@ async function init(){
   try{
     offlineInitInProgress = true;
     offlineInitCompleted = false;
+    pushOfflineBackendLog('info', 'init.start', '线下初始化开始');
     try{
       if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
         runOfflineInitTask(function(){ return window.MetadataStore.init(); }, 2200);
@@ -6763,13 +6792,11 @@ async function init(){
     session.lastOpeningError = '';
     session.pendingOpening = true;
     session.pendingAnimation = true;
-    if(!Array.isArray(session.entries) || !session.entries.length){
-      session.entries = [];
-    }else if(!hasAssistantOpeningEntry()){
-      session.entries = session.entries.filter(function(entry){
-        return entry && entry.role === 'user' && String(entry.text || '').trim();
-      });
-    }
+    session.entries = [];
+    pushOfflineBackendLog('info', 'init.fresh_invite', '检测到 fresh invite，已重置旧首幕状态', {
+      charId: String((character && character.id) || desiredOfflineCharId || '').trim(),
+      launchSource: String(offlineLaunchSource || '').trim() || 'invite'
+    });
     if(character && character.id) saveSession();
   }
   if(!session){
@@ -6812,6 +6839,13 @@ async function init(){
       updatedAt: Date.now()
     })));
   }catch(e){}
+  pushOfflineBackendLog('info', 'init.ready', '线下初始化完成，准备进入首幕', {
+    charId: String((character && character.id) || '').trim(),
+    desiredCharId: String(desiredOfflineCharId || '').trim(),
+    launchSource: String(offlineLaunchSource || '').trim() || 'unknown',
+    pendingOpening: !!(session && session.pendingOpening),
+    active: !!(session && session.active)
+  });
   runOfflineInitTask(function(){
     return syncOfflineStageSummariesToMemoryStore(getOfflineStageSummaries());
   }, 1800);
@@ -6828,6 +6862,7 @@ async function init(){
   syncOfflineViewport();
   offlineInitCompleted = true;
   offlineInitInProgress = false;
+  pushOfflineBackendLog('info', 'init.done', '线下页面初始化结束');
   var input = document.getElementById('offlineInput');
   if(input && !input.dataset.boundEnter){
     input.dataset.boundEnter = '1';

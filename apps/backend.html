@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>后台</title>
+<style>
+:root{
+  --ink:#111;
+  --paper:#fbfbfb;
+  --soft:#f1f1f1;
+  --line:#111;
+  --muted:#7a7a7a;
+  --danger:#c51f1f;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#f6f6f6;color:var(--ink);font-family:"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif}
+body{padding:14px}
+.shell{display:flex;flex-direction:column;gap:12px;min-height:100vh}
+.hero{
+  border:2px solid var(--line);
+  border-radius:26px;
+  background:linear-gradient(180deg,#fff,#f7f7f7);
+  box-shadow:4px 6px 0 #111;
+  padding:16px 16px 14px;
+}
+.hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.hero-title{font-size:24px;font-weight:900;letter-spacing:.04em}
+.hero-sub{margin-top:6px;font-size:12px;line-height:1.55;color:#555}
+.hero-actions{display:flex;gap:8px;flex-shrink:0}
+.hero-btn{
+  border:2px solid var(--line);
+  background:#fff;
+  color:var(--ink);
+  border-radius:14px;
+  min-width:56px;
+  padding:9px 12px;
+  font-size:12px;
+  font-weight:900;
+  box-shadow:3px 4px 0 #111;
+}
+.hero-btn:active{transform:translate(2px,2px);box-shadow:none}
+.status-row{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+.pill{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:6px 10px;border-radius:999px;border:2px solid var(--line);
+  background:#fff;box-shadow:2px 3px 0 rgba(0,0,0,.16);
+  font-size:11px;font-weight:900;letter-spacing:.04em;
+}
+.pill-error{color:var(--danger);border-color:var(--danger)}
+.log-list{display:flex;flex-direction:column;gap:10px;padding-bottom:22px}
+.empty{
+  border:2px solid var(--line);
+  border-radius:22px;
+  background:#fff;
+  box-shadow:4px 6px 0 #111;
+  padding:18px 16px;
+  font-size:13px;
+  line-height:1.7;
+}
+.log-card{
+  border:2px solid var(--line);
+  border-radius:22px;
+  background:#fff;
+  box-shadow:4px 6px 0 #111;
+  padding:12px 14px 13px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.log-card.error{border-color:var(--danger);box-shadow:4px 6px 0 rgba(197,31,31,.24)}
+.log-meta{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.log-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  max-width:60%;
+  padding:5px 9px;border-radius:999px;border:1.5px solid rgba(17,17,17,.22);
+  background:#f7f7f7;font-size:10px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;
+}
+.log-card.error .log-chip{border-color:rgba(197,31,31,.24);background:#fff4f4;color:var(--danger)}
+.log-time{font-size:11px;color:var(--muted);font-weight:700;white-space:nowrap}
+.log-message{font-size:14px;line-height:1.6;font-weight:800;word-break:break-word}
+.log-card.error .log-message{color:var(--danger)}
+.log-detail{
+  border-radius:16px;
+  background:#f5f5f5;
+  padding:10px 12px;
+  font-size:12px;
+  line-height:1.55;
+  color:#444;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.log-card.error .log-detail{background:#fff6f6;color:#8d1c1c}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="hero">
+    <div class="hero-top">
+      <div>
+        <div class="hero-title">后台</div>
+        <div class="hero-sub">这里会收所有 app 的运行日志和报错。黑字是正常运行，红字是异常，线下启动链也会在这里写全过程。</div>
+      </div>
+      <div class="hero-actions">
+        <button class="hero-btn" type="button" onclick="copyLogs()">复制</button>
+        <button class="hero-btn" type="button" onclick="clearLogs()">清空</button>
+      </div>
+    </div>
+    <div class="status-row">
+      <div class="pill" id="statusPill">正常运行</div>
+      <div class="pill" id="countPill">0 条日志</div>
+    </div>
+  </div>
+  <div class="log-list" id="logList"></div>
+</div>
+
+<script>
+const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
+let backendLogs = [];
+
+function readLogs(){
+  try{
+    if(window.parent && window.parent.BackstageRuntime && typeof window.parent.BackstageRuntime.getLogs === 'function'){
+      var live = window.parent.BackstageRuntime.getLogs();
+      if(Array.isArray(live)) return live;
+    }
+  }catch(err){}
+  try{
+    var raw = localStorage.getItem(BACKEND_LOG_STORAGE_KEY) || '[]';
+    var list = JSON.parse(raw);
+    return Array.isArray(list) ? list : [];
+  }catch(err){
+    return [];
+  }
+}
+
+function clearLogStore(){
+  try{
+    if(window.parent && window.parent.BackstageRuntime && typeof window.parent.BackstageRuntime.clearLogs === 'function'){
+      window.parent.BackstageRuntime.clearLogs();
+      return;
+    }
+  }catch(err){}
+  try{ localStorage.removeItem(BACKEND_LOG_STORAGE_KEY); }catch(err){}
+}
+
+function fmtTime(ts){
+  var date = new Date(Number(ts) || Date.now());
+  var y = date.getFullYear();
+  var m = String(date.getMonth() + 1).padStart(2, '0');
+  var d = String(date.getDate()).padStart(2, '0');
+  var hh = String(date.getHours()).padStart(2, '0');
+  var mm = String(date.getMinutes()).padStart(2, '0');
+  var ss = String(date.getSeconds()).padStart(2, '0');
+  return y + '-' + m + '-' + d + ' ' + hh + ':' + mm + ':' + ss;
+}
+
+function esc(value){
+  return String(value == null ? '' : value)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function renderLogs(){
+  backendLogs = readLogs();
+  var host = document.getElementById('logList');
+  var statusPill = document.getElementById('statusPill');
+  var countPill = document.getElementById('countPill');
+  var errorCount = backendLogs.filter(function(item){ return String(item && item.level || '') === 'error'; }).length;
+  statusPill.textContent = errorCount ? ('发现 ' + errorCount + ' 条异常') : '正常运行';
+  statusPill.className = errorCount ? 'pill pill-error' : 'pill';
+  countPill.textContent = backendLogs.length + ' 条日志';
+  if(!backendLogs.length){
+    host.innerHTML = '<div class="empty">暂时没有记录到异常。线下、聊天、通知这些如果炸了，新的日志会直接掉到这里。</div>';
+    return;
+  }
+  host.innerHTML = backendLogs.slice().reverse().map(function(item){
+    var level = String(item && item.level || 'info');
+    var detail = String(item && item.detail || '').trim();
+    return '<div class="log-card' + (level === 'error' ? ' error' : '') + '">'
+      + '<div class="log-meta">'
+      + '<div class="log-chip">' + esc(String(item.app || 'shell')) + ' · ' + esc(String(item.source || 'runtime')) + '</div>'
+      + '<div class="log-time">' + esc(fmtTime(item.ts)) + '</div>'
+      + '</div>'
+      + '<div class="log-message">' + esc(String(item.message || '(empty)')) + '</div>'
+      + (detail ? '<div class="log-detail">' + esc(detail) + '</div>' : '')
+      + '</div>';
+  }).join('');
+}
+
+function copyLogs(){
+  var text = backendLogs.slice().reverse().map(function(item){
+    return '[' + fmtTime(item.ts) + ']'
+      + '[' + String(item.level || 'info').toUpperCase() + ']'
+      + '[' + String(item.app || 'shell') + '/' + String(item.source || 'runtime') + '] '
+      + String(item.message || '')
+      + (item.detail ? ('\n' + String(item.detail)) : '');
+  }).join('\n\n');
+  if(!text){
+    alert('后台现在还是空的。');
+    return;
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){
+      alert('后台日志已经复制好了。');
+    }).catch(function(){
+      alert(text);
+    });
+    return;
+  }
+  alert(text);
+}
+
+function clearLogs(){
+  if(!confirm('要清空后台日志吗？')){
+    return;
+  }
+  clearLogStore();
+  renderLogs();
+}
+
+window.addEventListener('storage', function(evt){
+  if(evt.key === BACKEND_LOG_STORAGE_KEY) renderLogs();
+});
+
+window.addEventListener('message', function(evt){
+  var data = evt.data || {};
+  if(data.type === 'BACKEND_LOG_UPDATED'){
+    renderLogs();
+  }
+});
+
+setInterval(renderLogs, 1500);
+renderLogs();
+</script>
+</body>
+</html>
