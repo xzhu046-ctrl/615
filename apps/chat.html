@@ -15088,11 +15088,19 @@ async function deliverAiReply(text, limitOverride){
     if(!cleaned) return [];
     var packSmartLongText = function(text){
       var source = String(text || '').trim();
-      if(!source || source.length < 96) return [];
-      var quoteAware = source
-        .replace(/([。！？!?]+)([”"』」’']*)(?=\s*[^\s])/g, '$1$2\n')
-        .replace(/([；;]+)(?=\s*[^\s])/g, '$1\n');
-      var rawSegments = quoteAware.split(/\n+/).map(function(seg){ return String(seg || '').trim(); }).filter(Boolean);
+      if(!source || source.length < 64) return [];
+      var sentenceParts = String(source.match(/[^。！？!?；;]+[。！？!?；;”"』」’']*|[^。！？!?；;]+$/g) || [])
+        .split(',')
+        .map(function(seg){ return String(seg || '').trim(); })
+        .filter(Boolean);
+      var rawSegments = sentenceParts;
+      if(rawSegments.length < 2){
+        var quoteAware = source
+          .replace(/([。！？!?]+)([”"』」’']*)(?=\s*[^\s])/g, '$1$2\n')
+          .replace(/([；;]+)(?=\s*[^\s])/g, '$1\n')
+          .replace(/([，,]+)(?=\s*[^\s])/g, '$1\n');
+        rawSegments = quoteAware.split(/\n+/).map(function(seg){ return String(seg || '').trim(); }).filter(Boolean);
+      }
       if(rawSegments.length < 2) return [];
       var groups = [];
       var bucket = '';
@@ -15102,7 +15110,7 @@ async function deliverAiReply(text, limitOverride){
           return;
         }
         var next = bucket + ' ' + seg;
-        if(bucket.length < 34 || next.length <= 72){
+        if(bucket.length < 26 || next.length <= 56){
           bucket = next;
         }else{
           groups.push(bucket.trim());
@@ -15110,7 +15118,7 @@ async function deliverAiReply(text, limitOverride){
         }
       });
       if(bucket) groups.push(bucket.trim());
-      if(groups.length < 2) return [];
+      if(groups.length < 2 || (groups.length === 1 && groups[0].length === source.length)) return [];
       return groups.map(function(seg){
         var mixed = splitTextAndMemeMarkers(seg);
         if(mixed.length >= 2) return mixed;
