@@ -7181,7 +7181,7 @@ function buildSunnySystemPrompt(extraPrompt){
     '如果用户想让你帮忙生成 user 设定、人设、档案、资料，你先热情回应，并告诉老板你已经把选择卡片递过去了；不要自己直接输出最终 YAML。',
     '如果是你真的不清楚、知识库里也没有把握的事，就只回答：汪...Sunny不知道诶，去问老板吧！',
     '只输出普通聊天文本。不要 JSON，不要代码块，不要语音，不要图片，不要表情包。',
-    '如果要分成多句或多条气泡，必须自己用 <msg>...</msg> 分开。',
+    '如果要分成多句或多条气泡，优先自己用 <msg>...</msg> 分开；自然分段换行也可以，不要把明显能分开的内容硬塞进一个大气泡。',
     String(extraPrompt || '').trim()
   ].filter(Boolean).join('\n\n');
 }
@@ -15082,8 +15082,49 @@ async function deliverAiReply(text, limitOverride){
   var splitPlainTextToParts = function(raw){
     var cleaned = clean(raw).replace(/\\n/g, '\n');
     if(!cleaned) return [];
+    var packSmartLongText = function(text){
+      var source = String(text || '').trim();
+      if(!source || source.length < 96) return [];
+      var quoteAware = source
+        .replace(/([。！？!?]+)([”"』」’']*)(?=\s*[^\s])/g, '$1$2\n')
+        .replace(/([；;]+)(?=\s*[^\s])/g, '$1\n');
+      var rawSegments = quoteAware.split(/\n+/).map(function(seg){ return String(seg || '').trim(); }).filter(Boolean);
+      if(rawSegments.length < 2) return [];
+      var groups = [];
+      var bucket = '';
+      rawSegments.forEach(function(seg){
+        if(!bucket){
+          bucket = seg;
+          return;
+        }
+        var next = bucket + ' ' + seg;
+        if(bucket.length < 34 || next.length <= 72){
+          bucket = next;
+        }else{
+          groups.push(bucket.trim());
+          bucket = seg;
+        }
+      });
+      if(bucket) groups.push(bucket.trim());
+      if(groups.length < 2) return [];
+      return groups.map(function(seg){
+        var mixed = splitTextAndMemeMarkers(seg);
+        if(mixed.length >= 2) return mixed;
+        var maybeMeme = parseMemeMarker(seg);
+        return { text: maybeMeme || seg, t: maybeMeme ? 'meme' : 'text' };
+      }).flat();
+    };
     var inlineMixedParts = splitTextAndMemeMarkers(cleaned);
     if(inlineMixedParts.length >= 2) return inlineMixedParts;
+    var msgParts = cleaned.split(/<msg>/i).map(function(p){
+      var piece = p.trim();
+      if(!piece) return null;
+      var mixed = splitTextAndMemeMarkers(piece);
+      if(mixed.length >= 2) return mixed;
+      var maybeMeme = parseMemeMarker(piece);
+      return { text: maybeMeme || piece, t: maybeMeme ? 'meme' : 'text' };
+    }).filter(Boolean).flat();
+    if(msgParts.length > 1) return msgParts;
     var paragraphParts = cleaned.split(/\n{2,}/).map(function(p){
       var piece = p.trim();
       if(!piece) return null;
@@ -15093,14 +15134,6 @@ async function deliverAiReply(text, limitOverride){
       return { text: maybeMeme || piece, t: maybeMeme ? 'meme' : 'text' };
     }).filter(Boolean).flat();
     if(paragraphParts.length >= 2) return paragraphParts;
-    var msgParts = cleaned.split(/<msg>/i).map(function(p){
-      var piece = p.trim();
-      var mixed = splitTextAndMemeMarkers(piece);
-      if(mixed.length >= 2) return mixed;
-      var maybeMeme = parseMemeMarker(piece);
-      return { text: maybeMeme || piece, t: maybeMeme ? 'meme' : 'text' };
-    }).flat().filter(function(o){ return o && o.text; });
-    if(msgParts.length > 1) return msgParts;
     var lines = cleaned.split(/\n+/).map(function(line){ return line.trim(); }).filter(Boolean);
     if(lines.length >= 2){
       return lines.map(function(line){
@@ -15110,6 +15143,8 @@ async function deliverAiReply(text, limitOverride){
         return { text: maybeMeme || line, t: maybeMeme ? 'meme' : 'text' };
       }).flat();
     }
+    var packedParts = packSmartLongText(cleaned);
+    if(packedParts.length >= 2) return packedParts;
     var maybeInlineMeme = parseMemeMarker(cleaned);
     return [{ text: maybeInlineMeme || cleaned, t: maybeInlineMeme ? 'meme' : 'text' }];
   };
