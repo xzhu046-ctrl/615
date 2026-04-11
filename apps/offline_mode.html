@@ -1716,15 +1716,32 @@ function loadCharactersList(){
   if(window.MetadataStore && typeof window.MetadataStore.getCharactersSync === 'function'){
     try{
       var metaList = window.MetadataStore.getCharactersSync();
-      return Array.isArray(metaList) ? metaList : [];
+      if(Array.isArray(metaList) && metaList.length) return metaList;
     }catch(err){}
   }
   try{
     var list = JSON.parse(localStorage.getItem('characters') || '[]');
-    return Array.isArray(list) ? list : [];
+    if(Array.isArray(list) && list.length) return list;
   }catch(e){
-    return [];
   }
+  var fallback = [];
+  try{
+    var pendingRaw = localStorage.getItem(scopedKey('pendingChatChar')) || localStorage.getItem('pendingChatChar') || '';
+    if(pendingRaw){
+      var pending = JSON.parse(pendingRaw);
+      if(pending && pending.id) fallback.push(pending);
+    }
+  }catch(e){}
+  try{
+    var activeRaw = localStorage.getItem(activeCharacterKey()) || localStorage.getItem('activeCharacter') || '';
+    if(activeRaw){
+      var active = JSON.parse(activeRaw);
+      if(active && active.id && !fallback.some(function(it){ return String(it.id||'') === String(active.id||''); })){
+        fallback.push(active);
+      }
+    }
+  }catch(e){}
+  return fallback;
 }
 function saveCharactersList(list){
   if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
@@ -6900,7 +6917,10 @@ async function init(){
     pushOfflineBackendLog('info', 'init.start', '线下初始化开始');
     try{
       if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
-        runOfflineInitTask(function(){ return window.MetadataStore.init(); }, 2200);
+        await runOfflineInitTask(function(){ return window.MetadataStore.init(); }, 2200);
+        if(typeof window.MetadataStore.loadCharacters === 'function'){
+          try{ await runOfflineInitTask(function(){ return window.MetadataStore.loadCharacters(); }, 2200); }catch(metaLoadErr){}
+        }
       }
     }catch(err){}
   var latestLaunch = null;
