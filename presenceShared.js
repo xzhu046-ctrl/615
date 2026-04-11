@@ -143,7 +143,11 @@
 
   function saveCharSettings(charId, next){
     if(!charId) return;
-    localStorage.setItem(accountScopedKey(CHAR_SETTINGS_PREFIX + String(charId)), JSON.stringify(next || {}));
+    try{
+      localStorage.setItem(accountScopedKey(CHAR_SETTINGS_PREFIX + String(charId)), JSON.stringify(next || {}));
+    }catch(err){
+      console.warn('presence saveCharSettings skipped', err);
+    }
   }
 
   function getDefaultUserLocation(){
@@ -206,7 +210,11 @@
   }
 
   function saveUserLocation(next){
-    localStorage.setItem(accountScopedKey(USER_LOCATION_KEY), JSON.stringify(next || {}));
+    try{
+      localStorage.setItem(accountScopedKey(USER_LOCATION_KEY), JSON.stringify(next || {}));
+    }catch(err){
+      console.warn('presence saveUserLocation skipped', err);
+    }
   }
 
   function requestDeviceLocation(){
