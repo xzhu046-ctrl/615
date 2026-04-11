@@ -1462,6 +1462,9 @@ function toast(msg, options){
 function esc(s){
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+function escAttr(s){
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
 function quoteJsString(value){
   return '\'' + String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/'/g, '\\\'').replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '\'';
 }
@@ -1780,7 +1783,24 @@ function findCharacterById(charId){
   return null;
 }
 function getOfflineLobbyCharacters(){
-  return loadCharactersList().filter(function(item){
+  var list = loadCharactersList().filter(function(item){
+    return item && String(item.id || '').trim();
+  });
+  if(list.length) return list;
+  var fallbacks = [];
+  if(character && String(character.id || '').trim()){
+    fallbacks.push(Object.assign({}, character));
+  }
+  try{
+    var pendingRaw = localStorage.getItem(scopedKey('pendingChatChar')) || localStorage.getItem('pendingChatChar') || '';
+    if(pendingRaw){
+      var pending = JSON.parse(pendingRaw);
+      if(pending && String(pending.id || '').trim() && !fallbacks.some(function(item){ return String(item.id || '').trim() === String(pending.id || '').trim(); })){
+        fallbacks.push(pending);
+      }
+    }
+  }catch(e){}
+  return fallbacks.filter(function(item){
     return item && String(item.id || '').trim();
   });
 }
