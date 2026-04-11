@@ -10,13 +10,14 @@ const APP_MAP = {
   backend:    { title: '后台',           src: 'apps/backend.html' },
   map6:       { title: '地图',           src: 'apps/map6.html' },
   offline_archive: { title: '档案馆',    src: 'apps/offline_archive.html' },
-  offline:    { title: '线下模式',       src: 'apps/offline_mode.html', hideTopbar: true },
+  offline:    { title: '约会',           src: 'apps/offline_mode.html', hideTopbar: true },
 };
 const HOME_ICON_DEFAULTS = {
   qq: 'QQ',
   settings: '设置',
   customize: '外观',
   worldbook: '档案',
+  offline: '约会',
   schedule: '日程',
   backend: '后台',
   map6: '地图',
@@ -39,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-11T07:40:38Z';
+const APP_BUILD_ID = '2026-04-11T07:46:40Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
