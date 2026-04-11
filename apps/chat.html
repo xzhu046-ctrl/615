@@ -3295,6 +3295,8 @@ function buildChatReplyLanguagePrompt(){
     '【语言模式】',
     option.prompt,
     '在保持现有格式规则的前提下，只有给用户看的自然语言正文使用该语言。',
+    '如果你输出了简体中文正文，就算违规，必须直接改写成' + option.nativeLabel + '原文。',
+    '不要偷懒先说中文再等系统翻译；原文必须先是' + option.nativeLabel + '。',
     '系统标记、JSON 字段名、工具前缀、特殊动作标签继续按原规则输出。',
     '不要额外解释“这是翻译”或“我在说某种语言”。'
   ].join('\n');
@@ -3317,6 +3319,33 @@ function shouldOfferMessageTranslation(entry){
   var text = getMessageTranslationSourceText(entry);
   if(!text) return false;
   return (kind === 'text' || kind === 'voice' || kind === 'image' || kind === 'moneypacket' || kind === 'offlineinvite') && getCharacterReplyLanguage() !== 'zh';
+}
+function shouldEnforceForeignReplyLanguage(){
+  return isCharacterTranslationEnabled() && getCharacterReplyLanguage() !== 'zh';
+}
+function hasTargetLanguageSignalForChat(text, lang){
+  var raw = String(text || '').trim();
+  var safeLang = normalizeReplyLanguage(lang || 'zh');
+  if(!raw || safeLang === 'zh') return true;
+  if(safeLang === 'ja') return /[\u3040-\u30ff]/.test(raw);
+  if(safeLang === 'ko') return /[\uac00-\ud7af]/.test(raw);
+  if(safeLang === 'yue') return /[佢哋咩嘅喺冇啲呀啦喇囉噉鍾意]/.test(raw) || /[\u4e00-\u9fff]/.test(raw);
+  if(safeLang === 'en') return /[A-Za-z]/.test(raw) && !/[\u4e00-\u9fff]/.test(raw.replace(/[A-Za-z0-9\s.,!?;:'"()\-]/g, ''));
+  if(safeLang === 'fr') return /[A-Za-z]/.test(raw) && /[éèêàâîïôùûçëüœ]|\b(je|tu|il|elle|nous|vous|pas|est|avec|pour)\b/i.test(raw);
+  if(safeLang === 'de') return /[A-Za-z]/.test(raw) && /[äöüß]|\b(ich|du|nicht|und|mit|für|ist|sie|wir)\b/i.test(raw);
+  return !/[\u4e00-\u9fff]/.test(raw);
+}
+function extractReplyTextForLanguageCheck(raw){
+  var text = String(raw == null ? '' : raw);
+  if(!text) return '';
+  text = text
+    .replace(/<msg>/ig, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[\{\}\[\]"]/g, ' ')
+    .replace(/\b(type|content|reply_to|reply_role|summary|note|mode|amount|mood|weather|location|aside|opening|title|quote)\b\s*[:：]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text;
 }
 function getMessageTranslationSourceText(entry){
   if(!entry) return '';
@@ -3591,7 +3620,7 @@ function queueChatMessageTranslationPrefetch(msgId){
   if(hasTranslation) return;
   chatTranslationPrefetchQueue[safeId] = true;
   Promise.resolve().then(function(){
-    return requestChatMessageTranslation(safeId, { silent:true, showOnReady:false });
+    return requestChatMessageTranslation(safeId, { silent:true, showOnReady:true });
   }).catch(function(){})
     .finally(function(){
       delete chatTranslationPrefetchQueue[safeId];
@@ -6480,27 +6509,30 @@ function ensureMsgRange(){
 }
 function compactChar(c){
   if(!c) return null;
+  var imageData = String(c.imageData || '').trim();
+  if(/^data:/i.test(imageData)) imageData = '';
   return {
     id:c.id, name:c.name, nickname:c.nickname, avatar:c.avatar,
-    imageData:c.imageData,
-    , msgMin:Number(c.msgMin)||1, msgMax:Number(c.msgMax)||Math.max(Number(c.msgMin)||1,3)
-    , offlineInviteMin:Number(c.offlineInviteMin)||300
-    , offlineInviteMax:Number(c.offlineInviteMax)||Math.max(Number(c.offlineInviteMin)||300,360)
-    , offlineInvitePerspective:String(c.offlineInvitePerspective||'first')
-    , offlineInviteStyle:String(c.offlineInviteStyle||'')
-    , offlineSummaryEvery:Number(c.offlineSummaryEvery)||5
-    , offlineSummaryAuto:c.offlineSummaryAuto != null ? !!c.offlineSummaryAuto : true
-    , offlineMemoryReadCount:Math.max(1, Math.min(12, Number(c.offlineMemoryReadCount) || 4))
-    , offlineSideStoryType:String(c.offlineSideStoryType||'future')
-    , contextWindow:Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.contextWindow) || DEFAULT_CONTEXT_WINDOW))
-    , summaryEvery:Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.summaryEvery) || DEFAULT_SUMMARY_EVERY))
-    , manualSummarySize:Math.max(6, Math.min(120, Number(c.manualSummarySize) || DEFAULT_MANUAL_SUMMARY_SIZE))
-    , memoryMergeThreshold:Math.max(2, Math.min(50, Number(c.memoryMergeThreshold) || DEFAULT_MEMORY_MERGE_THRESHOLD))
-    , autoSummaryEnabled:c.autoSummaryEnabled != null ? !!c.autoSummaryEnabled : true
-    , translationEnabled:!!c.translationEnabled
-    , replyLanguage:normalizeReplyLanguage(c.replyLanguage||c.language||'zh')
-    , translationMode:normalizeTranslationMode(c.translationMode||'ondemand')
-    , userNameProfile:String(c.userNameProfile||'')
+    imageData:imageData,
+    msgMin:Number(c.msgMin)||1, msgMax:Number(c.msgMax)||Math.max(Number(c.msgMin)||1,3),
+    offlineInviteMin:Number(c.offlineInviteMin)||300,
+    offlineInviteMax:Number(c.offlineInviteMax)||Math.max(Number(c.offlineInviteMin)||300,360),
+    offlineInvitePerspective:String(c.offlineInvitePerspective||'first'),
+    offlineInviteStyle:String(c.offlineInviteStyle||''),
+    offlineSummaryEvery:Number(c.offlineSummaryEvery)||5,
+    offlineSummaryAuto:c.offlineSummaryAuto != null ? !!c.offlineSummaryAuto : true,
+    offlineMemoryReadCount:Math.max(1, Math.min(12, Number(c.offlineMemoryReadCount) || 4)),
+    offlineSideStoryType:String(c.offlineSideStoryType||'future'),
+    contextWindow:Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.contextWindow) || DEFAULT_CONTEXT_WINDOW)),
+    summaryEvery:Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.summaryEvery) || DEFAULT_SUMMARY_EVERY)),
+    manualSummarySize:Math.max(6, Math.min(120, Number(c.manualSummarySize) || DEFAULT_MANUAL_SUMMARY_SIZE)),
+    memoryMergeThreshold:Math.max(2, Math.min(50, Number(c.memoryMergeThreshold) || DEFAULT_MEMORY_MERGE_THRESHOLD)),
+    autoSummaryEnabled:c.autoSummaryEnabled != null ? !!c.autoSummaryEnabled : true,
+    translationEnabled:!!c.translationEnabled,
+    replyLanguage:normalizeReplyLanguage(c.replyLanguage||c.language||'zh'),
+    translationMode:normalizeTranslationMode(c.translationMode||'ondemand'),
+    userNameProfile:String(c.userNameProfile||''),
+    userPersonaProfile:String(c.userPersonaProfile||'')
   };
 }
 
@@ -8615,19 +8647,41 @@ async function callAI(provider, key) {
   if(pendingModelUserCue){
     msgs.push({ role: 'user', content: pendingModelUserCue });
   }
+  var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
+  if(shouldEnforceForeignReplyLanguage()){
+    var lang = getCharacterReplyLanguage();
+    var option = getReplyLanguageOption(lang);
+    var checkText = extractReplyTextForLanguageCheck(reply);
+    if(checkText && !hasTargetLanguageSignalForChat(checkText, lang)){
+      var repairSys = [
+        sys,
+        '【返工】上一条回复没有按要求使用' + (option && (option.nativeLabel || option.label) || '目标语言') + '原文。',
+        '请只重写最后一轮 assistant 回复，保持原本的结构、<msg> 分段、JSON 格式、特殊消息类型不变。',
+        '唯一目标：所有自然语言正文必须是' + (option && (option.nativeLabel || option.label) || '目标语言') + '原文，不要输出简体中文正文。'
+      ].join('\n\n');
+      var repairMsgs = msgs.concat([{
+        role:'user',
+        content:'请把你刚才那条 assistant 回复按同样结构重写成' + (option && (option.nativeLabel || option.label) || '目标语言') + '原文，不要再输出中文正文。'
+      }]);
+      reply = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs) || reply;
+    }
+  }
+  return reply;
+}
 
+async function callAIChat(provider, key, model, temperature, sys, msgs) {
   if (provider === 'openai') {
-    var res = await fetch('https://api.openai.com/v1/chat/completions', {
+    var resOpenAi = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
       body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
     });
-    var d = await readAiJsonResponse(res);
-    return extractAiResponseText(d);
+    var dOpenAi = await readAiJsonResponse(resOpenAi);
+    return extractAiResponseText(dOpenAi);
   }
 
   if (provider === 'claude') {
-    var res = await fetch('https://api.anthropic.com/v1/messages', {
+    var resClaude = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -8637,8 +8691,8 @@ async function callAI(provider, key) {
       },
       body: JSON.stringify({ model: model, temperature: temperature, system: sys, messages: msgs })
     });
-    var d = await readAiJsonResponse(res);
-    return extractAiResponseText(d);
+    var dClaude = await readAiJsonResponse(resClaude);
+    return extractAiResponseText(dClaude);
   }
 
   if (provider === 'gemini') {
@@ -8646,20 +8700,19 @@ async function callAI(provider, key) {
     var contents = msgs.map(function(m) {
       return { role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] };
     });
-    // Gemini needs alternating roles — inject system as first exchange
     contents.unshift({ role: 'model', parts: [{ text: '好的，我明白了。' }] });
     contents.unshift({ role: 'user', parts: [{ text: '[系统提示]\n' + sys }] });
-    var res = await fetch(url, {
+    var resGemini = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: contents, generationConfig: { temperature: temperature } })
     });
-    var d = await readAiJsonResponse(res);
-    return extractAiResponseText(d);
+    var dGemini = await readAiJsonResponse(resGemini);
+    return extractAiResponseText(dGemini);
   }
 
   if (provider === 'openrouter') {
-    var res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    var resOr = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -8669,8 +8722,8 @@ async function callAI(provider, key) {
       },
       body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
     });
-    var d = await readAiJsonResponse(res);
-    return extractAiResponseText(d);
+    var dOr = await readAiJsonResponse(resOr);
+    return extractAiResponseText(dOr);
   }
 
   if (provider === 'custom') {
@@ -8679,17 +8732,18 @@ async function callAI(provider, key) {
     var headers = { 'Content-Type': 'application/json' };
     if (key) headers['Authorization'] = 'Bearer ' + key;
     var customModel = localStorage.getItem('model_custom_manual') || model;
-    var res;
+    var resCustom;
     try{
-      res = await fetch(baseUrl + '/chat/completions', {
-        method: 'POST', headers: headers,
+      resCustom = await fetch(baseUrl + '/chat/completions', {
+        method: 'POST',
+        headers: headers,
         body: JSON.stringify({ model: customModel, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
       });
     }catch(err){
       throw new Error('自定义接口请求被浏览器拦截。当前是跨域/CORS 问题，不是聊天页逻辑错误。请给 ' + baseUrl + ' 返回 Access-Control-Allow-Origin，或换一个允许浏览器跨域访问的代理地址。');
     }
-    var d = await readAiJsonResponse(res);
-    return extractAiResponseText(d);
+    var dCustom = await readAiJsonResponse(resCustom);
+    return extractAiResponseText(dCustom);
   }
 
   throw new Error('未知 provider: ' + provider);

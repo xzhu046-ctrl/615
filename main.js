@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-11T07:46:40Z';
+const APP_BUILD_ID = '2026-04-11T08:05:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1350,9 +1350,11 @@ function bindHomeAppPressState(){
 
 function slimChar(c){
   if(!c) return null;
+  var imageData = String(c.imageData || '').trim();
+  if(/^data:/i.test(imageData)) imageData = '';
   return {
     id:c.id, name:c.name, nickname:c.nickname, avatar:c.avatar,
-    imageData:c.imageData,
+    imageData:imageData,
     msgMin:c.msgMin, msgMax:c.msgMax,
     offlineInviteMin:c.offlineInviteMin,
     offlineInviteMax:c.offlineInviteMax,
@@ -1370,7 +1372,8 @@ function slimChar(c){
     translationEnabled:!!c.translationEnabled,
     replyLanguage:String(c.replyLanguage||c.language||'zh'),
     translationMode:String(c.translationMode||'ondemand'),
-    userNameProfile:String(c.userNameProfile||'')
+    userNameProfile:String(c.userNameProfile||''),
+    userPersonaProfile:String(c.userPersonaProfile||'')
   };
 }
 

@@ -152,20 +152,12 @@
   function getCharactersSync(){
     if(loaded.characters && Array.isArray(cache.characters)) return cloneJson(cache.characters);
     var legacy = readLegacyCharacters();
-    if(Array.isArray(legacy) && legacy.length){
-      cache.characters = legacy;
-      loaded.characters = true;
-    }
     return cloneJson(Array.isArray(legacy) ? legacy : []);
   }
 
   function getWorldbooksSync(){
     if(loaded.worldbooks && cache.worldbooks && typeof cache.worldbooks === 'object') return cloneJson(cache.worldbooks);
     var legacy = readLegacyWorldbooks();
-    if(legacy && typeof legacy === 'object' && Object.keys(legacy).length){
-      cache.worldbooks = legacy;
-      loaded.worldbooks = true;
-    }
     return cloneJson(legacy && typeof legacy === 'object' ? legacy : {});
   }
 

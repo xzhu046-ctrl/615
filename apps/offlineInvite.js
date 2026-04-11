@@ -311,12 +311,14 @@ function readOfflineSession(charId){
 
 function buildOfflineLaunchCharSnapshot(source){
   if(!source || typeof source !== 'object') return null;
+  var imageData = String(source.imageData || '').trim();
+  if(/^data:/i.test(imageData)) imageData = '';
   return {
     id: String(source.id || '').trim(),
     name: String(source.name || '').trim(),
     nickname: String(source.nickname || '').trim(),
     avatar: String(source.avatar || '').trim(),
-    imageData: String(source.imageData || '').trim(),
+    imageData: imageData,
     description: String(source.description || '').trim(),
     personality: String(source.personality || '').trim(),
     scenario: String(source.scenario || '').trim(),
@@ -332,7 +334,9 @@ function buildOfflineLaunchCharSnapshot(source){
     offlineSideStoryType: String(source.offlineSideStoryType || 'future'),
     translationEnabled: !!source.translationEnabled,
     replyLanguage: String(source.replyLanguage || source.language || 'zh').trim() || 'zh',
-    translationMode: String(source.translationMode || 'ondemand').trim() || 'ondemand'
+    translationMode: String(source.translationMode || 'ondemand').trim() || 'ondemand',
+    userNameProfile: String(source.userNameProfile || '').trim(),
+    userPersonaProfile: String(source.userPersonaProfile || '').trim()
   };
 }
 

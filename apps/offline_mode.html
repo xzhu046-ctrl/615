@@ -480,13 +480,6 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
   </div>
 </div>
 <button class="exit-btn" id="offlineExitBtn" type="button" onclick="openExitMenu()" style="display:none">×</button>
-<div class="offline-invite-debug" id="offlineInviteDebugCard">
-  <div class="offline-invite-debug-title">invite debug</div>
-  <div class="offline-invite-debug-line" id="offlineInviteDebugLine1"></div>
-  <div class="offline-invite-debug-line" id="offlineInviteDebugLine2"></div>
-  <div class="offline-invite-debug-line" id="offlineInviteDebugLine3"></div>
-</div>
-
 <div class="offline-stage-drawer-overlay" id="offlineDrawerOverlay" aria-hidden="true">
   <div class="offline-stage-drawer" role="dialog" aria-modal="true" aria-label="线下设置">
     <div class="offline-stage-drawer-card">
@@ -617,17 +610,6 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
         </div>
       </div>
     </div>
-  </div>
-</div>
-
-<div class="flight-overlay" id="flightOverlay">
-  <div class="flight-card">
-    <div class="flight-copy">正在赶往这场见面</div>
-    <div class="flight-subcopy">第一幕在认真写啦，点一下屏幕让小兔子跳起来</div>
-    <div class="flight-map">
-      <canvas class="flight-game" id="flightGame" width="300" height="176" aria-label="等待中的小兔子跳跃游戏"></canvas>
-    </div>
-    <div class="flight-tip" id="flightGameTip">轻点屏幕或按空格让小兔子跳跃</div>
   </div>
 </div>
 
@@ -878,6 +860,15 @@ function buildOfflineArchiveCharacterSnapshot(snapshot){
   if(!base) return null;
   base.imageData = '';
   return base;
+}
+function mergeOfflineArchiveCharacterSnapshots(){
+  var merged = null;
+  for(var i = 0; i < arguments.length; i += 1){
+    var next = buildOfflineArchiveCharacterSnapshot(arguments[i]);
+    if(!next) continue;
+    merged = Object.assign({}, merged || {}, next);
+  }
+  return merged;
 }
 function buildOfflineArchiveSessionSnapshot(snapshot){
   var source = snapshotOfflineSessionState(snapshot) || null;
@@ -3393,13 +3384,14 @@ function renderStory(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   if(!list.length){
     var failureText = String(session && session.lastOpeningError || '').trim();
+    var waitingText = ((character && (character.nickname || character.name)) || '对方') + '正在努力向你奔赴而来…';
     wrap.innerHTML = renderPaperStoryCard({
       role: 'assistant',
       text: (session && session.openingFailed)
         ? ('线下首幕生成失败了，还没有拿到可用正文。' + (failureText ? ('\n\n失败原因：' + failureText + '\n\n点左下角 ↻ 再试一次。') : '\n\n点左下角 ↻ 再试一次。'))
-        : '这场线下见面还没正式开始。',
+        : waitingText,
       title: (session && session.openingFailed) ? '首幕生成失败' : '',
-      quote: (session && session.openingFailed) ? '这次不再用 fallback 糊过去。' : '',
+      quote: (session && session.openingFailed) ? '这次不再用 fallback 糊过去。' : '输入框还在等你，第一幕也在认真往这里赶。',
       timeLabel: '现在',
       meta: ''
     }, 0, true);
@@ -6617,50 +6609,18 @@ async function confirmExitOfflineMeet(){
   await exitOfflineMeet();
 }
 function showFlightIfNeeded(){
-  var overlay = document.getElementById('flightOverlay');
-  if(!overlay || !session) return;
-  if(!session.pendingAnimation && !shouldBootOpeningFlow()) return;
-  overlay.classList.add('show');
-  clearTimeout(offlineFlightOverlayTimer);
-  offlineFlightOverlayTimer = 0;
-  bindFlightGameControls();
-  startFlightGame();
+  hideFlightOverlay();
 }
 function hideFlightOverlay(){
-  var overlay = document.getElementById('flightOverlay');
-  if(!overlay) return;
   clearTimeout(offlineFlightOverlayTimer);
   offlineFlightOverlayTimer = 0;
-  overlay.classList.remove('show');
   stopFlightGame();
   if(session){
     session.pendingAnimation = false;
     saveSession();
   }
 }
-function renderOfflineInviteDebugCard(finalCharId){
-  var card = document.getElementById('offlineInviteDebugCard');
-  var line1 = document.getElementById('offlineInviteDebugLine1');
-  var line2 = document.getElementById('offlineInviteDebugLine2');
-  var line3 = document.getElementById('offlineInviteDebugLine3');
-  if(!card || !line1 || !line2 || !line3) return;
-  var raw = '';
-  try{
-    raw = localStorage.getItem(scopedKey('offline_invite_debug_latest')) || '';
-  }catch(e){}
-  var parsed = {};
-  if(raw){
-    try{
-      parsed = JSON.parse(raw) || {};
-    }catch(e){
-      parsed = {};
-    }
-  }
-  line1.innerHTML = '<strong>聊天线程：</strong> ' + esc(String(parsed.chatThreadCharId || '(empty)'));
-  line2.innerHTML = '<strong>邀约 payload：</strong> ' + esc(String(parsed.invitePayloadCharId || parsed.offlineInviteSessionCharId || '(empty)'));
-  line3.innerHTML = '<strong>线下最终读取：</strong> ' + esc(String(finalCharId || parsed.offlineFinalCharId || '(empty)'));
-  card.classList.add('show');
-}
+function renderOfflineInviteDebugCard(){ return; }
 function pushOfflineBackendLog(level, source, message, detail){
   try{
     if(window.parent && typeof window.parent.postMessage === 'function'){
@@ -6743,7 +6703,7 @@ async function init(){
     }else if(scopedLaunch){
       launchSeed = scopedLaunch;
       offlineLaunchSource = 'invite';
-    }else if(latestLaunch && (!explicitOfflineCharId || String(latestLaunch.charId || '').trim() === explicitOfflineCharId)){
+    }else if(latestLaunch && !explicitOfflineCharId){
       launchSeed = latestLaunch;
       offlineLaunchSource = 'invite';
     }
@@ -6772,14 +6732,17 @@ async function init(){
   if(launchCharId && launchCharId !== desiredOfflineCharId) desiredOfflineCharId = launchCharId;
   var resumeSession = tokenLaunch && tokenLaunch.session ? tokenLaunch.session : (desiredOfflineCharId ? consumePendingOfflineResume(desiredOfflineCharId) : null);
   var bootSession = desiredOfflineCharId ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
-  character = resolveOfflineCharacter(
-    desiredOfflineCharId,
+  var explicitSnapshot = mergeOfflineArchiveCharacterSnapshots(
     tokenLaunch && tokenLaunch.threadCharSnapshot,
     launchSeed && launchSeed.payload && launchSeed.payload.charSnapshot,
     launchSeed && launchSeed.charSnapshot,
     resumeSession && resumeSession.charSnapshot,
     bootSession && bootSession.charSnapshot
-  ) || loadCharacter(desiredOfflineCharId);
+  );
+  character = resolveOfflineCharacter(
+    desiredOfflineCharId,
+    explicitSnapshot
+  ) || (explicitSnapshot ? buildOfflineCharacterFromSnapshot(explicitSnapshot) : null) || loadCharacter(desiredOfflineCharId);
   var rosterResolvedCharacter = desiredOfflineCharId ? findCharacterById(desiredOfflineCharId) : null;
   if(rosterResolvedCharacter && String(rosterResolvedCharacter.id || '').trim() === String(desiredOfflineCharId || '').trim()){
     character = Object.assign({}, character || {}, rosterResolvedCharacter);
@@ -6787,7 +6750,7 @@ async function init(){
   if(launchSeed && launchSeed.payload){
     session = {
       charId: String(launchCharId || desiredOfflineCharId || '').trim(),
-      charSnapshot: launchSeed.charSnapshot || null,
+      charSnapshot: explicitSnapshot || launchSeed.charSnapshot || null,
       active: true,
       invite: launchSeed.payload || null,
       entries: [],
@@ -6820,6 +6783,8 @@ async function init(){
   }
   if(character && session && session.charSnapshot){
     character = Object.assign({}, buildOfflineCharacterFromSnapshot(session.charSnapshot) || {}, character || {});
+  }else if(!character && explicitSnapshot){
+    character = buildOfflineCharacterFromSnapshot(explicitSnapshot);
   }
   if((!character || !character.id) && session && session.invite && !desiredOfflineCharId){
     var fallbackRecord = findLatestOfflineSessionRecord();
