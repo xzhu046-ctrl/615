@@ -1168,7 +1168,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
       </button>
       <button class="cs-translation-mode-btn" type="button" data-translation-mode="prefetch">
         <strong>角色先返回原文 + 译文</strong>
-        <small>角色内容生成后会立刻把译文缓存好，点开直接看，不再等那一下。</small>
+        <small>同一次回复里一起带上译文。点“译”只展开，不会再额外消耗一次 API。</small>
       </button>
     </div>
   </div>
@@ -3291,6 +3291,16 @@ function buildChatReplyLanguagePrompt(){
   if(!isCharacterTranslationEnabled()) return '';
   var option = getReplyLanguageOption(getCharacterReplyLanguage());
   if(!option || option.value === 'zh') return '';
+  var extra = '';
+  if(getCharacterTranslationMode() === 'prefetch'){
+    extra = [
+      '【同条附带译文】',
+      '这次不要等系统二次翻译。',
+      '如果你返回结构化消息，每一条 text/voice/image 文本消息都额外带一个 translation 字段，内容是这条消息的简体中文译文。',
+      '格式示例：{"type":"text","content":"原文","translation":"中文译文"} 或 [{"type":"text","content":"原文1","translation":"译文1"},{"type":"text","content":"原文2","translation":"译文2"}]。',
+      'translation 只放中文译文，不要把原文再写一遍，不要解释。'
+    ].join('\n');
+  }
   return [
     '【语言模式】',
     option.prompt,
@@ -3298,7 +3308,8 @@ function buildChatReplyLanguagePrompt(){
     '如果你输出了简体中文正文，就算违规，必须直接改写成' + option.nativeLabel + '原文。',
     '不要偷懒先说中文再等系统翻译；原文必须先是' + option.nativeLabel + '。',
     '系统标记、JSON 字段名、工具前缀、特殊动作标签继续按原规则输出。',
-    '不要额外解释“这是翻译”或“我在说某种语言”。'
+    '不要额外解释“这是翻译”或“我在说某种语言”。',
+    extra
   ].join('\n');
 }
 function buildInnerVoiceLanguagePrompt(){
@@ -3610,7 +3621,6 @@ async function requestChatMessageTranslation(msgId, options){
 function queueChatMessageTranslationPrefetch(msgId){
   var safeId = String(msgId || '').trim();
   if(!safeId || !shouldPrefetchCharacterTranslations()) return;
-  if(chatTranslationPrefetchQueue[safeId]) return;
   var entry = getMessageById(safeId);
   if(!shouldOfferMessageTranslation(entry) || (entry && entry.translationLoading)) return;
   var kind = normalizeMessageType(entry && entry.type || 'text');
@@ -3618,13 +3628,6 @@ function queueChatMessageTranslationPrefetch(msgId){
     ? !!(entry && entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.aside || entry.inviteTranslation.location))
     : !!String(entry && entry.translationText || '').trim();
   if(hasTranslation) return;
-  chatTranslationPrefetchQueue[safeId] = true;
-  Promise.resolve().then(function(){
-    return requestChatMessageTranslation(safeId, { silent:true, showOnReady:true });
-  }).catch(function(){})
-    .finally(function(){
-      delete chatTranslationPrefetchQueue[safeId];
-    });
 }
 function primeChatTranslations(){
   if(!shouldPrefetchCharacterTranslations()) return;
@@ -3646,9 +3649,17 @@ function toggleMessageTranslation(msgId){
   var kind = normalizeMessageType(entry.type || 'text');
   if(kind === 'offlineinvite'){
     if(!(entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.aside || entry.inviteTranslation.location))){
+      if(getCharacterTranslationMode() === 'prefetch'){
+        toast('这条没有一起带译文');
+        return Promise.resolve();
+      }
       return requestChatMessageTranslation(msgId);
     }
   }else if(!String(entry.translationText || '').trim()){
+    if(getCharacterTranslationMode() === 'prefetch'){
+      toast('这条没有一起带译文');
+      return Promise.resolve();
+    }
     return requestChatMessageTranslation(msgId);
   }
   entry.translationVisible = !entry.translationVisible;
@@ -15242,6 +15253,7 @@ async function deliverAiReply(text, limitOverride){
     if(isReplyMetadataOnly(item)) return;
     var c = '';
     var t = normalizeMessageType(item.type || 'text');
+    var translation = String(item.translation || item.translationText || item.translated || item.zh || item.zh_cn || '').trim();
     if(typeof item.content === 'string') c = item.content;
     else if(typeof item.reply_content === 'string') c = item.reply_content;
     else if(typeof item.description === 'string') c = item.description;
@@ -15311,7 +15323,8 @@ async function deliverAiReply(text, limitOverride){
             text: part.text,
             t: part.t || 'text',
             replyTo: item.reply_to || item.replyTo || '',
-            replyRole: item.reply_role || item.replyRole || ''
+            replyRole: item.reply_role || item.replyRole || '',
+            translationText: translation
           });
         });
         return;
@@ -15321,7 +15334,8 @@ async function deliverAiReply(text, limitOverride){
       text: c,
       t: t,
       replyTo: item.reply_to || item.replyTo || '',
-      replyRole: item.reply_role || item.replyRole || ''
+      replyRole: item.reply_role || item.replyRole || '',
+      translationText: translation
     });
   };
   var appendRawPartsFromEnvelope = function(obj){
@@ -15491,7 +15505,7 @@ async function deliverAiReply(text, limitOverride){
             c = buildMemeEntryContent(knownStructuredMeme);
           }
           if(t === 'image' && !looksLikeVisualDescription(c)) t = 'text';
-          if(c) rawParts.push({text:c, t:t, replyTo:obj.reply_to || obj.replyTo || '', replyRole:obj.reply_role || obj.replyRole || ''});
+          if(c) rawParts.push({text:c, t:t, replyTo:obj.reply_to || obj.replyTo || '', replyRole:obj.reply_role || obj.replyRole || '', translationText:String(obj.translation || obj.translationText || obj.translated || obj.zh || obj.zh_cn || '').trim()});
         }
       }catch(e){}
     });
@@ -15568,6 +15582,11 @@ async function deliverAiReply(text, limitOverride){
       continue;
     }
     var entry = makeChatEntry('assistant', p.text, t);
+    if(String(p.translationText || '').trim()){
+      entry.translationText = String(p.translationText || '').trim();
+      entry.translationVisible = false;
+      entry.translationSourceLanguage = getCharacterReplyLanguage();
+    }
     if(shouldHonorReplyHint(p.replyTo, t)){
       entry.replyToId = resolveReplyTargetId(p.replyTo, p.replyRole);
     }
