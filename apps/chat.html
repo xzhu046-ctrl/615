@@ -14897,12 +14897,20 @@ function postToShell(msg){
 
 function persistActiveCharacterSnapshot(slim){
   if(!slim) return;
-  if(isDefaultAccountContext()){
-    safeLocalStorageSet('activeCharacter', JSON.stringify(slim));
-    safeLocalStorageSet('activeChatCharacterId', String((slim && slim.id) || ''));
+  var light = Object.assign({}, slim || {});
+  if(/^data:/i.test(String(light.imageData || '').trim())) light.imageData = '';
+  if(typeof light.userPersonaProfile === 'string' && light.userPersonaProfile){
+    light.userPersonaProfile = '';
   }
-  safeLocalStorageSet(accountScopedKey('activeCharacter'), JSON.stringify(slim));
-  safeLocalStorageSet(accountScopedKey('activeChatCharacterId'), String((slim && slim.id) || ''));
+  if(typeof light.offlineInviteStyle === 'string' && light.offlineInviteStyle.length > 240){
+    light.offlineInviteStyle = light.offlineInviteStyle.slice(0, 240);
+  }
+  if(isDefaultAccountContext()){
+    safeLocalStorageSet('activeCharacter', JSON.stringify(light));
+    safeLocalStorageSet('activeChatCharacterId', String((light && light.id) || ''));
+  }
+  safeLocalStorageSet(accountScopedKey('activeCharacter'), JSON.stringify(light));
+  safeLocalStorageSet(accountScopedKey('activeChatCharacterId'), String((light && light.id) || ''));
 }
 
 function syncActiveCharacterToShell(){
@@ -15076,8 +15084,14 @@ async function saveChatSettings() {
   primeChatTranslations();
   chatSettingsSavedAtLeastOnce = true;
   toast('设置已保存！');
-  // Persist chat log so changes survive leaving page
-  await saveChat();
+  try{
+    await saveChat();
+  }catch(saveErr){
+    console.warn('saveChat skipped after settings save', saveErr);
+    var quotaHit = /quota|exceed|storage|insufficient|space/i.test(String((saveErr && saveErr.message) || saveErr || ''));
+    if(!quotaHit) throw saveErr;
+    toast('设置已保存，聊天记录会稍后再补存。');
+  }
   updateModelLabel();
   postSettingsPreviewSync();
   refreshMemoryUi();
@@ -15096,6 +15110,7 @@ function persistCharacter(){
   var activeAcctId = '';
   try{ if(window.AccountManager) activeAcctId = (window.AccountManager.getActive()||{}).id || ''; }catch(err){}
   var nextChar = Object.assign({}, character);
+  if(/^data:/i.test(String(nextChar.imageData || '').trim())) nextChar.imageData = '';
   if(activeAcctId && !nextChar.ownerAccountId) nextChar.ownerAccountId = activeAcctId;
   return Promise.resolve()
     .then(async function(){
