@@ -8,6 +8,10 @@
     characters: null,
     worldbooks: null
   };
+  var loaded = {
+    characters: false,
+    worldbooks: false
+  };
   var pending = {
     characters: null,
     worldbooks: null
@@ -55,7 +59,7 @@
 
   function loadCharacters(force){
     var shouldForce = force === true;
-    if(!shouldForce && Array.isArray(cache.characters)) return Promise.resolve(cloneJson(cache.characters));
+    if(!shouldForce && loaded.characters && Array.isArray(cache.characters)) return Promise.resolve(cloneJson(cache.characters));
     if(!shouldForce && pending.characters) return pending.characters.then(cloneJson);
     var task = Promise.resolve()
       .then(function(){
@@ -67,6 +71,7 @@
       .then(function(stored){
         var next = Array.isArray(stored) ? stored : readLegacyCharacters();
         cache.characters = Array.isArray(next) ? next : [];
+        loaded.characters = true;
         if(!Array.isArray(stored) && cache.characters.length && global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
           global.PhoneStorage.putJson(CHARACTERS_KEY, cache.characters).then(function(){
             removeLegacyKey('characters');
@@ -85,7 +90,7 @@
 
   function loadWorldbooks(force){
     var shouldForce = force === true;
-    if(!shouldForce && cache.worldbooks && typeof cache.worldbooks === 'object') return Promise.resolve(cloneJson(cache.worldbooks));
+    if(!shouldForce && loaded.worldbooks && cache.worldbooks && typeof cache.worldbooks === 'object') return Promise.resolve(cloneJson(cache.worldbooks));
     if(!shouldForce && pending.worldbooks) return pending.worldbooks.then(cloneJson);
     var task = Promise.resolve()
       .then(function(){
@@ -97,6 +102,7 @@
       .then(function(stored){
         var next = (stored && typeof stored === 'object') ? stored : readLegacyWorldbooks();
         cache.worldbooks = next && typeof next === 'object' ? next : {};
+        loaded.worldbooks = true;
         if((!stored || typeof stored !== 'object') && Object.keys(cache.worldbooks).length && global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
           global.PhoneStorage.putJson(WORLDBOOKS_KEY, cache.worldbooks).then(function(){
             removeLegacyKey('worldbooks');
@@ -115,6 +121,7 @@
 
   function saveCharacters(list){
     cache.characters = Array.isArray(list) ? cloneJson(list) : [];
+    loaded.characters = true;
     if(global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
       return global.PhoneStorage.putJson(CHARACTERS_KEY, cache.characters).then(function(data){
         removeLegacyKey('characters');
@@ -129,6 +136,7 @@
 
   function saveWorldbooks(data){
     cache.worldbooks = (data && typeof data === 'object') ? cloneJson(data) : {};
+    loaded.worldbooks = true;
     if(global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
       return global.PhoneStorage.putJson(WORLDBOOKS_KEY, cache.worldbooks).then(function(next){
         removeLegacyKey('worldbooks');
@@ -142,17 +150,23 @@
   }
 
   function getCharactersSync(){
-    if(Array.isArray(cache.characters)) return cloneJson(cache.characters);
+    if(loaded.characters && Array.isArray(cache.characters)) return cloneJson(cache.characters);
     var legacy = readLegacyCharacters();
-    cache.characters = legacy;
-    return cloneJson(legacy);
+    if(Array.isArray(legacy) && legacy.length){
+      cache.characters = legacy;
+      loaded.characters = true;
+    }
+    return cloneJson(Array.isArray(legacy) ? legacy : []);
   }
 
   function getWorldbooksSync(){
-    if(cache.worldbooks && typeof cache.worldbooks === 'object') return cloneJson(cache.worldbooks);
+    if(loaded.worldbooks && cache.worldbooks && typeof cache.worldbooks === 'object') return cloneJson(cache.worldbooks);
     var legacy = readLegacyWorldbooks();
-    cache.worldbooks = legacy;
-    return cloneJson(legacy);
+    if(legacy && typeof legacy === 'object' && Object.keys(legacy).length){
+      cache.worldbooks = legacy;
+      loaded.worldbooks = true;
+    }
+    return cloneJson(legacy && typeof legacy === 'object' ? legacy : {});
   }
 
   function init(){
@@ -180,4 +194,5 @@
     getWorldbooksSync: getWorldbooksSync,
     subscribe: subscribe
   };
+  init().catch(function(){});
 })(window);

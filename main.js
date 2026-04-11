@@ -39,7 +39,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-11T12:18:00Z';
+const APP_BUILD_ID = '2026-04-11T07:40:38Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1350,11 +1350,8 @@ function bindHomeAppPressState(){
 function slimChar(c){
   if(!c) return null;
   return {
-    id:c.id, name:c.name, nickname:c.nickname, description:c.description, avatar:c.avatar,
+    id:c.id, name:c.name, nickname:c.nickname, avatar:c.avatar,
     imageData:c.imageData,
-    personality:c.personality, scenario:c.scenario, system_prompt:c.system_prompt,
-    first_mes:c.first_mes, alternate_greetings:c.alternate_greetings,
-    tags:c.tags, character_version:c.character_version, spec:c.spec, creator:c.creator,
     msgMin:c.msgMin, msgMax:c.msgMax,
     offlineInviteMin:c.offlineInviteMin,
     offlineInviteMax:c.offlineInviteMax,
@@ -1372,10 +1369,7 @@ function slimChar(c){
     translationEnabled:!!c.translationEnabled,
     replyLanguage:String(c.replyLanguage||c.language||'zh'),
     translationMode:String(c.translationMode||'ondemand'),
-    userNameProfile:String(c.userNameProfile||''),
-    userPersonaProfile:String(c.userPersonaProfile||''),
-    livePresenceWorldHint:String(c.livePresenceWorldHint||''),
-    livePresence:(c.livePresence && typeof c.livePresence === 'object') ? Object.assign({}, c.livePresence) : null
+    userNameProfile:String(c.userNameProfile||'')
   };
 }
 
