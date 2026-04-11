@@ -725,6 +725,7 @@ var character = null;
 var desiredOfflineCharId = '';
 var offlineEntryHome = false;
 var offlineLobbyMode = 'date';
+var offlineLobbyModeConfirmed = false;
 var offlineLobbySelectedCharId = '';
 var offlineLobbyConfirmedCharId = '';
 var offlineLobbyTimeDirection = 'future';
@@ -1827,6 +1828,13 @@ function ensureOfflineLobbySelection(){
     if(!confirmedHit) offlineLobbyConfirmedCharId = '';
   }
 }
+function getOfflineLobbyModeAsset(mode){
+  var safe = String(mode || '').trim();
+  if(safe === 'if') return 'assets/If线.jpg';
+  if(safe === 'dream') return 'assets/梦境.jpg';
+  if(safe === 'timemachine') return 'assets/时光机.jpg';
+  return 'assets/约会.jpg';
+}
 function resolveOfflineLobbyAvatar(entry){
   if(!entry || typeof entry !== 'object') return '';
   var direct = String(entry.imageData || entry.avatar || '').trim();
@@ -1852,6 +1860,19 @@ function getOfflineLobbyModeNote(mode){
   if(safe === 'timemachine') return '去他的过去或未来见一面，把时间拨到另一个节点。';
   return '发出一张黑白约会卡，从这一刻开始认真见面。';
 }
+function cycleOfflineLobbyMode(step){
+  var order = ['date','if','dream','timemachine'];
+  var currentIndex = order.indexOf(String(offlineLobbyMode || 'date').trim());
+  if(currentIndex < 0) currentIndex = 0;
+  var nextIndex = (currentIndex + (Number(step) || 0) + order.length) % order.length;
+  offlineLobbyMode = order[nextIndex];
+  offlineLobbyModeConfirmed = false;
+  renderStory();
+}
+function confirmOfflineLobbyMode(){
+  offlineLobbyModeConfirmed = true;
+  renderStory();
+}
 function leaveOfflineLobby(){
   try{
     if(window.parent){
@@ -1875,6 +1896,10 @@ function cycleOfflineLobbyChar(step){
   renderStory();
 }
 function confirmOfflineLobbyChar(){
+  if(!offlineLobbyModeConfirmed){
+    toast('先挑一种模式');
+    return;
+  }
   ensureOfflineLobbySelection();
   if(!offlineLobbySelectedCharId){
     toast('先挑一个角色');
@@ -1974,6 +1999,7 @@ function renderOfflineLobby(){
   var selectedAvatar = resolveOfflineLobbyAvatar(selectedChar);
   var selectedName = String(selectedChar && (selectedChar.nickname || selectedChar.name) || '未命名角色');
   var confirmedActive = !!(offlineLobbyConfirmedCharId && selectedChar && String(offlineLobbyConfirmedCharId) === String(selectedChar.id || ''));
+  var modeImage = getOfflineLobbyModeAsset(offlineLobbyMode);
   var modeButtons = [
     { value:'date', title:'约会' },
     { value:'if', title:'IF线' },
@@ -2007,33 +2033,43 @@ function renderOfflineLobby(){
         '<div><label class="offline-lobby-form-label" for="offlineLobbyLocation">落点</label><input class="offline-lobby-form-input" id="offlineLobbyLocation" type="text" placeholder="比如：十七岁的夏天 / 三十岁的冬夜"></div>' +
       '</div>';
   }
-  var modeBlock = confirmedActive
-    ? ('<section class="offline-lobby-form"><div class="offline-lobby-form-title">' + esc(getOfflineLobbyModeLabel(offlineLobbyMode)) + '</div><div class="offline-lobby-mode-row">' + modeButtons + '</div>' + extraFields + '<button class="offline-lobby-start" type="button" onclick="startOfflineLobbyFlow()">开始这场' + esc(getOfflineLobbyModeLabel(offlineLobbyMode)) + '</button></section>')
-    : '<div class="offline-lobby-selection-note">右滑选中现在想见的角色，选好之后再决定要走普通约会、IF 线、梦境，还是时光机。</div>';
-  return '<div class="offline-lobby">' +
-    '<div class="offline-lobby-topbar">' +
-      '<button class="offline-lobby-mini-btn" type="button" onclick="leaveOfflineLobby()" aria-label="离开约会首页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z"/></svg></button>' +
-      '<div class="offline-lobby-titleblock"><div class="offline-lobby-kicker">Date App</div><div class="offline-lobby-title">约会</div><div class="offline-lobby-sub">先左滑右滑挑人，挑中了再决定今晚要走哪条线。</div></div>' +
-      '<div style="width:38px"></div>' +
+  var modeDeck = '<div class="offline-lobby-deck">' +
+      '<div class="offline-lobby-ghost-card" aria-hidden="true"></div>' +
+      '<div class="offline-lobby-main-card">' +
+        '<div class="offline-lobby-main-art">' + (modeImage ? ('<img src="' + escAttr(modeImage) + '" alt="">') : esc(getOfflineLobbyModeLabel(offlineLobbyMode).slice(0, 2) || '约会')) + '</div>' +
+        '<div class="offline-lobby-main-name">' + esc(getOfflineLobbyModeLabel(offlineLobbyMode)) + '</div>' +
+        '<div class="offline-lobby-main-meta">' + esc(offlineLobbyModeConfirmed ? '模式已经定好了，接下来挑一个想见的人。' : getOfflineLobbyModeNote(offlineLobbyMode)) + '</div>' +
+      '</div>' +
     '</div>' +
+    '<div class="offline-lobby-swipe-row"><button class="offline-lobby-swipe-btn" type="button" onclick="cycleOfflineLobbyMode(1)" aria-label="换下一个模式">×</button><button class="offline-lobby-swipe-btn like" type="button" onclick="confirmOfflineLobbyMode()" aria-label="选中这个模式">♥</button></div>';
+  var charDeck = offlineLobbyModeConfirmed ? (
     '<div class="offline-lobby-deck">' +
       '<div class="offline-lobby-ghost-card" aria-hidden="true"></div>' +
       '<div class="offline-lobby-main-card">' +
         '<div class="offline-lobby-main-art">' + (selectedAvatar ? ('<img src="' + escAttr(selectedAvatar) + '" alt="">') : esc(selectedName.slice(0, 2) || '角')) + '</div>' +
         '<div class="offline-lobby-main-name">' + esc(selectedName) + '</div>' +
-        '<div class="offline-lobby-main-meta">' + esc(confirmedActive ? '已经选中这个人，现在挑一种约会方式就好。' : '向左换下一个，向右把他带进这场约会。') + '</div>' +
+        '<div class="offline-lobby-main-meta">' + esc(confirmedActive ? '已经选中这个人，现在把这场约会真正开起来。' : '向左换下一个，向右把他带进这场约会。') + '</div>' +
       '</div>' +
     '</div>' +
-    '<div class="offline-lobby-swipe-row"><button class="offline-lobby-swipe-btn" type="button" onclick="cycleOfflineLobbyChar(1)" aria-label="换下一个">×</button><button class="offline-lobby-swipe-btn like" type="button" onclick="confirmOfflineLobbyChar()" aria-label="选中这个角色">♥</button></div>' +
+    '<div class="offline-lobby-swipe-row"><button class="offline-lobby-swipe-btn" type="button" onclick="cycleOfflineLobbyChar(1)" aria-label="换下一个角色">×</button><button class="offline-lobby-swipe-btn like" type="button" onclick="confirmOfflineLobbyChar()" aria-label="选中这个角色">♥</button></div>'
+  ) : '';
+  var modeBlock = confirmedActive
+    ? ('<section class="offline-lobby-form"><div class="offline-lobby-form-title">' + esc(getOfflineLobbyModeLabel(offlineLobbyMode)) + '</div><div class="offline-lobby-mode-row">' + modeButtons + '</div>' + extraFields + '<button class="offline-lobby-start" type="button" onclick="startOfflineLobbyFlow()">开始这场' + esc(getOfflineLobbyModeLabel(offlineLobbyMode)) + '</button></section>')
+    : (offlineLobbyModeConfirmed ? '<div class="offline-lobby-selection-note">先右滑选中想见的人，选好了再输入邀约起点。</div>' : '<div class="offline-lobby-selection-note">先右滑选中一种模式，再去挑这个模式下你最想见的人。</div>');
+  return '<div class="offline-lobby">' +
+    '<div class="offline-lobby-topbar">' +
+      '<button class="offline-lobby-mini-btn" type="button" onclick="leaveOfflineLobby()" aria-label="离开约会首页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z"/></svg></button>' +
+      '<div class="offline-lobby-titleblock"><div class="offline-lobby-kicker">Date App</div><div class="offline-lobby-title">约会</div><div class="offline-lobby-sub">先滑着挑模式，再滑着挑人，最后才把这场见面真正开始。</div></div>' +
+      '<div style="width:38px"></div>' +
+    '</div>' +
+    modeDeck +
+    charDeck +
     modeBlock +
   '</div>';
 }
 function selectOfflineLobbyMode(mode){
-  if(!offlineLobbyConfirmedCharId){
-    toast('先右滑选中一个角色');
-    return;
-  }
   offlineLobbyMode = /^(date|if|dream|timemachine)$/.test(String(mode || '').trim()) ? String(mode).trim() : 'date';
+  offlineLobbyModeConfirmed = true;
   renderStory();
 }
 function selectOfflineLobbyChar(charId){
