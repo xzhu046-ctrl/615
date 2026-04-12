@@ -7479,6 +7479,7 @@ function setReplyTarget(msgId){
   if(editingMessageId || multiSelectMode) return;
   var msg = getMessageById(msgId);
   if(!msg) return;
+  if(msg.role === 'system') return;
   if(normalizeMessageType(msg.type || 'text') === 'narrator') return;
   replyTargetId = msg.id;
   closeMessageActions();
@@ -7892,26 +7893,62 @@ async function snapshotRichHtmlFrame(frame){
     var rect = frame.getBoundingClientRect();
     var width = Math.max(220, Math.ceil(rect.width || frame.clientWidth || frame.offsetWidth || 220));
     var height = Math.max(120, Math.ceil(rect.height || frame.clientHeight || frame.offsetHeight || 120));
-    var bodyClone = cloneNodeWithInlineStyles(doc.body);
-    var bodyStyle = String((bodyClone && bodyClone.getAttribute('style')) || '');
     var bg = window.getComputedStyle(doc.body).backgroundColor || '#fff';
-    var svg = ''
-      + '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">'
-      + '<foreignObject width="100%" height="100%">'
-      + '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + width + 'px;height:' + height + 'px;overflow:hidden;background:' + escAttr(bg) + ';position:relative;">'
-      + '<div style="' + escAttr(bodyStyle + ';margin:0;width:' + width + 'px;min-height:' + height + 'px;overflow:hidden;') + '">' + (bodyClone ? bodyClone.innerHTML : '') + '</div>'
-      + '</div>'
-      + '</foreignObject>'
-      + '</svg>';
-    var img = await loadSvgImageFromMarkup(svg);
-    var canvas = document.createElement('canvas');
-    var scale = 2;
-    canvas.width = Math.max(1, Math.round(width * scale));
-    canvas.height = Math.max(1, Math.round(height * scale));
-    var ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/png');
+    var stageHost = document.createElement('div');
+    stageHost.style.position = 'fixed';
+    stageHost.style.left = '-99999px';
+    stageHost.style.top = '0';
+    stageHost.style.width = width + 'px';
+    stageHost.style.height = height + 'px';
+    stageHost.style.opacity = '0';
+    stageHost.style.pointerEvents = 'none';
+    stageHost.style.zIndex = '-1';
+    stageHost.style.overflow = 'hidden';
+    var stage = document.createElement('div');
+    stage.style.width = width + 'px';
+    stage.style.minHeight = height + 'px';
+    stage.style.height = height + 'px';
+    stage.style.overflow = 'hidden';
+    stage.style.background = bg;
+    stage.style.position = 'relative';
+    var styles = Array.prototype.slice.call(doc.querySelectorAll('style')).map(function(node){
+      return String(node.textContent || '');
+    }).join('\n');
+    if(styles.trim()){
+      var styleNode = document.createElement('style');
+      styleNode.textContent = styles;
+      stage.appendChild(styleNode);
+    }
+    var bodyClone = cloneNodeWithInlineStyles(doc.body);
+    if(bodyClone){
+      bodyClone.style.margin = '0';
+      bodyClone.style.width = width + 'px';
+      bodyClone.style.minHeight = height + 'px';
+      bodyClone.style.overflow = 'hidden';
+      stage.appendChild(bodyClone);
+    }
+    stageHost.appendChild(stage);
+    document.body.appendChild(stageHost);
+    try{
+      await waitForNodeImages(stageHost);
+      var renderer = await ensureHtml2CanvasReady();
+      var scale = 2;
+      var canvas = await renderer(stage, {
+        backgroundColor: null,
+        scale: scale,
+        useCORS: true,
+        logging: false,
+        width: width,
+        height: height,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: width,
+        windowHeight: height
+      });
+      return canvas.toDataURL('image/png');
+    } finally {
+      if(stageHost.parentNode) stageHost.parentNode.removeChild(stageHost);
+    }
   }catch(err){
     return '';
   }
@@ -8133,7 +8170,7 @@ async function shareSelectedMessages(){
 function bindMessageLongPress(el, msgId){
   var bubble = el.querySelector('.msg-bubble');
   var boundMsg = getMessageById(msgId);
-  var disableReplyGesture = normalizeMessageType(boundMsg && boundMsg.type || 'text') === 'narrator';
+  var disableReplyGesture = !!(boundMsg && (boundMsg.role === 'system' || normalizeMessageType(boundMsg.type || 'text') === 'narrator'));
   var startX = 0;
   var startY = 0;
   var dragging = false;
