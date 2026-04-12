@@ -119,7 +119,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg-bubble.recall-shell{padding:0;background:transparent;border:none;box-shadow:none;min-height:0;overflow:visible}
 .msg.richhtml-msg{max-width:min(92%,462px)}
 .msg.recall-msg{max-width:min(86%,360px)}
-.msg.narrator-msg{max-width:min(82%,340px)}
+.msg.narrator-msg{max-width:min(82%,340px);margin:4px 0 10px}
 .msg.narrator-msg .msg-main{width:100%}
 .msg.narrator-msg .msg-bubble{width:100%}
 .msg-bubble.familycard-shell{padding:0;background:transparent;border:none;box-shadow:none;min-height:0;overflow:visible}
@@ -5002,26 +5002,6 @@ function buildAutoNarratorForReply(parts){
   return '指尖在屏幕上停了一瞬，紧接着那边的心思才慢慢浮出来。';
 }
 
-function normalizeNarratorPartsLanguage(parts){
-  var list = Array.isArray(parts) ? parts : [];
-  var targetLang = getNarratorReplyLanguage();
-  if(targetLang === 'zh') return list;
-  var seeds = list.filter(function(item){
-    return normalizeMessageType(item && item.t || 'text') !== 'narrator';
-  });
-  return list.map(function(item){
-    if(!item) return item;
-    if(normalizeMessageType(item.t || 'text') !== 'narrator') return item;
-    var raw = String(item.text || '').trim();
-    if(!raw) return item;
-    var checkText = extractReplyTextForLanguageCheck(raw);
-    if(checkText && hasTargetLanguageSignalForChat(checkText, targetLang)) return item;
-    return Object.assign({}, item, {
-      text: buildAutoNarratorForReply(seeds.length ? seeds : [{ text: raw, t: 'text' }])
-    });
-  });
-}
-
 function buildRichHtmlVisibleDoc(data){
   var safe = normalizeRichHtmlRenderableData(data);
   var html = String(safe.html || '').trim();
@@ -7463,9 +7443,11 @@ function beginEditMessage(){
   var msg = getMessageById(activeActionMessageId);
   closeMessageActions();
   if(!msg) return;
+  var state = captureMessagesViewportState();
   editingMessageId = msg.id;
   editingDraft = msg.content || '';
   renderChatLog(true);
+  restoreMessagesViewportState(state);
   setTimeout(function(){
     var input = document.querySelector('.msg-edit-input');
     if(input){
@@ -7511,9 +7493,11 @@ function favoriteActiveMessage(){
   toast('已收藏');
 }
 function cancelEditMessage(){
+  var state = captureMessagesViewportState();
   editingMessageId = null;
   editingDraft = '';
   renderChatLog(true);
+  restoreMessagesViewportState(state);
 }
 function onEditDraftInput(el){
   editingDraft = el.value;
@@ -7524,11 +7508,13 @@ function confirmEditMessage(){
   if(!msg) { cancelEditMessage(); return; }
   var next = (editingDraft || '').trim();
   if(!next){ toast('内容不能为空'); return; }
+  var state = captureMessagesViewportState();
   msg.content = next;
   editingMessageId = null;
   editingDraft = '';
   saveChat(true);
   renderChatLog(true);
+  restoreMessagesViewportState(state);
   toast('已编辑');
 }
 function openMultiDeleteConfirm(){
@@ -17051,7 +17037,6 @@ async function deliverAiReply(text, limitOverride){
       });
     }
   }
-  rawParts = normalizeNarratorPartsLanguage(rawParts);
   var hasExplicitMultiBubble = rawParts.length >= 2;
   var cap = hasExplicitMultiBubble ? softMaxN : maxN;
   if(rawParts.length > cap){
