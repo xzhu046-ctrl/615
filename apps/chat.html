@@ -3381,6 +3381,17 @@ function getCharacterReplyLanguage(){
     ? normalizeReplyLanguage(character && character.replyLanguage || 'zh')
     : 'zh';
 }
+function getNarratorReplyLanguage(){
+  var explicit = normalizeReplyLanguage(character && character.replyLanguage || 'zh');
+  return explicit !== 'zh' ? explicit : 'zh';
+}
+function getRecallActorDisplayName(role){
+  var lower = String(role || '').toLowerCase();
+  if(lower === 'user'){
+    return String(getChatUserName(character && character.id) || '你').trim() || '你';
+  }
+  return String((character && (character.nickname || character.name)) || '对方').trim() || '对方';
+}
 function getCharacterTranslationMode(){
   return normalizeTranslationMode(character && character.translationMode || 'ondemand');
 }
@@ -4847,7 +4858,7 @@ function buildAutoNarratorForReply(parts){
     return kind === 'text' || kind === 'voice' || kind === 'richhtml';
   });
   var seed = String(first && first.text || '').trim();
-  var lang = isCharacterTranslationEnabled() && getCharacterReplyLanguage() !== 'zh' ? getCharacterReplyLanguage() : 'zh';
+  var lang = getNarratorReplyLanguage();
   if(lang === 'en'){
     if(/[\?？]/.test(seed)) return 'A short pause hung there before the follow-up finally dropped onto the screen.';
     if(/[!！]/.test(seed)) return 'The emotion arrived a beat earlier than the sentence itself.';
@@ -7033,9 +7044,8 @@ function buildRecallPayload(actorRole, originalMsg, options){
   var seen = opts.seenByAssistant;
   var originalType = normalizeMessageType(originalMsg && originalMsg.type || 'text');
   var originalText = getMessageTranslationSourceText(originalMsg) || getReplySnippetText(originalMsg);
-  var baseNotice = actorRole === 'assistant'
-    ? ((character && (character.nickname || character.name || '对方')) + '悄悄收回了一句话')
-    : '这条话被你轻轻收了回去';
+  var actorName = getRecallActorDisplayName(actorRole);
+  var baseNotice = '句子已经被' + actorName + '毁尸灭迹啦^^';
   if(actorRole === 'user'){
     if(seen === true) baseNotice += '，对方好像已经看见了';
     else if(seen === false) baseNotice += '，对方好像还没来得及看见';
@@ -7095,9 +7105,10 @@ function resolvePendingUserRecallNoticesForReply(){
     if(payload.seenByAssistant === true || payload.seenByAssistant === false) return;
     payload.seenByAssistant = Math.random() >= 0.45;
     payload.pendingSeenDecision = false;
+    var actorName = getRecallActorDisplayName('user');
     payload.notice = payload.seenByAssistant
-      ? '这条话被你轻轻收了回去，对方好像已经看见了'
-      : '这条话被你轻轻收了回去，对方好像还没来得及看见';
+      ? ('句子已经被' + actorName + '毁尸灭迹啦^^，对方好像已经看见了')
+      : ('句子已经被' + actorName + '毁尸灭迹啦^^，对方好像还没来得及看见');
     item.content = JSON.stringify(payload);
     changed = true;
   });
@@ -7275,7 +7286,7 @@ async function recallActiveMessage(){
   }
   var ok = await performRecallForMessage(msg, { seenByAssistant: msg.role === 'assistant' ? null : null });
   if(ok){
-    toast(msg.role === 'assistant' ? '对方悄悄收回了一句话' : '这条话已经收回去了');
+    toast('句子已经被' + getRecallActorDisplayName(msg.role) + '毁尸灭迹啦^^');
   }
 }
 function beginEditMessage(){
