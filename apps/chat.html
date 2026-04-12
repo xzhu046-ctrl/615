@@ -988,7 +988,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 .bubble-charm.ai{right:-52px;top:-34.85px}
 .multi-trash-btn,.multi-cancel-btn,.multi-share-btn{position:fixed;right:16px;width:46px;height:46px;border-radius:50%;border:var(--bd);box-shadow:var(--sh);display:none;align-items:center;justify-content:center;z-index:210;cursor:pointer}
 .multi-trash-btn.show,.multi-cancel-btn.show,.multi-share-btn.show{display:flex}
-.multi-trash-btn{bottom:92px;background:#111;color:#fff;font-size:18px}
+.multi-trash-btn{bottom:92px;background:linear-gradient(180deg,#ff8e8e 0%,#e23434 58%,#9e0f16 100%);color:#fff;font-size:18px}
 .multi-share-btn{bottom:146px;background:#111;color:#fff;font-size:17px;font-weight:900}
 .multi-cancel-btn{bottom:200px;background:var(--w);color:var(--b);font-size:20px;font-weight:900}
 .multi-trash-btn img,.multi-share-btn img{width:22px;height:22px;object-fit:contain;display:block;filter:brightness(0) invert(1)}
@@ -7023,7 +7023,7 @@ function getReplySnippetText(msg){
   if(kind === 'voice') text = '【语音消息】';
   else if(kind === 'image') text = IMAGE_SNIPPET;
   else if(kind === 'richhtml') text = '【SURPRISE】';
-  else if(kind === 'narrator') text = '【旁白】' + String(payload.content || msg.content || '').trim();
+  else if(kind === 'narrator') text = String(payload.content || msg.content || '').trim();
   else if(kind === 'recallnotice'){
     try{
       var recallPreviewPayload = typeof (payload.content || msg.content || '') === 'string'
@@ -7760,6 +7760,22 @@ function waitForIframeDocumentImages(frame){
     return Promise.resolve();
   }
 }
+function loadSvgImageFromMarkup(svgText){
+  return new Promise(function(resolve, reject){
+    var blob = new Blob([String(svgText || '')], { type:'image/svg+xml;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var image = new Image();
+    image.onload = function(){
+      try{ URL.revokeObjectURL(url); }catch(err){}
+      resolve(image);
+    };
+    image.onerror = function(){
+      try{ URL.revokeObjectURL(url); }catch(err){}
+      reject(new Error('svg image load failed'));
+    };
+    image.src = url;
+  });
+}
 async function snapshotRichHtmlFrame(frame){
   if(!frame) return '';
   try{
@@ -7780,12 +7796,7 @@ async function snapshotRichHtmlFrame(frame){
       + '</div>'
       + '</foreignObject>'
       + '</svg>';
-    var img = await new Promise(function(resolve, reject){
-      var image = new Image();
-      image.onload = function(){ resolve(image); };
-      image.onerror = function(){ reject(new Error('frame snapshot svg failed')); };
-      image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-    });
+    var img = await loadSvgImageFromMarkup(svg);
     var canvas = document.createElement('canvas');
     var scale = 2;
     canvas.width = Math.max(1, Math.round(width * scale));
@@ -7907,8 +7918,7 @@ function renderNodeAsPngBlob(node){
       + '</div>'
       + '</foreignObject>'
       + '</svg>';
-    var img = new Image();
-    img.onload = function(){
+    loadSvgImageFromMarkup(svg).then(function(img){
       var maxEdge = 12000;
       var scale = Math.min(2, maxEdge / Math.max(width, height));
       if(!isFinite(scale) || scale <= 0) scale = 1;
@@ -7922,9 +7932,9 @@ function renderNodeAsPngBlob(node){
         if(blob) resolve(blob);
         else reject(new Error('export blob empty'));
       }, 'image/png');
-    };
-    img.onerror = function(){ reject(new Error('export svg render failed')); };
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    }).catch(function(){
+      reject(new Error('export svg render failed'));
+    });
   });
 }
 async function shareSelectedMessages(){
@@ -14997,7 +15007,7 @@ function getChatPreviewPayload(entry){
     return { content: '【SURPRISE】', type: 'text' };
   }
   if(previewType === 'narrator'){
-    return { content: '【旁白】' + String(previewContent || '').trim(), type: 'text' };
+    return { content: String(previewContent || '').trim(), type: 'text' };
   }
   if(previewType === 'recallnotice'){
     try{
