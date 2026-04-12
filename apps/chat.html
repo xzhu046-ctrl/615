@@ -53,6 +53,13 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 /* ── Messages ── */
 .messages{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:10px 12px calc(var(--composer-height) + 16px);display:flex;flex-direction:column;gap:14px;scrollbar-width:none;position:relative;z-index:1}
 .messages::-webkit-scrollbar{display:none}
+.chat-load-older-row{display:flex;justify-content:center;align-items:center;margin:2px 0 10px}
+.chat-load-older-btn{display:inline-flex;align-items:center;gap:10px;padding:10px 14px;border:none;border-radius:999px;background:rgba(255,255,255,.82);backdrop-filter:blur(14px) saturate(1.08);-webkit-backdrop-filter:blur(14px) saturate(1.08);box-shadow:0 10px 24px rgba(0,0,0,.12),0 0 0 1px rgba(255,255,255,.72) inset;color:#111;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.04em;cursor:pointer}
+.chat-load-older-btn:active{transform:translateY(1px)}
+.chat-load-older-btn img{width:24px;height:24px;object-fit:contain;display:block;flex-shrink:0}
+.chat-load-older-copy{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1}
+.chat-load-older-copy strong{font-size:11px;font-weight:900}
+.chat-load-older-copy small{font-size:9px;font-weight:800;color:#6d6d6d;margin-top:3px;letter-spacing:.02em}
 .msg{display:flex;gap:8px;max-width:88%;animation:msgIn .34s cubic-bezier(.22,1.35,.35,1)}
 .msg.voice-msg{gap:8px}
 @keyframes msgIn{0%{opacity:0;transform:translateY(9px) scale(.985)}65%{opacity:1;transform:translateY(-2px) scale(1.01)}100%{opacity:1;transform:translateY(0) scale(1)}}
@@ -1449,10 +1456,14 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
       </div>
       <div class="toggle-switch on" id="autoSummaryToggle" onclick="toggleAutoSummarySwitch()"></div>
     </div>
-      <div style="margin-bottom:10px">
-        <span class="cs-label">AI 读取最近消息条数（X）</span>
-        <input class="cs-input" id="csContextWindow" type="number" min="6" max="120" step="1" placeholder="如 30">
-      </div>
+    <div style="margin-bottom:10px">
+      <span class="cs-label">聊天页首次加载条数</span>
+      <input class="cs-input" id="csChatRenderPageSize" type="number" min="10" max="200" step="1" placeholder="如 40">
+    </div>
+    <div style="margin-bottom:10px">
+      <span class="cs-label">AI 读取最近消息条数（X）</span>
+      <input class="cs-input" id="csContextWindow" type="number" min="6" max="120" step="1" placeholder="如 30">
+    </div>
     <div style="margin-bottom:10px">
       <span class="cs-label">自动总结间隔（X）</span>
       <input class="cs-input" id="csSummaryEvery" type="number" min="6" max="120" step="1" placeholder="如 30">
@@ -2056,6 +2067,9 @@ var blockedWallMinimized = false;
 var DEFAULT_CONTEXT_WINDOW = 30;
 var MIN_CONTEXT_WINDOW = 6;
 var MAX_CONTEXT_WINDOW = 120;
+var DEFAULT_CHAT_RENDER_PAGE_SIZE = 40;
+var MIN_CHAT_RENDER_PAGE_SIZE = 10;
+var MAX_CHAT_RENDER_PAGE_SIZE = 200;
 var DEFAULT_SUMMARY_EVERY = 30;
 var DEFAULT_MEMORY_MERGE_THRESHOLD = 10;
 var DEFAULT_MANUAL_SUMMARY_SIZE = 30;
@@ -2069,6 +2083,8 @@ var chatExportState = null;
 var memoryEditingId = '';
 var chatSettingsSavedAtLeastOnce = false;
 var chatSettingsSaving = false;
+var chatVisibleCount = 0;
+var chatVisibleCharId = '';
 var composerMode = 'text';
 var chatThemeCssDraft = '';
 var chatThemePresetsCache = [];
@@ -2122,6 +2138,9 @@ var MEMORY_AUTO_COMPACT_BATCH = 3;
 
 function contextWindowKey(){
   return character && character.id ? accountScopedKey('ctx_window_' + character.id) : '';
+}
+function chatRenderPageSizeKey(){
+  return character && character.id ? accountScopedKey('chat_render_page_size_' + character.id) : '';
 }
 function moneyCoverListKey(){
   return accountScopedKey('money_cover_library');
@@ -2330,6 +2349,24 @@ function loadContextWindowSize(){
   var n = parseInt(source, 10);
   if(Number.isNaN(n)) n = DEFAULT_CONTEXT_WINDOW;
   return Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, n));
+}
+function loadChatRenderPageSize(){
+  if(!character) return DEFAULT_CHAT_RENDER_PAGE_SIZE;
+  var source = character.chatRenderPageSize;
+  if(source == null){
+    source = localStorage.getItem(chatRenderPageSizeKey()) || String(DEFAULT_CHAT_RENDER_PAGE_SIZE);
+  }
+  var n = parseInt(source, 10);
+  if(Number.isNaN(n)) n = DEFAULT_CHAT_RENDER_PAGE_SIZE;
+  return Math.max(MIN_CHAT_RENDER_PAGE_SIZE, Math.min(MAX_CHAT_RENDER_PAGE_SIZE, n));
+}
+function saveChatRenderPageSize(n){
+  if(!character) return;
+  var next = parseInt(n || String(DEFAULT_CHAT_RENDER_PAGE_SIZE), 10);
+  if(Number.isNaN(next)) next = DEFAULT_CHAT_RENDER_PAGE_SIZE;
+  next = Math.max(MIN_CHAT_RENDER_PAGE_SIZE, Math.min(MAX_CHAT_RENDER_PAGE_SIZE, next));
+  character.chatRenderPageSize = next;
+  safeLocalStorageSet(chatRenderPageSizeKey(), String(next));
 }
 function saveContextWindowSize(n){
   if(!character) return;
@@ -4330,6 +4367,7 @@ function buildChatSettingsPatchFromCharacter(c){
     allowNarrator: c.allowNarrator !== false,
     userNameProfile: String(c.userNameProfile || ''),
     userPersonaProfile: String(c.userPersonaProfile || ''),
+    chatRenderPageSize: Math.max(MIN_CHAT_RENDER_PAGE_SIZE, Math.min(MAX_CHAT_RENDER_PAGE_SIZE, Number(c.chatRenderPageSize) || DEFAULT_CHAT_RENDER_PAGE_SIZE)),
     contextWindow: Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.contextWindow) || DEFAULT_CONTEXT_WINDOW)),
     summaryEvery: Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.summaryEvery) || DEFAULT_SUMMARY_EVERY)),
     manualSummarySize: Math.max(6, Math.min(120, Number(c.manualSummarySize) || DEFAULT_MANUAL_SUMMARY_SIZE)),
@@ -4358,6 +4396,7 @@ function applyChatSettingsPatch(target, patch){
     'allowNarrator',
     'userNameProfile',
     'userPersonaProfile',
+    'chatRenderPageSize',
     'contextWindow',
     'summaryEvery',
     'manualSummarySize',
@@ -7163,6 +7202,46 @@ function renderEmptyState(){
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">开始聊天</div><div class="welcome-sub">去「联系人」选择角色卡<br>然后点「聊天」按钮进入对话</div></div>';
   }
 }
+function resetChatVisibleWindow(){
+  chatVisibleCount = 0;
+  chatVisibleCharId = '';
+}
+function getRenderedChatEntries(){
+  var currentCharId = String((character && character.id) || '');
+  if(chatVisibleCharId !== currentCharId){
+    chatVisibleCharId = currentCharId;
+    chatVisibleCount = 0;
+  }
+  var pageSize = loadChatRenderPageSize();
+  if(chatVisibleCount <= 0){
+    chatVisibleCount = Math.min(chatLog.length, pageSize);
+  }else{
+    chatVisibleCount = Math.min(chatLog.length, Math.max(chatVisibleCount, pageSize));
+  }
+  var hiddenCount = Math.max(0, chatLog.length - chatVisibleCount);
+  return {
+    hiddenCount: hiddenCount,
+    pageSize: pageSize,
+    items: hiddenCount > 0 ? chatLog.slice(hiddenCount) : chatLog.slice()
+  };
+}
+function buildLoadOlderMessagesButton(hiddenCount, pageSize){
+  var row = document.createElement('div');
+  row.className = 'chat-load-older-row';
+  var btn = document.createElement('button');
+  btn.className = 'chat-load-older-btn';
+  btn.type = 'button';
+  btn.setAttribute('aria-label', '加载更早消息');
+  btn.innerHTML = '<img src="assets/黑猫.png" alt=""><span class="chat-load-older-copy"><strong>点小黑猫翻翻旧聊天</strong><small>还有 ' + hiddenCount + ' 条，点一下先加载 ' + Math.min(pageSize, hiddenCount) + ' 条</small></span>';
+  btn.addEventListener('click', function(){
+    var state = captureMessagesViewportState();
+    chatVisibleCount = Math.min(chatLog.length, chatVisibleCount + pageSize);
+    renderChatLog(true);
+    restoreMessagesViewportState(state);
+  });
+  row.appendChild(btn);
+  return row;
+}
 function renderChatLog(keepScroll){
   var msgs = document.getElementById('messages');
   if(!msgs) return;
@@ -7173,7 +7252,11 @@ function renderChatLog(keepScroll){
     updateFloatingUi();
     return;
   }
-  chatLog.forEach(function(m){
+  var rendered = getRenderedChatEntries();
+  if(rendered.hiddenCount > 0){
+    msgs.appendChild(buildLoadOlderMessagesButton(rendered.hiddenCount, rendered.pageSize));
+  }
+  rendered.items.forEach(function(m){
     if(m && m.hidden) return;
     addMessage(m.role, m.content, false, m.type, m.id);
   });
@@ -7491,6 +7574,7 @@ function ensureMsgRange(){
     character.offlineInvitePerspective = String(src.offlineInvitePerspective || 'first');
     character.offlineInviteStyle = String(src.offlineInviteStyle || '');
     character.offlineMemoryReadCount = Math.max(1, Math.min(12, Number(src.offlineMemoryReadCount) || 4));
+    character.chatRenderPageSize = Math.max(MIN_CHAT_RENDER_PAGE_SIZE, Math.min(MAX_CHAT_RENDER_PAGE_SIZE, Number(src.chatRenderPageSize) || DEFAULT_CHAT_RENDER_PAGE_SIZE));
     character.contextWindow = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(src.contextWindow) || DEFAULT_CONTEXT_WINDOW));
     character.summaryEvery = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(src.summaryEvery) || DEFAULT_SUMMARY_EVERY));
     character.manualSummarySize = Math.max(6, Math.min(120, Number(src.manualSummarySize) || DEFAULT_MANUAL_SUMMARY_SIZE));
@@ -7508,6 +7592,7 @@ function ensureMsgRange(){
     character.offlineInvitePerspective = String(character.offlineInvitePerspective || 'first');
     character.offlineInviteStyle = String(character.offlineInviteStyle || '');
     character.offlineMemoryReadCount = Math.max(1, Math.min(12, Number(character.offlineMemoryReadCount) || 4));
+    character.chatRenderPageSize = Math.max(MIN_CHAT_RENDER_PAGE_SIZE, Math.min(MAX_CHAT_RENDER_PAGE_SIZE, Number(character.chatRenderPageSize) || DEFAULT_CHAT_RENDER_PAGE_SIZE));
     character.contextWindow = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(character.contextWindow) || DEFAULT_CONTEXT_WINDOW));
     character.summaryEvery = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(character.summaryEvery) || DEFAULT_SUMMARY_EVERY));
     character.manualSummarySize = Math.max(6, Math.min(120, Number(character.manualSummarySize) || DEFAULT_MANUAL_SUMMARY_SIZE));
@@ -7535,6 +7620,7 @@ function compactChar(c){
     offlineSummaryAuto:c.offlineSummaryAuto != null ? !!c.offlineSummaryAuto : true,
     offlineMemoryReadCount:Math.max(1, Math.min(12, Number(c.offlineMemoryReadCount) || 4)),
     offlineSideStoryType:String(c.offlineSideStoryType||'future'),
+    chatRenderPageSize:Math.max(MIN_CHAT_RENDER_PAGE_SIZE, Math.min(MAX_CHAT_RENDER_PAGE_SIZE, Number(c.chatRenderPageSize) || DEFAULT_CHAT_RENDER_PAGE_SIZE)),
     contextWindow:Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.contextWindow) || DEFAULT_CONTEXT_WINDOW)),
     summaryEvery:Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.summaryEvery) || DEFAULT_SUMMARY_EVERY)),
     manualSummarySize:Math.max(6, Math.min(120, Number(c.manualSummarySize) || DEFAULT_MANUAL_SUMMARY_SIZE)),
@@ -15833,6 +15919,7 @@ function openChatSettings() {
     updateWbInfoText();
     renderWbBookList();
     syncPresenceWorldHint();
+    document.getElementById('csChatRenderPageSize').value = loadChatRenderPageSize();
     document.getElementById('csContextWindow').value = loadContextWindowSize();
     document.getElementById('csSummaryEvery').value = loadSummaryEverySize();
     document.getElementById('csManualSummarySize').value = loadManualSummarySize();
@@ -15853,6 +15940,7 @@ function openChatSettings() {
     renderAutoSummaryToggle();
     updateBlockedUi();
     refreshMemoryUi();
+    resetChatVisibleWindow();
   }catch(err){
     console.error('openChatSettings failed', err);
     toast('聊天设置加载失败');
@@ -16127,6 +16215,7 @@ async function saveChatSettings() {
   var translationMode = normalizeTranslationMode((document.getElementById('csTranslationMode') || {}).value || 'ondemand');
   var narratorEnabled = !!(document.getElementById('csNarratorToggle') && document.getElementById('csNarratorToggle').classList.contains('on'));
   var customCss = String((document.getElementById('csCustomCss') || {}).value || '');
+  var renderPageSize = parseInt(document.getElementById('csChatRenderPageSize').value || String(DEFAULT_CHAT_RENDER_PAGE_SIZE), 10);
   var cwin = parseInt(document.getElementById('csContextWindow').value || String(DEFAULT_CONTEXT_WINDOW), 10);
   var severy = parseInt(document.getElementById('csSummaryEvery').value || String(DEFAULT_SUMMARY_EVERY), 10);
   var manualSize = parseInt(document.getElementById('csManualSummarySize').value || String(DEFAULT_MANUAL_SUMMARY_SIZE), 10);
@@ -16146,6 +16235,7 @@ async function saveChatSettings() {
   }else{
     safeLocalStorageRemove(userKey('user_persona'));
   }
+  saveChatRenderPageSize(renderPageSize);
   saveContextWindowSize(cwin);
   saveSummaryEverySize(severy);
   saveManualSummarySize(manualSize);
@@ -16185,6 +16275,7 @@ async function saveChatSettings() {
     character.allowNarrator = narratorEnabled;
     character.userNameProfile = isDefault ? un : '';
     character.userPersonaProfile = isDefault ? up : '';
+    character.chatRenderPageSize = renderPageSize;
     character.contextWindow = cwin;
     character.summaryEvery = severy;
     character.manualSummarySize = manualSize;
