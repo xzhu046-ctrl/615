@@ -43,6 +43,8 @@ class PromptManager {
       recentHistory = '',
       msgMin = 1,
       msgMax = 3,
+      allowNarrator = true,
+      translationMode = 'ondemand',
       momentsPolicy = '',
       blockPolicy = ''
     } = ctx;
@@ -86,6 +88,10 @@ ${momentsPolicy}` : ''}
 
 ${blockPolicy ? `【关系边界】
 ${blockPolicy}` : ''}
+
+【扩展消息能力】
+- 允许角色发送旁白：${allowNarrator ? '开启' : '关闭'}
+- 翻译模式：${translationMode === 'prefetch' ? '角色先返回原文+译文' : '点击译文时再额外翻译'}
 
 【回复规则】
 - 最近聊天和历史记忆总结都属于已经发生过的事实，优先级很高；回复前先对齐它们，不要突然忘记上下文、答非所问，也不要和已发生的事实冲突。
@@ -185,16 +191,25 @@ ${blockPolicy}` : ''}
         '像“吃了吗/几点了/在吗/睡了吗/干嘛呢”这种短问句，正常直接回，不要乱引用。',
         '如果用户一句里有多个问题，只要你能清楚判断每句分别在接哪一条，就正常明确地引用对应内容；真的不明确时再不引用。',
         '用了语音、图片或引用，就严格走 JSON。',
-        '回复图片时 reply_to 写"【图片】"；回复语音时写对应的语音摘要。'
+        '回复图片时 reply_to 写"【图片】"；回复语音时写对应的语音摘要。',
+        '如果用户发的是一段旁白、场景描述、动作描写或环境声，而不是直接说出口的话，你可以把它当成“旁白”理解，不要误判成对白。',
+        '如果用户发来 html/css/js 卡片或明显在请求你做一张卡片、信件、票据、聊天截图、页面、小物件，你可以自然地回一条 rich_html。',
+        'rich_html 要把重点放在可渲染成品本身，风格精致、可读、别乱飞，也别做成粗糙 demo。',
+        '如果你想收回自己刚刚发出去的一条消息，而且这很符合你的人设、世界书和当下关系，可以单独发一条 recall。'
       ].join('\n'),
       formatGuard: [
         '【格式硬约束】',
-        '只用 text / voice_message / image_message / money_packet / offline_invite / 可选 reply_to / reply_role。',
+        '只用 text / voice_message / image_message / money_packet / offline_invite / narrator / rich_html / recall / 可选 reply_to / reply_role / 可选 translation。',
         '世界书里的外部格式只参考语义，不原样输出。',
         '禁止输出 <meme>、表情包文件名或其他外部模板。',
         'image_message 的 content 必须是画面描写。',
         'money_packet 只能用于真实发红包/转账场景，必须带 mode 与 amount。',
-        'offline_invite 只能用于真实想见面的场景，必须带 content。'
+        'offline_invite 只能用于真实想见面的场景，必须带 content。',
+        'narrator 表示旁白，不是说出口的话，content 里只写动作、环境、声音、心理氛围或镜头感描述。',
+        'rich_html 用于可直接渲染的卡片、小网页、小物件、小票、信件、情书、聊天截图等，格式：{"type":"rich_html","summary":"一句简短概括","html":"...","css":"...","js":"...","text":"可提取正文","translation":"可选简中译文"}。',
+        'rich_html 的 html/css/js 必须完整可渲染，视觉精致、结构稳定，不能只给残缺代码片段。',
+        'recall 表示撤回上一条合适的消息，格式：{"type":"recall","content":"可选的嘴硬或补充"}；它不是普通对白。',
+        '如果当前设置要求“角色先返回原文+译文”，那么 narrator / text / rich_html 这类自然语言消息都应尽量直接附带 translation 字段，这样用户点“译”不会再额外消耗一次 API。'
       ].join('\n'),
       innerVoiceSystem: [
         '你是角色本人的“内心独白生成器”。',
