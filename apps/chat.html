@@ -3833,20 +3833,42 @@ async function requestChatMessageTranslation(msgId, options){
       var translated = String(await callAIWithCustomPrompts(systemPrompt, userPrompt) || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
       if(!translated) throw new Error('empty translation');
       if(kind === 'richhtml'){
+        var translatedPayload = '';
+        var translatedPlain = '';
         try{
           var parsedRichTranslation = JSON.parse(translated || '{}');
-          var translatedPayload = buildRichHtmlPayload({
+          translatedPayload = buildRichHtmlPayload({
             html: String(parsedRichTranslation.html || '').trim(),
             css: String(parsedRichTranslation.css || '').trim(),
             js: String(parsedRichTranslation.js || '').trim(),
             summary: '简体中文',
             text: String(parsedRichTranslation.text || '').trim()
           });
-          entry.translationRichHtml = translatedPayload;
-          entry.translationText = String(parsedRichTranslation.text || '').trim() || getMessageTranslationSourceText({ type:'richhtml', content: translatedPayload });
-        }catch(parseErr){
+        }catch(parseErr){}
+        if(!translatedPayload){
+          translatedPayload = coerceRichHtmlPayload(translated, { summary:'简体中文' });
+        }
+        var translatedRich = parseRichHtmlPayload(translatedPayload || '');
+        var hasTranslatedRichBody = !!(
+          String(translatedRich.html || '').trim() ||
+          String(translatedRich.css || '').trim() ||
+          String(translatedRich.js || '').trim()
+        );
+        translatedPlain = String(translatedRich.text || '').trim()
+          || extractPlainTextFromHtmlMarkup(String(translatedRich.html || '')).trim()
+          || String(translated || '').trim();
+        if(hasTranslatedRichBody){
+          entry.translationRichHtml = buildRichHtmlPayload({
+            html: String(translatedRich.html || '').trim(),
+            css: String(translatedRich.css || '').trim(),
+            js: String(translatedRich.js || '').trim(),
+            summary: '简体中文',
+            text: translatedPlain
+          });
+          entry.translationText = translatedPlain;
+        }else{
           entry.translationRichHtml = '';
-          entry.translationText = translated;
+          entry.translationText = translatedPlain;
         }
       }else{
         entry.translationText = translated;
