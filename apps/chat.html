@@ -78,6 +78,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .msg.system.time-divider{margin:8px 0 4px}
 .msg-read{font-size:9px;line-height:1;color:#8a8a8a;font-weight:800;padding:0 4px;margin-top:4px}
 .msg.user .msg-read{margin-top:1px}
+.msg.richhtml-msg .msg-main{gap:8px}
+.msg.user.richhtml-msg .msg-read{margin-top:0;padding-right:10px}
 .msg.familycard-msg{max-width:min(96%, 520px);gap:10px;align-items:center}
 .msg.familycard-msg .msg-avatar{
   display:flex;
@@ -951,9 +953,9 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 .msg-actions-card{width:min(352px,100%);background:linear-gradient(180deg,#fff 0%,#f3f3f3 100%);border:var(--bd);border-radius:20px;box-shadow:0 0 0 1px rgba(255,255,255,.95),4px 6px 0 rgba(0,0,0,.92),0 18px 28px rgba(0,0,0,.1);padding:11px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .msg-action-btn{border:var(--bd);border-radius:14px;background:linear-gradient(180deg,#fff 0%,#f5f5f5 100%);box-shadow:2px 3px 0 rgba(0,0,0,.9);padding:11px 6px;font-family:var(--fontd);font-size:11px;font-weight:900;color:var(--b);cursor:pointer;text-align:center}
 .msg-action-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
-.narrator-card{position:relative;display:flex;flex-direction:column;gap:10px;width:min(332px,calc(100vw - 124px));padding:14px 18px 14px 22px;border:2px solid rgba(17,17,17,.16);border-radius:24px;background:linear-gradient(180deg,rgba(255,255,255,.74),rgba(242,242,242,.6));backdrop-filter:blur(18px) saturate(125%);-webkit-backdrop-filter:blur(18px) saturate(125%);box-shadow:5px 7px 0 #111,0 16px 28px rgba(0,0,0,.10),inset 0 0 0 1px rgba(255,255,255,.72)}
+.narrator-card{position:relative;display:inline-flex;flex-direction:column;gap:10px;width:auto;max-width:min(332px,calc(100vw - 124px));padding:12px 16px 12px 20px;border:2px solid rgba(17,17,17,.16);border-radius:24px;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(242,242,242,.58));backdrop-filter:blur(20px) saturate(128%);-webkit-backdrop-filter:blur(20px) saturate(128%);box-shadow:5px 7px 0 #111,0 16px 28px rgba(0,0,0,.10),inset 0 0 0 1px rgba(255,255,255,.72)}
 .narrator-card::before{content:'';position:absolute;left:16px;top:16px;bottom:16px;width:3px;background:#111;border-radius:999px}
-.narrator-copy{padding-left:18px;font-size:13px;line-height:1.86;font-weight:700;color:#181818;white-space:pre-wrap;word-break:break-word;text-align:left}
+.narrator-copy{padding-left:18px;font-size:13px;line-height:1.82;font-weight:700;color:#181818;white-space:pre-wrap;word-break:break-word;text-align:left}
 .recall-card{display:flex;flex-direction:column;gap:10px;width:min(290px,calc(100vw - 138px));padding:14px 14px 16px;border:2px solid #111;border-radius:18px;background:linear-gradient(180deg,#fff 0%,#f3f3f3 100%);box-shadow:4px 5px 0 rgba(0,0,0,.88),0 14px 24px rgba(0,0,0,.1)}
 .recall-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .recall-kicker{display:inline-flex;align-items:center;justify-content:center;min-height:26px;padding:0 11px;border-radius:10px;background:#111;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase}
@@ -4704,6 +4706,25 @@ function coerceRichHtmlPayload(value, meta){
       return buildRichHtmlPayload(Object.assign({}, info, parsed));
     }
   }catch(err){}
+  var directRich = parseRichHtmlBlocks(raw);
+  if(directRich){
+    return buildRichHtmlPayload({
+      html: directRich.html || String(info.html || '').trim(),
+      css: [String(info.css || '').trim(), directRich.css || ''].filter(Boolean).join(''),
+      js: [String(info.js || '').trim(), directRich.js || ''].filter(Boolean).join(''),
+      summary: directRich.summary || String(info.summary || '').trim() || extractPlainTextFromHtmlMarkup(directRich.html || '').slice(0, 48),
+      text: String(info.text || '').trim() || directRich.summary || extractPlainTextFromHtmlMarkup(directRich.html || '')
+    });
+  }
+  if(/<[a-z][\s\S]*>/i.test(raw)){
+    return buildRichHtmlPayload({
+      html: raw,
+      css: String(info.css || '').trim(),
+      js: String(info.js || '').trim(),
+      summary: String(info.summary || '').trim() || extractPlainTextFromHtmlMarkup(raw).slice(0, 48),
+      text: String(info.text || '').trim() || extractPlainTextFromHtmlMarkup(raw)
+    });
+  }
   return buildRichHtmlPayload({
     html: String(info.html || '').trim(),
     css: String(info.css || '').trim(),
@@ -4815,6 +4836,49 @@ function buildAutoNarratorForReply(parts){
     return kind === 'text' || kind === 'voice' || kind === 'richhtml';
   });
   var seed = String(first && first.text || '').trim();
+  var lang = shouldOfferCharacterTranslations() ? getCharacterReplyLanguage() : 'zh';
+  if(lang === 'en'){
+    if(/[\?？]/.test(seed)) return 'A short pause hung there before the follow-up finally dropped onto the screen.';
+    if(/[!！]/.test(seed)) return 'The emotion arrived a beat earlier than the sentence itself.';
+    if(seed && seed.length <= 12) return 'There was the tiniest pause before that brief line reached you.';
+    if(normalizeMessageType(first && first.t || 'text') === 'richhtml') return 'As if on a whim, a small surprise card was quietly placed in front of you.';
+    return 'After a slight pause, the thought on the other side finally surfaced.';
+  }
+  if(lang === 'ja'){
+    if(/[\?？]/.test(seed)) return 'ひと呼吸の間のあとで、その問いかけがそっと落ちてきた。';
+    if(/[!！]/.test(seed)) return '感情の熱が、言葉より少し先に届いた。';
+    if(seed && seed.length <= 12) return 'ほんの少しの間をおいて、短いひと言が先に届いた。';
+    if(normalizeMessageType(first && first.t || 'text') === 'richhtml') return '思いつきみたいに、小さなサプライズカードがそっと差し出された。';
+    return '一瞬の間を置いて、向こう側の気配が静かに浮かび上がった。';
+  }
+  if(lang === 'ko'){
+    if(/[\?？]/.test(seed)) return '잠깐의 숨이 멈춘 뒤에야 그 물음이 조용히 도착했다.';
+    if(/[!！]/.test(seed)) return '말보다 감정이 먼저 밀려왔다.';
+    if(seed && seed.length <= 12) return '아주 짧은 한마디가 먼저 화면 위에 내려앉았다.';
+    if(normalizeMessageType(first && first.t || 'text') === 'richhtml') return '즉흥처럼 작은 서프라이즈 카드가 조용히 건네졌다.';
+    return '잠깐의 뜸 끝에, 저쪽 마음이 천천히 떠올랐다.';
+  }
+  if(lang === 'fr'){
+    if(/[\?？]/.test(seed)) return 'Un léger silence a précédé cette question avant qu’elle n’arrive jusqu’à toi.';
+    if(/[!！]/.test(seed)) return 'L’émotion est arrivée un instant avant les mots.';
+    if(seed && seed.length <= 12) return 'Après une très brève pause, cette courte phrase est venue se poser là.';
+    if(normalizeMessageType(first && first.t || 'text') === 'richhtml') return 'Comme sur une impulsion, une petite carte surprise t’a été discrètement tendue.';
+    return 'Après un court arrêt, ce qu’il y avait au bout des doigts a fini par remonter à la surface.';
+  }
+  if(lang === 'de'){
+    if(/[\?？]/.test(seed)) return 'Nach einem kurzen Stocken fiel die Nachfrage doch noch leise auf den Bildschirm.';
+    if(/[!！]/.test(seed)) return 'Das Gefühl war einen Augenblick früher da als die Worte.';
+    if(seed && seed.length <= 12) return 'Mit einer winzigen Verzögerung landete erst dieser kurze Satz bei dir.';
+    if(normalizeMessageType(first && first.t || 'text') === 'richhtml') return 'Wie aus einer Laune heraus wurde dir still eine kleine Überraschungskarte zugeschoben.';
+    return 'Nach einem kurzen Innehalten tauchte der Gedanke auf der anderen Seite langsam auf.';
+  }
+  if(lang === 'yue'){
+    if(/[\?？]/.test(seed)) return '螢幕嗰邊停咗一停，先至輕輕咁追問落嚟。';
+    if(/[!！]/.test(seed)) return '情緒比字句更早一步湧咗過嚟。';
+    if(seed && seed.length <= 12) return '指尖頓咗一頓，短短一句先落到你眼前。';
+    if(normalizeMessageType(first && first.t || 'text') === 'richhtml') return '好似一時心血來潮咁，一張細細嘅驚喜卡悄悄遞咗過嚟。';
+    return '停咗一瞬之後，對面嗰點心思先慢慢浮上嚟。';
+  }
   if(/[\?？]/.test(seed)) return '屏幕那头像是停顿了一拍，追问还是轻轻落了下来。';
   if(/[!！]/.test(seed)) return '那边的情绪先一步漫过来，连字句都带着一点急切。';
   if(seed && seed.length <= 12) return '指尖在屏幕上轻轻一顿，那句短短的话先落到了你眼前。';
@@ -16398,6 +16462,9 @@ async function deliverAiReply(text, limitOverride){
     }
     if(t === 'richhtml'){
       c = coerceRichHtmlPayload(c, {
+        html: item.html || '',
+        css: item.css || '',
+        js: item.js || '',
         summary: item.summary || item.text || item.content || '',
         text: item.text || item.content || item.reply_content || item.description || ''
       });
@@ -16630,6 +16697,9 @@ async function deliverAiReply(text, limitOverride){
           }
           if(t === 'richhtml'){
             c = coerceRichHtmlPayload(c, {
+              html: obj.html || '',
+              css: obj.css || '',
+              js: obj.js || '',
               summary: obj.summary || obj.text || obj.content || '',
               text: obj.text || obj.content || obj.reply_content || obj.description || ''
             });
