@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-11T14:19:00Z';
+const APP_BUILD_ID = '2026-04-11T14:27:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -7136,6 +7136,9 @@ function normalizePreviewMessage(msg){
   if(kind === 'familycard'){
     return { content: '【亲属卡】', type: 'text' };
   }
+  if(kind === 'richhtml'){
+    return { content: '【SURPRISE】', type: 'text' };
+  }
   if(kind === 'moneypacket'){
     try{
       var parsed = typeof next.content === 'string' ? JSON.parse(next.content) : next.content;
@@ -7160,6 +7163,7 @@ function normalizePreviewMessage(msg){
       if(parsed && typeof parsed === 'object' && parsed.content){
         var parsedType = normalizeChatPreviewType(parsed.type || 'text');
         if(parsedType === 'meme') return { content: summarizeMemePreview(parsed.content), type: 'text' };
+        if(parsedType === 'richhtml') return { content: '【SURPRISE】', type: 'text' };
         return { content: parsed.content, type: parsedType };
       }
     }catch(e){}
@@ -7202,6 +7206,9 @@ function getPreviewTextForWidget(preview){
   }
   if(kind === 'meme'){
     return '【表情包】';
+  }
+  if(kind === 'richhtml'){
+    return '【SURPRISE】';
   }
   return next.content || '';
 }
