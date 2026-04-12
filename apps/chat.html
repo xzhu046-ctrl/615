@@ -1262,6 +1262,10 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
           <input class="cs-input" id="csUserName" placeholder="你的名字..." type="text">
         </div>
       </div>
+      <div style="margin-top:10px">
+        <span class="cs-label">Char 对你的备注 / 昵称</span>
+        <input class="cs-input" id="csUserNick" placeholder="空白时默认是你的本名..." type="text">
+      </div>
       <div style="margin-top:10px" id="csUserPersonaWrap">
         <span class="cs-label">你的人物设定（会注入到 AI 上下文）</span>
         <textarea class="cs-textarea" id="csUserPersona" rows="3" placeholder="描述你自己，例如：我是一个喜欢猫咪的大学生..."></textarea>
@@ -3221,14 +3225,13 @@ async function applyRenameProfileAction(payload, actorRole){
     }
   }else if(target === 'user' || target === 'partner'){
     var oldUserName = String(getChatUserName(character.id) || resolveDisplayUserName() || '你').trim() || '你';
-    if(nextName !== oldUserName){
-      character.userNameProfile = nextName;
-      safeLocalStorageSet(accountScopedKey('user_name_' + character.id), nextName);
-      safeLocalStorageSet('user_name_' + character.id, nextName);
+    var oldUserNote = String((character && character.userNicknameNote) || '').trim() || oldUserName;
+    if(nextName !== oldUserNote){
+      character.userNicknameNote = nextName;
       changed = true;
-      notice = actorDisplay + '把' + oldUserName + '的名字改成了' + nextName;
-      var userInput = document.getElementById('csUserName');
-      if(userInput) userInput.value = nextName;
+      notice = actorDisplay + '把' + oldUserName + '的备注改成了' + nextName;
+      var userNickInput = document.getElementById('csUserNick');
+      if(userNickInput) userNickInput.value = nextName;
     }
   }
   if(!changed || !notice) return null;
@@ -4593,6 +4596,7 @@ function buildChatSettingsPatchFromCharacter(c){
     translationMode: normalizeTranslationMode(c.translationMode || 'ondemand'),
     allowNarrator: c.allowNarrator !== false,
     userNameProfile: String(c.userNameProfile || ''),
+    userNicknameNote: String(c.userNicknameNote || ''),
     userPersonaProfile: String(c.userPersonaProfile || ''),
     userPresenceLocation: cloneJsonSafe(c.userPresenceLocation || null, null),
     weatherCharSetting: cloneWeatherSetting(c.weatherCharSetting, 'char'),
@@ -4625,6 +4629,7 @@ function applyChatSettingsPatch(target, patch){
     'translationMode',
     'allowNarrator',
     'userNameProfile',
+    'userNicknameNote',
     'userPersonaProfile',
     'userPresenceLocation',
     'weatherCharSetting',
@@ -8287,6 +8292,7 @@ function compactChar(c){
     translationMode:normalizeTranslationMode(c.translationMode||'ondemand'),
     allowNarrator:c.allowNarrator !== false,
     userNameProfile:String(c.userNameProfile||''),
+    userNicknameNote:String(c.userNicknameNote||''),
     userPersonaProfile:String(c.userPersonaProfile||'')
   };
 }
@@ -9519,6 +9525,14 @@ function buildSystemPrompt() {
   // User persona
   var userName = isDefaultAccountContext() ? (localStorage.getItem(userKey('user_name')) || '') : getActiveAccountProfileName();
   var userPersona = isDefaultAccountContext() ? (localStorage.getItem(userKey('user_persona')) || '') : '';
+  var userNickNote = String((character && character.userNicknameNote) || '').trim();
+  if(userNickNote){
+    parts.push([
+      '【你给对方的备注】',
+      '你目前给对方存的备注/昵称是：' + userNickNote,
+      '这只是你心里的备注，不代表你每次都必须这样称呼对方。是否真的这样叫，要继续按你的人设、关系和上下文自然决定。'
+    ].join('\n'));
+  }
   if(character && !isDefaultAccountContext()){
     var intro = '';
     try{ intro = localStorage.getItem('pending_friend_req_intro_' + character.id) || ''; }catch(e){}
@@ -10022,7 +10036,7 @@ function buildChatExtendedFormatPrompt(){
     'narrator 里禁止写“用户”“USER”这种偷懒指代。涉及对方时，只能直接写对方名字、昵称，或者自然的第三人称代称。',
     'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件，也包括聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、通话记录、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、影评、药品单、医院开的单子、知乎帖子、小说简介、伪小红书帖子、直播间、抖音样式页、社交媒体主页、社交媒体帖子、社交媒体评论、测评、repo、银行账单、银行流水、法院传票、学签、旅游签、工签、银行卡这类页面或卡片。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}',
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
-    'rename_profile：用于改昵称。target 只能是 char 或 user；name 是你要改成的新名字。格式：{"type":"rename_profile","target":"char","name":"新昵称"} 或 {"type":"rename_profile","target":"user","name":"新称呼"}。',
+    'rename_profile：用于改昵称。target 只能是 char 或 user；name 是你要改成的新名字。target=char 表示改你在对方这里的名字，target=user 表示改你给对方存的备注/昵称。格式：{"type":"rename_profile","target":"char","name":"新昵称"} 或 {"type":"rename_profile","target":"user","name":"新备注"}。',
     'rich_html 要把重点放在精致、可读、能渲染的成品本体，不是扔一堆半成品代码。你自己不会提“代码、html、css、js”这些词，也不会意识到那是代码；对你来说，那就是一张真的卡片、票据、页面、小物件、签文或帖子。',
     'rich_html 的成品感要明显：层级清楚、留白克制、排版稳定、颜色/字体/装饰有主题，不要像随手拼的 demo，也不要只是一张白底字卡。必要时可以带轻微动画、小交互、小 hover、小按钮反馈，但要自然、细腻、像真的页面。',
     '如果是票据、机票、车票、塔罗、签文、搜索结果、论坛贴、聊天截图、菜单、便签、网页、歌单、日记、菜谱、书评、电影单、游戏页面、通话记录、贺卡、认错书、检讨、小作文、外卖订单、设计图纸、合同、学生证、身份证、护照、数学题、物理题、草稿纸、试卷、作业、论文、邮件或帖子，就认真做出那个载体本身的结构与细节，不要只写一段文字糊上去。',
@@ -16573,6 +16587,7 @@ function openChatSettings() {
     document.getElementById('csUserName').value = isDefault
       ? (String((character && character.userNameProfile) || '').trim() || localStorage.getItem(accountScopedKey('user_name_' + String((character && character.id) || ''))) || localStorage.getItem('user_name_' + String((character && character.id) || '')) || localStorage.getItem(userKey('user_name')) || '')
       : getActiveAccountProfileName();
+    document.getElementById('csUserNick').value = String((character && character.userNicknameNote) || '').trim();
     document.getElementById('csUserName').disabled = !isDefault;
     document.getElementById('csUserAvatar').style.pointerEvents = isDefault ? '' : 'none';
     document.getElementById('csUserPersona').value = isDefault
@@ -16825,6 +16840,7 @@ function postSettingsPreviewSync(){
   var nameEl = document.getElementById('csCharName');
   var nickEl = document.getElementById('csCharNick');
   var userEl = document.getElementById('csUserName');
+  var userNickEl = document.getElementById('csUserNick');
   var draft = Object.assign({}, character || {});
   var nextName = String((nameEl && nameEl.value) || '').trim();
   if(nextName) draft.name = nextName;
@@ -16839,6 +16855,7 @@ function postSettingsPreviewSync(){
     draft.userNameProfile = userName;
     draft.userPersonaProfile = userPersona;
   }
+  draft.userNicknameNote = String((userNickEl && userNickEl.value) || '').trim();
   var userImg = document.querySelector('#csUserAvatar img');
   var userAvatar = String((userImg && userImg.src) || '').trim();
   if(!isDefault) userAvatar = getActiveAccountProfileAvatar();
@@ -16866,6 +16883,7 @@ async function saveChatSettings() {
   requestPersistentChatStorage().catch(function(){ return false; });
   var isDefault = isDefaultAccountContext();
   var un = isDefault ? document.getElementById('csUserName').value.trim() : getActiveAccountProfileName();
+  var unick = document.getElementById('csUserNick').value.trim();
   var up = isDefault ? document.getElementById('csUserPersona').value.trim() : '';
   var cn = document.getElementById('csCharName').value.trim();
   var ck = document.getElementById('csCharNick').value.trim();
@@ -16948,6 +16966,7 @@ async function saveChatSettings() {
     character.translationMode = translationMode;
     character.allowNarrator = narratorEnabled;
     character.userNameProfile = isDefault ? un : '';
+    character.userNicknameNote = unick;
     character.userPersonaProfile = isDefault ? up : '';
     character.chatRenderPageSize = renderPageSize;
     character.contextWindow = cwin;
