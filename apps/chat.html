@@ -8469,7 +8469,7 @@ function resolveCharacterFromRoster(charId, fallback){
       });
     }
     if(found && fallback && typeof fallback === 'object'){
-      return Object.assign({}, found, fallback);
+      return Object.assign({}, fallback, found);
     }
     return found ? Object.assign({}, found) : (fallback || null);
   }catch(err){
@@ -8599,6 +8599,9 @@ function confirmFriendRequestFlow(){
 // ════════════════════════════════════════════
 async function init() {
   tightenParentTopbarForChat();
+  var pendingParsed = null;
+  var activeParsed = null;
+  var scopedParsed = null;
   try{
     var initUrl = new URL(window.location.href);
     desiredChatCharId = String(initUrl.searchParams.get('char') || '').trim();
@@ -8614,7 +8617,7 @@ async function init() {
   var pending = localStorage.getItem('pendingChatChar');
   if (pending) {
     try {
-      var pendingParsed = JSON.parse(pending);
+      pendingParsed = JSON.parse(pending);
       var pendingId = String((pendingParsed && pendingParsed.id) || '').trim();
       if(!desiredChatCharId && pendingId){
         desiredChatCharId = pendingId;
@@ -8629,7 +8632,7 @@ async function init() {
     if(isDefaultAccountContext()){
       var ac = localStorage.getItem('activeCharacter');
       if (ac) try {
-        var activeParsed = JSON.parse(ac);
+        activeParsed = JSON.parse(ac);
         var activeId = String((activeParsed && activeParsed.id) || '').trim();
         if(!desiredChatCharId || (activeId && activeId === desiredChatCharId)){
           character = activeParsed;
@@ -8639,7 +8642,7 @@ async function init() {
       try{
         var scopedAc = localStorage.getItem(accountScopedKey('activeCharacter'));
         if(scopedAc){
-          var scopedParsed = JSON.parse(scopedAc);
+          scopedParsed = JSON.parse(scopedAc);
           var scopedId = String((scopedParsed && scopedParsed.id) || '').trim();
           if(!desiredChatCharId || (scopedId && scopedId === desiredChatCharId)){
             character = scopedParsed;
@@ -8667,11 +8670,21 @@ async function init() {
       }catch(err){}
     }
   }
+  if(!character && desiredChatCharId){
+    var emergencyFallbacks = [pendingParsed, activeParsed, scopedParsed].filter(function(item){
+      return item && String(item.id || '').trim() === desiredChatCharId;
+    });
+    if(emergencyFallbacks.length){
+      character = Object.assign({}, emergencyFallbacks[0]);
+    }
+  }
   if(character && character.id){
     await applyStoredChatSettingsPatchToCharacter(character);
   }
-  try{ localStorage.removeItem('pendingChatChar'); }catch(err){}
-  try{ localStorage.removeItem('pendingChatCharId'); }catch(err){}
+  if(character && character.id){
+    try{ localStorage.removeItem('pendingChatChar'); }catch(err){}
+    try{ localStorage.removeItem('pendingChatCharId'); }catch(err){}
+  }
   if(character && character.id){
     syncActiveCharacterToShell();
   }
