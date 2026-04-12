@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-12T18:52:00Z';
+const APP_BUILD_ID = '2026-04-12T19:05:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -6891,6 +6891,9 @@ window.addEventListener('message',(e)=>{
   if(type==='OPEN_APP_WITH'){
     var appId=payload.app;
     if(payload.charId) localStorage.setItem('wbCharId', payload.charId);
+    if(appId === 'schedule' && payload.charId){
+      try{ localStorage.setItem('scheduleCharId', payload.charId); }catch(err){}
+    }
     if(appId === 'offline' && payload.charId){
       pendingOpenOfflineCharId = String(payload.charId || '').trim();
       pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);

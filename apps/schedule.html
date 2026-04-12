@@ -619,6 +619,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 var scheduleState = ScheduleShared.normalizeState(null);
 var characterList = [];
 var activeCharId = '';
+var pendingScheduleCharId = '';
 var viewMonthKey = '';
 var selectedDateKey = '';
 var entryModalMode = '';
@@ -1837,9 +1838,15 @@ function showRandomCharMood(evt){
 }
 
 function ensureActiveChar(){
+  var pendingId = String(pendingScheduleCharId || '').trim();
+  var currentId = String(activeCharId || '').trim();
   var shellActive = getActiveCharacterFromShell();
   var last = String(scheduleState.lastViewedCharId || '').trim();
-  if(shellActive && shellActive.id){
+  if(pendingId && characterList.some(function(item){ return String(item && item.id || '') === pendingId; })){
+    activeCharId = pendingId;
+  }else if(currentId && characterList.some(function(item){ return String(item && item.id || '') === currentId; })){
+    activeCharId = currentId;
+  }else if(shellActive && shellActive.id){
     activeCharId = String(shellActive.id);
   }else if(last && characterList.some(function(item){ return String(item.id) === last; })){
     activeCharId = last;
@@ -1848,6 +1855,7 @@ function ensureActiveChar(){
   }else{
     activeCharId = '';
   }
+  pendingScheduleCharId = '';
   resetScheduleViewToToday();
 }
 
@@ -3207,9 +3215,10 @@ function bindShellMessages(){
       enqueueScheduleChatPeek(char, text);
       return;
     }
-    if(data.type !== 'SET_ACTIVE_CHARACTER' && data.type !== 'OPEN_CHAT_WITH') return;
-    var incomingId = String(data.payload && data.payload.id || '').trim();
+    if(data.type !== 'SET_ACTIVE_CHARACTER' && data.type !== 'OPEN_CHAT_WITH' && data.type !== 'OPEN_APP_WITH') return;
+    var incomingId = String((data.payload && (data.payload.id || data.payload.charId)) || '').trim();
     if(!incomingId) return;
+    pendingScheduleCharId = incomingId;
     activeCharId = incomingId;
     loadCharacters();
     ensureActiveChar();
@@ -3224,6 +3233,13 @@ async function initSchedule(){
       try{ await window.MetadataStore.loadCharacters(true); }catch(err){}
     }
   }
+  try{
+    pendingScheduleCharId = String(localStorage.getItem('scheduleCharId') || '').trim();
+    if(pendingScheduleCharId){
+      activeCharId = pendingScheduleCharId;
+      localStorage.removeItem('scheduleCharId');
+    }
+  }catch(err){}
   loadCharacters();
   scheduleState = await ScheduleShared.loadState();
   ensureActiveChar();

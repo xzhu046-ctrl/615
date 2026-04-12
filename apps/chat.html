@@ -988,9 +988,10 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 .bubble-charm.ai{right:-52px;top:-34.85px}
 .multi-trash-btn,.multi-cancel-btn,.multi-share-btn{position:fixed;right:16px;width:46px;height:46px;border-radius:50%;border:var(--bd);box-shadow:var(--sh);display:none;align-items:center;justify-content:center;z-index:210;cursor:pointer}
 .multi-trash-btn.show,.multi-cancel-btn.show,.multi-share-btn.show{display:flex}
-.multi-trash-btn{bottom:92px;background:#d22;color:#fff;font-size:18px}
+.multi-trash-btn{bottom:92px;background:#111;color:#fff;font-size:18px}
 .multi-share-btn{bottom:146px;background:#111;color:#fff;font-size:17px;font-weight:900}
 .multi-cancel-btn{bottom:200px;background:var(--w);color:var(--b);font-size:20px;font-weight:900}
+.multi-trash-btn img,.multi-share-btn img{width:22px;height:22px;object-fit:contain;display:block;filter:brightness(0) invert(1)}
 .image-view-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:205;padding:18px}
 .image-view-overlay.open{display:flex}
 .image-view-card{width:min(328px,100%);background:var(--w);border:var(--bd);border-radius:20px;box-shadow:var(--sh);padding:14px;display:flex;flex-direction:column;gap:12px}
@@ -1775,9 +1776,9 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
   </div>
 </div>
 
-<button class="multi-cancel-btn" id="multiCancelBtn" type="button" onclick="exitMultiSelectMode()">×</button>
-<button class="multi-share-btn" id="multiShareBtn" type="button" onclick="shareSelectedMessages()">⇪</button>
-<button class="multi-trash-btn" id="multiTrashBtn" type="button" onclick="openMultiDeleteConfirm()">🗑</button>
+<button class="multi-cancel-btn" id="multiCancelBtn" type="button">×</button>
+<button class="multi-share-btn" id="multiShareBtn" type="button"><img src="assets/分享.png" alt="分享"></button>
+<button class="multi-trash-btn" id="multiTrashBtn" type="button"><img src="assets/Recycle-Bin-2--Streamline-Sharp.png" alt="删除"></button>
 
 <div class="confirm-overlay" id="multiDeleteConfirm">
   <div class="confirm-card">
@@ -7404,12 +7405,42 @@ function clearReplyTarget(){
   renderReplyPreview();
 }
 function updateFloatingUi(){
+  bindMultiSelectFloatingButtons();
   var trash = document.getElementById('multiTrashBtn');
   var cancel = document.getElementById('multiCancelBtn');
   var share = document.getElementById('multiShareBtn');
   if(trash) trash.classList.toggle('show', multiSelectMode);
   if(cancel) cancel.classList.toggle('show', multiSelectMode);
   if(share) share.classList.toggle('show', multiSelectMode);
+}
+function bindMultiSelectFloatingButtons(){
+  var cancel = document.getElementById('multiCancelBtn');
+  var trash = document.getElementById('multiTrashBtn');
+  var share = document.getElementById('multiShareBtn');
+  if(cancel && !cancel.dataset.bound){
+    cancel.dataset.bound = '1';
+    cancel.addEventListener('click', function(evt){
+      evt.preventDefault();
+      evt.stopPropagation();
+      exitMultiSelectMode();
+    });
+  }
+  if(trash && !trash.dataset.bound){
+    trash.dataset.bound = '1';
+    trash.addEventListener('click', function(evt){
+      evt.preventDefault();
+      evt.stopPropagation();
+      openMultiDeleteConfirm();
+    });
+  }
+  if(share && !share.dataset.bound){
+    share.dataset.bound = '1';
+    share.addEventListener('click', function(evt){
+      evt.preventDefault();
+      evt.stopPropagation();
+      shareSelectedMessages();
+    });
+  }
 }
 function renderEmptyState(){
   var msgs = document.getElementById('messages');
@@ -7898,11 +7929,11 @@ function renderNodeAsPngBlob(node){
 }
 async function shareSelectedMessages(){
   if(!selectedMessageIds.length){ toast('先选中消息'); return; }
-  clearToast();
+  hideToast();
   toast('正在生成长图…', { sticky:true });
   try{
     var blob = await buildSelectedMessagesExportBlob();
-    clearToast();
+    hideToast();
     if(!blob || !blob.size) throw new Error('empty export');
     var filename = ((character && character.name) || '聊天记录').replace(/[\\/:*?"<>|]+/g, '_') + '-聊天长图.png';
     var file = new File([blob], filename, { type:'image/png' });
@@ -7925,7 +7956,7 @@ async function shareSelectedMessages(){
     }, 1000);
     toast('已导出长图');
   }catch(err){
-    clearToast();
+    hideToast();
     console.error('share selected messages failed', err);
     toast('长图导出失败');
   }
