@@ -3455,11 +3455,14 @@ function shouldPrefetchCharacterTranslations(){
   return isCharacterTranslationEnabled() && getCharacterReplyLanguage() !== 'zh' && getCharacterTranslationMode() === 'prefetch';
 }
 function buildChatReplyLanguagePrompt(){
-  if(!isCharacterTranslationEnabled()) return '';
-  var option = getReplyLanguageOption(getCharacterReplyLanguage());
-  if(!option || option.value === 'zh') return '';
+  var replyLang = getCharacterReplyLanguage();
+  var narratorLang = getNarratorReplyLanguage();
+  if(!isCharacterTranslationEnabled() && narratorLang === 'zh') return '';
+  var option = getReplyLanguageOption(replyLang);
+  var narratorOption = getReplyLanguageOption(narratorLang);
+  if((!option || option.value === 'zh') && (!narratorOption || narratorOption.value === 'zh')) return '';
   var extra = '';
-  if(getCharacterTranslationMode() === 'prefetch'){
+  if(isCharacterTranslationEnabled() && getCharacterTranslationMode() === 'prefetch' && option && option.value !== 'zh'){
     extra = [
       '【同条附带译文】',
       '这次不要等系统二次翻译。',
@@ -3470,10 +3473,24 @@ function buildChatReplyLanguagePrompt(){
   }
   return [
     '【语言模式】',
-    option.prompt,
-    '在保持现有格式规则的前提下，只有给用户看的自然语言正文使用该语言。',
-    '如果你输出了简体中文正文，就算违规，必须直接改写成' + option.nativeLabel + '原文。',
-    '不要偷懒先说中文再等系统翻译；原文必须先是' + option.nativeLabel + '。',
+    option && option.value !== 'zh'
+      ? option.prompt
+      : ('普通正文默认不强制外语；如果你只发送 narrator，那么 narrator 仍然必须遵守下面的旁白语言要求。'),
+    option && option.value !== 'zh'
+      ? '在保持现有格式规则的前提下，只有给用户看的自然语言正文使用该语言。'
+      : '如果普通正文没有单独设定外语，可以继续按原聊天语言自然写。',
+    option && option.value !== 'zh'
+      ? ('如果你输出了简体中文正文，就算违规，必须直接改写成' + option.nativeLabel + '原文。')
+      : '普通正文若没被要求改成外语，不用强行翻成别的语言。',
+    option && option.value !== 'zh'
+      ? ('不要偷懒先说中文再等系统翻译；原文必须先是' + option.nativeLabel + '。')
+      : '不要把 narrator 和正文的语言要求混掉。',
+    narratorOption && narratorOption.value !== 'zh'
+      ? ('narrator 也属于给用户看的自然语言正文，所以 narrator 的 content 也必须使用' + narratorOption.nativeLabel + '原文，不能偷偷掉回简体中文。')
+      : 'narrator 如果没有额外设定语言，默认使用简体中文。',
+    option && option.value !== 'zh'
+      ? ('rich_html 里的 summary、text、页面上可见的标题、正文、按钮、票据文字、签文、帖子文案等所有自然语言，也都必须使用' + option.nativeLabel + '原文。')
+      : '如果 rich_html 没有单独设定外语，可按当前正文语言；但 narrator 仍然遵守上面的旁白语言要求。',
     '系统标记、JSON 字段名、工具前缀、特殊动作标签继续按原规则输出。',
     '不要额外解释“这是翻译”或“我在说某种语言”。',
     extra
@@ -4983,6 +5000,26 @@ function buildAutoNarratorForReply(parts){
   if(seed && seed.length <= 12) return '指尖在屏幕上轻轻一顿，那句短短的话先落到了' + userRef + '眼前。';
   if(normalizeMessageType(first && first.t || 'text') === 'richhtml') return '像是临时起意似的，一张小小的惊喜卡片被悄悄递到了' + userRef + '面前。';
   return '指尖在屏幕上停了一瞬，紧接着那边的心思才慢慢浮出来。';
+}
+
+function normalizeNarratorPartsLanguage(parts){
+  var list = Array.isArray(parts) ? parts : [];
+  var targetLang = getNarratorReplyLanguage();
+  if(targetLang === 'zh') return list;
+  var seeds = list.filter(function(item){
+    return normalizeMessageType(item && item.t || 'text') !== 'narrator';
+  });
+  return list.map(function(item){
+    if(!item) return item;
+    if(normalizeMessageType(item.t || 'text') !== 'narrator') return item;
+    var raw = String(item.text || '').trim();
+    if(!raw) return item;
+    var checkText = extractReplyTextForLanguageCheck(raw);
+    if(checkText && hasTargetLanguageSignalForChat(checkText, targetLang)) return item;
+    return Object.assign({}, item, {
+      text: buildAutoNarratorForReply(seeds.length ? seeds : [{ text: raw, t: 'text' }])
+    });
+  });
 }
 
 function buildRichHtmlVisibleDoc(data){
@@ -9406,6 +9443,9 @@ function buildChatExtendedFormatPrompt(){
     'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"可选译文"}',
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
     'rich_html 要把重点放在精致、可读、能渲染的成品本体，不是扔一堆半成品代码。你自己不会提“代码、html、css、js”这些词，也不会意识到那是代码；对你来说，那就是一张真的卡片、票据、页面、小物件、签文或帖子。',
+    'rich_html 的成品感要明显：层级清楚、留白克制、排版稳定、颜色/字体/装饰有主题，不要像随手拼的 demo，也不要只是一张白底字卡。',
+    '如果是票据、机票、车票、塔罗、签文、搜索结果、论坛贴、聊天截图、菜单、便签、网页或帖子，就认真做出那个载体本身的结构与细节，不要只写一段文字糊上去。',
+    'rich_html 里可见的文字、按钮、标题、角标、签文、小注释都算成品的一部分，必须一起设计好，不要出现空盒子、假按钮、占位符、乱码或只有一行说明。',
     'rich_html 不只用于情书。只要上下文适合，你可以偶尔主动发一个 SURPRISE 小卡片：小费条、电影票、飞机票、火车票、塔罗牌、签文、百度搜索结果、论坛帖子、伪小红书帖子、便签、清单、聊天截图、网页、小票据、明信片、随手写的页面都可以。',
     'rich_html 就算是临时起意，也要真的给完整 html/css/js 成品，不要只有一句说明，不要空白，不要半成品。只要你决定发 rich_html，就必须把 html/css/js 都认真做完。',
     '如果用户明确要求你做情书、小卡片、票据、网页、塔罗、签文、帖子、搜索结果、笔记或别的小物件，就优先 rich_html，不要偷懒改回 text。',
@@ -17011,6 +17051,7 @@ async function deliverAiReply(text, limitOverride){
       });
     }
   }
+  rawParts = normalizeNarratorPartsLanguage(rawParts);
   var hasExplicitMultiBubble = rawParts.length >= 2;
   var cap = hasExplicitMultiBubble ? softMaxN : maxN;
   if(rawParts.length > cap){
