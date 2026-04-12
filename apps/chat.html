@@ -986,10 +986,11 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 .bubble-charm img{width:100%;height:100%;display:block;object-fit:contain}
 .bubble-charm.user{left:-53px;top:-33.5px;transform:scaleX(-1)}
 .bubble-charm.ai{right:-52px;top:-34.85px}
-.multi-trash-btn,.multi-cancel-btn{position:fixed;right:16px;width:46px;height:46px;border-radius:50%;border:var(--bd);box-shadow:var(--sh);display:none;align-items:center;justify-content:center;z-index:210;cursor:pointer}
-.multi-trash-btn.show,.multi-cancel-btn.show{display:flex}
+.multi-trash-btn,.multi-cancel-btn,.multi-share-btn{position:fixed;right:16px;width:46px;height:46px;border-radius:50%;border:var(--bd);box-shadow:var(--sh);display:none;align-items:center;justify-content:center;z-index:210;cursor:pointer}
+.multi-trash-btn.show,.multi-cancel-btn.show,.multi-share-btn.show{display:flex}
 .multi-trash-btn{bottom:92px;background:#d22;color:#fff;font-size:18px}
-.multi-cancel-btn{bottom:146px;background:var(--w);color:var(--b);font-size:20px;font-weight:900}
+.multi-share-btn{bottom:146px;background:#111;color:#fff;font-size:17px;font-weight:900}
+.multi-cancel-btn{bottom:200px;background:var(--w);color:var(--b);font-size:20px;font-weight:900}
 .image-view-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:205;padding:18px}
 .image-view-overlay.open{display:flex}
 .image-view-card{width:min(328px,100%);background:var(--w);border:var(--bd);border-radius:20px;box-shadow:var(--sh);padding:14px;display:flex;flex-direction:column;gap:12px}
@@ -1775,6 +1776,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 </div>
 
 <button class="multi-cancel-btn" id="multiCancelBtn" type="button" onclick="exitMultiSelectMode()">×</button>
+<button class="multi-share-btn" id="multiShareBtn" type="button" onclick="shareSelectedMessages()">⇪</button>
 <button class="multi-trash-btn" id="multiTrashBtn" type="button" onclick="openMultiDeleteConfirm()">🗑</button>
 
 <div class="confirm-overlay" id="multiDeleteConfirm">
@@ -7404,8 +7406,10 @@ function clearReplyTarget(){
 function updateFloatingUi(){
   var trash = document.getElementById('multiTrashBtn');
   var cancel = document.getElementById('multiCancelBtn');
+  var share = document.getElementById('multiShareBtn');
   if(trash) trash.classList.toggle('show', multiSelectMode);
   if(cancel) cancel.classList.toggle('show', multiSelectMode);
+  if(share) share.classList.toggle('show', multiSelectMode);
 }
 function renderEmptyState(){
   var msgs = document.getElementById('messages');
@@ -7697,6 +7701,234 @@ async function confirmMultiDelete(){
   closeMultiDeleteConfirm();
   renderChatLog(false);
   toast(count ? ('已删除 ' + count + ' 条消息') : '未删除任何消息');
+}
+function getSelectedMessageNodesForExport(){
+  var msgs = document.getElementById('messages');
+  if(!msgs) return [];
+  var wanted = new Set((selectedMessageIds || []).map(function(id){ return String(id || ''); }));
+  return Array.prototype.filter.call(msgs.querySelectorAll('.msg[data-msg-id]'), function(node){
+    return wanted.has(String(node.dataset.msgId || ''));
+  });
+}
+function waitForIframeDocumentImages(frame){
+  try{
+    var doc = frame && frame.contentDocument;
+    if(!doc) return Promise.resolve();
+    var imgs = Array.prototype.filter.call(doc.querySelectorAll('img'), function(img){
+      return !!String(img.getAttribute('src') || img.src || '').trim();
+    });
+    if(!imgs.length) return Promise.resolve();
+    return Promise.all(imgs.map(function(img){
+      if(img.complete && img.naturalWidth > 0) return Promise.resolve();
+      return new Promise(function(resolve){
+        img.addEventListener('load', resolve, { once:true });
+        img.addEventListener('error', resolve, { once:true });
+      });
+    }));
+  }catch(err){
+    return Promise.resolve();
+  }
+}
+async function snapshotRichHtmlFrame(frame){
+  if(!frame) return '';
+  try{
+    await waitForIframeDocumentImages(frame);
+    var doc = frame.contentDocument;
+    if(!doc || !doc.body) return '';
+    var rect = frame.getBoundingClientRect();
+    var width = Math.max(220, Math.ceil(rect.width || frame.clientWidth || frame.offsetWidth || 220));
+    var height = Math.max(120, Math.ceil(rect.height || frame.clientHeight || frame.offsetHeight || 120));
+    var bodyClone = cloneNodeWithInlineStyles(doc.body);
+    var bodyStyle = String((bodyClone && bodyClone.getAttribute('style')) || '');
+    var bg = window.getComputedStyle(doc.body).backgroundColor || '#fff';
+    var svg = ''
+      + '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">'
+      + '<foreignObject width="100%" height="100%">'
+      + '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + width + 'px;height:' + height + 'px;overflow:hidden;background:' + escAttr(bg) + ';position:relative;">'
+      + '<div style="' + escAttr(bodyStyle + ';margin:0;width:' + width + 'px;min-height:' + height + 'px;overflow:hidden;') + '">' + (bodyClone ? bodyClone.innerHTML : '') + '</div>'
+      + '</div>'
+      + '</foreignObject>'
+      + '</svg>';
+    var img = await new Promise(function(resolve, reject){
+      var image = new Image();
+      image.onload = function(){ resolve(image); };
+      image.onerror = function(){ reject(new Error('frame snapshot svg failed')); };
+      image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+    var canvas = document.createElement('canvas');
+    var scale = 2;
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+  }catch(err){
+    return '';
+  }
+}
+async function buildSelectedMessageExportClone(sourceNode){
+  if(!sourceNode) return null;
+  var clone = cloneNodeWithInlineStyles(sourceNode);
+  if(!clone) return null;
+  clone.classList.remove('select-mode');
+  clone.classList.remove('selected');
+  clone.style.cursor = 'default';
+  clone.style.animation = 'none';
+  clone.style.transform = 'none';
+  Array.prototype.forEach.call(clone.querySelectorAll('.msg-check'), function(node){
+    if(node && node.parentNode) node.parentNode.removeChild(node);
+  });
+  Array.prototype.forEach.call(clone.querySelectorAll('.msg-bubble,.offline-invite-shell'), function(node){
+    if(!node || !node.style) return;
+    node.style.outline = 'none';
+    node.style.outlineOffset = '0px';
+  });
+  Array.prototype.forEach.call(clone.querySelectorAll('*'), function(node){
+    if(node && node.style){
+      node.style.animation = 'none';
+      node.style.transition = 'none';
+      node.style.cursor = 'default';
+    }
+  });
+  var sourceFrames = Array.prototype.slice.call(sourceNode.querySelectorAll('iframe.richhtml-frame'));
+  var cloneFrames = Array.prototype.slice.call(clone.querySelectorAll('iframe.richhtml-frame'));
+  for(var i = 0; i < sourceFrames.length; i++){
+    var sourceFrame = sourceFrames[i];
+    var cloneFrame = cloneFrames[i];
+    if(!cloneFrame) continue;
+    var shot = await snapshotRichHtmlFrame(sourceFrame);
+    if(shot){
+      var rect = sourceFrame.getBoundingClientRect();
+      var shotImg = document.createElement('img');
+      shotImg.setAttribute('src', shot);
+      shotImg.setAttribute('alt', 'card');
+      shotImg.setAttribute('style', (cloneFrame.getAttribute('style') || '') + ';display:block;width:' + Math.max(220, Math.ceil(rect.width || sourceFrame.clientWidth || 220)) + 'px;height:' + Math.max(120, Math.ceil(rect.height || sourceFrame.clientHeight || 120)) + 'px;object-fit:cover;border:none;');
+      cloneFrame.parentNode.replaceChild(shotImg, cloneFrame);
+    }else{
+      try{
+        cloneFrame.srcdoc = sourceFrame.srcdoc || cloneFrame.srcdoc || '';
+      }catch(err){}
+    }
+  }
+  return clone;
+}
+function mountSelectedMessagesExportHost(){
+  var msgs = document.getElementById('messages');
+  if(!msgs) return null;
+  var bgLayer = document.querySelector('.chat-bg-layer');
+  var bgStyle = window.getComputedStyle(bgLayer || document.body);
+  var msgStyle = window.getComputedStyle(msgs);
+  var host = document.createElement('div');
+  host.style.position = 'fixed';
+  host.style.left = '-99999px';
+  host.style.top = '0';
+  host.style.width = Math.max(320, Math.ceil(msgs.clientWidth || 390)) + 'px';
+  host.style.visibility = 'hidden';
+  host.style.pointerEvents = 'none';
+  host.style.zIndex = '-1';
+  host.style.padding = '0';
+  host.style.background = 'transparent';
+  var wrap = document.createElement('div');
+  wrap.className = 'chat-share-shot';
+  wrap.style.width = '100%';
+  wrap.style.padding = (msgStyle.paddingTop || '10px') + ' ' + (msgStyle.paddingRight || '12px') + ' ' + (msgStyle.paddingBottom || '18px') + ' ' + (msgStyle.paddingLeft || '12px');
+  wrap.style.display = 'flex';
+  wrap.style.flexDirection = 'column';
+  wrap.style.gap = msgStyle.gap || '17px';
+  wrap.style.backgroundColor = bgStyle.backgroundColor || '#f7f7f7';
+  wrap.style.backgroundImage = bgStyle.backgroundImage || 'none';
+  wrap.style.backgroundSize = bgStyle.backgroundSize || 'cover';
+  wrap.style.backgroundRepeat = bgStyle.backgroundRepeat || 'no-repeat';
+  wrap.style.backgroundPosition = bgStyle.backgroundPosition || 'center center';
+  wrap.style.borderRadius = '0';
+  host.appendChild(wrap);
+  document.body.appendChild(host);
+  return { host: host, wrap: wrap };
+}
+async function buildSelectedMessagesExportBlob(){
+  var nodes = getSelectedMessageNodesForExport();
+  if(!nodes.length) throw new Error('no selected messages');
+  var mounted = mountSelectedMessagesExportHost();
+  if(!mounted || !mounted.wrap) throw new Error('missing export host');
+  try{
+    for(var i = 0; i < nodes.length; i++){
+      var clone = await buildSelectedMessageExportClone(nodes[i]);
+      if(clone) mounted.wrap.appendChild(clone);
+    }
+    await waitForNodeImages(mounted.wrap);
+    return await renderNodeAsPngBlob(mounted.wrap);
+  } finally {
+    if(mounted.host && mounted.host.parentNode) mounted.host.parentNode.removeChild(mounted.host);
+  }
+}
+function renderNodeAsPngBlob(node){
+  return new Promise(function(resolve, reject){
+    if(!node) { reject(new Error('missing export node')); return; }
+    var clone = cloneNodeWithInlineStyles(node);
+    var width = Math.max(320, Math.ceil(node.scrollWidth || node.offsetWidth || 320));
+    var height = Math.max(160, Math.ceil(node.scrollHeight || node.offsetHeight || 160));
+    var svg = ''
+      + '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">'
+      + '<foreignObject width="100%" height="100%">'
+      + '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + width + 'px;height:' + height + 'px;overflow:hidden;">'
+      + clone.outerHTML
+      + '</div>'
+      + '</foreignObject>'
+      + '</svg>';
+    var img = new Image();
+    img.onload = function(){
+      var maxEdge = 12000;
+      var scale = Math.min(2, maxEdge / Math.max(width, height));
+      if(!isFinite(scale) || scale <= 0) scale = 1;
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+      var ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(function(blob){
+        if(blob) resolve(blob);
+        else reject(new Error('export blob empty'));
+      }, 'image/png');
+    };
+    img.onerror = function(){ reject(new Error('export svg render failed')); };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  });
+}
+async function shareSelectedMessages(){
+  if(!selectedMessageIds.length){ toast('先选中消息'); return; }
+  clearToast();
+  toast('正在生成长图…', { sticky:true });
+  try{
+    var blob = await buildSelectedMessagesExportBlob();
+    clearToast();
+    if(!blob || !blob.size) throw new Error('empty export');
+    var filename = ((character && character.name) || '聊天记录').replace(/[\\/:*?"<>|]+/g, '_') + '-聊天长图.png';
+    var file = new File([blob], filename, { type:'image/png' });
+    try{
+      if(navigator.share && navigator.canShare && navigator.canShare({ files:[file] })){
+        await navigator.share({ files:[file], title: filename });
+        toast('已打开分享面板');
+        return;
+      }
+    }catch(err){}
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(function(){
+      try{ URL.revokeObjectURL(url); }catch(e){}
+      if(link.parentNode) link.parentNode.removeChild(link);
+    }, 1000);
+    toast('已导出长图');
+  }catch(err){
+    clearToast();
+    console.error('share selected messages failed', err);
+    toast('长图导出失败');
+  }
 }
 function bindMessageLongPress(el, msgId){
   var bubble = el.querySelector('.msg-bubble');
