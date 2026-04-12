@@ -3392,6 +3392,10 @@ function getRecallActorDisplayName(role){
   }
   return String((character && (character.nickname || character.name)) || '对方').trim() || '对方';
 }
+function getRecallPreviewText(payload){
+  var actorName = getRecallActorDisplayName(payload && payload.actorRole || '');
+  return actorName + '撤回了一条消息';
+}
 function getCharacterTranslationMode(){
   return normalizeTranslationMode(character && character.translationMode || 'ondemand');
 }
@@ -6758,7 +6762,16 @@ function getReplySnippetText(msg){
   else if(kind === 'image') text = IMAGE_SNIPPET;
   else if(kind === 'richhtml') text = '【SURPRISE】';
   else if(kind === 'narrator') text = '【旁白】' + String(payload.content || msg.content || '').trim();
-  else if(kind === 'recallnotice') text = '句子已经被毁尸灭迹啦^^';
+  else if(kind === 'recallnotice'){
+    try{
+      var recallPreviewPayload = typeof (payload.content || msg.content || '') === 'string'
+        ? JSON.parse(payload.content || msg.content || '')
+        : (payload.content || msg.content || {});
+      text = getRecallPreviewText(recallPreviewPayload);
+    }catch(err){
+      text = '撤回了一条消息';
+    }
+  }
   else if(kind === 'meme') text = formatMemeSummaryText(payload.content || msg.content || '');
   else if(kind === 'familycard') text = '【亲属卡】';
   else if(kind === 'moneypacket') text = moneyPacketSummaryText(payload.content || msg.content || '');
@@ -7047,8 +7060,6 @@ function buildRecallPayload(actorRole, originalMsg, options){
   var actorName = getRecallActorDisplayName(actorRole);
   var baseNotice = '句子已经被' + actorName + '毁尸灭迹啦^^';
   if(actorRole === 'user'){
-    if(seen === true) baseNotice += '，对方好像已经看见了';
-    else if(seen === false) baseNotice += '，对方好像还没来得及看见';
   }
   return {
     actorRole: actorRole,
@@ -7106,9 +7117,7 @@ function resolvePendingUserRecallNoticesForReply(){
     payload.seenByAssistant = Math.random() >= 0.45;
     payload.pendingSeenDecision = false;
     var actorName = getRecallActorDisplayName('user');
-    payload.notice = payload.seenByAssistant
-      ? ('句子已经被' + actorName + '毁尸灭迹啦^^，对方好像已经看见了')
-      : ('句子已经被' + actorName + '毁尸灭迹啦^^，对方好像还没来得及看见');
+    payload.notice = '句子已经被' + actorName + '毁尸灭迹啦^^';
     item.content = JSON.stringify(payload);
     changed = true;
   });
@@ -14400,9 +14409,9 @@ function getChatPreviewPayload(entry){
   if(previewType === 'recallnotice'){
     try{
       var recallPayload = typeof previewContent === 'string' ? JSON.parse(previewContent) : previewContent;
-      return { content: String((recallPayload && recallPayload.notice) || '句子已经被毁尸灭迹啦^^').trim(), type:'text' };
+      return { content: getRecallPreviewText(recallPayload), type:'text' };
     }catch(err){
-      return { content:'句子已经被毁尸灭迹啦^^', type:'text' };
+      return { content:'撤回了一条消息', type:'text' };
     }
   }
   if(previewType === 'familycard'){

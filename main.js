@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-11T14:36:00Z';
+const APP_BUILD_ID = '2026-04-11T14:44:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -7157,6 +7157,19 @@ function normalizePreviewMessage(msg){
   if(kind === 'meme'){
     return { content: summarizeMemePreview(next.content), type: 'text' };
   }
+  if(kind === 'recallnotice'){
+    try{
+      var recallPayload = typeof next.content === 'string' ? JSON.parse(next.content) : next.content;
+      var actorName = '';
+      var noticeText = String((recallPayload && recallPayload.notice) || '').trim();
+      var nameMatch = noticeText.match(/^句子已经被(.+?)毁尸灭迹啦\^\^/);
+      if(nameMatch) actorName = String(nameMatch[1] || '').trim();
+      if(!actorName) actorName = String(((recallPayload && recallPayload.actorRole) === 'user') ? '你' : '对方').trim() || '对方';
+      return { content: actorName + '撤回了一条消息', type: 'text' };
+    }catch(e){
+      return { content: '撤回了一条消息', type: 'text' };
+    }
+  }
   if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
     try{
       var parsed = JSON.parse(next.content);
@@ -7164,6 +7177,15 @@ function normalizePreviewMessage(msg){
         var parsedType = normalizeChatPreviewType(parsed.type || 'text');
         if(parsedType === 'meme') return { content: summarizeMemePreview(parsed.content), type: 'text' };
         if(parsedType === 'richhtml') return { content: '【SURPRISE】', type: 'text' };
+        if(parsedType === 'recallnotice'){
+          var parsedRecallPayload = typeof parsed.content === 'string' ? JSON.parse(parsed.content) : parsed.content;
+          var parsedActorName = '';
+          var parsedNoticeText = String((parsedRecallPayload && parsedRecallPayload.notice) || '').trim();
+          var parsedNameMatch = parsedNoticeText.match(/^句子已经被(.+?)毁尸灭迹啦\^\^/);
+          if(parsedNameMatch) parsedActorName = String(parsedNameMatch[1] || '').trim();
+          if(!parsedActorName) parsedActorName = String(((parsedRecallPayload && parsedRecallPayload.actorRole) === 'user') ? '你' : '对方').trim() || '对方';
+          return { content: parsedActorName + '撤回了一条消息', type: 'text' };
+        }
         return { content: parsed.content, type: parsedType };
       }
     }catch(e){}
