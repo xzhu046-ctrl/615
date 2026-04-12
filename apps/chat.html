@@ -3547,7 +3547,14 @@ function getMessageTranslationSourceText(entry){
   var kind = normalizeMessageType(entry.type || 'text');
   if(kind === 'richhtml'){
     var rich = parseRichHtmlPayload(entry.content) || {};
-    return [String(rich.text || '').trim(), String(rich.summary || '').trim()].filter(Boolean).join('\n');
+    return [
+      String(rich.summary || '').trim(),
+      String(rich.text || '').trim(),
+      extractPlainTextFromHtmlMarkup(String(rich.html || '')).trim()
+    ].filter(function(part, idx, arr){
+      if(!part) return false;
+      return arr.indexOf(part) === idx;
+    }).join('\n');
   }
   if(kind === 'narrator'){
     return String(entry.content || '').trim();
@@ -3632,6 +3639,16 @@ function buildPlainTranslationCardHtml(label, text){
   var safeText = String(text || '').trim();
   if(!safeText) return '';
   return '<div class="msg-translation-card"><div class="msg-translation-kicker"><span class="msg-translation-pill">TRANSLATION</span><span class="msg-translation-sub">' + esc(label || '简体中文') + '</span></div><div class="msg-translation-body">' + esc(safeText) + '</div></div>';
+}
+function buildRichHtmlTranslationCardHtml(text){
+  var safeText = String(text || '').trim();
+  if(!safeText) return '';
+  return '<div class="msg-translation-card">'
+    + '<div class="msg-translation-kicker"><span class="msg-translation-pill">TRANSLATION</span><span class="msg-translation-sub">卡片全文</span></div>'
+    + '<div class="msg-translation-list">'
+    + '<div class="msg-translation-section"><span class="msg-translation-label">简体中文</span><div class="msg-translation-copy">' + esc(safeText) + '</div></div>'
+    + '</div>'
+    + '</div>';
 }
 function shouldOfferInnerVoiceTranslation(){
   return isCharacterTranslationEnabled() && getCharacterReplyLanguage() !== 'zh';
@@ -3789,11 +3806,19 @@ async function requestChatMessageTranslation(msgId, options){
         location: String(inviteParsed.location || '').trim()
       };
     }else{
-      var systemPrompt = [
-        '你是翻译器。',
-        '请把下面的角色消息翻译成自然流畅的简体中文。',
-        '只返回纯译文，不要解释，不要原文，不要代码块。'
-      ].join('\n');
+      var systemPrompt = kind === 'richhtml'
+        ? [
+            '你是翻译器。',
+            '请把下面这张卡片/页面里所有看得见的自然语言文字完整翻译成自然流畅的简体中文。',
+            '不要概括这张卡片是什么，不要写说明，不要写“这是一张…”，不要丢字段。',
+            '按原有阅读顺序尽量完整保留标题、按钮、角标、票据文字、正文、注释、落款等内容。',
+            '只返回纯译文正文，不要原文，不要解释，不要代码块。'
+          ].join('\n')
+        : [
+            '你是翻译器。',
+            '请把下面的角色消息翻译成自然流畅的简体中文。',
+            '只返回纯译文，不要解释，不要原文，不要代码块。'
+          ].join('\n');
       var userPrompt = JSON.stringify({
         sourceLanguage: getReplyLanguageOption(getCharacterReplyLanguage()).nativeLabel,
         text: sourceText
@@ -9426,7 +9451,7 @@ function buildChatExtendedFormatPrompt(){
     '你除了普通 text / voice_message / image_message / money_packet / offline_invite，还可以在合适时使用 narrator / rich_html / recall。',
     'narrator：用于动作、环境、声音、镜头感、心理余波，是旁白，不是说出口的话。格式：{"type":"narrator","content":"..."}',
     'narrator 里禁止写“用户”“USER”这种偷懒指代。涉及对方时，只能直接写对方名字、昵称，或者自然的第三人称代称。',
-    'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件，也包括聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、通话记录、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件这类页面或卡片。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"可选译文"}',
+    'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件，也包括聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、通话记录、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件这类页面或卡片。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}',
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
     'rich_html 要把重点放在精致、可读、能渲染的成品本体，不是扔一堆半成品代码。你自己不会提“代码、html、css、js”这些词，也不会意识到那是代码；对你来说，那就是一张真的卡片、票据、页面、小物件、签文或帖子。',
     'rich_html 的成品感要明显：层级清楚、留白克制、排版稳定、颜色/字体/装饰有主题，不要像随手拼的 demo，也不要只是一张白底字卡。',
@@ -9447,6 +9472,7 @@ function buildChatExtendedFormatPrompt(){
   }
   if(normalizeTranslationMode(character && character.translationMode || 'ondemand') === 'prefetch'){
     lines.push('当前是“角色先返回原文+译文”模式。text / narrator / rich_html 这类自然语言消息，尽量直接带 translation 字段，这样用户点“译”不会额外消耗一次 API。');
+    lines.push('如果是 rich_html，translation 必须翻译整张卡片里所有可见文字，不要偷懒只写一句“这是一张什么卡片”的概括。');
   }
   return lines.join('\n');
 }
@@ -10655,10 +10681,12 @@ function addMessage(role, content, doScroll, msgType, msgId) {
       if(inviteCard.firstChild) translateWrap.appendChild(inviteCard.firstChild);
     }else if(textOpen){
       var card = document.createElement('div');
-      card.innerHTML = buildPlainTranslationCardHtml(
-        translateKind === 'voice' ? '语音消息' : (translateKind === 'image' ? '图片消息' : (translateKind === 'moneypacket' ? '红包 / 转账' : '简体中文')),
-        String(entry.translationText || '').trim()
-      );
+      card.innerHTML = translateKind === 'richhtml'
+        ? buildRichHtmlTranslationCardHtml(String(entry.translationText || '').trim())
+        : buildPlainTranslationCardHtml(
+            translateKind === 'voice' ? '语音消息' : (translateKind === 'image' ? '图片消息' : (translateKind === 'moneypacket' ? '红包 / 转账' : '简体中文')),
+            String(entry.translationText || '').trim()
+          );
       translateWrap.appendChild(card);
     }
     main.appendChild(translateWrap);
