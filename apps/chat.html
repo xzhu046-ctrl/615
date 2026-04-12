@@ -974,14 +974,14 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 .recall-toggle:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .recall-reveal{padding:10px 12px;border:2px dashed rgba(17,17,17,.26);border-radius:12px;background:rgba(255,255,255,.78);font-size:12px;font-weight:700;line-height:1.72;color:#111;white-space:pre-wrap;word-break:break-word}
 .recall-reveal s{color:#888;text-decoration-thickness:1.5px}
-.richhtml-card{position:relative;display:flex;flex-direction:column;gap:10px;width:min(452px,calc(100vw - 84px));max-width:100%;padding:9px;border:1.5px solid #111;border-radius:20px;background:linear-gradient(180deg,#fff 0%,#f6f6f6 100%);box-shadow:7px 9px 0 #111,0 18px 28px rgba(0,0,0,.08);overflow:visible}
+.richhtml-card{position:relative;display:flex;flex-direction:column;gap:10px;width:min(452px,calc(100vw - 84px));max-width:100%;padding:9px;border:1.5px solid #111;border-radius:20px;background:linear-gradient(180deg,#fff 0%,#f6f6f6 100%);box-shadow:4px 5px 0 #111,0 14px 22px rgba(0,0,0,.06);overflow:visible}
 .richhtml-shell .richhtml-card{margin-top:0}
 .richhtml-frame{width:100%;min-height:214px;border:none;border-radius:12px;background:#fff;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
 .richhtml-head{display:flex;align-items:center;justify-content:flex-end;gap:10px}
 .richhtml-kicker{display:inline-flex;align-items:center;justify-content:center;min-height:26px;padding:0 12px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}
 .richhtml-summary{display:none}
 .msg.user .richhtml-card{background:linear-gradient(180deg,rgba(255,255,255,.99),rgba(244,244,241,.97));box-shadow:3px 4px 0 #111,0 0 0 1px rgba(255,255,255,.84) inset}
-.msg.ai .richhtml-card{box-shadow:7px 9px 0 #111,0 18px 28px rgba(0,0,0,.08)}
+.msg.ai .richhtml-card{box-shadow:4px 5px 0 #111,0 14px 22px rgba(0,0,0,.06)}
 .bubble-charm{position:absolute;top:-24px;width:156px;height:60px;pointer-events:none;z-index:4}
 .bubble-charm img{width:100%;height:100%;display:block;object-fit:contain}
 .bubble-charm.user{left:-53px;top:-33.5px;transform:scaleX(-1)}
@@ -3640,11 +3640,22 @@ function buildPlainTranslationCardHtml(label, text){
   if(!safeText) return '';
   return '<div class="msg-translation-card"><div class="msg-translation-kicker"><span class="msg-translation-pill">TRANSLATION</span><span class="msg-translation-sub">' + esc(label || '简体中文') + '</span></div><div class="msg-translation-body">' + esc(safeText) + '</div></div>';
 }
-function buildRichHtmlTranslationCardHtml(text){
-  var safeText = String(text || '').trim();
+function buildRichHtmlTranslationCardHtml(payload){
+  var rich = parseRichHtmlPayload(payload);
+  if(rich && String(rich.html || '').trim()){
+    var wrap = document.createElement('div');
+    wrap.innerHTML = '<div class="msg-translation-card">'
+      + '<div class="msg-translation-kicker"><span class="msg-translation-pill">TRANSLATION</span><span class="msg-translation-sub">简体中文</span></div>'
+      + '<div class="richhtml-card"><div class="richhtml-head"><div class="richhtml-kicker">SURPRISE</div></div><iframe class="richhtml-frame" sandbox="allow-scripts" loading="lazy"></iframe></div>'
+      + '</div>';
+    var frame = wrap.querySelector('.richhtml-frame');
+    if(frame) frame.srcdoc = buildRichHtmlVisibleDoc(rich);
+    return wrap.innerHTML;
+  }
+  var safeText = String(payload || '').trim();
   if(!safeText) return '';
   return '<div class="msg-translation-card">'
-    + '<div class="msg-translation-kicker"><span class="msg-translation-pill">TRANSLATION</span><span class="msg-translation-sub">卡片全文</span></div>'
+    + '<div class="msg-translation-kicker"><span class="msg-translation-pill">TRANSLATION</span><span class="msg-translation-sub">简体中文</span></div>'
     + '<div class="msg-translation-list">'
     + '<div class="msg-translation-section"><span class="msg-translation-label">简体中文</span><div class="msg-translation-copy">' + esc(safeText) + '</div></div>'
     + '</div>'
@@ -3809,10 +3820,11 @@ async function requestChatMessageTranslation(msgId, options){
       var systemPrompt = kind === 'richhtml'
         ? [
             '你是翻译器。',
-            '请把下面这张卡片/页面里所有看得见的自然语言文字完整翻译成自然流畅的简体中文。',
-            '不要概括这张卡片是什么，不要写说明，不要写“这是一张…”，不要丢字段。',
-            '按原有阅读顺序尽量完整保留标题、按钮、角标、票据文字、正文、注释、落款等内容。',
-            '只返回纯译文正文，不要原文，不要解释，不要代码块。'
+            '请把下面这张卡片/页面翻译成一份可直接渲染的简体中文版本。',
+            '你要返回 JSON：{"html":"...","css":"...","js":"...","text":"..."}。',
+            'html/css/js 必须可直接渲染，保留原本的结构、视觉层次和设计感，只把页面里看得见的自然语言内容翻成简体中文。',
+            '不要概括这张卡片是什么，不要写说明，不要写“这是一张…”，不要丢字段，不要只给一句摘要。',
+            'text 里放整张卡片全部可见文字的完整简中正文，按阅读顺序整理。'
           ].join('\n')
         : [
             '你是翻译器。',
@@ -3825,7 +3837,25 @@ async function requestChatMessageTranslation(msgId, options){
       });
       var translated = String(await callAIWithCustomPrompts(systemPrompt, userPrompt) || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
       if(!translated) throw new Error('empty translation');
-      entry.translationText = translated;
+      if(kind === 'richhtml'){
+        try{
+          var parsedRichTranslation = JSON.parse(translated || '{}');
+          var translatedPayload = buildRichHtmlPayload({
+            html: String(parsedRichTranslation.html || '').trim(),
+            css: String(parsedRichTranslation.css || '').trim(),
+            js: String(parsedRichTranslation.js || '').trim(),
+            summary: '简体中文',
+            text: String(parsedRichTranslation.text || '').trim()
+          });
+          entry.translationRichHtml = translatedPayload;
+          entry.translationText = String(parsedRichTranslation.text || '').trim() || getMessageTranslationSourceText({ type:'richhtml', content: translatedPayload });
+        }catch(parseErr){
+          entry.translationRichHtml = '';
+          entry.translationText = translated;
+        }
+      }else{
+        entry.translationText = translated;
+      }
     }
     entry.translationVisible = opts.showOnReady !== false;
     entry.translationSourceLanguage = getCharacterReplyLanguage();
@@ -3846,7 +3876,9 @@ function queueChatMessageTranslationPrefetch(msgId){
   var kind = normalizeMessageType(entry && entry.type || 'text');
   var hasTranslation = kind === 'offlineinvite'
     ? !!(entry && entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.aside || entry.inviteTranslation.location))
-    : !!String(entry && entry.translationText || '').trim();
+    : (kind === 'richhtml'
+        ? (!!String(entry && entry.translationRichHtml || '').trim() || !!String(entry && entry.translationText || '').trim())
+        : !!String(entry && entry.translationText || '').trim());
   if(hasTranslation) return;
 }
 function primeChatTranslations(){
@@ -3875,6 +3907,12 @@ function toggleMessageTranslation(msgId){
       }
       return requestChatMessageTranslation(msgId);
     }
+  }else if(kind === 'richhtml' && !String(entry.translationRichHtml || '').trim() && !String(entry.translationText || '').trim()){
+    if(getCharacterTranslationMode() === 'prefetch'){
+      toast('这条没有一起带译文');
+      return Promise.resolve();
+    }
+    return requestChatMessageTranslation(msgId);
   }else if(!String(entry.translationText || '').trim()){
     if(getCharacterTranslationMode() === 'prefetch'){
       toast('这条没有一起带译文');
@@ -6569,12 +6607,13 @@ function makeChatEntry(role, content, type, id){
 function compactChatEntryForStorage(entry){
   var item = entry || {};
   var meta = null;
-  if(item.translationText || item.translationVisible || item.translationSourceLanguage || item.inviteTranslation){
+  if(item.translationText || item.translationVisible || item.translationSourceLanguage || item.inviteTranslation || item.translationRichHtml){
     meta = {
       translationText: String(item.translationText || ''),
       translationVisible: !!item.translationVisible,
       translationSourceLanguage: String(item.translationSourceLanguage || ''),
-      inviteTranslation: item.inviteTranslation && typeof item.inviteTranslation === 'object' ? Object.assign({}, item.inviteTranslation) : null
+      inviteTranslation: item.inviteTranslation && typeof item.inviteTranslation === 'object' ? Object.assign({}, item.inviteTranslation) : null,
+      translationRichHtml: typeof item.translationRichHtml === 'string' ? item.translationRichHtml : ''
     };
   }
   return [
@@ -6608,6 +6647,7 @@ function normalizeChatEntry(m){
       compact.translationVisible = !!m[8].translationVisible;
       compact.translationSourceLanguage = String(m[8].translationSourceLanguage || '');
       compact.inviteTranslation = m[8].inviteTranslation && typeof m[8].inviteTranslation === 'object' ? Object.assign({}, m[8].inviteTranslation) : null;
+      compact.translationRichHtml = String(m[8].translationRichHtml || '');
     }
     return compact;
   }
@@ -6619,6 +6659,7 @@ function normalizeChatEntry(m){
       entry.translationVisible = !!m.translationVisible;
       entry.translationSourceLanguage = String(m.translationSourceLanguage || '');
       entry.inviteTranslation = m.inviteTranslation && typeof m.inviteTranslation === 'object' ? Object.assign({}, m.inviteTranslation) : null;
+      entry.translationRichHtml = String(m.translationRichHtml || '');
       entry.sentAt = Number(m.sentAt || entry.sentAt || getNowTs()) || getNowTs();
       if(m.readAt){
         entry.readAt = m.readAt;
@@ -10664,7 +10705,7 @@ function addMessage(role, content, doScroll, msgType, msgId) {
     translateWrap.className = 'msg-translate-wrap';
     var btn = document.createElement('button');
     var inviteOpen = !!(entry && entry.translationVisible && entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.location));
-    var textOpen = !!(entry && entry.translationVisible && String(entry.translationText || '').trim());
+    var textOpen = !!(entry && entry.translationVisible && (String(entry.translationRichHtml || '').trim() || String(entry.translationText || '').trim()));
     var translateKind = normalizeMessageType(entry && entry.type || 'text');
     btn.className = 'msg-translate-btn' + ((inviteOpen || textOpen) ? ' is-open' : '');
     btn.type = 'button';
@@ -10682,7 +10723,7 @@ function addMessage(role, content, doScroll, msgType, msgId) {
     }else if(textOpen){
       var card = document.createElement('div');
       card.innerHTML = translateKind === 'richhtml'
-        ? buildRichHtmlTranslationCardHtml(String(entry.translationText || '').trim())
+        ? buildRichHtmlTranslationCardHtml(String(entry.translationRichHtml || '').trim() || String(entry.translationText || '').trim())
         : buildPlainTranslationCardHtml(
             translateKind === 'voice' ? '语音消息' : (translateKind === 'image' ? '图片消息' : (translateKind === 'moneypacket' ? '红包 / 转账' : '简体中文')),
             String(entry.translationText || '').trim()
