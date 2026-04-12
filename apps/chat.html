@@ -3167,6 +3167,21 @@ function getChatUserName(charId){
 function resolveDisplayUserName(){
   return getActiveAccountProfileName() || localStorage.getItem(userKey('user_name')) || '你';
 }
+function resolveNarratorUserReference(){
+  var preferred = String((character && character.userNameProfile) || '').trim()
+    || String(getChatUserName(character && character.id) || '').trim()
+    || String(resolveDisplayUserName() || '').trim();
+  if(preferred && preferred !== '你' && preferred !== 'USER') return preferred;
+  return '对方';
+}
+function sanitizeNarratorPerspectiveText(raw){
+  var text = String(raw || '').trim();
+  if(!text) return text;
+  var userRef = resolveNarratorUserReference();
+  return text
+    .replace(/\bUSER\b/g, userRef)
+    .replace(/用户/g, userRef);
+}
 function getSubAccountIdentityHint(){
   if(isDefaultAccountContext()) return '';
   var activeName = getActiveAccountProfileName();
@@ -4945,10 +4960,11 @@ function buildAutoNarratorForReply(parts){
     if(normalizeMessageType(first && first.t || 'text') === 'richhtml') return '好似一時心血來潮咁，一張細細嘅驚喜卡悄悄遞咗過嚟。';
     return '停咗一瞬之後，對面嗰點心思先慢慢浮上嚟。';
   }
-  if(/[\?？]/.test(seed)) return '屏幕那头像是停顿了一拍，追问还是轻轻落了下来。';
+  var userRef = resolveNarratorUserReference();
+  if(/[\?？]/.test(seed)) return userRef + '眼前的屏幕像是停顿了一拍，那句追问才轻轻落下来。';
   if(/[!！]/.test(seed)) return '那边的情绪先一步漫过来，连字句都带着一点急切。';
-  if(seed && seed.length <= 12) return '指尖在屏幕上轻轻一顿，那句短短的话先落到了你眼前。';
-  if(normalizeMessageType(first && first.t || 'text') === 'richhtml') return '像是临时起意似的，一张小小的惊喜卡片被悄悄递了过来。';
+  if(seed && seed.length <= 12) return '指尖在屏幕上轻轻一顿，那句短短的话先落到了' + userRef + '眼前。';
+  if(normalizeMessageType(first && first.t || 'text') === 'richhtml') return '像是临时起意似的，一张小小的惊喜卡片被悄悄递到了' + userRef + '面前。';
   return '指尖在屏幕上停了一瞬，紧接着那边的心思才慢慢浮出来。';
 }
 
@@ -9363,6 +9379,7 @@ function buildChatExtendedFormatPrompt(){
     '【扩展消息类型】',
     '你除了普通 text / voice_message / image_message / money_packet / offline_invite，还可以在合适时使用 narrator / rich_html / recall。',
     'narrator：用于动作、环境、声音、镜头感、心理余波，是旁白，不是说出口的话。格式：{"type":"narrator","content":"..."}',
+    'narrator 里禁止写“用户”“USER”这种偷懒指代。涉及对方时，只能直接写对方名字、昵称，或者自然的第三人称代称。',
     'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"可选译文"}',
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
     'rich_html 要把重点放在精致、可读、能渲染的成品本体，不是扔一堆半成品代码。你自己不会提“代码、html、css、js”这些词，也不会意识到那是代码；对你来说，那就是一张真的卡片、票据、页面、小物件、签文或帖子。',
@@ -16882,6 +16899,7 @@ async function deliverAiReply(text, limitOverride){
           if(t === 'narrator' && !c){
             c = obj.narrator || obj.narration || '';
           }
+          if(t === 'narrator') c = sanitizeNarratorPerspectiveText(c);
           if(t === 'moneypacket' && !c){
             c = JSON.stringify({
               type: 'money_packet',
@@ -16915,8 +16933,9 @@ async function deliverAiReply(text, limitOverride){
             if(!knownStructuredMeme) return;
             c = buildMemeEntryContent(knownStructuredMeme);
           }
-          if(t === 'narrator' && narratorSettingEnabled() === false) t = 'text';
-          if(t === 'image' && !looksLikeVisualDescription(c)) t = 'text';
+    if(t === 'narrator' && narratorSettingEnabled() === false) t = 'text';
+    if(t === 'narrator') c = sanitizeNarratorPerspectiveText(c);
+    if(t === 'image' && !looksLikeVisualDescription(c)) t = 'text';
           if(c || t === 'recall') rawParts.push({text:c || '', t:t, replyTo:obj.reply_to || obj.replyTo || '', replyRole:obj.reply_role || obj.replyRole || '', translationText:String(obj.translation || obj.translationText || obj.translated || obj.zh || obj.zh_cn || '').trim()});
         }
       }catch(e){}
