@@ -3815,11 +3815,11 @@ async function requestChatMessageTranslation(msgId, options){
       var systemPrompt = kind === 'richhtml'
         ? [
             '你是翻译器。',
-            '请把下面这张卡片/页面翻译成一份可直接渲染的简体中文版本。',
-            '你要返回 JSON：{"html":"...","css":"...","js":"...","text":"..."}。',
-            'html/css/js 必须可直接渲染，尽量保留原本的结构、布局、层级、装饰、交互和视觉气质，只把页面里看得见的自然语言内容翻成简体中文。',
-            '不要概括这张卡片是什么，不要写说明，不要写“这是一张…”，不要丢字段，不要只给一句摘要。',
-            'text 里放整张卡片全部可见文字的完整简中正文，按阅读顺序整理。'
+            '请把下面这张卡片/页面里所有可见文字翻译成简体中文。',
+            '保留原本 HTML/CSS/JS 的结构、布局、装饰、交互和视觉气质，不要解释这张卡片是什么。',
+            '只返回 JSON：{"segments":["按原顺序翻好的每一段文字"],"text":"整张卡片全部可见文字的完整简中正文"}。',
+            'segments 必须和我给你的原始文字片段一一对应、数量一致、顺序一致。',
+            '不要省略，不要概括，不要写说明，不要输出 markdown 代码块。'
           ].join('\n')
         : [
             '你是翻译器。',
@@ -3829,11 +3829,13 @@ async function requestChatMessageTranslation(msgId, options){
       var userPrompt = kind === 'richhtml'
         ? (function(){
             var richSource = parseRichHtmlPayload(entry.content) || {};
+            var translationPlan = captureRichHtmlTranslationPlan(String(richSource.html || '').trim());
             return JSON.stringify({
               sourceLanguage: getReplyLanguageOption(getCharacterReplyLanguage()).nativeLabel,
               summary: String(richSource.summary || '').trim(),
               text: String(richSource.text || '').trim(),
               visibleText: sourceText,
+              segments: translationPlan && Array.isArray(translationPlan.segments) ? translationPlan.segments : [],
               html: String(richSource.html || '').trim(),
               css: String(richSource.css || '').trim(),
               js: String(richSource.js || '').trim()
@@ -3848,15 +3850,28 @@ async function requestChatMessageTranslation(msgId, options){
       if(kind === 'richhtml'){
         var translatedPayload = '';
         var translatedPlain = '';
+        var originalRichSource = parseRichHtmlPayload(entry.content) || {};
         try{
           var parsedRichTranslation = JSON.parse(translated || '{}');
-          translatedPayload = buildRichHtmlPayload({
-            html: String(parsedRichTranslation.html || '').trim(),
-            css: String(parsedRichTranslation.css || '').trim(),
-            js: String(parsedRichTranslation.js || '').trim(),
-            summary: '简体中文',
-            text: String(parsedRichTranslation.text || '').trim()
-          });
+          var translatedSegments = Array.isArray(parsedRichTranslation.segments) ? parsedRichTranslation.segments : [];
+          var rebuiltHtml = applyRichHtmlTranslatedSegments(String(originalRichSource.html || ''), translatedSegments);
+          if(rebuiltHtml){
+            translatedPayload = buildRichHtmlPayload({
+              html: rebuiltHtml,
+              css: String(originalRichSource.css || '').trim(),
+              js: String(originalRichSource.js || '').trim(),
+              summary: '简体中文',
+              text: String(parsedRichTranslation.text || '').trim()
+            });
+          }else{
+            translatedPayload = buildRichHtmlPayload({
+              html: String(parsedRichTranslation.html || '').trim(),
+              css: String(parsedRichTranslation.css || '').trim(),
+              js: String(parsedRichTranslation.js || '').trim(),
+              summary: '简体中文',
+              text: String(parsedRichTranslation.text || '').trim()
+            });
+          }
         }catch(parseErr){}
         if(!translatedPayload){
           translatedPayload = coerceRichHtmlPayload(translated, { summary:'简体中文' });
@@ -4872,6 +4887,58 @@ function extractPlainTextFromHtmlMarkup(raw){
     .replace(/&gt;/gi, '>')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function captureRichHtmlTranslationPlan(rawHtml){
+  var html = String(rawHtml || '').trim();
+  if(!html) return null;
+  var host = document.createElement('div');
+  host.innerHTML = html;
+  var slots = [];
+  var translatableAttrs = ['placeholder','value','aria-label','title','alt'];
+  var walk = function(node){
+    if(!node) return;
+    if(node.nodeType === 3){
+      var text = String(node.nodeValue || '');
+      if(text.replace(/\s+/g, ' ').trim()){
+        slots.push({ type:'text', node:node, original:text });
+      }
+      return;
+    }
+    if(node.nodeType !== 1) return;
+    translatableAttrs.forEach(function(attr){
+      var value = String(node.getAttribute(attr) || '');
+      if(value.trim()){
+        slots.push({ type:'attr', node:node, attr:attr, original:value });
+      }
+    });
+    Array.from(node.childNodes || []).forEach(walk);
+  };
+  Array.from(host.childNodes || []).forEach(walk);
+  return {
+    host: host,
+    slots: slots,
+    segments: slots.map(function(slot){ return String(slot.original || '').trim(); }).filter(Boolean)
+  };
+}
+
+function applyRichHtmlTranslatedSegments(rawHtml, translatedSegments){
+  var plan = captureRichHtmlTranslationPlan(rawHtml);
+  var list = Array.isArray(translatedSegments) ? translatedSegments : [];
+  if(!plan || !plan.slots.length || !list.length) return '';
+  var used = 0;
+  plan.slots.forEach(function(slot){
+    if(used >= list.length) return;
+    var next = String(list[used] || '').trim();
+    if(!next) return;
+    if(slot.type === 'text'){
+      slot.node.nodeValue = next;
+    }else if(slot.type === 'attr' && slot.node && slot.attr){
+      slot.node.setAttribute(slot.attr, next);
+    }
+    used += 1;
+  });
+  return plan.host.innerHTML;
 }
 
 function buildRichHtmlPayload(parts){
