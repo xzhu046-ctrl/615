@@ -3168,6 +3168,77 @@ function getChatUserName(charId){
   var fallback = 'user_name_' + safeCharId;
   return String(localStorage.getItem(scoped) || localStorage.getItem(fallback) || '').trim() || getActiveAccountProfileName() || 'USER';
 }
+function getCurrentCharDisplayName(){
+  return String((character && (character.nickname || character.name)) || '对方').trim() || '对方';
+}
+function appendSystemNotice(text){
+  var notice = String(text || '').trim();
+  if(!notice) return null;
+  var entry = makeChatEntry('system', notice, 'text');
+  chatLog.push(entry);
+  return entry;
+}
+function parseRenameProfilePayload(raw){
+  if(!raw) return null;
+  if(typeof raw === 'object'){
+    var directTarget = String(raw.target || raw.scope || raw.subject || '').trim().toLowerCase();
+    var directName = String(raw.name || raw.nickname || raw.new_name || raw.newName || raw.alias || '').trim();
+    if(directTarget && directName) return { target: directTarget, name: directName };
+  }
+  try{
+    var parsed = JSON.parse(String(raw || ''));
+    if(parsed && typeof parsed === 'object'){
+      var jsonTarget = String(parsed.target || parsed.scope || parsed.subject || '').trim().toLowerCase();
+      var jsonName = String(parsed.name || parsed.nickname || parsed.new_name || parsed.newName || parsed.alias || '').trim();
+      if(jsonTarget && jsonName) return { target: jsonTarget, name: jsonName };
+    }
+  }catch(e){}
+  return null;
+}
+async function applyRenameProfileAction(payload, actorRole){
+  if(!character || !character.id) return null;
+  var info = parseRenameProfilePayload(payload);
+  if(!info) return null;
+  var target = String(info.target || '').trim().toLowerCase();
+  var nextName = String(info.name || '').trim();
+  if(!nextName) return null;
+  var actor = String(actorRole || 'assistant').trim().toLowerCase();
+  var actorDisplay = actor === 'user'
+    ? (String(getChatUserName(character.id) || resolveDisplayUserName() || '你').trim() || '你')
+    : getCurrentCharDisplayName();
+  var notice = '';
+  var changed = false;
+  if(target === 'char' || target === 'assistant' || target === 'self' || target === 'me'){
+    var oldCharName = getCurrentCharDisplayName();
+    if(nextName !== oldCharName){
+      character.nickname = nextName;
+      changed = true;
+      notice = actor === 'user'
+        ? (actorDisplay + '更改' + oldCharName + '的名字为' + nextName)
+        : (oldCharName + '把自己在' + (String(getChatUserName(character.id) || resolveDisplayUserName() || '你').trim() || '你') + '这里的名字改成了' + nextName);
+      var nickInput = document.getElementById('csCharNick');
+      if(nickInput) nickInput.value = nextName;
+    }
+  }else if(target === 'user' || target === 'partner'){
+    var oldUserName = String(getChatUserName(character.id) || resolveDisplayUserName() || '你').trim() || '你';
+    if(nextName !== oldUserName){
+      character.userNameProfile = nextName;
+      safeLocalStorageSet(accountScopedKey('user_name_' + character.id), nextName);
+      safeLocalStorageSet('user_name_' + character.id, nextName);
+      changed = true;
+      notice = actorDisplay + '把' + oldUserName + '的名字改成了' + nextName;
+      var userInput = document.getElementById('csUserName');
+      if(userInput) userInput.value = nextName;
+    }
+  }
+  if(!changed || !notice) return null;
+  try{ await saveChatSettingsPatch(character.id, buildChatSettingsPatchFromCharacter(character)); }catch(err){ console.warn('rename action patch save failed', err); }
+  try{ await persistCharacter(); }catch(err){ console.warn('rename action persist failed', err); }
+  updateHeader();
+  syncActiveCharacterToShell();
+  postSettingsPreviewSync();
+  return appendSystemNotice(notice);
+}
 function resolveDisplayUserName(){
   return getActiveAccountProfileName() || localStorage.getItem(userKey('user_name')) || '你';
 }
@@ -5733,6 +5804,7 @@ function normalizeMessageType(type){
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
   if(type === 'rich_html' || type === 'richhtml' || type === 'html_card') return 'richhtml';
   if(type === 'narrator' || type === 'aside' || type === 'narration') return 'narrator';
+  if(type === 'rename_profile' || type === 'renameprofile' || type === 'rename_nickname' || type === 'nickname_update') return 'renameprofile';
   if(type === 'recall_notice' || type === 'recallnotice' || type === 'withdraw_notice') return 'recallnotice';
   if(type === 'recall' || type === 'withdraw') return 'recall';
   if(type === 'meme_message' || type === 'meme' || type === 'sticker') return 'meme';
@@ -9945,11 +10017,12 @@ function confirmUnblockFromSettings(){
 function buildChatExtendedFormatPrompt(){
   var lines = [
     '【扩展消息类型】',
-    '你除了普通 text / voice_message / image_message / money_packet / offline_invite，还可以在合适时使用 narrator / rich_html / recall。',
+    '你除了普通 text / voice_message / image_message / money_packet / offline_invite，还可以在合适时使用 narrator / rich_html / recall / rename_profile。',
     'narrator：用于动作、环境、声音、镜头感、心理余波，是旁白，不是说出口的话。格式：{"type":"narrator","content":"..."}',
     'narrator 里禁止写“用户”“USER”这种偷懒指代。涉及对方时，只能直接写对方名字、昵称，或者自然的第三人称代称。',
     'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件，也包括聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、通话记录、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、影评、药品单、医院开的单子、知乎帖子、小说简介、伪小红书帖子、直播间、抖音样式页、社交媒体主页、社交媒体帖子、社交媒体评论、测评、repo、银行账单、银行流水、法院传票、学签、旅游签、工签、银行卡这类页面或卡片。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}',
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
+    'rename_profile：用于改昵称。target 只能是 char 或 user；name 是你要改成的新名字。格式：{"type":"rename_profile","target":"char","name":"新昵称"} 或 {"type":"rename_profile","target":"user","name":"新称呼"}。',
     'rich_html 要把重点放在精致、可读、能渲染的成品本体，不是扔一堆半成品代码。你自己不会提“代码、html、css、js”这些词，也不会意识到那是代码；对你来说，那就是一张真的卡片、票据、页面、小物件、签文或帖子。',
     'rich_html 的成品感要明显：层级清楚、留白克制、排版稳定、颜色/字体/装饰有主题，不要像随手拼的 demo，也不要只是一张白底字卡。必要时可以带轻微动画、小交互、小 hover、小按钮反馈，但要自然、细腻、像真的页面。',
     '如果是票据、机票、车票、塔罗、签文、搜索结果、论坛贴、聊天截图、菜单、便签、网页、歌单、日记、菜谱、书评、电影单、游戏页面、通话记录、贺卡、认错书、检讨、小作文、外卖订单、设计图纸、合同、学生证、身份证、护照、数学题、物理题、草稿纸、试卷、作业、论文、邮件或帖子，就认真做出那个载体本身的结构与细节，不要只写一段文字糊上去。',
@@ -9960,6 +10033,7 @@ function buildChatExtendedFormatPrompt(){
     '如果用户明确要求你做情书、小卡片、票据、网页、塔罗、签文、帖子、搜索结果、笔记、歌单、日记、菜谱、贺卡、书单、电影单、游戏页面、聊天记录样式页面、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、数学题、物理题、草稿纸、试卷、机票、作业、论文、邮件或别的小物件，就优先 rich_html，不要偷懒改回 text。',
     '如果当前允许旁白，那么每一轮回复都至少要带一小段 narrator，长度短一点，像镜头余味或动作描写，不要把旁白写得比正文还长。',
     '如果你刚刚嘴快说错了、暴露太多、嘴硬失败、发出去后又后悔，而且这符合你的人设和当下语境，你可以自然地在后面补一条 recall，把刚才那句撤回。',
+    '如果你觉得对方给你的备注太怪、太生分、太幼稚、太不符合你的人设，或者你临时想给对方换一个新的称呼，也可以偶尔用 rename_profile。不要滥用，只有真的符合关系和语境时才改。',
     '如果用户发来的是旁白、环境描述、动作说明或 html/css/js 卡片，也要按对应类型理解，不要误判成普通对白。'
   ];
   if(narratorSettingEnabled()){
@@ -16795,6 +16869,8 @@ async function saveChatSettings() {
   var up = isDefault ? document.getElementById('csUserPersona').value.trim() : '';
   var cn = document.getElementById('csCharName').value.trim();
   var ck = document.getElementById('csCharNick').value.trim();
+  var oldCharDisplayName = getCurrentCharDisplayName();
+  var oldUserDisplayName = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
   var cp = document.getElementById('csCharPersona').value.trim() || (character ? (character.description || character.name || '无') : '无');
   var cmn = parseInt(document.getElementById('csMsgMin').value || '1');
   var cmx = parseInt(document.getElementById('csMsgMax').value || '3');
@@ -16893,6 +16969,10 @@ async function saveChatSettings() {
     }
     character.weatherCharSetting = cloneWeatherSetting(getWeatherSettingState('char'), 'char');
     character.weatherUserSetting = cloneWeatherSetting(getWeatherSettingState('user'), 'user');
+    var nextCharDisplayName = String((character.nickname || character.name || '')).trim() || oldCharDisplayName;
+    if(nextCharDisplayName !== oldCharDisplayName){
+      appendSystemNotice((String(un || oldUserDisplayName || '你').trim() || '你') + '更改' + oldCharDisplayName + '的名字为' + nextCharDisplayName);
+    }
     try{
       var settingsPatch = buildChatSettingsPatchFromCharacter(character);
       await saveChatSettingsPatch(character.id, settingsPatch);
@@ -17184,6 +17264,12 @@ async function deliverAiReply(text, limitOverride){
         t = 'text';
       }
     }
+    if(t === 'renameprofile' && !c){
+      c = JSON.stringify({
+        target: item.target || item.scope || item.subject || '',
+        name: item.name || item.nickname || item.new_name || item.newName || item.alias || ''
+      });
+    }
     if(t === 'richhtml' && !c && (item.html || item.css || item.js)){
       c = buildRichHtmlPayload({
         html: item.html || '',
@@ -17434,10 +17520,16 @@ async function deliverAiReply(text, limitOverride){
             }else if(obj.offline_invite && typeof obj.offline_invite === 'object'){
               c = JSON.stringify(obj.offline_invite);
               t = 'offlineinvite';
-            }else if(obj.text && typeof obj.text === 'object'){
+          }else if(obj.text && typeof obj.text === 'object'){
               c = obj.text.content || obj.text.text || '';
               t = 'text';
             }
+          }
+          if(t === 'renameprofile' && !c){
+            c = JSON.stringify({
+              target: obj.target || obj.scope || obj.subject || '',
+              name: obj.name || obj.nickname || obj.new_name || obj.newName || obj.alias || ''
+            });
           }
           if(t === 'text' && (obj.html || obj.css || obj.js)){
             c = buildRichHtmlPayload({
@@ -17627,6 +17719,18 @@ async function deliverAiReply(text, limitOverride){
       sentTexts.push('【撤回了一条消息】');
       sentCount++;
       await sleep(180 + Math.floor(Math.random() * 90));
+      continue;
+    }
+    if(t === 'renameprofile'){
+      var renameNoticeEntry = await applyRenameProfileAction(p.text, 'assistant');
+      if(!renameNoticeEntry) continue;
+      addMessage('system', renameNoticeEntry.content, true, 'text', renameNoticeEntry.id);
+      await saveChat(true);
+      sentIds.push(renameNoticeEntry.id);
+      lastSentKey = dedupeKey;
+      sentTexts.push('【改名通知】');
+      sentCount++;
+      await sleep(140 + Math.floor(Math.random() * 70));
       continue;
     }
     if(t === 'offlineinvite'){
