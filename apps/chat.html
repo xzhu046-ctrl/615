@@ -3854,6 +3854,10 @@ function getWeatherRoleLabel(role){
 function getWeatherSettingState(role){
   var setting = stagedWeatherSettings[role];
   if(setting) return cloneWeatherSetting(setting, role);
+  if(character){
+    var embedded = role === 'user' ? character.weatherUserSetting : character.weatherCharSetting;
+    if(embedded && typeof embedded === 'object') return cloneWeatherSetting(embedded, role);
+  }
   var key = weatherSettingsStorageKey(role, character && character.id);
   try{
     return cloneWeatherSetting(JSON.parse(localStorage.getItem(key) || 'null'), role);
@@ -3865,6 +3869,10 @@ function getWeatherSettingState(role){
 function saveWeatherSettingState(role, setting){
   var next = cloneWeatherSetting(setting, role);
   stagedWeatherSettings[role] = next;
+  if(character){
+    if(role === 'user') character.weatherUserSetting = cloneWeatherSetting(next, 'user');
+    else character.weatherCharSetting = cloneWeatherSetting(next, 'char');
+  }
   try{
     localStorage.setItem(weatherSettingsStorageKey(role, character && character.id), JSON.stringify(next));
   }catch(e){}
@@ -3873,6 +3881,10 @@ function saveWeatherSettingState(role, setting){
 
 function clearWeatherSettingState(role){
   stagedWeatherSettings[role] = defaultWeatherSetting(role);
+  if(character){
+    if(role === 'user') character.weatherUserSetting = defaultWeatherSetting('user');
+    else character.weatherCharSetting = defaultWeatherSetting('char');
+  }
   try{
     localStorage.removeItem(weatherSettingsStorageKey(role, character && character.id));
   }catch(e){}
@@ -4382,6 +4394,9 @@ function buildChatSettingsPatchFromCharacter(c){
     allowNarrator: c.allowNarrator !== false,
     userNameProfile: String(c.userNameProfile || ''),
     userPersonaProfile: String(c.userPersonaProfile || ''),
+    userPresenceLocation: cloneJsonSafe(c.userPresenceLocation || null, null),
+    weatherCharSetting: cloneWeatherSetting(c.weatherCharSetting, 'char'),
+    weatherUserSetting: cloneWeatherSetting(c.weatherUserSetting, 'user'),
     chatRenderPageSize: Math.max(MIN_CHAT_RENDER_PAGE_SIZE, Math.min(MAX_CHAT_RENDER_PAGE_SIZE, Number(c.chatRenderPageSize) || DEFAULT_CHAT_RENDER_PAGE_SIZE)),
     contextWindow: Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.contextWindow) || DEFAULT_CONTEXT_WINDOW)),
     summaryEvery: Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.summaryEvery) || DEFAULT_SUMMARY_EVERY)),
@@ -4411,6 +4426,9 @@ function applyChatSettingsPatch(target, patch){
     'allowNarrator',
     'userNameProfile',
     'userPersonaProfile',
+    'userPresenceLocation',
+    'weatherCharSetting',
+    'weatherUserSetting',
     'chatRenderPageSize',
     'contextWindow',
     'summaryEvery',
@@ -5242,7 +5260,7 @@ function renderPresenceSettingsUi(){
       schedule: String(scheduleSelect && scheduleSelect.value || settings.schedule || 'auto')
     })
   });
-  var currentUserLoc = window.PresenceShared.getUserLocation();
+  var currentUserLoc = cloneJsonSafe(character.userPresenceLocation || window.PresenceShared.getUserLocation(), window.PresenceShared.getUserLocation());
   var snapshot = window.PresenceShared.getPresenceSnapshot(draftChar, Date.now());
   if(userSelect && userSelect.value === '__device__' && currentUserLoc.mode === 'device'){
     snapshot.user = Object.assign({}, currentUserLoc);
@@ -5281,11 +5299,11 @@ function renderPresenceSettingsUi(){
 function loadPresenceSettingsIntoPanel(){
   if(!(window.PresenceShared && character && character.id)) return;
   var settings = window.PresenceShared.getCharSettings(character);
-  var userLoc = window.PresenceShared.getUserLocation();
+  var userLoc = cloneJsonSafe(character.userPresenceLocation || window.PresenceShared.getUserLocation(), window.PresenceShared.getUserLocation());
   populatePresenceCitySelect('csPresenceUserCity', userLoc.mode === 'device' ? '__device__' : (userLoc.cityId || ''));
   populatePresenceCitySelect('csPresenceCharCity', settings.cityId || '');
   var userSel = document.getElementById('csPresenceUserCity');
-  if(userSel) userSel.value = userLoc.cityId || userSel.value;
+  if(userSel) userSel.value = (userLoc.mode === 'device' ? '__device__' : (userLoc.cityId || userSel.value));
   var charSel = document.getElementById('csPresenceCharCity');
   if(charSel) charSel.value = settings.cityId || charSel.value;
   var scheduleSel = document.getElementById('csPresenceSchedule');
@@ -7590,6 +7608,9 @@ function ensureMsgRange(){
     character.offlineInvitePerspective = String(src.offlineInvitePerspective || 'first');
     character.offlineInviteStyle = String(src.offlineInviteStyle || '');
     character.offlineMemoryReadCount = Math.max(1, Math.min(12, Number(src.offlineMemoryReadCount) || 4));
+    character.userPresenceLocation = cloneJsonSafe(src.userPresenceLocation || character.userPresenceLocation || null, null);
+    character.weatherCharSetting = cloneWeatherSetting(src.weatherCharSetting || character.weatherCharSetting, 'char');
+    character.weatherUserSetting = cloneWeatherSetting(src.weatherUserSetting || character.weatherUserSetting, 'user');
     character.chatRenderPageSize = Math.max(MIN_CHAT_RENDER_PAGE_SIZE, Math.min(MAX_CHAT_RENDER_PAGE_SIZE, Number(src.chatRenderPageSize) || DEFAULT_CHAT_RENDER_PAGE_SIZE));
     character.contextWindow = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(src.contextWindow) || DEFAULT_CONTEXT_WINDOW));
     character.summaryEvery = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(src.summaryEvery) || DEFAULT_SUMMARY_EVERY));
@@ -7608,6 +7629,9 @@ function ensureMsgRange(){
     character.offlineInvitePerspective = String(character.offlineInvitePerspective || 'first');
     character.offlineInviteStyle = String(character.offlineInviteStyle || '');
     character.offlineMemoryReadCount = Math.max(1, Math.min(12, Number(character.offlineMemoryReadCount) || 4));
+    character.userPresenceLocation = cloneJsonSafe(character.userPresenceLocation || null, null);
+    character.weatherCharSetting = cloneWeatherSetting(character.weatherCharSetting, 'char');
+    character.weatherUserSetting = cloneWeatherSetting(character.weatherUserSetting, 'user');
     character.chatRenderPageSize = Math.max(MIN_CHAT_RENDER_PAGE_SIZE, Math.min(MAX_CHAT_RENDER_PAGE_SIZE, Number(character.chatRenderPageSize) || DEFAULT_CHAT_RENDER_PAGE_SIZE));
     character.contextWindow = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(character.contextWindow) || DEFAULT_CONTEXT_WINDOW));
     character.summaryEvery = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(character.summaryEvery) || DEFAULT_SUMMARY_EVERY));
@@ -16262,8 +16286,9 @@ async function saveChatSettings() {
     if(presenceUserCity && presenceUserCity.value === '__device__'){
       var currentUserLoc = window.PresenceShared.getUserLocation();
       window.PresenceShared.saveUserLocation(currentUserLoc);
+      if(character) character.userPresenceLocation = cloneJsonSafe(currentUserLoc, currentUserLoc);
     }else{
-      window.PresenceShared.saveUserLocation({
+      var nextUserLoc = {
         shareEnabled:true,
         mode:'manual',
         cityId:userCity.id,
@@ -16272,7 +16297,9 @@ async function saveChatSettings() {
         lng:userCity.lng,
         updatedAt:Date.now(),
         accuracy:0
-      });
+      };
+      window.PresenceShared.saveUserLocation(nextUserLoc);
+      if(character) character.userPresenceLocation = cloneJsonSafe(nextUserLoc, nextUserLoc);
     }
   }
   if (character) {
@@ -16312,6 +16339,8 @@ async function saveChatSettings() {
       });
       window.PresenceShared.saveCharSettings(character.id, character.livePresence);
     }
+    character.weatherCharSetting = cloneWeatherSetting(getWeatherSettingState('char'), 'char');
+    character.weatherUserSetting = cloneWeatherSetting(getWeatherSettingState('user'), 'user');
     try{
       var settingsPatch = buildChatSettingsPatchFromCharacter(character);
       await saveChatSettingsPatch(character.id, settingsPatch);
