@@ -8772,6 +8772,9 @@ function favoriteActiveMessage(){
     toast('收藏功能不可用');
     return;
   }
+  var previewPayload = getChatPreviewPayload(msg);
+  var normalizedType = normalizeMessageType(msg.type || previewPayload.type || 'text');
+  var previewText = String(getReplySnippetText(msg) || previewPayload.content || '').trim();
   var roleName = msg.role === 'assistant'
     ? ((character && (character.nickname || character.name)) || 'CHAR')
     : getMomentsUserName();
@@ -8791,7 +8794,9 @@ function favoriteActiveMessage(){
     name: roleName,
     avatar: avatar,
     text: String(msg.content || ''),
-    type: msg.type || 'text',
+    previewText: previewText,
+    type: normalizedType,
+    richPayload: normalizedType === 'richhtml' ? String(msg.content || '') : '',
     at: Date.now()
   });
   toast('已收藏');
@@ -16640,11 +16645,19 @@ function getChatPreviewPayload(entry){
   if(previewType === 'text' && typeof previewContent === 'string' && previewContent.trim().startsWith('{')){
     try{
       var parsed = JSON.parse(previewContent);
-      if(parsed && typeof parsed === 'object' && parsed.content){
-        previewContent = parsed.content;
-        previewType = normalizeMessageType(parsed.type || 'text');
+      if(parsed && typeof parsed === 'object'){
+        if(parsed.content){
+          previewContent = parsed.content;
+          previewType = normalizeMessageType(parsed.type || 'text');
+        }else if((parsed.html || parsed.css || parsed.js) && !parsed.type){
+          previewContent = '【SURPRISE】';
+          previewType = 'richhtml';
+        }
       }
     }catch(e){}
+  }
+  if(previewType === 'richhtml'){
+    return { content: '【SURPRISE】', type: 'text' };
   }
   return { content: previewContent, type: previewType };
 }

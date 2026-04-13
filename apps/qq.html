@@ -598,6 +598,11 @@ function renderMomentsBadge(){
 }
 
 function normalizeChatPreviewType(type){
+  var safe = String(type || '').trim().toLowerCase();
+  if(safe === 'rich_html' || safe === 'richhtml' || safe === 'html_card') return 'richhtml';
+  if(safe === 'recall_notice' || safe === 'recallnotice' || safe === 'withdraw_notice') return 'recallnotice';
+  if(safe === 'narrator' || safe === 'narrator_message') return 'narrator';
+  if(safe === 'offline_invite' || safe === 'offlineinvite') return 'offlineinvite';
   if(type === 'voice_message' || type === 'voice') return 'voice';
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
   if(type === 'meme_message' || type === 'meme' || type === 'sticker') return 'meme';
@@ -689,20 +694,25 @@ function normalizePreviewMessage(msg){
   if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
     try{
       var parsed = JSON.parse(next.content);
-      if(parsed && typeof parsed === 'object' && parsed.content){
-        var parsedType = normalizeChatPreviewType(parsed.type || 'text');
-        if(parsedType === 'meme') return { content: summarizeMemePreview(parsed.content), type: 'text' };
-        if(parsedType === 'richhtml') return { content: '【SURPRISE】', type: 'text' };
-        if(parsedType === 'recallnotice'){
-          var parsedRecallPayload = typeof parsed.content === 'string' ? JSON.parse(parsed.content) : parsed.content;
-          var parsedActorName = '';
-          var parsedNoticeText = String((parsedRecallPayload && parsedRecallPayload.notice) || '').trim();
-          var parsedNameMatch = parsedNoticeText.match(/^句子已经被(.+?)毁尸灭迹啦\^\^/);
-          if(parsedNameMatch) parsedActorName = String(parsedNameMatch[1] || '').trim();
-          if(!parsedActorName) parsedActorName = String(((parsedRecallPayload && parsedRecallPayload.actorRole) === 'user') ? '你' : '对方').trim() || '对方';
-          return { content: parsedActorName + '撤回了一条消息', type: 'text' };
+      if(parsed && typeof parsed === 'object'){
+        if((parsed.html || parsed.css || parsed.js) && !parsed.type){
+          return { content: '【SURPRISE】', type: 'text' };
         }
-        return { content: parsed.content, type: parsedType };
+        if(parsed.content){
+          var parsedType = normalizeChatPreviewType(parsed.type || 'text');
+          if(parsedType === 'meme') return { content: summarizeMemePreview(parsed.content), type: 'text' };
+          if(parsedType === 'richhtml') return { content: '【SURPRISE】', type: 'text' };
+          if(parsedType === 'recallnotice'){
+            var parsedRecallPayload = typeof parsed.content === 'string' ? JSON.parse(parsed.content) : parsed.content;
+            var parsedActorName = '';
+            var parsedNoticeText = String((parsedRecallPayload && parsedRecallPayload.notice) || '').trim();
+            var parsedNameMatch = parsedNoticeText.match(/^句子已经被(.+?)毁尸灭迹啦\^\^/);
+            if(parsedNameMatch) parsedActorName = String(parsedNameMatch[1] || '').trim();
+            if(!parsedActorName) parsedActorName = String(((parsedRecallPayload && parsedRecallPayload.actorRole) === 'user') ? '你' : '对方').trim() || '对方';
+            return { content: parsedActorName + '撤回了一条消息', type: 'text' };
+          }
+          return { content: parsed.content, type: parsedType };
+        }
       }
     }catch(e){}
   }

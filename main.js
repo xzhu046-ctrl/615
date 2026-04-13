@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-13T04:36:00Z';
+const APP_BUILD_ID = '2026-04-13T05:02:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -4730,6 +4730,16 @@ function getChatUserName(charId){
   return (localStorage.getItem(scoped) || localStorage.getItem('user_name_' + charId) || '').trim() || 'USER';
 }
 
+function getBondWidgetUserName(charData, fallbackName){
+  var c = charData && typeof charData === 'object' ? charData : null;
+  var note = String((c && c.userNicknameNote) || '').trim();
+  if(note) return note;
+  var fallback = String(fallbackName || '').trim();
+  if(fallback) return fallback;
+  var chatUser = getChatUserName(c && c.id);
+  return String(chatUser || 'USER').trim() || 'USER';
+}
+
 function getChatUserAvatar(charId){
   var activeId = getActiveAccountId();
   var keys = [];
@@ -4890,7 +4900,7 @@ function renderBondWidget(character){
   const charAvatar = document.getElementById('bond-char-avatar');
   const userAvatar = document.getElementById('bond-user-avatar');
   if(charName) charName.textContent = c ? (c.nickname || c.name || 'CHAR') : 'CHAR';
-  if(userName) userName.textContent = getChatUserName(c && c.id);
+  if(userName) userName.textContent = getBondWidgetUserName(c, '');
   if(charAvatar){
     const applyCharAvatar = (override)=>{
       const safeOverride = normalizeShellAssetSrc(override || '');
@@ -4941,8 +4951,8 @@ function applyBondWidgetPreview(payload){
     renderBondWidget(null);
   }
   var userNameEl = document.getElementById('bond-user-name');
-  if(userNameEl && typeof preview.userName === 'string'){
-    userNameEl.textContent = preview.userName.trim() || 'USER';
+  if(userNameEl){
+    userNameEl.textContent = getBondWidgetUserName(c, typeof preview.userName === 'string' ? preview.userName : '');
   }
   if(typeof preview.userAvatar === 'string'){
     var userAvatarEl = document.getElementById('bond-user-avatar');
@@ -7040,12 +7050,7 @@ window.addEventListener('message',(e)=>{
         : { content: '', type: 'text' };
     var subText = picked.content || payload.last || '';
     var lastType = normalizeChatPreviewType(picked.type || payload.lastType || 'text');
-    if(lastType === 'voice'){
-      var dur = Math.max(1, Math.min(60, Math.ceil((subText||'').length/6)));
-      subText = '语音消息 ' + dur + "''";
-    } else if(lastType === 'image'){
-      subText = '【图片】';
-    }
+    subText = getPreviewTextForWidget({ content: subText, type: lastType });
     var subEl = document.getElementById('wgt-sub');
     if(subEl) subEl.textContent = formatCharSub(subText);
     renderHomeDockBadges();
@@ -7114,6 +7119,11 @@ function compactCharKey(key){
 }
 
 function normalizeChatPreviewType(type){
+  var safe = String(type || '').trim().toLowerCase();
+  if(safe === 'rich_html' || safe === 'richhtml' || safe === 'html_card') return 'richhtml';
+  if(safe === 'recall_notice' || safe === 'recallnotice' || safe === 'withdraw_notice') return 'recallnotice';
+  if(safe === 'narrator' || safe === 'narrator_message') return 'narrator';
+  if(safe === 'schedule_quote' || safe === 'schedulequote') return 'schedulequote';
   if(type === 'voice_message' || type === 'voice') return 'voice';
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
   if(type === 'meme_message' || type === 'meme' || type === 'sticker') return 'meme';
@@ -7210,20 +7220,25 @@ function normalizePreviewMessage(msg){
   if(kind === 'text' && typeof next.content === 'string' && next.content.trim().startsWith('{')){
     try{
       var parsed = JSON.parse(next.content);
-      if(parsed && typeof parsed === 'object' && parsed.content){
-        var parsedType = normalizeChatPreviewType(parsed.type || 'text');
-        if(parsedType === 'meme') return { content: summarizeMemePreview(parsed.content), type: 'text' };
-        if(parsedType === 'richhtml') return { content: '【SURPRISE】', type: 'text' };
-        if(parsedType === 'recallnotice'){
-          var parsedRecallPayload = typeof parsed.content === 'string' ? JSON.parse(parsed.content) : parsed.content;
-          var parsedActorName = '';
-          var parsedNoticeText = String((parsedRecallPayload && parsedRecallPayload.notice) || '').trim();
-          var parsedNameMatch = parsedNoticeText.match(/^句子已经被(.+?)毁尸灭迹啦\^\^/);
-          if(parsedNameMatch) parsedActorName = String(parsedNameMatch[1] || '').trim();
-          if(!parsedActorName) parsedActorName = String(((parsedRecallPayload && parsedRecallPayload.actorRole) === 'user') ? '你' : '对方').trim() || '对方';
-          return { content: parsedActorName + '撤回了一条消息', type: 'text' };
+      if(parsed && typeof parsed === 'object'){
+        if((parsed.html || parsed.css || parsed.js) && !parsed.type){
+          return { content: '【SURPRISE】', type: 'text' };
         }
-        return { content: parsed.content, type: parsedType };
+        if(parsed.content){
+          var parsedType = normalizeChatPreviewType(parsed.type || 'text');
+          if(parsedType === 'meme') return { content: summarizeMemePreview(parsed.content), type: 'text' };
+          if(parsedType === 'richhtml') return { content: '【SURPRISE】', type: 'text' };
+          if(parsedType === 'recallnotice'){
+            var parsedRecallPayload = typeof parsed.content === 'string' ? JSON.parse(parsed.content) : parsed.content;
+            var parsedActorName = '';
+            var parsedNoticeText = String((parsedRecallPayload && parsedRecallPayload.notice) || '').trim();
+            var parsedNameMatch = parsedNoticeText.match(/^句子已经被(.+?)毁尸灭迹啦\^\^/);
+            if(parsedNameMatch) parsedActorName = String(parsedNameMatch[1] || '').trim();
+            if(!parsedActorName) parsedActorName = String(((parsedRecallPayload && parsedRecallPayload.actorRole) === 'user') ? '你' : '对方').trim() || '对方';
+            return { content: parsedActorName + '撤回了一条消息', type: 'text' };
+          }
+          return { content: parsed.content, type: parsedType };
+        }
       }
     }catch(e){}
   }

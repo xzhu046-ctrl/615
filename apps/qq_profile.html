@@ -56,6 +56,9 @@ button,input,textarea,select{color:var(--b);-webkit-text-fill-color:var(--b)}
 .fav-name{font-family:var(--fontd);font-size:12px;font-weight:900}
 .fav-time{font-size:10px;color:#666;font-weight:700}
 .fav-text{font-size:12px;font-weight:700;line-height:1.5;word-break:break-word;white-space:pre-wrap}
+.fav-rich-wrap{margin-top:7px;border:var(--bd);border-radius:14px;background:linear-gradient(180deg,#fff 0%,#f4f4f4 100%);box-shadow:2px 2px 0 #0a0a0a;padding:6px}
+.fav-rich-frame{display:block;width:100%;height:220px;border:none;border-radius:10px;background:#fff}
+.fav-rich-hint{margin-top:6px;font-size:10px;color:#666;font-weight:800;letter-spacing:.04em}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(10px);background:#111;color:#fff;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;transition:all .2s;pointer-events:none;z-index:99}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 #avatarInput{display:none}
@@ -326,7 +329,100 @@ function openRevokeFamilyCardConfirm(cardId){ const item=loadActiveFamilyCards()
 function saveName(){ const v=String(document.getElementById('nameInput').value||'').trim(); window.AccountManager.updateActive(a=>{ a.name=v; }); renderProfile(); postProfilePreviewUpdate(); showToast('名称已保存'); }
 function pickAvatar(){ document.getElementById('avatarInput').click(); }
 function bindAvatarInput(){ document.getElementById('avatarInput').addEventListener('change', async (e)=>{ const f=e.target.files&&e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async ()=>{ const data=String(r.result||''); const av=document.getElementById('avatarBtn'); if(av){ av.style.backgroundImage='url(' + JSON.stringify(data).slice(1,-1) + ')'; av.textContent=''; } try{ window.AccountManager.updateActive(a=>{ a.avatar=data; }); }catch(accountErr){} const scopedProfileKey=window.AccountManager.scopedKey('qq_profile_avatar_asset'); const scopedUserKey=window.AccountManager.scopedKey('user_avatar'); const scopedMomentsAvatarKey=window.AccountManager.scopedKey('qq_moments_hero_avatar_asset'); const scopedMomentsLegacyKey=window.AccountManager.scopedKey('qq_moments_hero_avatar'); try{ localStorage.setItem(scopedProfileKey, data); localStorage.setItem(scopedUserKey, data); localStorage.setItem(scopedMomentsAvatarKey, data); localStorage.setItem(scopedMomentsLegacyKey, data); localStorage.setItem('qq_profile_avatar_asset', data); localStorage.setItem('qq_moments_hero_avatar_asset', data); localStorage.setItem('qq_moments_hero_avatar', data); localStorage.setItem('user_avatar', data); }catch(storageErr){} await Promise.all([ saveStoredAsset(scopedProfileKey, data), saveStoredAsset(scopedUserKey, data), saveStoredAsset(scopedMomentsAvatarKey, data), saveStoredAsset(scopedMomentsLegacyKey, data), saveStoredAsset('qq_profile_avatar_asset', data), saveStoredAsset('qq_moments_hero_avatar_asset', data), saveStoredAsset('qq_moments_hero_avatar', data), saveStoredAsset('user_avatar', data) ]); renderProfile(); postProfilePreviewUpdate(); try{ window.parent.postMessage({ type:'USER_AVATAR_UPDATED', payload:{ src:data } }, '*'); }catch(err){} showToast('头像已更新'); }; r.readAsDataURL(f); e.target.value=''; }); }
-function renderFavorites(){ const list=document.getElementById('favList'); const acc=active(); const favs=Array.isArray(acc.favorites)?acc.favorites:[]; if(!favs.length){ list.innerHTML='<div class="sub">还没有收藏，去聊天里长按消息收藏吧。</div>'; return; } list.innerHTML=favs.map((f)=>{ const av=f.avatar ? 'style="background-image:url(' + escAttr(f.avatar) + ')"' : ''; return '<article class="fav-item" data-fav-id="'+escAttr(f.id||'')+'"><div class="fav-av" '+av+'></div><div class="fav-meta"><div class="fav-name">'+esc(f.name||'未命名')+'</div><div class="fav-time">'+fmtTime(f.at)+'</div><div class="fav-text">'+esc(f.text||'')+'</div></div></article>'; }).join(''); bindFavoriteSwipeDelete(); }
+function normalizeFavoriteType(type){
+  const safe = String(type || '').trim().toLowerCase();
+  if(safe === 'rich_html' || safe === 'richhtml' || safe === 'html_card') return 'richhtml';
+  if(safe === 'voice_message' || safe === 'voice') return 'voice';
+  if(safe === 'image_message' || safe === 'image') return 'image';
+  if(safe === 'meme_message' || safe === 'meme') return 'meme';
+  return safe || 'text';
+}
+function parseFavoriteRichPayload(raw){
+  if(!raw) return null;
+  let parsed = null;
+  if(typeof raw === 'object'){
+    parsed = raw;
+  }else{
+    try{ parsed = JSON.parse(String(raw || '')); }catch(err){ parsed = null; }
+  }
+  if(!parsed || typeof parsed !== 'object') return null;
+  if(parsed.type){
+    const safeType = normalizeFavoriteType(parsed.type);
+    if(safeType === 'richhtml'){
+      return parseFavoriteRichPayload(parsed.content || parsed.richPayload || null);
+    }
+  }
+  const html = String(parsed.html || '').trim();
+  const css = String(parsed.css || '').trim();
+  const js = String(parsed.js || '').trim();
+  const summary = String(parsed.summary || '').trim();
+  const text = String(parsed.text || '').trim();
+  if(!html && !summary && !text) return null;
+  return { html, css, js, summary, text };
+}
+function buildFavoriteRichSrcdoc(payload){
+  const data = payload && typeof payload === 'object' ? payload : { html:'', css:'', js:'', summary:'', text:'' };
+  let html = String(data.html || '').trim();
+  const css = String(data.css || '').trim();
+  const js = String(data.js || '').trim();
+  const summary = String(data.summary || data.text || 'SURPRISE').trim() || 'SURPRISE';
+  if(!html){
+    html = '<section style="padding:16px 14px;display:flex;align-items:center;justify-content:center;min-height:120px;border:2px solid #111;border-radius:16px;background:linear-gradient(180deg,#fff,#f2f2f2);font-family:-apple-system,BlinkMacSystemFont,\'SF Pro Text\',\'PingFang SC\',sans-serif;font-size:14px;font-weight:800;color:#111;">'
+      + esc(summary) + '</section>';
+  }
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<style>html,body{margin:0;padding:0;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,\'SF Pro Text\',\'PingFang SC\',sans-serif;overflow:auto}*,*:before,*:after{box-sizing:border-box}'
+    + css + '</style></head><body>' + html + (js ? ('<script>' + js + '<\/script>') : '') + '</body></html>';
+}
+function getFavoritePreviewText(fav){
+  const item = fav && typeof fav === 'object' ? fav : {};
+  const previewText = String(item.previewText || '').trim();
+  if(previewText) return previewText;
+  const kind = normalizeFavoriteType(item.type || 'text');
+  if(kind === 'richhtml') return '【SURPRISE】';
+  if(kind === 'voice') return '【语音消息】';
+  if(kind === 'image') return '【图片】';
+  if(kind === 'meme') return '【表情包】';
+  if(kind === 'text' && String(item.text || '').trim().startsWith('{')){
+    const maybeRich = parseFavoriteRichPayload(item.text);
+    if(maybeRich) return '【SURPRISE】';
+    try{
+      const parsed = JSON.parse(String(item.text || ''));
+      if(parsed && typeof parsed === 'object' && parsed.content){
+        const parsedKind = normalizeFavoriteType(parsed.type || 'text');
+        if(parsedKind === 'richhtml') return '【SURPRISE】';
+        return String(parsed.content || '').trim() || '空消息';
+      }
+    }catch(err){}
+  }
+  return String(item.text || '').trim() || '空消息';
+}
+function renderFavoriteBody(fav){
+  const item = fav && typeof fav === 'object' ? fav : {};
+  const kind = normalizeFavoriteType(item.type || 'text');
+  const richPayload = kind === 'richhtml'
+    ? (parseFavoriteRichPayload(item.richPayload || item.text) || parseFavoriteRichPayload(item.text))
+    : parseFavoriteRichPayload(item.richPayload || '');
+  if(kind === 'richhtml' || richPayload){
+    const srcdoc = buildFavoriteRichSrcdoc(richPayload || { html:'', css:'', js:'', summary:'SURPRISE', text:'' });
+    return '<div class="fav-rich-wrap"><iframe class="fav-rich-frame" loading="lazy" sandbox="allow-scripts" srcdoc="' + escAttr(srcdoc) + '"></iframe></div><div class="fav-rich-hint">【SURPRISE】</div>';
+  }
+  return '<div class="fav-text">' + esc(getFavoritePreviewText(item)) + '</div>';
+}
+function renderFavorites(){
+  const list = document.getElementById('favList');
+  const acc = active();
+  const favs = Array.isArray(acc.favorites) ? acc.favorites : [];
+  if(!favs.length){
+    list.innerHTML = '<div class="sub">还没有收藏，去聊天里长按消息收藏吧。</div>';
+    return;
+  }
+  list.innerHTML = favs.map((f)=>{
+    const av = f.avatar ? 'style="background-image:url(' + escAttr(f.avatar) + ')"' : '';
+    return '<article class="fav-item" data-fav-id="' + escAttr(f.id || '') + '"><div class="fav-av" ' + av + '></div><div class="fav-meta"><div class="fav-name">' + esc(f.name || '未命名') + '</div><div class="fav-time">' + fmtTime(f.at) + '</div>' + renderFavoriteBody(f) + '</div></article>';
+  }).join('');
+  bindFavoriteSwipeDelete();
+}
 function openFavorites(){ renderFavorites(); document.getElementById('favOverlay').classList.add('open'); }
 function removeFavoriteById(id){ if(!id) return; window.AccountManager.updateActive((a)=>{ const arr=Array.isArray(a.favorites)?a.favorites:[]; a.favorites=arr.filter((it)=>String(it&&it.id||'')!==String(id)); }); renderProfile(); renderFavorites(); }
 function confirmRemoveFavorite(id){ confirmModal('取消收藏','确定取消收藏？',()=>{ removeFavoriteById(id); }); }
