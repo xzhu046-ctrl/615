@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-04-13T00:43:00Z';
+const CACHE_VERSION = '2026-04-13T04:05:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -23,6 +23,7 @@ const CORE_URLS = [
   './apps/assets/海边小屋.webp',
   './apps/assets/亲亲脸.png',
   './apps/assets/吉他小黑猫.jpg',
+  './apps/assets/loading-cat.png',
   './apps/offline_archive.html',
   './apps/offline_mode.html'
 ];

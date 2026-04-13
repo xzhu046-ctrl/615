@@ -796,6 +796,18 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .mem-mini-btn:active{transform:translate(1px,1px);box-shadow:0 0 0}
 .mem-item-body{font-size:11px;font-weight:700;line-height:1.6;white-space:pre-wrap}
 .mem-empty{font-size:12px;color:var(--g);line-height:1.6}
+.memory-mode-tabs{display:flex;align-items:center;gap:6px;padding:8px 0 10px;border-bottom:var(--bd);position:sticky;top:0;background:var(--w);z-index:2}
+.memory-mode-tab{height:28px;padding:0 10px;border:var(--bd);border-radius:999px;background:linear-gradient(180deg,#fff,#f5f5f5);box-shadow:1px 1px 0 var(--b);font:900 10px/1 var(--fontd);color:#111;cursor:pointer;white-space:nowrap}
+.memory-mode-tab.active{background:#111;color:#fff;border-color:#111;box-shadow:1px 1px 0 #3a3a3a}
+.memory-mode-tab:active{transform:translate(1px,1px);box-shadow:0 0 0}
+.memory-section-title{display:flex;align-items:center;justify-content:space-between;gap:8px;font:900 11px/1.2 var(--fontd);letter-spacing:.08em;text-transform:uppercase;color:#5a5a5a;margin:2px 0 6px}
+.memory-section-title strong{color:#111;font-size:10px}
+.mem-chip-row{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:6px}
+.mem-chip{display:inline-flex;align-items:center;justify-content:center;min-height:20px;padding:0 8px;border:var(--bd);border-radius:999px;background:#fff;font:900 9px/1 var(--fontd);color:#111;letter-spacing:.03em}
+.mem-item.muted{background:linear-gradient(180deg,#ffffff,#f2f2f2)}
+.mem-kv{display:grid;grid-template-columns:1fr auto;gap:8px;font-size:11px;font-weight:800;line-height:1.45}
+.mem-kv small{font-size:10px;color:#666;font-weight:900}
+.mem-inline-label{font-size:10px;color:#666;font-weight:900;letter-spacing:.06em}
 .memory-overlay{position:fixed;inset:0;z-index:180;display:none;align-items:flex-start;justify-content:center;padding:18px;background:rgba(255,255,255,.48);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
 .memory-overlay.open{display:flex}
 .listen-along-overlay{position:fixed;inset:0;z-index:182;display:none;align-items:center;justify-content:center;padding:22px 18px;background:rgba(255,255,255,.34);backdrop-filter:blur(12px) saturate(118%);-webkit-backdrop-filter:blur(12px) saturate(118%)}
@@ -1528,6 +1540,33 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
       <div class="toggle-switch on" id="autoSummaryToggle" onclick="toggleAutoSummarySwitch()"></div>
     </div>
     <div style="margin-bottom:10px">
+      <span class="cs-label">记忆模式</span>
+      <select class="cs-input" id="csMemoryMode" onchange="renderMemoryModeSettingsUi()">
+        <option value="diary">日记记忆（原版）</option>
+        <option value="structured">结构化记忆</option>
+        <option value="vector">向量记忆</option>
+      </select>
+      <div class="toggle-sub">切换模式会自动基于完整聊天记录迁移记忆，避免记忆丢失。</div>
+    </div>
+    <div id="csVectorSettings" style="display:none">
+      <div style="margin-bottom:10px">
+        <span class="cs-label">向量检索注入条数（Top N）</span>
+        <input class="cs-input" id="csVectorTopN" type="number" min="1" max="20" step="1" placeholder="如 8">
+      </div>
+      <div style="margin-bottom:10px">
+        <span class="cs-label">向量检索策略</span>
+        <select class="cs-input" id="csVectorStrategy">
+          <option value="user-only">仅用户消息（推荐）</option>
+          <option value="user-weighted">用户优先</option>
+          <option value="mixed">混合模式</option>
+        </select>
+      </div>
+      <div style="margin-bottom:10px">
+        <span class="cs-label">检索使用用户最近消息条数</span>
+        <input class="cs-input" id="csVectorUserMsgCount" type="number" min="1" max="10" step="1" placeholder="如 3">
+      </div>
+    </div>
+    <div style="margin-bottom:10px">
       <span class="cs-label">聊天页首次加载条数</span>
       <input class="cs-input" id="csChatRenderPageSize" type="number" min="10" max="200" step="1" placeholder="如 40">
     </div>
@@ -2145,6 +2184,13 @@ var MAX_CHAT_RENDER_PAGE_SIZE = 200;
 var DEFAULT_SUMMARY_EVERY = 30;
 var DEFAULT_MEMORY_MERGE_THRESHOLD = 10;
 var DEFAULT_MANUAL_SUMMARY_SIZE = 30;
+var MEMORY_MODE_DIARY = 'diary';
+var MEMORY_MODE_STRUCTURED = 'structured';
+var MEMORY_MODE_VECTOR = 'vector';
+var DEFAULT_MEMORY_MODE = MEMORY_MODE_DIARY;
+var DEFAULT_VECTOR_TOP_N = 8;
+var DEFAULT_VECTOR_RETRIEVAL_STRATEGY = 'user-only';
+var DEFAULT_VECTOR_USER_MSG_COUNT = 3;
 var DEFAULT_MOMENTS_FREQ = 'medium';
 var memorySummaryBusy = false;
 var pendingCharBgEnabled = null;
@@ -2153,6 +2199,10 @@ var pendingPresenceShareEnabled = null;
 var pendingPresenceAutoReplyEnabled = null;
 var chatExportState = null;
 var memoryEditingId = '';
+var memoryEditingType = 'diary';
+var memoryPanelView = 'all';
+var vectorMemoryPromptCache = '';
+var vectorEmbeddingCache = {};
 var chatSettingsSavedAtLeastOnce = false;
 var chatSettingsSaving = false;
 var chatVisibleCount = 0;
@@ -2189,7 +2239,7 @@ var pendingMoneyCoverName = '';
 var pendingDeleteMoneyCoverId = '';
 var moneyCoverLongPressTimer = null;
 var pendingIncomingMoneyDecisionId = '';
-var memorySummaryStoreCache = { covered: 0, progress: 0, items: [] };
+var memorySummaryStoreCache = defaultMemorySummaryStore();
 var innerVoiceStoreCache = { current: null, items: [] };
 var moneyStateCache = null;
 var callRecordStoreCache = { items: [] };
@@ -2412,6 +2462,86 @@ function autoSummaryEnabledKey(){
 function manualSummarySizeKey(){
   return character && character.id ? accountScopedKey('manual_summary_size_' + character.id) : '';
 }
+function memoryModeKey(){
+  return character && character.id ? accountScopedKey('memory_mode_' + character.id) : '';
+}
+function vectorTopNKey(){
+  return character && character.id ? accountScopedKey('vector_topn_' + character.id) : '';
+}
+function vectorStrategyKey(){
+  return character && character.id ? accountScopedKey('vector_strategy_' + character.id) : '';
+}
+function vectorUserMsgCountKey(){
+  return character && character.id ? accountScopedKey('vector_user_msg_count_' + character.id) : '';
+}
+function loadMemoryMode(){
+  if(!character) return DEFAULT_MEMORY_MODE;
+  var fromStore = normalizeAdvancedMemoryState(memorySummaryStoreCache && memorySummaryStoreCache.advancedMemory).mode;
+  if(fromStore) return normalizeMemoryMode(fromStore);
+  if(character.memoryMode) return normalizeMemoryMode(character.memoryMode);
+  var raw = localStorage.getItem(memoryModeKey());
+  return normalizeMemoryMode(raw || DEFAULT_MEMORY_MODE);
+}
+function saveMemoryMode(mode){
+  if(!character) return;
+  var nextMode = normalizeMemoryMode(mode);
+  character.memoryMode = nextMode;
+  safeLocalStorageSet(memoryModeKey(), nextMode);
+  var store = loadMemorySummaryStore();
+  store.advancedMemory = normalizeAdvancedMemoryState(store.advancedMemory);
+  store.advancedMemory.mode = nextMode;
+  saveMemorySummaryStore(store);
+}
+function loadVectorTopN(){
+  if(!character) return DEFAULT_VECTOR_TOP_N;
+  var adv = normalizeAdvancedMemoryState(memorySummaryStoreCache && memorySummaryStoreCache.advancedMemory);
+  var n = Number(adv.vector && adv.vector.settings && adv.vector.settings.topN || character.memoryVectorTopN || localStorage.getItem(vectorTopNKey()) || DEFAULT_VECTOR_TOP_N);
+  return Math.max(1, Math.min(20, Number(n) || DEFAULT_VECTOR_TOP_N));
+}
+function saveVectorTopN(n){
+  if(!character) return;
+  var next = Math.max(1, Math.min(20, Number(n) || DEFAULT_VECTOR_TOP_N));
+  character.memoryVectorTopN = next;
+  safeLocalStorageSet(vectorTopNKey(), String(next));
+  var store = loadMemorySummaryStore();
+  store.advancedMemory = normalizeAdvancedMemoryState(store.advancedMemory);
+  store.advancedMemory.vector.settings.topN = next;
+  saveMemorySummaryStore(store);
+}
+function loadVectorRetrievalStrategy(){
+  if(!character) return DEFAULT_VECTOR_RETRIEVAL_STRATEGY;
+  var adv = normalizeAdvancedMemoryState(memorySummaryStoreCache && memorySummaryStoreCache.advancedMemory);
+  var source = String(adv.vector && adv.vector.settings && adv.vector.settings.retrievalStrategy || character.memoryVectorStrategy || localStorage.getItem(vectorStrategyKey()) || DEFAULT_VECTOR_RETRIEVAL_STRATEGY).toLowerCase();
+  if(source !== 'mixed' && source !== 'user-weighted' && source !== 'user-only') source = DEFAULT_VECTOR_RETRIEVAL_STRATEGY;
+  return source;
+}
+function saveVectorRetrievalStrategy(strategy){
+  if(!character) return;
+  var next = String(strategy || '').toLowerCase();
+  if(next !== 'mixed' && next !== 'user-weighted' && next !== 'user-only') next = DEFAULT_VECTOR_RETRIEVAL_STRATEGY;
+  character.memoryVectorStrategy = next;
+  safeLocalStorageSet(vectorStrategyKey(), next);
+  var store = loadMemorySummaryStore();
+  store.advancedMemory = normalizeAdvancedMemoryState(store.advancedMemory);
+  store.advancedMemory.vector.settings.retrievalStrategy = next;
+  saveMemorySummaryStore(store);
+}
+function loadVectorUserMsgCount(){
+  if(!character) return DEFAULT_VECTOR_USER_MSG_COUNT;
+  var adv = normalizeAdvancedMemoryState(memorySummaryStoreCache && memorySummaryStoreCache.advancedMemory);
+  var n = Number(adv.vector && adv.vector.settings && adv.vector.settings.retrievalUserMsgCount || character.memoryVectorUserMsgCount || localStorage.getItem(vectorUserMsgCountKey()) || DEFAULT_VECTOR_USER_MSG_COUNT);
+  return Math.max(1, Math.min(10, Number(n) || DEFAULT_VECTOR_USER_MSG_COUNT));
+}
+function saveVectorUserMsgCount(n){
+  if(!character) return;
+  var next = Math.max(1, Math.min(10, Number(n) || DEFAULT_VECTOR_USER_MSG_COUNT));
+  character.memoryVectorUserMsgCount = next;
+  safeLocalStorageSet(vectorUserMsgCountKey(), String(next));
+  var store = loadMemorySummaryStore();
+  store.advancedMemory = normalizeAdvancedMemoryState(store.advancedMemory);
+  store.advancedMemory.vector.settings.retrievalUserMsgCount = next;
+  saveMemorySummaryStore(store);
+}
 function loadContextWindowSize(){
   if(!character) return DEFAULT_CONTEXT_WINDOW;
   var source = character.contextWindow;
@@ -2533,6 +2663,133 @@ function formatTok(n){
   var val = Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0;
   return val + ' tok';
 }
+function normalizeMemoryMode(mode){
+  var v = String(mode || '').trim().toLowerCase();
+  if(v === MEMORY_MODE_STRUCTURED) return MEMORY_MODE_STRUCTURED;
+  if(v === MEMORY_MODE_VECTOR) return MEMORY_MODE_VECTOR;
+  return MEMORY_MODE_DIARY;
+}
+function defaultStructuredMemoryState(){
+  return {
+    facts: {},
+    events: {},
+    decisions: [],
+    plans: [],
+    relationship: '',
+    emotions: [],
+    customCategories: {},
+    custom: {},
+    covered: 0,
+    lastUpdated: 0
+  };
+}
+function defaultVectorMemoryState(){
+  return {
+    coreMemories: [],
+    fragments: [],
+    timelineSummaries: {},
+    covered: 0,
+    lastExtractionAt: 0,
+    settings: {
+      topN: DEFAULT_VECTOR_TOP_N,
+      retrievalStrategy: DEFAULT_VECTOR_RETRIEVAL_STRATEGY,
+      retrievalUserMsgCount: DEFAULT_VECTOR_USER_MSG_COUNT,
+      scoreWeights: { semantic: 0.4, keyword: 0.3, importance: 0.15, emotion: 0.1, recency: 0.05 }
+    },
+    retrievalCache: { query: '', resultIds: [], timestamp: 0, msgCount: 0 }
+  };
+}
+function normalizeStructuredMemoryState(raw){
+  var src = raw && typeof raw === 'object' ? raw : defaultStructuredMemoryState();
+  var next = defaultStructuredMemoryState();
+  next.facts = src.facts && typeof src.facts === 'object' ? cloneJsonSafe(src.facts, {}) : {};
+  next.events = src.events && typeof src.events === 'object' ? cloneJsonSafe(src.events, {}) : {};
+  next.decisions = Array.isArray(src.decisions) ? src.decisions.map(function(v){ return String(v || '').trim(); }).filter(Boolean) : [];
+  next.plans = Array.isArray(src.plans) ? src.plans.map(function(v){ return String(v || '').trim(); }).filter(Boolean) : [];
+  next.relationship = String(src.relationship || '').trim();
+  next.emotions = Array.isArray(src.emotions) ? src.emotions.map(function(v){ return String(v || '').trim(); }).filter(Boolean) : [];
+  next.customCategories = src.customCategories && typeof src.customCategories === 'object' ? cloneJsonSafe(src.customCategories, {}) : {};
+  next.custom = src.custom && typeof src.custom === 'object' ? cloneJsonSafe(src.custom, {}) : {};
+  next.covered = Math.max(0, Number(src.covered || 0) || 0);
+  next.lastUpdated = Math.max(0, Number(src.lastUpdated || 0) || 0);
+  return next;
+}
+function normalizeVectorMemoryState(raw){
+  var src = raw && typeof raw === 'object' ? raw : defaultVectorMemoryState();
+  var next = defaultVectorMemoryState();
+  next.coreMemories = Array.isArray(src.coreMemories) ? src.coreMemories.map(function(item){
+    var obj = item && typeof item === 'object' ? item : {};
+    return {
+      id: String(obj.id || ('core_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7))),
+      content: String(obj.content || '').trim(),
+      createdAt: Math.max(0, Number(obj.createdAt || Date.now()) || Date.now())
+    };
+  }).filter(function(item){ return !!item.content; }) : [];
+  next.fragments = Array.isArray(src.fragments) ? src.fragments.map(function(item){
+    var obj = item && typeof item === 'object' ? item : {};
+    return {
+      id: String(obj.id || ('mem_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7))),
+      content: String(obj.content || '').trim(),
+      tags: Array.isArray(obj.tags) ? obj.tags.map(function(tag){ return String(tag || '').trim(); }).filter(Boolean) : [],
+      category: /^[FEDPRMC]$/.test(String(obj.category || 'E')) ? String(obj.category || 'E') : 'E',
+      importance: Math.max(1, Math.min(10, Number(obj.importance || 5) || 5)),
+      emotionalWeight: Math.max(1, Math.min(10, Number(obj.emotionalWeight || 3) || 3)),
+      createdAt: Math.max(0, Number(obj.createdAt || Date.now()) || Date.now()),
+      lastRecalled: Math.max(0, Number(obj.lastRecalled || 0) || 0),
+      recallCount: Math.max(0, Number(obj.recallCount || 0) || 0),
+      embedding: Array.isArray(obj.embedding) ? obj.embedding.map(function(n){ return Number(n) || 0; }) : null,
+      linkedMemories: Array.isArray(obj.linkedMemories) ? obj.linkedMemories.map(function(v){ return String(v || '').trim(); }).filter(Boolean) : [],
+      source: String(obj.source || 'auto').trim() || 'auto',
+      context: String(obj.context || '').trim()
+    };
+  }).filter(function(item){ return !!item.content; }) : [];
+  next.timelineSummaries = src.timelineSummaries && typeof src.timelineSummaries === 'object' ? cloneJsonSafe(src.timelineSummaries, {}) : {};
+  next.covered = Math.max(0, Number(src.covered || 0) || 0);
+  next.lastExtractionAt = Math.max(0, Number(src.lastExtractionAt || 0) || 0);
+  var weights = src.settings && src.settings.scoreWeights && typeof src.settings.scoreWeights === 'object' ? src.settings.scoreWeights : {};
+  next.settings = {
+    topN: Math.max(1, Math.min(20, Number(src.settings && src.settings.topN || DEFAULT_VECTOR_TOP_N) || DEFAULT_VECTOR_TOP_N)),
+    retrievalStrategy: (function(v){
+      v = String(v || DEFAULT_VECTOR_RETRIEVAL_STRATEGY).toLowerCase();
+      return (v === 'mixed' || v === 'user-weighted' || v === 'user-only') ? v : DEFAULT_VECTOR_RETRIEVAL_STRATEGY;
+    })(src.settings && src.settings.retrievalStrategy),
+    retrievalUserMsgCount: Math.max(1, Math.min(10, Number(src.settings && src.settings.retrievalUserMsgCount || DEFAULT_VECTOR_USER_MSG_COUNT) || DEFAULT_VECTOR_USER_MSG_COUNT)),
+    scoreWeights: {
+      semantic: Number(weights.semantic != null ? weights.semantic : 0.4) || 0.4,
+      keyword: Number(weights.keyword != null ? weights.keyword : 0.3) || 0.3,
+      importance: Number(weights.importance != null ? weights.importance : 0.15) || 0.15,
+      emotion: Number(weights.emotion != null ? weights.emotion : 0.1) || 0.1,
+      recency: Number(weights.recency != null ? weights.recency : 0.05) || 0.05
+    }
+  };
+  next.retrievalCache = src.retrievalCache && typeof src.retrievalCache === 'object' ? {
+    query: String(src.retrievalCache.query || ''),
+    resultIds: Array.isArray(src.retrievalCache.resultIds) ? src.retrievalCache.resultIds.map(function(v){ return String(v || '').trim(); }).filter(Boolean) : [],
+    timestamp: Math.max(0, Number(src.retrievalCache.timestamp || 0) || 0),
+    msgCount: Math.max(0, Number(src.retrievalCache.msgCount || 0) || 0)
+  } : { query:'', resultIds:[], timestamp:0, msgCount:0 };
+  return next;
+}
+function defaultAdvancedMemoryState(){
+  return {
+    mode: DEFAULT_MEMORY_MODE,
+    structured: defaultStructuredMemoryState(),
+    vector: defaultVectorMemoryState()
+  };
+}
+function normalizeAdvancedMemoryState(raw){
+  var src = raw && typeof raw === 'object' ? raw : defaultAdvancedMemoryState();
+  return {
+    mode: normalizeMemoryMode(src.mode || DEFAULT_MEMORY_MODE),
+    structured: normalizeStructuredMemoryState(src.structured),
+    vector: normalizeVectorMemoryState(src.vector)
+  };
+}
+function ensureAdvancedMemoryOnStore(store){
+  var safeStore = normalizeMemorySummaryStore(store || defaultMemorySummaryStore());
+  safeStore.advancedMemory = normalizeAdvancedMemoryState(safeStore.advancedMemory);
+  return safeStore;
+}
 function parseLegacyMemorySummaryStore(rawText){
   try{
     var raw = JSON.parse(rawText || '{}');
@@ -2555,7 +2812,8 @@ function parseLegacyMemorySummaryStore(rawText){
     return {
       covered: covered,
       progress: Math.max(covered, progressRaw),
-      items: items
+      items: items,
+      advancedMemory: normalizeAdvancedMemoryState(raw.advancedMemory || null)
     };
   }catch(e){
     return defaultMemorySummaryStore();
@@ -2579,6 +2837,7 @@ function normalizeMemorySummaryStore(store){
   }).filter(function(it){ return !!it.text; }) : [];
   next.covered = computeMemoryCoveredFromItems(next.items);
   next.progress = Math.max(next.covered, Number(next.progress || 0) || 0);
+  next.advancedMemory = normalizeAdvancedMemoryState(next.advancedMemory || null);
   return next;
 }
 
@@ -3067,40 +3326,673 @@ async function maybeCompactMemorySummaries(store){
   saveMemorySummaryStore(next);
   return next;
 }
+function getMemoryModeFromStore(store){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  return normalizeMemoryMode(safe.advancedMemory && safe.advancedMemory.mode || loadMemoryMode());
+}
+function buildDiaryMemoryPromptText(items){
+  var list = Array.isArray(items) ? items : [];
+  if(!list.length) return '';
+  var pinned = list.filter(isPinnedMemoryItem);
+  var auto = list.filter(function(it){ return !isPinnedMemoryItem(it); });
+  var lines = [];
+  if(pinned.length){
+    lines.push('【手动修正 / 高优先级记忆】');
+    lines = lines.concat(pinned.map(function(it, idx){
+      return '重点记忆' + (idx + 1) + '：' + String(it.text || '').trim();
+    }));
+  }
+  if(auto.length){
+    if(lines.length) lines.push('');
+    lines.push('【历史记忆总结】');
+    lines = lines.concat(auto.map(function(it, idx){
+      return '记忆' + (idx + 1) + '：' + String(it.text || '').trim();
+    }));
+  }
+  return lines.join('\n').trim();
+}
+function toMemoryYYMMDD(ts){
+  var d = ts ? new Date(ts) : new Date();
+  if(!d || Number.isNaN(d.getTime())) d = new Date();
+  var yy = String(d.getFullYear()).slice(-2);
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var dd = String(d.getDate()).padStart(2, '0');
+  return yy + mm + dd;
+}
+function getStructuredMemoryCategories(store){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var custom = safe.advancedMemory.structured.customCategories || {};
+  return Object.assign({
+    F: { name:'偏好/事实', mergeMode:'keyvalue' },
+    E: { name:'事件', mergeMode:'monthly' },
+    D: { name:'决定', mergeMode:'list' },
+    P: { name:'计划/待办', mergeMode:'list' },
+    R: { name:'关系变化', mergeMode:'timeline' },
+    M: { name:'情绪节点', mergeMode:'list' }
+  }, custom);
+}
+function parseStructuredMemoryEntries(rawText, store){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var categories = getStructuredMemoryCategories(safe);
+  var validCodes = Object.keys(categories);
+  return String(rawText || '').split('\n').map(function(line){
+    return String(line || '').trim();
+  }).map(function(line){
+    var hit = line.match(/^\[(\d{6})\]([A-Za-z0-9_]+):(.+)$/);
+    if(!hit || validCodes.indexOf(hit[2]) < 0) return null;
+    return { date: hit[1], category: hit[2], content: String(hit[3] || '').trim() };
+  }).filter(Boolean);
+}
+function mergeStructuredMemoryEntries(store, entries){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var mem = safe.advancedMemory.structured;
+  entries.forEach(function(entry){
+    if(!entry || !entry.category) return;
+    var code = entry.category;
+    if(code === 'F'){
+      var eq = String(entry.content || '').indexOf('=');
+      if(eq < 0){
+        mem.facts[String(entry.content || '').trim()] = '(' + entry.date + ')';
+        return;
+      }
+      var key = String(entry.content || '').slice(0, eq).trim();
+      var value = String(entry.content || '').slice(eq + 1).trim();
+      var old = String(mem.facts[key] || '').replace(/\(\d{6}\)$/,'');
+      var mergedValues = old ? old.split('+').map(function(v){ return v.trim(); }).filter(Boolean) : [];
+      value.split('+').map(function(v){ return v.trim(); }).filter(Boolean).forEach(function(v){
+        if(mergedValues.indexOf(v) < 0) mergedValues.push(v);
+      });
+      mem.facts[key] = mergedValues.join('+') + '(' + entry.date + ')';
+      return;
+    }
+    if(code === 'E'){
+      var ym = String(entry.date || '').slice(0, 4);
+      var day = String(entry.date || '').slice(4, 6);
+      var item = '[' + day + ']' + String(entry.content || '').trim();
+      if(mem.events[ym]){
+        var pieces = String(mem.events[ym]).split('|');
+        if(pieces.indexOf(item) < 0) pieces.push(item);
+        mem.events[ym] = pieces.join('|');
+      }else{
+        mem.events[ym] = item;
+      }
+      return;
+    }
+    if(code === 'D'){
+      var dec = '[' + entry.date + ']' + String(entry.content || '').trim();
+      if(mem.decisions.indexOf(dec) < 0) mem.decisions.push(dec);
+      return;
+    }
+    if(code === 'P'){
+      var plan = String(entry.content || '').trim();
+      var exists = mem.plans.some(function(v){ return String(v || '').replace(/\(\d{6}\)$/,'').trim() === plan; });
+      if(!exists) mem.plans.push(plan + '(' + entry.date + ')');
+      return;
+    }
+    if(code === 'R'){
+      var rel = String(entry.content || '').trim() + '(' + entry.date + ')';
+      mem.relationship = mem.relationship ? (mem.relationship + '→' + rel) : rel;
+      return;
+    }
+    if(code === 'M'){
+      var emo = '[' + entry.date + ']' + String(entry.content || '').trim();
+      if(mem.emotions.indexOf(emo) < 0) mem.emotions.push(emo);
+      return;
+    }
+    if(!mem.custom[code]) mem.custom[code] = [];
+    var customItem = '[' + entry.date + ']' + String(entry.content || '').trim();
+    if(mem.custom[code].indexOf(customItem) < 0) mem.custom[code].push(customItem);
+  });
+  mem.covered = Math.max(mem.covered || 0, Number(safe.covered || 0) || 0);
+  mem.lastUpdated = Date.now();
+  return safe;
+}
+function serializeStructuredMemoryForPrompt(store){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var mem = safe.advancedMemory.structured;
+  var categories = getStructuredMemoryCategories(safe);
+  var output = '';
+  var catDesc = Object.keys(categories).map(function(code){
+    return code + '=' + String((categories[code] && categories[code].name) || code);
+  }).join(' ');
+  output += '## 你的记忆数据库（压缩格式）\n';
+  output += '- ' + catDesc + '\n';
+  output += '- 日期格式 YYMMDD，例如 260105=2026年1月5日。\n';
+  output += '- 你要把这些内容当作真实记忆自然引用，不要提到数据库。\n';
+  var hasAny = false;
+  var factKeys = Object.keys(mem.facts || {});
+  if(factKeys.length){
+    hasAny = true;
+    output += '\n[F偏好/事实]\n';
+    factKeys.forEach(function(key){ output += key + '=' + String(mem.facts[key] || '') + '\n'; });
+  }
+  if(mem.relationship){
+    hasAny = true;
+    output += '\n[R关系变化]\n' + mem.relationship + '\n';
+  }
+  var eventMonths = Object.keys(mem.events || {}).sort();
+  if(eventMonths.length){
+    hasAny = true;
+    output += '\n[E事件]\n';
+    eventMonths.forEach(function(ym){ output += ym + ':' + String(mem.events[ym] || '') + '\n'; });
+  }
+  if((mem.plans || []).length){
+    hasAny = true;
+    output += '\n[P计划/待办]\n';
+    mem.plans.forEach(function(v){ output += String(v || '') + '\n'; });
+  }
+  if((mem.decisions || []).length){
+    hasAny = true;
+    output += '\n[D决定]\n';
+    mem.decisions.forEach(function(v){ output += String(v || '') + '\n'; });
+  }
+  if((mem.emotions || []).length){
+    hasAny = true;
+    output += '\n[M情绪节点]\n';
+    mem.emotions.forEach(function(v){ output += String(v || '') + '\n'; });
+  }
+  Object.keys(mem.customCategories || {}).forEach(function(code){
+    var rows = Array.isArray(mem.custom && mem.custom[code]) ? mem.custom[code] : [];
+    if(!rows.length) return;
+    hasAny = true;
+    output += '\n[' + code + String((mem.customCategories[code] && mem.customCategories[code].name) || code) + ']\n';
+    rows.forEach(function(v){ output += String(v || '') + '\n'; });
+  });
+  if(!hasAny) output += '\n(暂无记忆档案)\n';
+  return output.trim();
+}
+function buildStructuredSummaryPrompt(slice, store){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var userName = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '用户').trim() || '用户';
+  var timeFrom = slice[0] && slice[0].timestamp ? slice[0].timestamp : Date.now();
+  var timeTo = slice[slice.length - 1] && slice[slice.length - 1].timestamp ? slice[slice.length - 1].timestamp : Date.now();
+  var history = slice.map(function(msg){
+    var role = msg.role === 'user' ? userName : (getCurrentCharDisplayName() || '角色');
+    return '[' + new Date(msg.timestamp || Date.now()).toLocaleTimeString('zh-CN', { hour12:false, hour:'2-digit', minute:'2-digit' }) + '] ' + role + ': ' + String(formatMessageForModel(msg) || '').replace(/\s+/g, ' ').trim();
+  }).join('\n');
+  var existing = serializeStructuredMemoryForPrompt(safe);
+  return [
+    '你是"' + (getCurrentCharDisplayName() || '角色') + '"。请阅读对话并提取值得长期记忆的信息，输出结构化记忆条目。',
+    '输出格式必须是每行一条：[YYMMDD]分类:内容',
+    '分类只能用 F/E/D/P/R/M。',
+    'F=偏好/事实（推荐 key=value），E=事件，D=决定，P=计划，R=关系变化，M=情绪节点。',
+    '只提取真正影响未来互动的信息；闲聊、一次性问答、无后续影响内容不要记录。',
+    '不要重复已有记忆，不要输出解释。',
+    '现有记忆：\n' + existing,
+    '对话时间范围：' + new Date(timeFrom).toLocaleString('zh-CN') + ' 至 ' + new Date(timeTo).toLocaleString('zh-CN'),
+    '对话内容：\n' + history
+  ].join('\n\n');
+}
+function vectorTokenize(text){
+  var raw = String(text || '');
+  if(!raw) return [];
+  var stop = new Set(['的','了','是','在','我','你','他','她','它','们','这','那','有','和','与','也','都','就','不','吗','呢','吧','啊','哦','the','a','an','is','are','was','were','be','to','of','and','in','on','at','for','with','i','you','he','she','it','we','they']);
+  var out = [];
+  var cn = raw.match(/[\u4e00-\u9fff]{2,4}/g) || [];
+  cn.forEach(function(v){ if(!stop.has(v)) out.push(v); });
+  var en = raw.match(/[a-zA-Z]+/g) || [];
+  en.forEach(function(v){ if(v.length > 1 && !stop.has(v.toLowerCase())) out.push(v); });
+  var num = raw.match(/\d+/g) || [];
+  num.forEach(function(v){ if(v.length >= 2) out.push(v); });
+  return Array.from(new Set(out));
+}
+function vectorTextSimilarity(a, b){
+  var x = new Set(vectorTokenize(a));
+  var y = new Set(vectorTokenize(b));
+  if(!x.size || !y.size) return 0;
+  var inter = 0;
+  x.forEach(function(token){ if(y.has(token)) inter += 1; });
+  return inter / Math.max(x.size, y.size, 1);
+}
+function vectorCosineSimilarity(a, b){
+  if(!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || !a.length) return 0;
+  var dot = 0, na = 0, nb = 0;
+  for(var i = 0; i < a.length; i += 1){
+    var av = Number(a[i]) || 0;
+    var bv = Number(b[i]) || 0;
+    dot += av * bv;
+    na += av * av;
+    nb += bv * bv;
+  }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb) || 1);
+}
+function vectorKeywordMatch(queryTokens, tags){
+  if(!queryTokens.length || !tags.length) return 0;
+  var lowerTags = tags.map(function(v){ return String(v || '').toLowerCase(); });
+  var matches = 0;
+  queryTokens.forEach(function(token){
+    var tk = String(token || '').toLowerCase();
+    if(lowerTags.some(function(tag){ return tag.indexOf(tk) >= 0 || tk.indexOf(tag) >= 0; })) matches += 1;
+  });
+  return matches / Math.max(queryTokens.length, 1);
+}
+function vectorTimeDecay(timestamp){
+  var days = (Date.now() - Number(timestamp || 0)) / (1000 * 60 * 60 * 24);
+  return Math.exp(-0.693 * days / 30);
+}
+function buildVectorExtractionPrompt(slice){
+  var userName = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '用户').trim() || '用户';
+  var history = slice.map(function(msg){
+    var role = msg.role === 'user' ? userName : (getCurrentCharDisplayName() || '角色');
+    return '[' + new Date(msg.timestamp || Date.now()).toLocaleTimeString('zh-CN', { hour12:false, hour:'2-digit', minute:'2-digit' }) + '] ' + role + ': ' + String(formatMessageForModel(msg) || '').replace(/\s+/g, ' ').trim();
+  }).join('\n');
+  return [
+    '你是"' + (getCurrentCharDisplayName() || '角色') + '"。请从对话里提取值得长期记忆的信息。',
+    '只返回 JSON 数组，每项格式：{"content":"...","tags":["..."],"category":"F/E/D/P/R/M","importance":1-10,"emotionalWeight":1-10,"context":"..."}',
+    '只提取重要信息，不要提取寒暄或无后续影响的闲聊。',
+    '如果没有可提取内容，返回 []。',
+    '对话内容：\n' + history
+  ].join('\n\n');
+}
+function parseVectorExtractionResult(rawText){
+  var txt = String(rawText || '').trim();
+  if(!txt) return [];
+  try{
+    var hit = txt.match(/\[[\s\S]*\]/);
+    if(!hit) return [];
+    var arr = JSON.parse(hit[0]);
+    if(!Array.isArray(arr)) return [];
+    return arr.map(function(item){
+      var obj = item && typeof item === 'object' ? item : {};
+      var category = String(obj.category || 'E').trim().toUpperCase();
+      if(!/^[FEDPRM]$/.test(category)) category = 'E';
+      return {
+        content: String(obj.content || '').trim(),
+        tags: Array.isArray(obj.tags) ? obj.tags.map(function(v){ return String(v || '').trim(); }).filter(Boolean).slice(0, 8) : [],
+        category: category,
+        importance: Math.max(1, Math.min(10, Number(obj.importance || 5) || 5)),
+        emotionalWeight: Math.max(1, Math.min(10, Number(obj.emotionalWeight || 3) || 3)),
+        context: String(obj.context || '').trim()
+      };
+    }).filter(function(item){ return !!item.content; });
+  }catch(e){
+    return [];
+  }
+}
+async function getVectorEmbedding(text){
+  var src = String(text || '').trim();
+  if(!src) return null;
+  var cacheKey = src.slice(0, 220);
+  if(vectorEmbeddingCache[cacheKey]) return vectorEmbeddingCache[cacheKey];
+  var provider = String(localStorage.getItem('provider') || 'openai');
+  var key = String(localStorage.getItem('key_' + provider) || '').trim();
+  if(!key) return null;
+  var endpoint = '';
+  if(provider === 'openai'){
+    endpoint = 'https://api.openai.com/v1/embeddings';
+  }else if(provider === 'custom'){
+    var customBase = String(localStorage.getItem('custom_url') || '').trim().replace(/\/$/, '');
+    if(customBase) endpoint = customBase + '/v1/embeddings';
+  }
+  if(!endpoint) return null;
+  try{
+    var resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      body: JSON.stringify({ model:'text-embedding-3-small', input: src })
+    });
+    if(!resp.ok) return null;
+    var data = await resp.json();
+    var emb = data && data.data && data.data[0] && Array.isArray(data.data[0].embedding) ? data.data[0].embedding : null;
+    if(emb) vectorEmbeddingCache[cacheKey] = emb;
+    return emb;
+  }catch(err){
+    return null;
+  }
+}
+async function mergeVectorExtractedMemories(store, extractedItems){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var mem = safe.advancedMemory.vector;
+  var added = 0;
+  for(var i = 0; i < extractedItems.length; i += 1){
+    var item = extractedItems[i];
+    if(!item || !item.content) continue;
+    var isDup = mem.fragments.some(function(frag){
+      return vectorTextSimilarity(frag.content, item.content) > 0.8;
+    });
+    if(isDup) continue;
+    var embedding = await getVectorEmbedding(item.content);
+    mem.fragments.push({
+      id: 'mem_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+      content: item.content,
+      tags: item.tags || [],
+      category: item.category || 'E',
+      importance: item.importance || 5,
+      emotionalWeight: item.emotionalWeight || 3,
+      createdAt: Date.now(),
+      lastRecalled: 0,
+      recallCount: 0,
+      embedding: embedding,
+      linkedMemories: [],
+      source: 'auto',
+      context: item.context || ''
+    });
+    added += 1;
+  }
+  if(added > 0){
+    mem.lastExtractionAt = Date.now();
+  }
+  return added;
+}
+function getVectorRetrievalQueryFromMessages(messages, settings){
+  var list = Array.isArray(messages) ? messages : [];
+  if(!list.length) return '';
+  var strategy = String(settings && settings.retrievalStrategy || DEFAULT_VECTOR_RETRIEVAL_STRATEGY);
+  var userOnlyCount = Math.max(1, Math.min(10, Number(settings && settings.retrievalUserMsgCount || DEFAULT_VECTOR_USER_MSG_COUNT) || DEFAULT_VECTOR_USER_MSG_COUNT));
+  if(strategy === 'user-only'){
+    return list.filter(function(m){ return m && m.role === 'user'; }).slice(-userOnlyCount).map(function(m){ return String(m.content || '').trim(); }).filter(Boolean).join('\n');
+  }
+  if(strategy === 'user-weighted'){
+    var userPart = list.filter(function(m){ return m && m.role === 'user'; }).slice(-userOnlyCount).map(function(m){ return String(m.content || '').trim(); }).filter(Boolean).join('\n');
+    var mixPart = list.slice(-Math.max(4, userOnlyCount * 2)).map(function(m){
+      var role = m && m.role === 'user' ? '用户' : '角色';
+      return role + '：' + String((m && m.content) || '').trim();
+    }).filter(Boolean).join('\n');
+    return [userPart, mixPart].filter(Boolean).join('\n');
+  }
+  return list.slice(-8).map(function(m){
+    var role = m && m.role === 'user' ? '用户' : '角色';
+    return role + '：' + String((m && m.content) || '').trim();
+  }).filter(Boolean).join('\n');
+}
+async function retrieveVectorRelevantMemories(store, queryText){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var mem = safe.advancedMemory.vector;
+  var frags = Array.isArray(mem.fragments) ? mem.fragments.slice() : [];
+  if(!frags.length) return [];
+  var topN = Math.max(1, Math.min(20, Number(mem.settings && mem.settings.topN || DEFAULT_VECTOR_TOP_N) || DEFAULT_VECTOR_TOP_N));
+  var query = String(queryText || '').trim();
+  if(!query){
+    return frags.sort(function(a, b){ return (Number(b.importance || 0) || 0) - (Number(a.importance || 0) || 0); }).slice(0, topN);
+  }
+  var weights = mem.settings && mem.settings.scoreWeights ? mem.settings.scoreWeights : { semantic: 0.4, keyword: 0.3, importance: 0.15, emotion: 0.1, recency: 0.05 };
+  var queryTokens = vectorTokenize(query);
+  var queryEmbedding = await getVectorEmbedding(query);
+  var scored = frags.map(function(frag){
+    var semantic = queryEmbedding && Array.isArray(frag.embedding) ? vectorCosineSimilarity(queryEmbedding, frag.embedding) : 0;
+    var keyword = Math.max(
+      vectorKeywordMatch(queryTokens, Array.isArray(frag.tags) ? frag.tags : []),
+      vectorKeywordMatch(queryTokens, vectorTokenize(String(frag.content || ''))) * 0.7
+    );
+    var importance = Math.max(0, Math.min(1, (Number(frag.importance || 5) || 5) / 10));
+    var emotion = Math.max(0, Math.min(1, (Number(frag.emotionalWeight || 3) || 3) / 10));
+    var recency = vectorTimeDecay(frag.createdAt || Date.now());
+    var total = semantic * (Number(weights.semantic || 0.4) || 0.4)
+      + keyword * (Number(weights.keyword || 0.3) || 0.3)
+      + importance * (Number(weights.importance || 0.15) || 0.15)
+      + emotion * (Number(weights.emotion || 0.1) || 0.1)
+      + recency * (Number(weights.recency || 0.05) || 0.05);
+    return { frag: frag, score: total };
+  });
+  scored.sort(function(a, b){ return b.score - a.score; });
+  var picked = scored.slice(0, topN).map(function(item){ return item.frag; });
+  picked.forEach(function(frag){
+    frag.lastRecalled = Date.now();
+    frag.recallCount = Math.max(0, Number(frag.recallCount || 0) || 0) + 1;
+  });
+  return picked;
+}
+function serializeVectorMemoryForPrompt(store, retrieved){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var mem = safe.advancedMemory.vector;
+  var lines = [];
+  if(Array.isArray(mem.coreMemories) && mem.coreMemories.length){
+    lines.push('## 核心记忆（永久）');
+    mem.coreMemories.forEach(function(item){ lines.push('- ' + String(item.content || '').trim()); });
+    lines.push('');
+  }
+  var related = Array.isArray(retrieved) ? retrieved : [];
+  if(related.length){
+    lines.push('## 相关记忆');
+    related.forEach(function(frag){
+      var icon = String(frag.category || 'E');
+      var date = new Date(frag.createdAt || Date.now()).toLocaleDateString('zh-CN');
+      lines.push('[' + icon + '] ' + String(frag.content || '').trim() + ' (' + date + ')');
+    });
+    lines.push('');
+  }
+  if(mem.timelineSummaries && typeof mem.timelineSummaries === 'object'){
+    var keys = ['3h', '6h', '1d', '3d', '7d', '30d'];
+    var labels = { '3h':'最近3小时', '6h':'最近6小时', '1d':'今天', '3d':'最近3天', '7d':'最近一周', '30d':'最近一个月' };
+    var hasTimeline = keys.some(function(k){ return mem.timelineSummaries[k] && mem.timelineSummaries[k].content; });
+    if(hasTimeline){
+      lines.push('## 最近动态');
+      keys.forEach(function(k){
+        if(mem.timelineSummaries[k] && mem.timelineSummaries[k].content){
+          lines.push('[' + (labels[k] || k) + '] ' + String(mem.timelineSummaries[k].content || '').trim());
+        }
+      });
+      lines.push('');
+    }
+  }
+  if(!lines.length) lines.push('(暂无记忆)');
+  return [
+    '## 你的记忆档案（向量记忆系统）',
+    '以下是根据当前对话智能检索出的相关记忆。你必须像读取自己的记忆一样理解这些数据，在对话中自然引用。',
+    lines.join('\n')
+  ].join('\n').trim();
+}
+async function prepareVectorPromptMemory(messages){
+  vectorMemoryPromptCache = '';
+  if(!character) return '';
+  var store = loadMemorySummaryStore();
+  var mode = getMemoryModeFromStore(store);
+  if(mode !== MEMORY_MODE_VECTOR) return '';
+  store = ensureAdvancedMemoryOnStore(store);
+  var vectorState = store.advancedMemory.vector;
+  var query = getVectorRetrievalQueryFromMessages(messages, vectorState.settings || {});
+  var related = await retrieveVectorRelevantMemories(store, query);
+  vectorMemoryPromptCache = serializeVectorMemoryForPrompt(store, related);
+  saveMemorySummaryStore(store);
+  return vectorMemoryPromptCache;
+}
+function buildMemoryPromptText(store){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var mode = getMemoryModeFromStore(safe);
+  if(mode === MEMORY_MODE_STRUCTURED){
+    return serializeStructuredMemoryForPrompt(safe);
+  }
+  if(mode === MEMORY_MODE_VECTOR){
+    if(vectorMemoryPromptCache) return vectorMemoryPromptCache;
+    return serializeVectorMemoryForPrompt(safe, []);
+  }
+  return buildDiaryMemoryPromptText(safe.items || []);
+}
+async function maybeCreateDiaryMemorySummaries(store, summaryEvery){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var covered = Math.max(0, Math.min(safe.covered || 0, chatLog.length));
+  if(chatLog.length - covered < summaryEvery) return safe;
+  while(chatLog.length - covered >= summaryEvery){
+    var from = covered;
+    var to = covered + summaryEvery;
+    var slice = chatLog.slice(from, to);
+    if(!slice.length) break;
+    var text = await generateMemorySummary(slice);
+    safe.items.push({
+      id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+      from: from,
+      to: to,
+      text: text,
+      tokens: approxTokenCount(text),
+      createdAt: Date.now(),
+      manual: false,
+      pinned: false
+    });
+    covered = to;
+    safe.progress = Math.max(safe.progress || 0, covered);
+    saveMemorySummaryStore(safe);
+  }
+  safe = await maybeCompactMemorySummaries(safe);
+  return safe;
+}
+async function maybeCreateStructuredMemorySummaries(store, summaryEvery){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var covered = Math.max(0, Math.min(Number(safe.advancedMemory.structured.covered || 0) || 0, chatLog.length));
+  if(chatLog.length - covered < summaryEvery) return safe;
+  while(chatLog.length - covered >= summaryEvery){
+    var from = covered;
+    var to = covered + summaryEvery;
+    var slice = chatLog.slice(from, to);
+    if(!slice.length) break;
+    var prompt = buildStructuredSummaryPrompt(slice, safe);
+    try{
+      var raw = await callAIWithCustomPrompts(prompt, '请提取结构化记忆。');
+      var entries = parseStructuredMemoryEntries(String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,''), safe);
+      if(entries.length){
+        safe = mergeStructuredMemoryEntries(safe, entries);
+      }
+    }catch(err){}
+    covered = to;
+    safe.advancedMemory.structured.covered = covered;
+    safe.advancedMemory.structured.lastUpdated = Date.now();
+    saveMemorySummaryStore(safe);
+  }
+  return safe;
+}
+async function maybeCreateVectorMemorySummaries(store, summaryEvery){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var covered = Math.max(0, Math.min(Number(safe.advancedMemory.vector.covered || 0) || 0, chatLog.length));
+  if(chatLog.length - covered < summaryEvery) return safe;
+  while(chatLog.length - covered >= summaryEvery){
+    var from = covered;
+    var to = covered + summaryEvery;
+    var slice = chatLog.slice(from, to);
+    if(!slice.length) break;
+    var prompt = buildVectorExtractionPrompt(slice);
+    try{
+      var raw = await callAIWithCustomPrompts(prompt, '请开始提取。');
+      var extracted = parseVectorExtractionResult(String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,''));
+      if(extracted.length){
+        await mergeVectorExtractedMemories(safe, extracted);
+      }else{
+        safe.advancedMemory.vector.lastExtractionAt = Date.now();
+      }
+    }catch(err){}
+    covered = to;
+    safe.advancedMemory.vector.covered = covered;
+    saveMemorySummaryStore(safe);
+  }
+  return safe;
+}
 async function maybeCreateMemorySummaries(){
   if(!character || memorySummaryBusy) return;
   if(!loadAutoSummaryEnabled()) return;
   var summaryEvery = loadSummaryEverySize();
-  var store = loadMemorySummaryStore();
-  var covered = Math.max(0, Math.min(store.covered || 0, chatLog.length));
-  if(chatLog.length - covered < summaryEvery) return;
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var mode = getMemoryModeFromStore(store);
+  var hasPending = false;
+  if(mode === MEMORY_MODE_VECTOR){
+    hasPending = chatLog.length - Math.max(0, Math.min(Number(store.advancedMemory.vector.covered || 0) || 0, chatLog.length)) >= summaryEvery;
+  }else if(mode === MEMORY_MODE_STRUCTURED){
+    hasPending = chatLog.length - Math.max(0, Math.min(Number(store.advancedMemory.structured.covered || 0) || 0, chatLog.length)) >= summaryEvery;
+  }else{
+    hasPending = chatLog.length - Math.max(0, Math.min(store.covered || 0, chatLog.length)) >= summaryEvery;
+  }
+  if(!hasPending) return;
   memorySummaryBusy = true;
   try{
-    while(chatLog.length - covered >= summaryEvery){
-      var from = covered;
-      var to = covered + summaryEvery;
-      var slice = chatLog.slice(from, to);
-      if(!slice.length) break;
-      var text = await generateMemorySummary(slice);
-      var item = {
-        id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
-        from: from,
-        to: to,
-        text: text,
-        tokens: approxTokenCount(text),
-        createdAt: Date.now(),
-        manual: false,
-        pinned: false
-      };
-      store.items.push(item);
-      covered = to;
-      store.progress = Math.max(store.progress || 0, covered);
-      saveMemorySummaryStore(store);
+    if(mode === MEMORY_MODE_VECTOR){
+      store = await maybeCreateVectorMemorySummaries(store, summaryEvery);
+    }else if(mode === MEMORY_MODE_STRUCTURED){
+      // 与老师版本一致：结构化模式同时保留日记总结
+      store = await maybeCreateDiaryMemorySummaries(store, summaryEvery);
+      store = await maybeCreateStructuredMemorySummaries(store, summaryEvery);
+    }else{
+      store = await maybeCreateDiaryMemorySummaries(store, summaryEvery);
     }
-    store = await maybeCompactMemorySummaries(store);
   }finally{
     memorySummaryBusy = false;
     refreshMemoryUi();
+  }
+}
+async function migrateMemoryModeIfNeeded(fromMode, toMode){
+  var from = normalizeMemoryMode(fromMode);
+  var to = normalizeMemoryMode(toMode);
+  if(!character || from === to) return;
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var step = Math.max(6, Math.min(120, Number(loadSummaryEverySize()) || DEFAULT_SUMMARY_EVERY));
+  var total = Math.max(0, chatLog.length);
+  if(!total){
+    store.advancedMemory.mode = to;
+    saveMemorySummaryStore(store);
+    return;
+  }
+  toast('正在迁移记忆模式：' + from + ' → ' + to);
+  memorySummaryBusy = true;
+  try{
+    if(to === MEMORY_MODE_DIARY){
+      store.covered = 0;
+      store.progress = 0;
+      store.items = (store.items || []).filter(isPinnedMemoryItem);
+      var coveredDiary = 0;
+      while(total - coveredDiary >= step){
+        var diarySlice = chatLog.slice(coveredDiary, coveredDiary + step);
+        var diaryText = await generateMemorySummary(diarySlice);
+        store.items.push({
+          id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+          from: coveredDiary,
+          to: coveredDiary + step,
+          text: diaryText,
+          tokens: approxTokenCount(diaryText),
+          createdAt: Date.now(),
+          manual: false,
+          pinned: false
+        });
+        coveredDiary += step;
+        store.progress = Math.max(store.progress || 0, coveredDiary);
+        saveMemorySummaryStore(store);
+      }
+      store.covered = Math.max(store.covered || 0, coveredDiary);
+      await maybeCompactMemorySummaries(store);
+    }else if(to === MEMORY_MODE_STRUCTURED){
+      store.advancedMemory.structured = normalizeStructuredMemoryState(null);
+      store.advancedMemory.structured.covered = 0;
+      var structuredCovered = 0;
+      while(total - structuredCovered >= step){
+        var structuredSlice = chatLog.slice(structuredCovered, structuredCovered + step);
+        var structuredPrompt = buildStructuredSummaryPrompt(structuredSlice, store);
+        try{
+          var structuredRaw = await callAIWithCustomPrompts(structuredPrompt, '请提取结构化记忆。');
+          var structuredEntries = parseStructuredMemoryEntries(String(structuredRaw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,''), store);
+          if(structuredEntries.length){
+            store = mergeStructuredMemoryEntries(store, structuredEntries);
+          }
+        }catch(err){}
+        structuredCovered += step;
+        store.advancedMemory.structured.covered = structuredCovered;
+        store.advancedMemory.structured.lastUpdated = Date.now();
+        saveMemorySummaryStore(store);
+      }
+      if(!(store.items || []).length){
+        store = await maybeCreateDiaryMemorySummaries(store, step);
+      }
+    }else if(to === MEMORY_MODE_VECTOR){
+      store.advancedMemory.vector = normalizeVectorMemoryState(null);
+      store.advancedMemory.vector.covered = 0;
+      var vectorCovered = 0;
+      while(total - vectorCovered >= step){
+        var vectorSlice = chatLog.slice(vectorCovered, vectorCovered + step);
+        var vectorPrompt = buildVectorExtractionPrompt(vectorSlice);
+        try{
+          var vectorRaw = await callAIWithCustomPrompts(vectorPrompt, '请开始提取。');
+          var vectorExtracted = parseVectorExtractionResult(String(vectorRaw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,''));
+          if(vectorExtracted.length){
+            await mergeVectorExtractedMemories(store, vectorExtracted);
+          }else{
+            store.advancedMemory.vector.lastExtractionAt = Date.now();
+          }
+        }catch(err){}
+        vectorCovered += step;
+        store.advancedMemory.vector.covered = vectorCovered;
+        saveMemorySummaryStore(store);
+      }
+    }
+    store.advancedMemory.mode = to;
+    saveMemorySummaryStore(store);
+    refreshMemoryUi();
+    toast('记忆模式已切换为：' + (to === MEMORY_MODE_DIARY ? '日记记忆' : to === MEMORY_MODE_STRUCTURED ? '结构化记忆' : '向量记忆'));
+  }finally{
+    memorySummaryBusy = false;
   }
 }
 function getMemorySummaryItems(){
@@ -3111,10 +4003,8 @@ function getMemoryCoveredCount(){
   return Math.max(0, Number((store && store.covered) || 0) || 0);
 }
 function getMemorySummaryTokens(){
-  var items = getMemorySummaryItems();
-  var sum = 0;
-  items.forEach(function(it){ sum += Number(it.tokens || 0) || approxTokenCount(it.text || ''); });
-  return sum;
+  var memoryText = buildMemoryPromptText(loadMemorySummaryStore());
+  return approxTokenCount(memoryText);
 }
 function getVisibleChatForModel(){
   var windowSize = loadContextWindowSize();
@@ -4531,7 +5421,7 @@ function buildWeatherCommonSensePrompt(){
 }
 
 function buildHighPriorityContextGuard(){
-  var memItems = getMemorySummaryItems();
+  var memText = buildMemoryPromptText(loadMemorySummaryStore());
   var userSnapshot = getInviteWeatherSnapshot('user');
   var charSnapshot = getInviteWeatherSnapshot('char');
   var lines = ['【高优先级上下文守则】'];
@@ -4546,7 +5436,7 @@ function buildHighPriorityContextGuard(){
   if(recentFocus.length){
     lines.push('最近几轮聊天重点：\n' + recentFocus.join('\n'));
   }
-  if(memItems.length){
+  if(String(memText || '').trim()){
     lines.push('历史记忆总结是已经发生过的事实；除非最新聊天明确推翻它，否则不要和它冲突。');
   }
   if(userSnapshot && charSnapshot){
@@ -4574,7 +5464,7 @@ function cloneJsonSafe(value, fallback){
 }
 
 function defaultMemorySummaryStore(){
-  return { covered: 0, progress: 0, items: [] };
+  return { covered: 0, progress: 0, items: [], advancedMemory: defaultAdvancedMemoryState() };
 }
 
 function defaultInnerVoiceStore(){
@@ -4656,6 +5546,13 @@ function buildChatSettingsPatchFromCharacter(c){
     summaryEvery: Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.summaryEvery) || DEFAULT_SUMMARY_EVERY)),
     manualSummarySize: Math.max(6, Math.min(120, Number(c.manualSummarySize) || DEFAULT_MANUAL_SUMMARY_SIZE)),
     memoryMergeThreshold: Math.max(2, Math.min(50, Number(c.memoryMergeThreshold) || DEFAULT_MEMORY_MERGE_THRESHOLD)),
+    memoryMode: normalizeMemoryMode(c.memoryMode || DEFAULT_MEMORY_MODE),
+    memoryVectorTopN: Math.max(1, Math.min(20, Number(c.memoryVectorTopN) || DEFAULT_VECTOR_TOP_N)),
+    memoryVectorStrategy: (function(v){
+      v = String(v || DEFAULT_VECTOR_RETRIEVAL_STRATEGY).toLowerCase();
+      return (v === 'mixed' || v === 'user-weighted' || v === 'user-only') ? v : DEFAULT_VECTOR_RETRIEVAL_STRATEGY;
+    })(c.memoryVectorStrategy),
+    memoryVectorUserMsgCount: Math.max(1, Math.min(10, Number(c.memoryVectorUserMsgCount) || DEFAULT_VECTOR_USER_MSG_COUNT)),
     autoSummaryEnabled: c.autoSummaryEnabled != null ? !!c.autoSummaryEnabled : true,
     livePresence: cloneJsonSafe(c.livePresence || null, null)
   };
@@ -4689,6 +5586,10 @@ function applyChatSettingsPatch(target, patch){
     'summaryEvery',
     'manualSummarySize',
     'memoryMergeThreshold',
+    'memoryMode',
+    'memoryVectorTopN',
+    'memoryVectorStrategy',
+    'memoryVectorUserMsgCount',
     'autoSummaryEnabled'
   ].forEach(function(key){
     if(Object.prototype.hasOwnProperty.call(patch, key)){
@@ -5513,6 +6414,13 @@ function renderAutoSummaryToggle(){
   var sub = document.getElementById('autoSummarySub');
   if(sub) sub.textContent = enabled ? '开启后会按间隔自动总结' : '关闭后仅支持手动总结';
 }
+function renderMemoryModeSettingsUi(){
+  var modeSelect = document.getElementById('csMemoryMode');
+  var vectorWrap = document.getElementById('csVectorSettings');
+  var mode = normalizeMemoryMode((modeSelect && modeSelect.value) || loadMemoryMode());
+  if(modeSelect) modeSelect.value = mode;
+  if(vectorWrap) vectorWrap.style.display = (mode === MEMORY_MODE_VECTOR) ? '' : 'none';
+}
 
 function refreshSummaryStatsUi(){
   var sub = document.getElementById('summaryStatsSub');
@@ -5678,8 +6586,16 @@ async function runManualSummaryNow(){
   if(Number.isNaN(count)) count = loadManualSummarySize();
   count = Math.max(6, Math.min(120, count));
   if(input) input.value = String(count);
-  var store = loadMemorySummaryStore();
-  var covered = Math.max(0, Math.min(store.covered || 0, chatLog.length));
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var mode = getMemoryModeFromStore(store);
+  var covered = 0;
+  if(mode === MEMORY_MODE_VECTOR){
+    covered = Math.max(0, Math.min(Number(store.advancedMemory.vector.covered || 0) || 0, chatLog.length));
+  }else if(mode === MEMORY_MODE_STRUCTURED){
+    covered = Math.max(0, Math.min(Number(store.advancedMemory.structured.covered || 0) || 0, chatLog.length));
+  }else{
+    covered = Math.max(0, Math.min(store.covered || 0, chatLog.length));
+  }
   var remaining = chatLog.length - covered;
   if(remaining < count){
     toast('可总结消息不足 ' + count + ' 条（当前 ' + Math.max(0, remaining) + ' 条）');
@@ -5694,19 +6610,59 @@ async function runManualSummaryNow(){
   }
   memorySummaryBusy = true;
   try{
-    var text = await generateMemorySummary(slice);
-    store.items.push({
-      id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
-      from: from,
-      to: to,
-      text: text,
-      tokens: approxTokenCount(text),
-      createdAt: Date.now()
-    });
-    store.progress = Math.max(store.progress || 0, to);
-    saveMemorySummaryStore(store);
-    await maybeCompactMemorySummaries(store);
-    toast('已手动总结并隐藏 ' + count + ' 条消息');
+    if(mode === MEMORY_MODE_VECTOR){
+      var vectorPrompt = buildVectorExtractionPrompt(slice);
+      var vectorRaw = await callAIWithCustomPrompts(vectorPrompt, '请开始提取。');
+      var vectorExtracted = parseVectorExtractionResult(String(vectorRaw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,''));
+      var vectorAdded = 0;
+      if(vectorExtracted.length){
+        vectorAdded = await mergeVectorExtractedMemories(store, vectorExtracted);
+      }
+      store.advancedMemory.vector.covered = to;
+      store.advancedMemory.vector.lastExtractionAt = Date.now();
+      saveMemorySummaryStore(store);
+      toast(vectorAdded > 0 ? ('已手动提取 ' + vectorAdded + ' 条向量记忆') : '这段对话没有提取到新的向量记忆');
+    }else if(mode === MEMORY_MODE_STRUCTURED){
+      var text = await generateMemorySummary(slice);
+      store.items.push({
+        id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+        from: from,
+        to: to,
+        text: text,
+        tokens: approxTokenCount(text),
+        createdAt: Date.now(),
+        manual: false,
+        pinned: false
+      });
+      store.progress = Math.max(store.progress || 0, to);
+      await maybeCompactMemorySummaries(store);
+      var structuredPrompt = buildStructuredSummaryPrompt(slice, store);
+      var structuredRaw = await callAIWithCustomPrompts(structuredPrompt, '请提取结构化记忆。');
+      var structuredEntries = parseStructuredMemoryEntries(String(structuredRaw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,''), store);
+      if(structuredEntries.length){
+        store = mergeStructuredMemoryEntries(store, structuredEntries);
+      }
+      store.advancedMemory.structured.covered = to;
+      store.advancedMemory.structured.lastUpdated = Date.now();
+      saveMemorySummaryStore(store);
+      toast('已手动总结并同步结构化记忆');
+    }else{
+      var diaryText = await generateMemorySummary(slice);
+      store.items.push({
+        id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+        from: from,
+        to: to,
+        text: diaryText,
+        tokens: approxTokenCount(diaryText),
+        createdAt: Date.now(),
+        manual: false,
+        pinned: false
+      });
+      store.progress = Math.max(store.progress || 0, to);
+      saveMemorySummaryStore(store);
+      await maybeCompactMemorySummaries(store);
+      toast('已手动总结并隐藏 ' + count + ' 条消息');
+    }
   }finally{
     memorySummaryBusy = false;
     refreshMemoryUi();
@@ -7598,7 +8554,7 @@ function renderEmptyState(){
 function renderLoadingState(){
   var msgs = document.getElementById('messages');
   if(!msgs) return;
-  msgs.innerHTML = '<div class="welcome loading-screen"><div class="welcome-loading-shell"><img src="assets/加载小猫.png" alt="加载中"><div class="welcome-loading-text">加载中<span class="loading-dots" aria-hidden="true"><span></span><span></span><span></span></span></div></div></div>';
+  msgs.innerHTML = '<div class="welcome loading-screen"><div class="welcome-loading-shell"><img src="assets/loading-cat.png" alt="加载中"><div class="welcome-loading-text">加载中<span class="loading-dots" aria-hidden="true"><span></span><span></span><span></span></span></div></div></div>';
 }
 function resetChatVisibleWindow(){
   chatVisibleCount = 0;
@@ -7630,7 +8586,7 @@ function buildLoadOlderMessagesButton(hiddenCount, pageSize){
   btn.className = 'chat-load-older-btn';
   btn.type = 'button';
   btn.setAttribute('aria-label', '加载更早消息');
-  btn.innerHTML = '<img src="assets/黑猫加载.png" alt=""><span class="chat-load-older-copy"><strong>还有 ' + hiddenCount + ' 条</strong></span>';
+  btn.innerHTML = '<img src="assets/loading-cat.png" alt=""><span class="chat-load-older-copy"><strong>还有 ' + hiddenCount + ' 条</strong></span>';
   btn.addEventListener('click', function(){
     var state = captureMessagesViewportState();
     chatVisibleCount = Math.min(chatLog.length, chatVisibleCount + pageSize);
@@ -8336,6 +9292,13 @@ function ensureMsgRange(){
     character.summaryEvery = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(src.summaryEvery) || DEFAULT_SUMMARY_EVERY));
     character.manualSummarySize = Math.max(6, Math.min(120, Number(src.manualSummarySize) || DEFAULT_MANUAL_SUMMARY_SIZE));
     character.memoryMergeThreshold = Math.max(2, Math.min(50, Number(src.memoryMergeThreshold) || DEFAULT_MEMORY_MERGE_THRESHOLD));
+    character.memoryMode = normalizeMemoryMode(src.memoryMode || DEFAULT_MEMORY_MODE);
+    character.memoryVectorTopN = Math.max(1, Math.min(20, Number(src.memoryVectorTopN) || DEFAULT_VECTOR_TOP_N));
+    character.memoryVectorStrategy = (function(v){
+      v = String(v || DEFAULT_VECTOR_RETRIEVAL_STRATEGY).toLowerCase();
+      return (v === 'mixed' || v === 'user-weighted' || v === 'user-only') ? v : DEFAULT_VECTOR_RETRIEVAL_STRATEGY;
+    })(src.memoryVectorStrategy);
+    character.memoryVectorUserMsgCount = Math.max(1, Math.min(10, Number(src.memoryVectorUserMsgCount) || DEFAULT_VECTOR_USER_MSG_COUNT));
     character.autoSummaryEnabled = src.autoSummaryEnabled != null ? !!src.autoSummaryEnabled : true;
     character.translationEnabled = !!src.translationEnabled;
     character.replyLanguage = normalizeReplyLanguage(src.replyLanguage || src.language || 'zh');
@@ -8357,6 +9320,13 @@ function ensureMsgRange(){
     character.summaryEvery = Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(character.summaryEvery) || DEFAULT_SUMMARY_EVERY));
     character.manualSummarySize = Math.max(6, Math.min(120, Number(character.manualSummarySize) || DEFAULT_MANUAL_SUMMARY_SIZE));
     character.memoryMergeThreshold = Math.max(2, Math.min(50, Number(character.memoryMergeThreshold) || DEFAULT_MEMORY_MERGE_THRESHOLD));
+    character.memoryMode = normalizeMemoryMode(character.memoryMode || DEFAULT_MEMORY_MODE);
+    character.memoryVectorTopN = Math.max(1, Math.min(20, Number(character.memoryVectorTopN) || DEFAULT_VECTOR_TOP_N));
+    character.memoryVectorStrategy = (function(v){
+      v = String(v || DEFAULT_VECTOR_RETRIEVAL_STRATEGY).toLowerCase();
+      return (v === 'mixed' || v === 'user-weighted' || v === 'user-only') ? v : DEFAULT_VECTOR_RETRIEVAL_STRATEGY;
+    })(character.memoryVectorStrategy);
+    character.memoryVectorUserMsgCount = Math.max(1, Math.min(10, Number(character.memoryVectorUserMsgCount) || DEFAULT_VECTOR_USER_MSG_COUNT));
     character.autoSummaryEnabled = character.autoSummaryEnabled != null ? !!character.autoSummaryEnabled : true;
     character.translationEnabled = !!character.translationEnabled;
     character.replyLanguage = normalizeReplyLanguage(character.replyLanguage || character.language || 'zh');
@@ -8385,6 +9355,13 @@ function compactChar(c){
     summaryEvery:Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.summaryEvery) || DEFAULT_SUMMARY_EVERY)),
     manualSummarySize:Math.max(6, Math.min(120, Number(c.manualSummarySize) || DEFAULT_MANUAL_SUMMARY_SIZE)),
     memoryMergeThreshold:Math.max(2, Math.min(50, Number(c.memoryMergeThreshold) || DEFAULT_MEMORY_MERGE_THRESHOLD)),
+    memoryMode:normalizeMemoryMode(c.memoryMode || DEFAULT_MEMORY_MODE),
+    memoryVectorTopN:Math.max(1, Math.min(20, Number(c.memoryVectorTopN) || DEFAULT_VECTOR_TOP_N)),
+    memoryVectorStrategy:(function(v){
+      v = String(v || DEFAULT_VECTOR_RETRIEVAL_STRATEGY).toLowerCase();
+      return (v === 'mixed' || v === 'user-weighted' || v === 'user-only') ? v : DEFAULT_VECTOR_RETRIEVAL_STRATEGY;
+    })(c.memoryVectorStrategy),
+    memoryVectorUserMsgCount:Math.max(1, Math.min(10, Number(c.memoryVectorUserMsgCount) || DEFAULT_VECTOR_USER_MSG_COUNT)),
     autoSummaryEnabled:c.autoSummaryEnabled != null ? !!c.autoSummaryEnabled : true,
     translationEnabled:!!c.translationEnabled,
     replyLanguage:normalizeReplyLanguage(c.replyLanguage||c.language||'zh'),
@@ -9649,28 +10626,9 @@ function buildSystemPrompt() {
     ].join('\n'));
   }
 
-  var memItems = getMemorySummaryItems();
-  var memPinned = memItems.filter(isPinnedMemoryItem);
-  var memAuto = memItems.filter(function(it){ return !isPinnedMemoryItem(it); });
-  var memText = '';
-  if(memItems.length){
-    var memLines = [];
-    if(memPinned.length){
-      memLines.push('【手动修正 / 高优先级记忆】');
-      memLines = memLines.concat(memPinned.map(function(it, idx){
-        return '重点记忆' + (idx + 1) + '：' + String(it.text || '').trim();
-      }));
-    }
-    if(memAuto.length){
-      if(memLines.length) memLines.push('');
-      memLines.push('【历史记忆总结】');
-      memLines = memLines.concat(memAuto.map(function(it, idx){
-        return '记忆' + (idx + 1) + '：' + String(it.text || '').trim();
-      }));
-    }
-    memText = memLines.join('\n');
-    parts.push(memText);
-  }
+  var memStore = loadMemorySummaryStore();
+  var memText = buildMemoryPromptText(memStore);
+  if(String(memText || '').trim()) parts.push(memText);
   var identityHint = getSubAccountIdentityHint();
   if(identityHint) parts.push(identityHint);
   var replyLanguagePrompt = buildChatReplyLanguagePrompt();
@@ -10626,7 +11584,6 @@ async function requestAndDeliverAiReply(provider, key){
 async function callAI(provider, key) {
   var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider);
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '1');
-  var sys = buildSystemPrompt();
   var msgs = getVisibleChatForModel().map(function(m){
     if(!m) return null;
     if(m.hidden){
@@ -10640,6 +11597,8 @@ async function callAI(provider, key) {
   if(pendingModelUserCue){
     msgs.push({ role: 'user', content: pendingModelUserCue });
   }
+  await prepareVectorPromptMemory(msgs);
+  var sys = buildSystemPrompt();
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   if(shouldEnforceForeignReplyLanguage()){
     var lang = getCharacterReplyLanguage();
@@ -14069,33 +15028,309 @@ function renderContextTokenStats(){
   }).join('');
 }
 
+function getStructuredMemoryEntryCount(mem){
+  if(!mem || typeof mem !== 'object') return 0;
+  var total = 0;
+  total += Object.keys(mem.facts || {}).length;
+  total += Object.keys(mem.events || {}).reduce(function(sum, ym){
+    return sum + String((mem.events || {})[ym] || '').split('|').filter(Boolean).length;
+  }, 0);
+  total += Array.isArray(mem.decisions) ? mem.decisions.length : 0;
+  total += Array.isArray(mem.plans) ? mem.plans.length : 0;
+  total += Array.isArray(mem.emotions) ? mem.emotions.length : 0;
+  if(String(mem.relationship || '').trim()) total += 1;
+  if(mem.custom && typeof mem.custom === 'object'){
+    Object.keys(mem.custom).forEach(function(code){
+      total += Array.isArray(mem.custom[code]) ? mem.custom[code].length : 0;
+    });
+  }
+  return total;
+}
+function getVectorMemoryEntryCount(mem){
+  if(!mem || typeof mem !== 'object') return 0;
+  var core = Array.isArray(mem.coreMemories) ? mem.coreMemories.length : 0;
+  var frags = Array.isArray(mem.fragments) ? mem.fragments.length : 0;
+  return core + frags;
+}
+function getCurrentMemoryEntryCount(store, mode){
+  if(mode === MEMORY_MODE_STRUCTURED){
+    return getStructuredMemoryEntryCount(store.advancedMemory.structured);
+  }
+  if(mode === MEMORY_MODE_VECTOR){
+    return getVectorMemoryEntryCount(store.advancedMemory.vector);
+  }
+  return Array.isArray(store.items) ? store.items.length : 0;
+}
+function getMemoryModeLabel(mode){
+  if(mode === MEMORY_MODE_STRUCTURED) return '结构化记忆';
+  if(mode === MEMORY_MODE_VECTOR) return '向量记忆';
+  return '日记记忆';
+}
+function setMemoryPanelView(view){
+  memoryPanelView = String(view || 'all');
+  if(memoryPanelView !== 'all' && memoryPanelView !== 'diary' && memoryPanelView !== 'structured' && memoryPanelView !== 'vector'){
+    memoryPanelView = 'all';
+  }
+  refreshMemoryUi();
+}
+function buildMemoryPanelTabs(activeView, mode){
+  var safeView = String(activeView || 'all');
+  var tabs = [
+    { id:'all', label:'全部' },
+    { id:'diary', label:'日记' },
+    { id:'structured', label:'结构' },
+    { id:'vector', label:'向量' }
+  ];
+  return '<div class="memory-mode-tabs">' + tabs.map(function(tab){
+    var active = safeView === tab.id;
+    var label = tab.label + (tab.id === mode ? ' · 当前' : '');
+    return '<button class="memory-mode-tab' + (active ? ' active' : '') + '" type="button" onclick="setMemoryPanelView(\'' + tab.id + '\')">' + esc(label) + '</button>';
+  }).join('') + '</div>';
+}
+function buildDiaryMemoryCardsHtml(items){
+  var list = Array.isArray(items) ? items.slice() : [];
+  if(!list.length) return '<div class="mem-empty">日记记忆还没有内容。</div>';
+  return list.slice().reverse().map(function(it, idx){
+    var safeId = esc(it.id || '');
+    return '<div class="mem-item">' +
+      '<div class="mem-item-title"><span>记忆 #' + (list.length - idx) + '</span>' +
+      '<div class="mem-item-actions"><button class="mem-mini-btn" type="button" onclick="openMemoryEditor(\'' + safeId + '\')">编辑</button><button class="mem-mini-btn icon" type="button" onclick="deleteMemoryItem(\'' + safeId + '\')">×</button><span>' + formatTok(it.tokens || 0) + '</span></div></div>' +
+      '<div class="mem-item-body">' + esc(it.text) + '</div></div>';
+  }).join('');
+}
+function buildStructuredMemoryCardsHtml(structuredMem){
+  var mem = normalizeStructuredMemoryState(structuredMem || null);
+  var blocks = [];
+  var factRows = Object.keys(mem.facts || {}).map(function(key, idx){
+    return '<div class="mem-item muted"><div class="mem-item-title"><span>事实</span><div class="mem-item-actions"><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredFactAt(' + idx + ')">×</button></div></div><div class="mem-kv"><span>' + esc(key) + '</span><small>' + esc(String(mem.facts[key] || '')) + '</small></div></div>';
+  });
+  if(factRows.length){
+    blocks.push('<div class="memory-section-title"><span>事实 / 偏好</span><strong>' + factRows.length + '</strong></div>' + factRows.join(''));
+  }
+  var eventMonths = Object.keys(mem.events || {}).sort();
+  if(eventMonths.length){
+    blocks.push('<div class="memory-section-title"><span>事件时间线</span><strong>' + eventMonths.length + '</strong></div>' + eventMonths.map(function(ym, idx){
+      var entries = String(mem.events[ym] || '').split('|').filter(Boolean).join(' · ');
+      return '<div class="mem-item muted"><div class="mem-item-title"><span>' + esc(ym) + '</span><div class="mem-item-actions"><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredEventMonthAt(' + idx + ')">×</button></div></div><div class="mem-item-body">' + esc(entries) + '</div></div>';
+    }).join(''));
+  }
+  if(mem.relationship){
+    blocks.push('<div class="memory-section-title"><span>关系变化</span><strong>1</strong></div><div class="mem-item muted"><div class="mem-item-title"><span>关系变化</span><div class="mem-item-actions"><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredRelationship()">×</button></div></div><div class="mem-item-body">' + esc(mem.relationship) + '</div></div>');
+  }
+  var listKinds = [
+    { key:'decisions', label:'决定' },
+    { key:'plans', label:'计划' },
+    { key:'emotions', label:'情绪节点' }
+  ];
+  listKinds.forEach(function(kind){
+    var rows = Array.isArray(mem[kind.key]) ? mem[kind.key] : [];
+    if(!rows.length) return;
+    blocks.push('<div class="memory-section-title"><span>' + esc(kind.label) + '</span><strong>' + rows.length + '</strong></div>' + rows.map(function(row, idx){
+      return '<div class="mem-item muted"><div class="mem-item-title"><span>' + esc(kind.label) + '</span><div class="mem-item-actions"><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredListItem(\'' + esc(kind.key) + '\',' + idx + ')">×</button></div></div><div class="mem-item-body">' + esc(String(row || '')) + '</div></div>';
+    }).join(''));
+  });
+  if(mem.custom && typeof mem.custom === 'object'){
+    Object.keys(mem.custom).forEach(function(code){
+      var rows = Array.isArray(mem.custom[code]) ? mem.custom[code] : [];
+      if(!rows.length) return;
+      var customName = String((mem.customCategories && mem.customCategories[code] && mem.customCategories[code].name) || code);
+      blocks.push('<div class="memory-section-title"><span>' + esc(customName) + '</span><strong>' + rows.length + '</strong></div>' + rows.map(function(row, idx){
+        return '<div class="mem-item muted"><div class="mem-item-title"><span>' + esc(customName) + '</span><div class="mem-item-actions"><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredCustomItem(\'' + esc(code) + '\',' + idx + ')">×</button></div></div><div class="mem-item-body">' + esc(String(row || '')) + '</div></div>';
+      }).join(''));
+    });
+  }
+  if(!blocks.length){
+    return '<div class="mem-empty">结构化记忆暂时为空，达到设定条数后会自动提取。</div>';
+  }
+  return blocks.join('');
+}
+function deleteStructuredFactAt(idx){
+  var index = Number(idx);
+  if(!Number.isFinite(index) || index < 0) return;
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var facts = store.advancedMemory.structured.facts || {};
+  var safeKey = Object.keys(facts)[index];
+  if(!safeKey) return;
+  delete facts[safeKey];
+  saveMemorySummaryStore(store);
+  refreshMemoryUi();
+  toast('已删除结构化记忆');
+}
+function deleteStructuredEventMonthAt(idx){
+  var index = Number(idx);
+  if(!Number.isFinite(index) || index < 0) return;
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var events = store.advancedMemory.structured.events || {};
+  var ym = Object.keys(events).sort()[index];
+  if(!ym) return;
+  delete events[ym];
+  saveMemorySummaryStore(store);
+  refreshMemoryUi();
+  toast('已删除结构化记忆');
+}
+function deleteStructuredRelationship(){
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  if(!String(store.advancedMemory.structured.relationship || '').trim()) return;
+  store.advancedMemory.structured.relationship = '';
+  saveMemorySummaryStore(store);
+  refreshMemoryUi();
+  toast('已删除结构化记忆');
+}
+function deleteStructuredListItem(kind, idx){
+  var safeKind = String(kind || '').trim();
+  var index = Number(idx);
+  if(!Number.isFinite(index) || index < 0) return;
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var list = Array.isArray(store.advancedMemory.structured[safeKind]) ? store.advancedMemory.structured[safeKind] : null;
+  if(!list || index >= list.length) return;
+  list.splice(index, 1);
+  saveMemorySummaryStore(store);
+  refreshMemoryUi();
+  toast('已删除结构化记忆');
+}
+function deleteStructuredCustomItem(code, idx){
+  var safeCode = String(code || '').trim();
+  var index = Number(idx);
+  if(!safeCode || !Number.isFinite(index) || index < 0) return;
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var list = store.advancedMemory.structured.custom && Array.isArray(store.advancedMemory.structured.custom[safeCode])
+    ? store.advancedMemory.structured.custom[safeCode]
+    : null;
+  if(!list || index >= list.length) return;
+  list.splice(index, 1);
+  saveMemorySummaryStore(store);
+  refreshMemoryUi();
+  toast('已删除结构化记忆');
+}
+function deleteVectorCoreMemory(id){
+  var safeId = String(id || '').trim();
+  if(!safeId) return;
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var vm = store.advancedMemory.vector;
+  var before = Array.isArray(vm.coreMemories) ? vm.coreMemories.length : 0;
+  vm.coreMemories = (vm.coreMemories || []).filter(function(item){ return String(item && item.id || '') !== safeId; });
+  if(vm.coreMemories.length === before) return;
+  saveMemorySummaryStore(store);
+  refreshMemoryUi();
+  toast('已删除核心记忆');
+}
+function pinVectorFragmentToCore(id){
+  var safeId = String(id || '').trim();
+  if(!safeId) return;
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var vm = store.advancedMemory.vector;
+  var hit = (vm.fragments || []).find(function(item){ return String(item && item.id || '') === safeId; });
+  if(!hit || !String(hit.content || '').trim()){
+    toast('未找到该条记忆片段');
+    return;
+  }
+  var exists = (vm.coreMemories || []).some(function(core){
+    return vectorTextSimilarity(String(core.content || ''), String(hit.content || '')) > 0.95;
+  });
+  if(!exists){
+    vm.coreMemories.push({
+      id: 'core_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+      content: String(hit.content || '').trim(),
+      createdAt: Date.now()
+    });
+    saveMemorySummaryStore(store);
+    refreshMemoryUi();
+  }
+  toast(exists ? '核心记忆里已存在相似内容' : '已置顶到核心记忆');
+}
+function deleteVectorFragment(id){
+  var safeId = String(id || '').trim();
+  if(!safeId) return;
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var vm = store.advancedMemory.vector;
+  var before = Array.isArray(vm.fragments) ? vm.fragments.length : 0;
+  vm.fragments = (vm.fragments || []).filter(function(item){ return String(item && item.id || '') !== safeId; });
+  if(vm.fragments.length === before) return;
+  saveMemorySummaryStore(store);
+  refreshMemoryUi();
+  toast('已删除向量记忆');
+}
+function buildVectorMemoryCardsHtml(vectorMem){
+  var mem = normalizeVectorMemoryState(vectorMem || null);
+  var blocks = [];
+  var coreRows = Array.isArray(mem.coreMemories) ? mem.coreMemories : [];
+  if(coreRows.length){
+    blocks.push('<div class="memory-section-title"><span>核心记忆（永久注入）</span><strong>' + coreRows.length + '</strong></div>' + coreRows.slice().reverse().map(function(item){
+      var safeId = esc(String(item.id || ''));
+      return '<div class="mem-item"><div class="mem-item-title"><span>Core</span><div class="mem-item-actions"><button class="mem-mini-btn icon" type="button" onclick="deleteVectorCoreMemory(\'' + safeId + '\')">×</button></div></div><div class="mem-item-body">' + esc(String(item.content || '')) + '</div></div>';
+    }).join(''));
+  }
+  var fragRows = Array.isArray(mem.fragments) ? mem.fragments.slice().sort(function(a, b){
+    var aa = Number(a && (a.lastRecalled || a.createdAt) || 0) || 0;
+    var bb = Number(b && (b.lastRecalled || b.createdAt) || 0) || 0;
+    return bb - aa;
+  }) : [];
+  if(fragRows.length){
+    blocks.push('<div class="memory-section-title"><span>向量片段</span><strong>' + fragRows.length + '</strong></div>' + fragRows.map(function(item){
+      var safeId = esc(String(item.id || ''));
+      var chips = [];
+      chips.push('<span class="mem-chip">类目 ' + esc(String(item.category || 'E')) + '</span>');
+      chips.push('<span class="mem-chip">重要度 ' + Math.max(1, Math.min(10, Number(item.importance || 5) || 5)) + '</span>');
+      chips.push('<span class="mem-chip">召回 ' + (Number(item.recallCount || 0) || 0) + '</span>');
+      (Array.isArray(item.tags) ? item.tags.slice(0, 4) : []).forEach(function(tag){
+        chips.push('<span class="mem-chip">#' + esc(String(tag || '')) + '</span>');
+      });
+      return '<div class="mem-item muted"><div class="mem-item-title"><span>Fragment</span><div class="mem-item-actions"><button class="mem-mini-btn" type="button" onclick="pinVectorFragmentToCore(\'' + safeId + '\')">置顶</button><button class="mem-mini-btn icon" type="button" onclick="deleteVectorFragment(\'' + safeId + '\')">×</button></div></div><div class="mem-item-body">' + esc(String(item.content || '')) + '</div><div class="mem-chip-row">' + chips.join('') + '</div></div>';
+    }).join(''));
+  }
+  if(!blocks.length){
+    return '<div class="mem-empty">向量记忆暂无内容，达到设定条数后会自动提取。</div>';
+  }
+  return blocks.join('');
+}
+function buildMemoryPanelContentHtml(store, mode, view){
+  var safeView = String(view || 'all');
+  var sections = [];
+  if(safeView === 'all' || safeView === 'diary'){
+    sections.push('<div class="memory-section-title"><span>日记记忆</span><strong>' + ((store.items || []).length || 0) + '</strong></div>' + buildDiaryMemoryCardsHtml(store.items || []));
+  }
+  if(safeView === 'all' || safeView === 'structured'){
+    sections.push('<div class="memory-section-title"><span>结构化记忆</span><strong>' + getStructuredMemoryEntryCount(store.advancedMemory.structured) + '</strong></div>' + buildStructuredMemoryCardsHtml(store.advancedMemory.structured));
+  }
+  if(safeView === 'all' || safeView === 'vector'){
+    sections.push('<div class="memory-section-title"><span>向量记忆</span><strong>' + getVectorMemoryEntryCount(store.advancedMemory.vector) + '</strong></div>' + buildVectorMemoryCardsHtml(store.advancedMemory.vector));
+  }
+  return buildMemoryPanelTabs(safeView, mode) + sections.join('');
+}
 function refreshMemoryUi(){
   refreshSummaryStatsUi();
-  var items = getMemorySummaryItems();
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var mode = getMemoryModeFromStore(store);
+  var count = getCurrentMemoryEntryCount(store, mode);
   var btn = document.getElementById('memoryBtn');
-  if(btn) btn.textContent = '★ ' + items.length;
+  if(btn) btn.textContent = '★ ' + count;
   var preview = document.getElementById('memPreviewList');
   if(preview){
-    if(!items.length){
-      preview.innerHTML = '<div class="mem-empty">还没有总结记录。达到设定条数后会自动生成。</div>';
+    if(mode === MEMORY_MODE_STRUCTURED){
+      var sm = store.advancedMemory.structured;
+      preview.innerHTML = '<div class="mem-item"><div class="mem-item-title"><span>结构化记忆概览</span><span>' + getStructuredMemoryEntryCount(sm) + ' 条</span></div><div class="mem-item-body">事实 ' + Object.keys(sm.facts || {}).length + ' · 事件 ' + Object.keys(sm.events || {}).length + ' · 计划 ' + (sm.plans || []).length + ' · 情绪 ' + (sm.emotions || []).length + '</div></div>';
+    }else if(mode === MEMORY_MODE_VECTOR){
+      var vm = store.advancedMemory.vector;
+      var sample = (vm.fragments || []).slice(-2).map(function(item){ return String(item && item.content || '').trim(); }).filter(Boolean).join(' / ');
+      preview.innerHTML = '<div class="mem-item"><div class="mem-item-title"><span>向量记忆概览</span><span>' + getVectorMemoryEntryCount(vm) + ' 条</span></div><div class="mem-item-body">' + esc(sample || '核心记忆与向量片段会在这里显示。') + '</div></div>';
     }else{
-      preview.innerHTML = items.slice(-3).reverse().map(function(it, idx){
-        return '<div class="mem-item"><div class="mem-item-title"><span>记忆 #' + (items.length - idx) + '</span><span>' + formatTok(it.tokens || 0) + '</span></div><div class="mem-item-body">' + esc(it.text) + '</div></div>';
-      }).join('');
+      var items = store.items || [];
+      if(!items.length){
+        preview.innerHTML = '<div class="mem-empty">还没有总结记录。达到设定条数后会自动生成。</div>';
+      }else{
+        preview.innerHTML = items.slice(-3).reverse().map(function(it, idx){
+          return '<div class="mem-item"><div class="mem-item-title"><span>记忆 #' + (items.length - idx) + '</span><span>' + formatTok(it.tokens || 0) + '</span></div><div class="mem-item-body">' + esc(it.text) + '</div></div>';
+        }).join('');
+      }
     }
   }
   var title = document.getElementById('memoryPanelTitle');
-  if(title) title.textContent = '★ 聊天记忆（' + items.length + '）';
+  if(title) title.textContent = '★ 聊天记忆（' + getMemoryModeLabel(mode) + ' · ' + count + '）';
+  var addBtn = document.querySelector('#memoryOverlay .memory-head-actions .memory-close');
+  if(addBtn) addBtn.style.display = (mode === MEMORY_MODE_STRUCTURED) ? 'none' : '';
   var panel = document.getElementById('memoryPanelBody');
   if(panel){
-    if(!items.length){
-      panel.innerHTML = '<div class="mem-empty">当前没有可用记忆总结。</div>';
-    }else{
-      panel.innerHTML = items.slice().reverse().map(function(it, idx){
-        var safeId = esc(it.id || '');
-        return '<div class="mem-item"><div class="mem-item-title"><span>记忆 #' + (items.length - idx) + '</span><div class="mem-item-actions"><button class="mem-mini-btn" type="button" onclick="openMemoryEditor(\'' + safeId + '\')">编辑</button><button class="mem-mini-btn icon" type="button" onclick="deleteMemoryItem(\'' + safeId + '\')">×</button><span>' + formatTok(it.tokens || 0) + '</span></div></div><div class="mem-item-body">' + esc(it.text) + '</div></div>';
-      }).join('');
-    }
+    panel.innerHTML = buildMemoryPanelContentHtml(store, mode, memoryPanelView || 'all');
   }
   renderContextTokenStats();
 }
@@ -14103,6 +15338,7 @@ function refreshMemoryUi(){
 function openMemoryPanel(){
   var overlay = document.getElementById('memoryOverlay');
   if(overlay) overlay.classList.add('open');
+  memoryPanelView = loadMemoryMode();
   try{
     refreshMemoryUi();
   }catch(err){
@@ -14719,24 +15955,49 @@ if(_listenPromptOverlay){
 
 function openMemoryEditor(id){
   memoryEditingId = id || '';
+  memoryEditingType = 'diary';
   var title = document.getElementById('memEditorTitle');
   var input = document.getElementById('memEditorInput');
   var overlay = document.getElementById('memEditorOverlay');
   if(!title || !input || !overlay) return;
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
   if(memoryEditingId){
-    var items = getMemorySummaryItems();
+    var items = Array.isArray(store.items) ? store.items : [];
     var hit = items.find(function(it){ return String(it.id) === String(memoryEditingId); });
-    input.value = hit ? String(hit.text || '') : '';
-    title.textContent = '编辑记忆总结';
+    if(hit){
+      memoryEditingType = 'diary';
+      input.value = String(hit.text || '');
+      title.textContent = '编辑日记记忆';
+    }else{
+      var core = (store.advancedMemory.vector && Array.isArray(store.advancedMemory.vector.coreMemories))
+        ? store.advancedMemory.vector.coreMemories.find(function(it){ return String(it && it.id || '') === String(memoryEditingId); })
+        : null;
+      if(core){
+        memoryEditingType = 'vector-core';
+        input.value = String(core.content || '');
+        title.textContent = '编辑核心记忆';
+      }else{
+        input.value = '';
+        title.textContent = '新建记忆';
+      }
+    }
   }else{
     input.value = '';
-    title.textContent = '新建记忆总结';
+    var mode = getMemoryModeFromStore(store);
+    if(mode === MEMORY_MODE_VECTOR){
+      memoryEditingType = 'vector-core';
+      title.textContent = '新增核心记忆';
+    }else{
+      memoryEditingType = 'diary';
+      title.textContent = '新建日记记忆';
+    }
   }
   overlay.classList.add('open');
   setTimeout(function(){ input.focus(); }, 20);
 }
 function closeMemoryEditor(){
   memoryEditingId = '';
+  memoryEditingType = 'diary';
   document.getElementById('memEditorOverlay')?.classList.remove('open');
 }
 async function confirmMemoryEditor(){
@@ -14747,31 +16008,55 @@ async function confirmMemoryEditor(){
     toast('记忆内容不能为空');
     return;
   }
-  var store = loadMemorySummaryStore();
-  if(memoryEditingId){
-    var idx = store.items.findIndex(function(it){ return String(it.id) === String(memoryEditingId); });
-    if(idx >= 0){
-      store.items[idx].text = text;
-      store.items[idx].tokens = approxTokenCount(text);
-      store.items[idx].createdAt = Date.now();
-      store.items[idx].pinned = true;
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  if(memoryEditingType === 'vector-core'){
+    var vm = store.advancedMemory.vector;
+    if(memoryEditingId){
+      var coreIdx = (vm.coreMemories || []).findIndex(function(it){ return String(it && it.id || '') === String(memoryEditingId); });
+      if(coreIdx >= 0){
+        vm.coreMemories[coreIdx].content = text;
+        vm.coreMemories[coreIdx].createdAt = Date.now();
+      }else{
+        vm.coreMemories.push({
+          id: 'core_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+          content: text,
+          createdAt: Date.now()
+        });
+      }
+    }else{
+      vm.coreMemories.push({
+        id: 'core_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+        content: text,
+        createdAt: Date.now()
+      });
     }
   }else{
-    store.items.push({
-      id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
-      from: 0,
-      to: 0,
-      text: text,
-      tokens: approxTokenCount(text),
-      createdAt: Date.now(),
-      manual: true,
-      pinned: true
-    });
+    if(memoryEditingId){
+      var idx = store.items.findIndex(function(it){ return String(it.id) === String(memoryEditingId); });
+      if(idx >= 0){
+        store.items[idx].text = text;
+        store.items[idx].tokens = approxTokenCount(text);
+        store.items[idx].createdAt = Date.now();
+        store.items[idx].pinned = true;
+      }
+    }else{
+      store.items.push({
+        id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+        from: 0,
+        to: 0,
+        text: text,
+        tokens: approxTokenCount(text),
+        createdAt: Date.now(),
+        manual: true,
+        pinned: true
+      });
+    }
   }
+  var savedType = memoryEditingType;
   saveMemorySummaryStore(store);
   closeMemoryEditor();
   refreshMemoryUi();
-  toast('记忆已保存');
+  toast(savedType === 'vector-core' ? '核心记忆已保存' : '记忆已保存');
 }
 function deleteMemoryItem(id){
   if(!character || !id) return;
@@ -16758,6 +18043,15 @@ function openChatSettings() {
     document.getElementById('csSummaryEvery').value = loadSummaryEverySize();
     document.getElementById('csManualSummarySize').value = loadManualSummarySize();
     document.getElementById('csMemoryMergeThreshold').value = loadMemoryMergeThreshold();
+    var memModeEl = document.getElementById('csMemoryMode');
+    if(memModeEl) memModeEl.value = loadMemoryMode();
+    var vectorTopEl = document.getElementById('csVectorTopN');
+    if(vectorTopEl) vectorTopEl.value = String(loadVectorTopN());
+    var vectorStrategyEl = document.getElementById('csVectorStrategy');
+    if(vectorStrategyEl) vectorStrategyEl.value = loadVectorRetrievalStrategy();
+    var vectorUserMsgEl = document.getElementById('csVectorUserMsgCount');
+    if(vectorUserMsgEl) vectorUserMsgEl.value = String(loadVectorUserMsgCount());
+    renderMemoryModeSettingsUi();
     loadPresenceSettingsIntoPanel();
     var freqSel = document.getElementById('csMomentsFreq');
     if(freqSel) freqSel.value = loadCharMomentsFreq(character && character.id);
@@ -17043,6 +18337,7 @@ async function saveChatSettings() {
   var oldCharNameRaw = String((character && character.name) || '').trim();
   var oldCharNicknameRaw = String((character && character.nickname) || '').trim();
   var oldUserDisplayName = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
+  var memoryModeBefore = loadMemoryMode();
   var cp = document.getElementById('csCharPersona').value.trim() || (character ? (character.description || character.name || '无') : '无');
   var cmn = parseInt(document.getElementById('csMsgMin').value || '1');
   var cmx = parseInt(document.getElementById('csMsgMax').value || '3');
@@ -17061,6 +18356,11 @@ async function saveChatSettings() {
   var severy = parseInt(document.getElementById('csSummaryEvery').value || String(DEFAULT_SUMMARY_EVERY), 10);
   var manualSize = parseInt(document.getElementById('csManualSummarySize').value || String(DEFAULT_MANUAL_SUMMARY_SIZE), 10);
   var mergeThreshold = parseInt(document.getElementById('csMemoryMergeThreshold').value || String(DEFAULT_MEMORY_MERGE_THRESHOLD), 10);
+  var memoryModeNext = normalizeMemoryMode((document.getElementById('csMemoryMode') || {}).value || loadMemoryMode());
+  var vectorTopNNext = Math.max(1, Math.min(20, parseInt((document.getElementById('csVectorTopN') || {}).value || String(DEFAULT_VECTOR_TOP_N), 10) || DEFAULT_VECTOR_TOP_N));
+  var vectorStrategyNext = String((document.getElementById('csVectorStrategy') || {}).value || DEFAULT_VECTOR_RETRIEVAL_STRATEGY);
+  if(vectorStrategyNext !== 'mixed' && vectorStrategyNext !== 'user-weighted' && vectorStrategyNext !== 'user-only') vectorStrategyNext = DEFAULT_VECTOR_RETRIEVAL_STRATEGY;
+  var vectorUserMsgCountNext = Math.max(1, Math.min(10, parseInt((document.getElementById('csVectorUserMsgCount') || {}).value || String(DEFAULT_VECTOR_USER_MSG_COUNT), 10) || DEFAULT_VECTOR_USER_MSG_COUNT));
   var momentsFreq = normalizeMomentsFreq(document.getElementById('csMomentsFreq').value || DEFAULT_MOMENTS_FREQ);
   var presenceUserCity = document.getElementById('csPresenceUserCity');
   var presenceCharCity = document.getElementById('csPresenceCharCity');
@@ -17125,6 +18425,10 @@ async function saveChatSettings() {
     character.summaryEvery = severy;
     character.manualSummarySize = manualSize;
     character.memoryMergeThreshold = mergeThreshold;
+    character.memoryMode = memoryModeNext;
+    character.memoryVectorTopN = vectorTopNNext;
+    character.memoryVectorStrategy = vectorStrategyNext;
+    character.memoryVectorUserMsgCount = vectorUserMsgCountNext;
     character.autoSummaryEnabled = pendingAutoSummaryEnabled === null ? loadAutoSummaryEnabled() : !!pendingAutoSummaryEnabled;
     if(window.PresenceShared){
       var currentPresenceSettings = window.PresenceShared.getCharSettings(character);
@@ -17180,6 +18484,13 @@ async function saveChatSettings() {
     }
     if(pendingAutoSummaryEnabled !== null){
       saveAutoSummaryEnabled(!!pendingAutoSummaryEnabled);
+    }
+    saveMemoryMode(memoryModeNext);
+    saveVectorTopN(vectorTopNNext);
+    saveVectorRetrievalStrategy(vectorStrategyNext);
+    saveVectorUserMsgCount(vectorUserMsgCountNext);
+    if(memoryModeBefore !== memoryModeNext){
+      await migrateMemoryModeIfNeeded(memoryModeBefore, memoryModeNext);
     }
     saveCharMomentsFreq(character.id, momentsFreq);
     var nextChatBg = syncChatBackgroundDraftFromInputs();
@@ -17287,7 +18598,10 @@ async function deliverAiReply(text, limitOverride){
   if(maxN <= 0) return [];
   var clean = function(raw){
     if(!raw) return '';
-    var t = String(raw).replace(/<\/?msg>/ig, '<msg>').trim();
+    var t = String(raw)
+      .replace(/<\s*\/\s*msg\s*>/ig, '<msg>')
+      .replace(/<\s*msg\s*>/ig, '<msg>')
+      .trim();
     if(t.startsWith('```')){
       t = t.replace(/^```[a-zA-Z]*\s*/,'');
       if(t.endsWith('```')) t = t.slice(0,-3);
@@ -17307,49 +18621,12 @@ async function deliverAiReply(text, limitOverride){
       .replace(/<\/p>\s*<p[^>]*>/ig, '\n')
       .replace(/<\/div>\s*<div[^>]*>/ig, '\n');
     if(!cleaned) return [];
-    var packSmartLongText = function(text){
-      var source = String(text || '').trim();
-      if(!source || source.length < 64) return [];
-      var sentenceParts = String(source.match(/[^。！？!?；;]+[。！？!?；;”"』」’']*|[^。！？!?；;]+$/g) || [])
-        .split(',')
-        .map(function(seg){ return String(seg || '').trim(); })
-        .filter(Boolean);
-      var rawSegments = sentenceParts;
-      if(rawSegments.length < 2){
-        var quoteAware = source
-          .replace(/([。！？!?]+)([”"』」’']*)(?=\s*[^\s])/g, '$1$2\n')
-          .replace(/([；;]+)(?=\s*[^\s])/g, '$1\n')
-          .replace(/([，,]+)(?=\s*[^\s])/g, '$1\n');
-        rawSegments = quoteAware.split(/\n+/).map(function(seg){ return String(seg || '').trim(); }).filter(Boolean);
-      }
-      if(rawSegments.length < 2) return [];
-      var groups = [];
-      var bucket = '';
-      rawSegments.forEach(function(seg){
-        if(!bucket){
-          bucket = seg;
-          return;
-        }
-        var next = bucket + ' ' + seg;
-        if(bucket.length < 26 || next.length <= 56){
-          bucket = next;
-        }else{
-          groups.push(bucket.trim());
-          bucket = seg;
-        }
-      });
-      if(bucket) groups.push(bucket.trim());
-      if(groups.length < 2 || (groups.length === 1 && groups[0].length === source.length)) return [];
-      return groups.map(function(seg){
-        var mixed = splitTextAndMemeMarkers(seg);
-        if(mixed.length >= 2) return mixed;
-        var maybeMeme = parseMemeMarker(seg);
-        return { text: maybeMeme || seg, t: maybeMeme ? 'meme' : 'text' };
-      }).flat();
-    };
     var inlineMixedParts = splitTextAndMemeMarkers(cleaned);
     if(inlineMixedParts.length >= 2) return inlineMixedParts;
-    var msgParts = cleaned.split(/<msg>/i).map(function(p){
+    var msgParts = cleaned
+      .replace(/<\s*\/\s*msg\s*>/ig, '<msg>')
+      .replace(/<\s*msg\s*>/ig, '<msg>')
+      .split(/<msg>/i).map(function(p){
       var piece = p.trim();
       if(!piece) return null;
       var mixed = splitTextAndMemeMarkers(piece);
@@ -17376,8 +18653,6 @@ async function deliverAiReply(text, limitOverride){
         return { text: maybeMeme || line, t: maybeMeme ? 'meme' : 'text' };
       }).flat();
     }
-    var packedParts = packSmartLongText(cleaned);
-    if(packedParts.length >= 2) return packedParts;
     var maybeInlineMeme = parseMemeMarker(cleaned);
     return [{ text: maybeInlineMeme || cleaned, t: maybeInlineMeme ? 'meme' : 'text' }];
   };
@@ -17858,29 +19133,6 @@ async function deliverAiReply(text, limitOverride){
     parts = parts.slice(0, cap);
   }
   if(!parts.length) parts = [{text:String(text||'(空消息)'), t:'text'}];
-  if(parts.length === 1 && normalizeMessageType(parts[0].t || 'text') === 'text'){
-    var forcedSplitSource = String(parts[0].text || '')
-      .replace(/\\r\\n/g, '\n')
-      .replace(/\\n/g, '\n')
-      .replace(/\r\n?/g, '\n')
-      .replace(/[\u2028\u2029]/g, '\n')
-      .replace(/<br\s*\/?>/ig, '\n')
-      .replace(/<\/p>\s*<p[^>]*>/ig, '\n')
-      .replace(/<\/div>\s*<div[^>]*>/ig, '\n');
-    var forcedLines = forcedSplitSource.split(/\n+/).map(function(line){
-      return String(line || '').trim();
-    }).filter(Boolean);
-    if(forcedLines.length >= 2){
-      parts = forcedLines.map(function(line){
-        var maybeMeme = parseMemeMarker(line);
-        return {
-          text: maybeMeme || line,
-          t: maybeMeme ? 'meme' : 'text',
-          translationText: parts[0].translationText || ''
-        };
-      });
-    }
-  }
   var nonNarratorParts = parts.filter(function(part){
     return normalizeMessageType(part && part.t || 'text') !== 'narrator';
   });

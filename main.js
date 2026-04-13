@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-13T00:43:00Z';
+const APP_BUILD_ID = '2026-04-13T04:05:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1235,6 +1235,10 @@ function refreshInstalledApp(evt){
     });
 }
 window.refreshInstalledApp = refreshInstalledApp;
+window.compareHostedBuildIds = compareHostedBuildIds;
+window.announceHostedUpdate = announceHostedUpdate;
+window.buildRemoteAppFingerprint = buildRemoteAppFingerprint;
+window.checkForHostedUpdate = checkForHostedUpdate;
 
 function clearHostedRefreshParams(){
   try{
@@ -6604,7 +6608,7 @@ function showShellLoadingOverlay(kind){
     clearTimeout(shellLoadingHideTimer);
     shellLoadingHideTimer = 0;
   }
-  image.src = 'apps/assets/加载小猫.png';
+  image.src = 'apps/assets/loading-cat.png';
   overlay.classList.add('show');
 }
 
