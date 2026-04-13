@@ -7549,6 +7549,15 @@ function renderEmptyState(){
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">开始聊天</div><div class="welcome-sub">去「联系人」选择角色卡<br>然后点「聊天」按钮进入对话</div></div>';
   }
 }
+function renderLoadingState(){
+  var msgs = document.getElementById('messages');
+  if(!msgs) return;
+  if (character) {
+    msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">' + esc(character.name) + '</div><div class="welcome-sub">正在载入聊天记录…</div></div>';
+  } else {
+    msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">正在载入</div><div class="welcome-sub">正在载入聊天记录…</div></div>';
+  }
+}
 function resetChatVisibleWindow(){
   chatVisibleCount = 0;
   chatVisibleCharId = '';
@@ -8596,9 +8605,13 @@ async function init() {
       return;
     }
     loadWorldBook();
-    await hydrateChatLargeStates();
+    var hydrateLargeStatesPromise = hydrateChatLargeStates().catch(function(err){
+      console.warn('hydrateChatLargeStates failed', err);
+    });
     if(initToken !== characterSwitchToken || String((character && character.id) || '').trim() !== initCharId) return;
     await restoreOrStartChat();
+    if(initToken !== characterSwitchToken || String((character && character.id) || '').trim() !== initCharId) return;
+    await hydrateLargeStatesPromise;
     if(initToken !== characterSwitchToken || String((character && character.id) || '').trim() !== initCharId) return;
     importPendingOfflineArtifacts();
     updateBlockedUi();
@@ -9446,6 +9459,7 @@ function getStrictPromptWorldbookEntries(){
 async function restoreOrStartChat() {
   var msgs = document.getElementById('messages');
   replyTargetId = null;
+  renderLoadingState();
   storageHydrationPromise = hydrateCharacterStorageState();
   var restored = await storageHydrationPromise;
   if (!restored.length) restored = await loadPreferredStoredChatForCurrentCharacter();
@@ -17801,6 +17815,29 @@ async function deliverAiReply(text, limitOverride){
     parts = parts.slice(0, cap);
   }
   if(!parts.length) parts = [{text:String(text||'(空消息)'), t:'text'}];
+  if(parts.length === 1 && normalizeMessageType(parts[0].t || 'text') === 'text'){
+    var forcedSplitSource = String(parts[0].text || '')
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[\u2028\u2029]/g, '\n')
+      .replace(/<br\s*\/?>/ig, '\n')
+      .replace(/<\/p>\s*<p[^>]*>/ig, '\n')
+      .replace(/<\/div>\s*<div[^>]*>/ig, '\n');
+    var forcedLines = forcedSplitSource.split(/\n+/).map(function(line){
+      return String(line || '').trim();
+    }).filter(Boolean);
+    if(forcedLines.length >= 2){
+      parts = forcedLines.map(function(line){
+        var maybeMeme = parseMemeMarker(line);
+        return {
+          text: maybeMeme || line,
+          t: maybeMeme ? 'meme' : 'text',
+          translationText: parts[0].translationText || ''
+        };
+      });
+    }
+  }
   var nonNarratorParts = parts.filter(function(part){
     return normalizeMessageType(part && part.t || 'text') !== 'narrator';
   });
