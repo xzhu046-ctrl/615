@@ -7562,49 +7562,6 @@ function resetChatVisibleWindow(){
   chatVisibleCount = 0;
   chatVisibleCharId = '';
 }
-function splitExplicitBubbleLines(raw){
-  var source = String(raw || '')
-    .replace(/\\r\\n/g, '\n')
-    .replace(/\\n/g, '\n')
-    .replace(/\r\n?/g, '\n')
-    .replace(/[\u2028\u2029]/g, '\n')
-    .replace(/<br\s*\/?>/ig, '\n')
-    .replace(/<\/p>\s*<p[^>]*>/ig, '\n')
-    .replace(/<\/div>\s*<div[^>]*>/ig, '\n');
-  return source.split(/\n+/).map(function(line){
-    return String(line || '').trim();
-  }).filter(Boolean);
-}
-function expandExplicitAssistantBubbles(list){
-  if(!Array.isArray(list) || !list.length) return Array.isArray(list) ? list : [];
-  var expanded = [];
-  list.forEach(function(entry){
-    var item = entry && typeof entry === 'object' ? Object.assign({}, entry) : entry;
-    if(!item || typeof item !== 'object'){
-      expanded.push(item);
-      return;
-    }
-    var type = normalizeMessageType(item.type || 'text');
-    if(type !== 'text' || String(item.role || '') !== 'assistant'){
-      expanded.push(item);
-      return;
-    }
-    var lines = splitExplicitBubbleLines(item.content || '');
-    if(lines.length < 2){
-      expanded.push(item);
-      return;
-    }
-    lines.forEach(function(line, idx){
-      var clone = Object.assign({}, item, {
-        id: idx === 0 ? item.id : String(item.id || genMsgId()) + '_split_' + idx,
-        content: line,
-        translationText: idx === 0 ? String(item.translationText || '') : ''
-      });
-      expanded.push(clone);
-    });
-  });
-  return expanded;
-}
 function getRenderedChatEntries(){
   var currentCharId = String((character && character.id) || '');
   if(chatVisibleCharId !== currentCharId){
@@ -9082,7 +9039,7 @@ function buildSunnySystemPrompt(extraPrompt){
     '如果用户想让你帮忙生成 user 设定、人设、档案、资料，你先热情回应，并告诉老板你已经把选择卡片递过去了；不要自己直接输出最终 YAML。',
     '如果是你真的不清楚、知识库里也没有把握的事，就只回答：汪...Sunny不知道诶，去问老板吧！',
     '只输出普通聊天文本。不要 JSON，不要代码块，不要语音，不要图片，不要表情包。',
-    '如果要分成多句或多条气泡，优先自己用 <msg>...</msg> 分开；自然分段换行也可以。像真人聊天一样，宁可拆成两三条短消息，也不要把明显能分开的内容硬塞进一个大气泡。',
+    '如果要分成多句或多条气泡，必须由你自己主动拆开。优先自己用 <msg>...</msg> 分开；自然分段换行也可以，但最稳的是 <msg>。不要把明显能分开的内容硬塞进一个大气泡，也不要把多句内容合成一整坨。',
     String(extraPrompt || '').trim()
   ].filter(Boolean).join('\n\n');
 }
@@ -9511,7 +9468,7 @@ async function restoreOrStartChat() {
     restored = [];
   }
   if (restored.length) {
-    chatLog = expandExplicitAssistantBubbles(restored);
+    chatLog = restored;
     appendMoneyDebugLog('restore', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
     renderChatLog(false);
     return;
@@ -9544,7 +9501,7 @@ async function syncChatLogFromStorageForCurrentCharacter(){
     var nextStamp = historySortStamp(normalized);
     if(currentStamp.lastTs > nextStamp.lastTs) return false;
     if(currentStamp.lastTs === nextStamp.lastTs && currentStamp.count > nextStamp.count) return false;
-    chatLog = expandExplicitAssistantBubbles(normalized);
+    chatLog = normalized;
     appendMoneyDebugLog('sync_from_storage', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
     renderChatLog(false);
     return true;
@@ -17914,22 +17871,6 @@ async function deliverAiReply(text, limitOverride){
     if(t === 'text'){
       p.text = sanitizeAssistantTextForChat(p.text);
       if(!p.text) continue;
-      var finalLines = splitExplicitBubbleLines(p.text);
-      if(finalLines.length >= 2){
-        var replacementParts = finalLines.map(function(line){
-          var maybeMeme = parseMemeMarker(line);
-          return {
-            text: maybeMeme || line,
-            t: maybeMeme ? 'meme' : 'text',
-            replyTo: p.replyTo || '',
-            replyRole: p.replyRole || '',
-            translationText: ''
-          };
-        });
-        parts.splice.apply(parts, [i, 1].concat(replacementParts));
-        i -= 1;
-        continue;
-      }
     }
     if(t === 'voice'){
       p.text = sanitizeAssistantVoiceText(p.text);
