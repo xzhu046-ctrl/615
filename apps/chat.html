@@ -1890,7 +1890,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
         <img src="assets/屏幕缩小.png" alt="缩小">
       </button>
     </div>
-    <iframe class="richhtml-fullscreen-frame" id="richHtmlFullscreenFrame" sandbox="allow-scripts" loading="lazy"></iframe>
+    <iframe class="richhtml-fullscreen-frame" id="richHtmlFullscreenFrame" sandbox="allow-scripts allow-same-origin" loading="lazy"></iframe>
   </div>
 </div>
 <button class="richhtml-highlight-chat-btn" id="richHtmlHighlightChatBtn" type="button" onclick="openRichHighlightInlineChat()"><img src="assets/聊天按钮.png" alt="聊天"></button>
@@ -6285,6 +6285,8 @@ function buildRichHtmlVisibleDoc(data){
     html: html,
     css: [
       'body{padding:0;margin:0;background:#fff;color:#111}',
+      '::selection{background:#111;color:#fff}',
+      '::-moz-selection{background:#111;color:#fff}',
       '.rich-quote-highlight{background:#111;color:#fff;padding:0 .08em;border-radius:2px;box-decoration-break:clone;-webkit-box-decoration-break:clone}',
       '.card-fallback{min-height:188px;padding:20px;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#fff 0%,#f6f6f6 100%);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif}',
       '.card-fallback-copy{width:100%;font-size:14px;line-height:1.78;font-weight:700;white-space:pre-wrap;word-break:break-word;color:#111}',
@@ -6651,7 +6653,7 @@ function renderRichHtmlBubble(host, raw){
   var data = normalizeRichHtmlRenderableData(raw);
   host.innerHTML = '<div class="richhtml-card">'
     + '<div class="richhtml-head"><div class="richhtml-kicker">SURPRISE</div><button class="richhtml-expand-btn" type="button" aria-label="全屏查看"><img src="assets/屏幕放大.png" alt="放大"></button></div>'
-    + '<iframe class="richhtml-frame" sandbox="allow-scripts" loading="lazy"></iframe>'
+    + '<iframe class="richhtml-frame" sandbox="allow-scripts allow-same-origin" loading="lazy"></iframe>'
     + '</div>';
   var frame = host.querySelector('.richhtml-frame');
   if(frame) frame.srcdoc = buildRichHtmlVisibleDoc(data);
@@ -9223,20 +9225,24 @@ function normalizeFavoriteRecords(raw){
 }
 
 function persistFavoriteRecordAsync(entry){
-  if(!entry || !window.PhoneStorage || typeof window.PhoneStorage.getJson !== 'function' || typeof window.PhoneStorage.putJson !== 'function') return;
+  if(!entry || !window.PhoneStorage || typeof window.PhoneStorage.getJson !== 'function' || typeof window.PhoneStorage.putJson !== 'function'){
+    return Promise.resolve(false);
+  }
   var storeId = favoritesStoreId();
   var safe = normalizeFavoriteRecords([entry])[0];
-  if(!safe) return;
-  window.PhoneStorage.getJson(storeId).then(function(existing){
+  if(!safe) return Promise.resolve(false);
+  return window.PhoneStorage.getJson(storeId).then(function(existing){
     var rows = normalizeFavoriteRecords(existing);
     rows = rows.filter(function(item){ return String(item.id || '') !== String(safe.id || ''); });
     rows.unshift(safe);
     rows = rows.slice(0, 200);
-    return window.PhoneStorage.putJson(storeId, rows);
-  }).catch(function(){});
+    return window.PhoneStorage.putJson(storeId, rows).then(function(){ return true; });
+  }).catch(function(){
+    return false;
+  });
 }
 
-function favoriteActiveMessage(){
+async function favoriteActiveMessage(){
   if(!activeActionMessageId) return;
   var msg = getMessageById(activeActionMessageId);
   closeMessageActions();
@@ -9257,7 +9263,7 @@ function favoriteActiveMessage(){
   if(richRaw){
     richPayloadAssetKey = accountScopedKey('favorite_rich_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,7));
     if(window.assetStore && typeof window.assetStore.saveOrFallback === 'function'){
-      window.assetStore.saveOrFallback(richPayloadAssetKey, richRaw).catch(function(){});
+      try{ await window.assetStore.saveOrFallback(richPayloadAssetKey, richRaw); }catch(err){}
       richPayload = window.assetStore.marker || '__asset__';
     }
   }
@@ -9287,9 +9293,9 @@ function favoriteActiveMessage(){
     at: Date.now()
   };
   var favoriteOk = window.AccountManager.addFavorite(favoriteRecord);
-  persistFavoriteRecordAsync(favoriteRecord);
-  if(favoriteOk === false) toast('收藏失败，请稍后再试');
-  else toast('已收藏');
+  var storeOk = await persistFavoriteRecordAsync(favoriteRecord);
+  if(favoriteOk || storeOk) toast('已收藏');
+  else toast('收藏失败，请稍后再试');
 }
 function cancelEditMessage(){
   var state = captureMessagesViewportState();
