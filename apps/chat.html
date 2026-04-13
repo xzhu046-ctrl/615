@@ -18615,9 +18615,12 @@ async function deliverAiReply(text, limitOverride){
     var cleaned = clean(raw)
       .replace(/\\r\\n/g, '\n')
       .replace(/\\n/g, '\n')
+      .replace(/\\u003c\s*br\s*\\?\/?\s*\\u003e/ig, '\n')
       .replace(/\r\n?/g, '\n')
       .replace(/[\u2028\u2029]/g, '\n')
-      .replace(/<br\s*\/?>/ig, '\n')
+      .replace(/<\s*br\s*\/?\s*>/ig, '\n')
+      .replace(/＜\s*br\s*\/?\s*＞/ig, '\n')
+      .replace(/&lt;\s*br\s*\/?\s*&gt;/ig, '\n')
       .replace(/<\/p>\s*<p[^>]*>/ig, '\n')
       .replace(/<\/div>\s*<div[^>]*>/ig, '\n');
     if(!cleaned) return [];
@@ -19119,16 +19122,42 @@ async function deliverAiReply(text, limitOverride){
       });
     }
   }
-  var hasExplicitMultiBubble = rawParts.length >= 2;
-  var cap = hasExplicitMultiBubble ? softMaxN : maxN;
-  if(rawParts.length > cap){
-    rawParts = rawParts.slice(0, cap);
-  }
   var parts = [];
   rawParts.forEach(function(part){
     if(!part) return;
     parts.push(part);
   });
+  // Normalize explicit split markers one more time for every text part.
+  // This catches branches that may have pushed raw text parts without calling splitPlainTextToParts.
+  var expandedParts = [];
+  parts.forEach(function(part){
+    if(!part){
+      return;
+    }
+    var kind = normalizeMessageType(part.t || 'text');
+    if(kind !== 'text'){
+      expandedParts.push(part);
+      return;
+    }
+    var splitParts = splitPlainTextToParts(part.text || '');
+    if(splitParts.length <= 1){
+      expandedParts.push(part);
+      return;
+    }
+    splitParts.forEach(function(seg){
+      if(!seg || !seg.text) return;
+      expandedParts.push({
+        text: seg.text,
+        t: seg.t || 'text',
+        replyTo: part.replyTo || '',
+        replyRole: part.replyRole || '',
+        translationText: part.translationText || ''
+      });
+    });
+  });
+  parts = expandedParts;
+  var hasExplicitMultiBubble = parts.length >= 2 || rawParts.length >= 2;
+  var cap = hasExplicitMultiBubble ? softMaxN : maxN;
   if(parts.length > cap){
     parts = parts.slice(0, cap);
   }
