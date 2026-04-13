@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-13T00:06:00Z';
+const APP_BUILD_ID = '2026-04-13T00:14:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -6607,8 +6607,8 @@ function showShellLoadingOverlay(kind){
   var mode = String(kind || 'app').trim().toLowerCase();
   var isBoot = mode === 'boot';
   overlay.classList.toggle('is-boot', isBoot);
-  image.src = isBoot ? 'apps/assets/主屏幕加载.jpg' : 'apps/assets/加载.jpg';
-  copy.textContent = '加载中...';
+  var bg = encodeURI(isBoot ? 'apps/assets/主屏幕加载.jpg' : 'apps/assets/加载.jpg');
+  image.style.backgroundImage = 'url("' + bg + '")';
   overlay.classList.add('show');
 }
 
