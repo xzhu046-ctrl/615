@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-13T06:29:00Z';
+const APP_BUILD_ID = '2026-04-13T08:18:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -57,6 +57,8 @@ const HOME_MUSIC_STATE_KEY = 'home_music_state_v1';
 const HOME_MUSIC_TRACK_PREFIX = 'home_music_track_';
 const HOME_MUSIC_PROXY_BASE_KEY = 'home_music_proxy_base_v1';
 const HOME_MUSIC_PLAY_MODE_KEY = 'home_music_play_mode_v1';
+const HOME_MUSIC_FLOATING_ENABLED_KEY = 'home_music_floating_enabled_v1';
+const HOME_MUSIC_FLOATING_ICON_KEY = 'home_music_floating_icon_v1';
 const HOME_MUSIC_THIRD_PARTY_BASE = 'https://api.vkeys.cn/v2/music/tencent';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
@@ -5242,7 +5244,9 @@ var homeMusicState = {
   objectUrl: '',
   isReady: false,
   isPlaying: false,
-  lyricHidden: false
+  lyricHidden: false,
+  floatingEnabled: true,
+  customBubbleIcon: ''
 };
 var homeMusicDragState = null;
 var homeMusicBubbleMoved = false;
@@ -5290,7 +5294,8 @@ function serializeHomeMusicState(){
     bubbleX: typeof homeMusicState.bubbleX === 'number' ? homeMusicState.bubbleX : null,
     bubbleY: typeof homeMusicState.bubbleY === 'number' ? homeMusicState.bubbleY : null,
     proxyBase: String(homeMusicState.proxyBase || ''),
-    lyricHidden: !!homeMusicState.lyricHidden
+    lyricHidden: !!homeMusicState.lyricHidden,
+    floatingEnabled: homeMusicState.floatingEnabled !== false
   });
 }
 
@@ -5304,6 +5309,7 @@ function persistHomeMusicState(){
 function hydrateHomeMusicState(){
   try{
     var raw = localStorage.getItem(HOME_MUSIC_STATE_KEY);
+    var storedEnabled = localStorage.getItem(HOME_MUSIC_FLOATING_ENABLED_KEY);
     if(raw){
       var parsed = JSON.parse(raw);
       if(parsed && typeof parsed === 'object'){
@@ -5314,11 +5320,24 @@ function hydrateHomeMusicState(){
         homeMusicState.bubbleY = typeof parsed.bubbleY === 'number' ? parsed.bubbleY : null;
         homeMusicState.proxyBase = parsed.proxyBase || localStorage.getItem(HOME_MUSIC_PROXY_BASE_KEY) || '';
         homeMusicState.lyricHidden = !!parsed.lyricHidden;
+        if(typeof parsed.floatingEnabled === 'boolean'){
+          homeMusicState.floatingEnabled = parsed.floatingEnabled;
+        }else if(storedEnabled === '0'){
+          homeMusicState.floatingEnabled = false;
+        }else{
+          homeMusicState.floatingEnabled = true;
+        }
       }
     }else{
       homeMusicState.proxyBase = localStorage.getItem(HOME_MUSIC_PROXY_BASE_KEY) || '';
+      homeMusicState.floatingEnabled = storedEnabled === '0' ? false : true;
     }
   }catch(err){}
+  try{
+    if(typeof homeMusicState.floatingEnabled === 'boolean'){
+      localStorage.setItem(HOME_MUSIC_FLOATING_ENABLED_KEY, homeMusicState.floatingEnabled ? '1' : '0');
+    }
+  }catch(storageErr){}
   homeMusicState.previewTrack = null;
   homeMusicState.searchResults = [];
 }
@@ -5710,14 +5729,78 @@ function renderHomeMusicModeButton(){
   btn.setAttribute('aria-label', '列表循环');
 }
 
+function isRenderableHomeMusicFloatingIcon(src){
+  var text = String(src || '').trim();
+  return !!(text && (
+    text.indexOf('data:') === 0 ||
+    text.indexOf('http://') === 0 ||
+    text.indexOf('https://') === 0 ||
+    text.indexOf('blob:') === 0 ||
+    text.indexOf('/') === 0 ||
+    text.indexOf('./') === 0 ||
+    text.indexOf('../') === 0 ||
+    text.indexOf('assets/') === 0 ||
+    text.indexOf('apps/assets/') === 0
+  ));
+}
+
+function applyHomeMusicBubbleAppearance(){
+  var bubble = document.getElementById('home-music-bubble');
+  if(!bubble) return;
+  var src = String(homeMusicState.customBubbleIcon || '').trim();
+  if(isRenderableHomeMusicFloatingIcon(src)){
+    bubble.classList.add('is-custom-image');
+    bubble.innerHTML = '<img class="home-music-bubble-custom-image" src="' + escapeHtml(src) + '" alt="音乐悬浮球">';
+    return;
+  }
+  bubble.classList.remove('is-custom-image');
+  bubble.innerHTML = '<span class="home-music-bubble-icon">♪</span>';
+}
+
+function hydrateHomeMusicFloatingIcon(){
+  return loadStoredAsset(HOME_MUSIC_FLOATING_ICON_KEY).then(function(src){
+    homeMusicState.customBubbleIcon = String(src || '').trim();
+    applyHomeMusicBubbleAppearance();
+    applyHomeMusicBubblePosition();
+    return homeMusicState.customBubbleIcon;
+  }).catch(function(){
+    homeMusicState.customBubbleIcon = '';
+    applyHomeMusicBubbleAppearance();
+    applyHomeMusicBubblePosition();
+    return '';
+  });
+}
+
+function saveHomeMusicFloatingSettings(payload){
+  var data = payload && typeof payload === 'object' ? payload : {};
+  if(Object.prototype.hasOwnProperty.call(data, 'enabled')){
+    homeMusicState.floatingEnabled = !!data.enabled;
+    try{ localStorage.setItem(HOME_MUSIC_FLOATING_ENABLED_KEY, homeMusicState.floatingEnabled ? '1' : '0'); }catch(err){}
+  }
+  if(Object.prototype.hasOwnProperty.call(data, 'icon')){
+    var icon = String(data.icon || '').trim();
+    homeMusicState.customBubbleIcon = icon;
+    if(icon){
+      saveStoredAsset(HOME_MUSIC_FLOATING_ICON_KEY, icon).catch(function(){});
+    }else{
+      removeStoredAsset(HOME_MUSIC_FLOATING_ICON_KEY).catch(function(){});
+    }
+  }
+  persistHomeMusicState();
+  renderHomeMusic();
+}
+
 function applyHomeMusicBubblePosition(){
   var floating = document.getElementById('home-music-floating');
   if(!floating) return;
-  var vv = window.visualViewport || null;
-  var viewportLeft = vv ? Number(vv.offsetLeft || 0) : 0;
-  var viewportTop = vv ? Number(vv.offsetTop || 0) : 0;
-  var viewportWidth = vv ? Number(vv.width || window.innerWidth || 0) : Number(window.innerWidth || 0);
-  var viewportHeight = vv ? Number(vv.height || window.innerHeight || 0) : Number(window.innerHeight || 0);
+  var host = floating.offsetParent || floating.parentElement || document.querySelector('.screen') || document.body;
+  var hostRect = host && typeof host.getBoundingClientRect === 'function'
+    ? host.getBoundingClientRect()
+    : { left:0, top:0, width:Number(window.innerWidth || 0), height:Number(window.innerHeight || 0) };
+  var viewportLeft = 0;
+  var viewportTop = 0;
+  var viewportWidth = Math.max(0, Number(hostRect.width || 0));
+  var viewportHeight = Math.max(0, Number(hostRect.height || 0));
   var margin = 6;
   var minX = viewportLeft + margin;
   var minY = viewportTop + margin;
@@ -5810,12 +5893,19 @@ function renderHomeMusicPlaybackUi(){
 function renderHomeMusic(){
   var floating = document.getElementById('home-music-floating');
   var panel = document.getElementById('home-music-panel');
-  if(floating) floating.hidden = false;
+  var floatingEnabled = homeMusicState.floatingEnabled !== false;
+  if(floating) floating.hidden = !floatingEnabled;
   if(floating) floating.classList.toggle('lyric-hidden', !!homeMusicState.lyricHidden);
+  if(panel && !floatingEnabled){
+    panel.dataset.open = '';
+  }
   if(panel) panel.hidden = !panel.dataset.open;
+  applyHomeMusicBubbleAppearance();
   renderHomeMusicPlaybackUi();
   renderHomeMusicPlaylist();
-  applyHomeMusicBubblePosition();
+  if(floatingEnabled){
+    applyHomeMusicBubblePosition();
+  }
   syncHomeMusicLyricCardWidth();
   renderHomeMusicModeButton();
 }
@@ -6194,6 +6284,9 @@ async function importHomeMusicFiles(files){
 }
 
 function openHomeMusicPanel(){
+  if(homeMusicState.floatingEnabled === false){
+    return;
+  }
   var panel = document.getElementById('home-music-panel');
   if(panel){
     panel.dataset.open = '1';
@@ -6303,7 +6396,7 @@ function bindHomeMusicSystem(){
     if(searchEditor && searchEditor.parentElement !== screen) screen.appendChild(searchEditor);
   }
   if(floating){
-    floating.hidden = false;
+    floating.hidden = homeMusicState.floatingEnabled === false;
     floating.addEventListener('pointerdown', function(evt){
       homeMusicBubbleMoved = false;
       homeMusicDragState = {
@@ -6336,6 +6429,10 @@ function bindHomeMusicSystem(){
     window.visualViewport.__homeMusicBound = true;
     window.visualViewport.addEventListener('resize', applyHomeMusicBubblePosition);
     window.visualViewport.addEventListener('scroll', applyHomeMusicBubblePosition);
+  }
+  if(!window.__homeMusicResizeBound){
+    window.__homeMusicResizeBound = true;
+    window.addEventListener('resize', applyHomeMusicBubblePosition);
   }
   if(bubble){
     bubble.addEventListener('click', function(evt){
@@ -6449,6 +6546,7 @@ function bindHomeMusicSystem(){
     });
   }
   renderHomeMusic();
+  hydrateHomeMusicFloatingIcon();
   loadStoredAsset('home_slot_musicAlbum').then(function(src){
     homeMusicAlbumCoverSrc = typeof src === 'string' ? src : '';
     renderHomeMusicCover();
@@ -7007,6 +7105,10 @@ window.addEventListener('message',(e)=>{
     localStorage.setItem(LIVE_DANMAKU_ENABLED_KEY, next ? '1' : '0');
     applyLiveDanmakuVisibility(next);
     showHomeToast(next ? '弹幕已开启' : '弹幕已关闭');
+  }
+  if(type==='SET_HOME_MUSIC_FLOATING'){
+    saveHomeMusicFloatingSettings(payload || {});
+    showHomeToast(homeMusicState.floatingEnabled === false ? '音乐悬浮球已关闭' : '音乐悬浮球已更新');
   }
   if(type==='SHOW_HOME_TOAST'){ showHomeToast(payload); }
   if(type==='SET_WALLPAPER'){ setWallpaper(payload); }

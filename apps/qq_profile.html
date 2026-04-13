@@ -51,7 +51,8 @@ button,input,textarea,select{color:var(--b);-webkit-text-fill-color:var(--b)}
 .fav-list{display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:auto;padding:2px 0;-webkit-overflow-scrolling:touch}
 .fav-item{width:calc(100% - 6px);margin:0 auto;border:var(--bd);border-radius:14px;background:#f8f8f8;box-shadow:var(--sh);padding:10px;display:flex;gap:10px;touch-action:pan-y;transition:transform .15s ease}
 .fav-item.swiping{transition:none}
-.fav-av{width:36px;height:36px;border:var(--bd);border-radius:10px;background:#eee center/cover no-repeat;flex-shrink:0}
+.fav-av{width:36px;height:36px;border:var(--bd);border-radius:10px;background:#eee;flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden;font-family:var(--fontd);font-size:12px;font-weight:900;color:#666}
+.fav-av img{width:100%;height:100%;object-fit:cover;display:block}
 .fav-meta{min-width:0;flex:1}
 .fav-name{font-family:var(--fontd);font-size:12px;font-weight:900}
 .fav-time{font-size:10px;color:#666;font-weight:700}
@@ -312,6 +313,8 @@ function loadWalletCharacters(){
 function currentActiveCharId(){ try{ const scoped=localStorage.getItem(window.AccountManager.scopedKey('activeCharacter'))||''; const global=localStorage.getItem('activeCharacter')||''; const parsed=JSON.parse(scoped||global||'null'); return parsed&&parsed.id ? String(parsed.id) : ''; }catch(e){ return ''; } }
 function getChatUserName(charId){ const keys=[]; if(charId) keys.push(window.AccountManager.scopedKey('user_name_' + charId)); keys.push(window.AccountManager.scopedKey('user_name')); if(charId) keys.push('user_name_' + charId); keys.push('user_name'); for(const key of keys){ const val=String(localStorage.getItem(key)||'').trim(); if(val) return val; } return String((active()&&active().name)||'').trim() || 'User'; }
 function getChatUserAvatar(charId){ const keys=[]; if(charId) keys.push(window.AccountManager.scopedKey('user_avatar_' + charId)); keys.push(window.AccountManager.scopedKey('user_avatar')); if(charId) keys.push('user_avatar_' + charId); keys.push('user_avatar'); for(const key of keys){ const val=String(localStorage.getItem(key)||'').trim(); if(val) return val; } return String((active()&&active().avatar)||'').trim(); }
+function isRenderableAvatarSrc(src){ return /^(data:|https?:|blob:|\/|\.\.?\/|assets\/|apps\/assets\/)/i.test(String(src||'').trim()); }
+function assetMarkerText(){ return String((window.assetStore && window.assetStore.marker) || '__asset__'); }
 async function resolveProfileAvatar(){
   const keys=[
     window.AccountManager.scopedKey('qq_profile_avatar_asset'),
@@ -329,6 +332,86 @@ async function resolveProfileAvatar(){
 }
 function getCharAvatarSnapshot(charObj){ const id=String((charObj&&charObj.id)||''); const key=id ? ('char_avatar_' + id) : ''; const saved=key ? String(localStorage.getItem(key)||'').trim() : ''; return saved || String((charObj&&charObj.imageData)||'').trim(); }
 function getCharDisplayName(charObj){ return String((charObj && (charObj.nickname || charObj.name)) || '').trim() || 'Char'; }
+function favoriteAvatarLabel(item){
+  const name = String((item && item.name) || '').trim();
+  return (name || '头').slice(0, 1);
+}
+function favoriteAvatarSyncSrc(item){
+  const marker = assetMarkerText();
+  const from = String((item && item.from) || '').trim();
+  const charId = String((item && item.charId) || '').trim();
+  let src = String((item && item.avatar) || '').trim();
+  if(src && src !== marker && isRenderableAvatarSrc(src)) return src;
+  if((from === 'char' || (!from && charId)) && charId){
+    try{
+      const localSrc = String(localStorage.getItem('char_avatar_' + charId) || '').trim();
+      if(localSrc && localSrc !== marker && isRenderableAvatarSrc(localSrc)) return localSrc;
+    }catch(err){}
+  }
+  if(from === 'user'){
+    src = String(getChatUserAvatar(charId) || '').trim();
+    if(src && src !== marker && isRenderableAvatarSrc(src)) return src;
+  }
+  return '';
+}
+function renderFavoriteAvatar(item){
+  const src = favoriteAvatarSyncSrc(item);
+  const label = esc(favoriteAvatarLabel(item));
+  const from = escAttr(String((item && item.from) || '').trim());
+  const charId = escAttr(String((item && item.charId) || '').trim());
+  if(src){
+    return '<div class="fav-av has-image" data-fav-from="' + from + '" data-fav-char-id="' + charId + '"><img src="' + escAttr(src) + '" alt=""></div>';
+  }
+  return '<div class="fav-av" data-fav-from="' + from + '" data-fav-char-id="' + charId + '">' + label + '</div>';
+}
+function loadFirstRenderableAvatar(keys){
+  const list = Array.isArray(keys) ? keys.filter(Boolean) : [];
+  let idx = 0;
+  const marker = assetMarkerText();
+  const next = ()=>{
+    if(idx >= list.length) return Promise.resolve('');
+    const key = list[idx++];
+    return loadStoredAsset(key).then((src)=>{
+      const safe = String(src || '').trim();
+      if(safe && safe !== marker && isRenderableAvatarSrc(safe)) return safe;
+      return next();
+    }).catch(()=>next());
+  };
+  return next();
+}
+function resolveFavoriteUserAvatarAsync(charId){
+  const id = String(charId || '').trim();
+  const keys = [];
+  if(id) keys.push(window.AccountManager.scopedKey('user_avatar_' + id));
+  keys.push(window.AccountManager.scopedKey('user_avatar'));
+  if(id) keys.push('user_avatar_' + id);
+  keys.push('user_avatar');
+  return loadFirstRenderableAvatar(keys).then((src)=>{
+    if(src) return src;
+    return resolveProfileAvatar().then((fallback)=>String(fallback || '').trim()).catch(()=> '');
+  });
+}
+function hydrateFavoriteAvatarNodes(){
+  const list = document.getElementById('favList');
+  if(!list) return;
+  list.querySelectorAll('.fav-av').forEach((slot)=>{
+    if(!slot || slot.querySelector('img')) return;
+    const from = String(slot.getAttribute('data-fav-from') || '').trim();
+    const charId = String(slot.getAttribute('data-fav-char-id') || '').trim();
+    let task = Promise.resolve('');
+    if((from === 'char' || (!from && charId)) && charId){
+      task = loadFirstRenderableAvatar(['char_avatar_' + charId]);
+    }else if(from === 'user'){
+      task = resolveFavoriteUserAvatarAsync(charId);
+    }
+    task.then((src)=>{
+      const safe = String(src || '').trim();
+      if(!safe || !isRenderableAvatarSrc(safe) || slot.querySelector('img')) return;
+      slot.innerHTML = '<img src="' + escAttr(safe) + '" alt="">';
+      slot.classList.add('has-image');
+    }).catch(()=>{});
+  });
+}
 function buildFamilyInviteText(userName, charName, mode){ return userName + '邀请' + charName + (mode==='request' ? '来掏钱' : '来花钱'); }
 function pendingFamilyAutoTriggerKey(charId){ return window.AccountManager.scopedKey('pending_family_auto_trigger_' + charId); }
 function createFamilyCardPayload(charObj, mode, amount){ const userName=getChatUserName(charObj&&charObj.id); const charName=getCharDisplayName(charObj); return { id:'family_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7), type:'family_card', kind:'request', status:'pending', mode:mode==='request'?'request':'gift', amount:Number(amount||0)||0, userName:userName, userAvatar:getChatUserAvatar(charObj&&charObj.id), charName:charName, charAvatar:getCharAvatarSnapshot(charObj), charId:String((charObj&&charObj.id)||''), summary:buildFamilyInviteText(userName,charName,mode), createdAt:Date.now() }; }
@@ -522,18 +605,17 @@ function renderFavorites(){
   try{
     list.innerHTML = favs.map((f)=>{
       const frameId = 'favRichFrame_' + (String(f.id || '').replace(/[^a-zA-Z0-9_-]/g, '') || Math.random().toString(36).slice(2,8));
-      const av = f.avatar ? 'style="background-image:url(' + escAttr(f.avatar) + ')"' : '';
-      return '<article class="fav-item" data-fav-id="' + escAttr(f.id || '') + '"><div class="fav-av" ' + av + '></div><div class="fav-meta"><div class="fav-name">' + esc(f.name || '未命名') + '</div><div class="fav-time">' + fmtTime(f.at) + '</div>' + renderFavoriteBody(f, frameId) + '</div></article>';
+      return '<article class="fav-item" data-fav-id="' + escAttr(f.id || '') + '">' + renderFavoriteAvatar(f) + '<div class="fav-meta"><div class="fav-name">' + esc(f.name || '未命名') + '</div><div class="fav-time">' + fmtTime(f.at) + '</div>' + renderFavoriteBody(f, frameId) + '</div></article>';
     }).join('');
   }catch(err){
     list.innerHTML = favs.map((f)=>{
-      const av = f.avatar ? 'style="background-image:url(' + escAttr(f.avatar) + ')"' : '';
       const preview = getFavoritePreviewText(f);
-      return '<article class="fav-item" data-fav-id="' + escAttr(f.id || '') + '"><div class="fav-av" ' + av + '></div><div class="fav-meta"><div class="fav-name">' + esc(f.name || '未命名') + '</div><div class="fav-time">' + fmtTime(f.at) + '</div><div class="fav-text">' + esc(preview) + '</div></div></article>';
+      return '<article class="fav-item" data-fav-id="' + escAttr(f.id || '') + '">' + renderFavoriteAvatar(f) + '<div class="fav-meta"><div class="fav-name">' + esc(f.name || '未命名') + '</div><div class="fav-time">' + fmtTime(f.at) + '</div><div class="fav-text">' + esc(preview) + '</div></div></article>';
     }).join('');
   }
   bindFavoriteSwipeDelete();
   hydrateFavoriteRichFrames();
+  hydrateFavoriteAvatarNodes();
 }
 async function openFavorites(){ await hydrateFavoritesCache(); renderFavorites(); document.getElementById('favOverlay').classList.add('open'); }
 function removeFavoriteById(id){
