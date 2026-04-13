@@ -400,14 +400,31 @@ function getFavoritePreviewText(fav){
 function renderFavoriteBody(fav){
   const item = fav && typeof fav === 'object' ? fav : {};
   const kind = normalizeFavoriteType(item.type || 'text');
+  const richKey = String(item.richPayloadAssetKey || '').trim();
   const richPayload = kind === 'richhtml'
     ? (parseFavoriteRichPayload(item.richPayload || item.text) || parseFavoriteRichPayload(item.text))
     : parseFavoriteRichPayload(item.richPayload || '');
-  if(kind === 'richhtml' || richPayload){
-    const srcdoc = buildFavoriteRichSrcdoc(richPayload || { html:'', css:'', js:'', summary:'SURPRISE', text:'' });
-    return '<div class="fav-rich-wrap"><iframe class="fav-rich-frame" loading="lazy" sandbox="allow-scripts" srcdoc="' + escAttr(srcdoc) + '"></iframe></div><div class="fav-rich-hint">【SURPRISE】</div>';
+  if(kind === 'richhtml' || richPayload || richKey){
+    const fallbackPayload = { html:'', css:'', js:'', summary:'SURPRISE', text:'SURPRISE' };
+    const srcdoc = buildFavoriteRichSrcdoc(richPayload || fallbackPayload);
+    const keyAttr = richKey ? (' data-rich-key="' + escAttr(richKey) + '"') : '';
+    return '<div class="fav-rich-wrap"><iframe class="fav-rich-frame" loading="lazy" sandbox="allow-scripts"' + keyAttr + ' srcdoc="' + escAttr(srcdoc) + '"></iframe></div><div class="fav-rich-hint">【SURPRISE】</div>';
   }
   return '<div class="fav-text">' + esc(getFavoritePreviewText(item)) + '</div>';
+}
+function hydrateFavoriteRichFrames(){
+  const list = document.getElementById('favList');
+  if(!list || !window.assetStore || typeof window.assetStore.load !== 'function') return;
+  list.querySelectorAll('.fav-rich-frame[data-rich-key]').forEach((frame)=>{
+    const key = String(frame.getAttribute('data-rich-key') || '').trim();
+    if(!key) return;
+    window.assetStore.load(key).then((raw)=>{
+      const payload = parseFavoriteRichPayload(raw);
+      if(!payload) return;
+      frame.srcdoc = buildFavoriteRichSrcdoc(payload);
+      frame.removeAttribute('data-rich-key');
+    }).catch(()=>{});
+  });
 }
 function renderFavorites(){
   const list = document.getElementById('favList');
@@ -417,11 +434,20 @@ function renderFavorites(){
     list.innerHTML = '<div class="sub">还没有收藏，去聊天里长按消息收藏吧。</div>';
     return;
   }
-  list.innerHTML = favs.map((f)=>{
-    const av = f.avatar ? 'style="background-image:url(' + escAttr(f.avatar) + ')"' : '';
-    return '<article class="fav-item" data-fav-id="' + escAttr(f.id || '') + '"><div class="fav-av" ' + av + '></div><div class="fav-meta"><div class="fav-name">' + esc(f.name || '未命名') + '</div><div class="fav-time">' + fmtTime(f.at) + '</div>' + renderFavoriteBody(f) + '</div></article>';
-  }).join('');
+  try{
+    list.innerHTML = favs.map((f)=>{
+      const av = f.avatar ? 'style="background-image:url(' + escAttr(f.avatar) + ')"' : '';
+      return '<article class="fav-item" data-fav-id="' + escAttr(f.id || '') + '"><div class="fav-av" ' + av + '></div><div class="fav-meta"><div class="fav-name">' + esc(f.name || '未命名') + '</div><div class="fav-time">' + fmtTime(f.at) + '</div>' + renderFavoriteBody(f) + '</div></article>';
+    }).join('');
+  }catch(err){
+    list.innerHTML = favs.map((f)=>{
+      const av = f.avatar ? 'style="background-image:url(' + escAttr(f.avatar) + ')"' : '';
+      const preview = getFavoritePreviewText(f);
+      return '<article class="fav-item" data-fav-id="' + escAttr(f.id || '') + '"><div class="fav-av" ' + av + '></div><div class="fav-meta"><div class="fav-name">' + esc(f.name || '未命名') + '</div><div class="fav-time">' + fmtTime(f.at) + '</div><div class="fav-text">' + esc(preview) + '</div></div></article>';
+    }).join('');
+  }
   bindFavoriteSwipeDelete();
+  hydrateFavoriteRichFrames();
 }
 function openFavorites(){ renderFavorites(); document.getElementById('favOverlay').classList.add('open'); }
 function removeFavoriteById(id){ if(!id) return; window.AccountManager.updateActive((a)=>{ const arr=Array.isArray(a.favorites)?a.favorites:[]; a.favorites=arr.filter((it)=>String(it&&it.id||'')!==String(id)); }); renderProfile(); renderFavorites(); }

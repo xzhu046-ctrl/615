@@ -15,7 +15,43 @@
   }
 
   function saveAccounts(accounts){
-    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts || []));
+    try{
+      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts || []));
+      return true;
+    }catch(e){
+      return false;
+    }
+  }
+
+  function trimFavoriteForQuota(entry){
+    var item = entry && typeof entry === 'object' ? Object.assign({}, entry) : {};
+    if(item.richPayload && item.richPayload !== '__asset__'){
+      item.richPayload = '';
+    }
+    if(typeof item.text === 'string' && item.text.length > 60000){
+      item.text = item.text.slice(0, 60000);
+    }
+    if(typeof item.previewText === 'string' && item.previewText.length > 200){
+      item.previewText = item.previewText.slice(0, 200);
+    }
+    return item;
+  }
+
+  function saveAccountsWithQuotaFallback(accounts, idx){
+    if(saveAccounts(accounts)) return true;
+    if(!Array.isArray(accounts) || idx < 0 || idx >= accounts.length) return false;
+    var account = Object.assign({}, accounts[idx]);
+    var favorites = Array.isArray(account.favorites) ? account.favorites.slice() : [];
+    if(!favorites.length) return false;
+    account.favorites = favorites.map(trimFavoriteForQuota);
+    accounts[idx] = account;
+    if(saveAccounts(accounts)) return true;
+    while(account.favorites.length > 0){
+      account.favorites.pop();
+      accounts[idx] = account;
+      if(saveAccounts(accounts)) return true;
+    }
+    return false;
   }
 
   function ensure(){
@@ -73,7 +109,7 @@
     var copy = Object.assign({}, accounts[idx]);
     mutator(copy);
     accounts[idx] = copy;
-    saveAccounts(accounts);
+    saveAccountsWithQuotaFallback(accounts, idx);
     return copy;
   }
 
@@ -121,11 +157,16 @@
   }
 
   function addFavorite(entry){
-    updateActive(function(acct){
-      acct.favorites = Array.isArray(acct.favorites) ? acct.favorites : [];
-      acct.favorites.unshift(entry);
-      acct.favorites = acct.favorites.slice(0, 200);
-    });
+    try{
+      updateActive(function(acct){
+        acct.favorites = Array.isArray(acct.favorites) ? acct.favorites : [];
+        acct.favorites.unshift(entry);
+        acct.favorites = acct.favorites.slice(0, 200);
+      });
+      return true;
+    }catch(err){
+      return false;
+    }
   }
 
   function addFriend(charId){
