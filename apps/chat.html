@@ -7562,6 +7562,49 @@ function resetChatVisibleWindow(){
   chatVisibleCount = 0;
   chatVisibleCharId = '';
 }
+function splitExplicitBubbleLines(raw){
+  var source = String(raw || '')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u2028\u2029]/g, '\n')
+    .replace(/<br\s*\/?>/ig, '\n')
+    .replace(/<\/p>\s*<p[^>]*>/ig, '\n')
+    .replace(/<\/div>\s*<div[^>]*>/ig, '\n');
+  return source.split(/\n+/).map(function(line){
+    return String(line || '').trim();
+  }).filter(Boolean);
+}
+function expandExplicitAssistantBubbles(list){
+  if(!Array.isArray(list) || !list.length) return Array.isArray(list) ? list : [];
+  var expanded = [];
+  list.forEach(function(entry){
+    var item = entry && typeof entry === 'object' ? Object.assign({}, entry) : entry;
+    if(!item || typeof item !== 'object'){
+      expanded.push(item);
+      return;
+    }
+    var type = normalizeMessageType(item.type || 'text');
+    if(type !== 'text' || String(item.role || '') !== 'assistant'){
+      expanded.push(item);
+      return;
+    }
+    var lines = splitExplicitBubbleLines(item.content || '');
+    if(lines.length < 2){
+      expanded.push(item);
+      return;
+    }
+    lines.forEach(function(line, idx){
+      var clone = Object.assign({}, item, {
+        id: idx === 0 ? item.id : String(item.id || genMsgId()) + '_split_' + idx,
+        content: line,
+        translationText: idx === 0 ? String(item.translationText || '') : ''
+      });
+      expanded.push(clone);
+    });
+  });
+  return expanded;
+}
 function getRenderedChatEntries(){
   var currentCharId = String((character && character.id) || '');
   if(chatVisibleCharId !== currentCharId){
@@ -8509,6 +8552,7 @@ function confirmFriendRequestFlow(){
 // ════════════════════════════════════════════
 async function init() {
   tightenParentTopbarForChat();
+  renderLoadingState();
   try{
     var initUrl = new URL(window.location.href);
     desiredChatCharId = String(initUrl.searchParams.get('char') || '').trim();
@@ -9467,7 +9511,7 @@ async function restoreOrStartChat() {
     restored = [];
   }
   if (restored.length) {
-    chatLog = restored;
+    chatLog = expandExplicitAssistantBubbles(restored);
     appendMoneyDebugLog('restore', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
     renderChatLog(false);
     return;
@@ -9500,7 +9544,7 @@ async function syncChatLogFromStorageForCurrentCharacter(){
     var nextStamp = historySortStamp(normalized);
     if(currentStamp.lastTs > nextStamp.lastTs) return false;
     if(currentStamp.lastTs === nextStamp.lastTs && currentStamp.count > nextStamp.count) return false;
-    chatLog = normalized;
+    chatLog = expandExplicitAssistantBubbles(normalized);
     appendMoneyDebugLog('sync_from_storage', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
     renderChatLog(false);
     return true;
@@ -17870,6 +17914,22 @@ async function deliverAiReply(text, limitOverride){
     if(t === 'text'){
       p.text = sanitizeAssistantTextForChat(p.text);
       if(!p.text) continue;
+      var finalLines = splitExplicitBubbleLines(p.text);
+      if(finalLines.length >= 2){
+        var replacementParts = finalLines.map(function(line){
+          var maybeMeme = parseMemeMarker(line);
+          return {
+            text: maybeMeme || line,
+            t: maybeMeme ? 'meme' : 'text',
+            replyTo: p.replyTo || '',
+            replyRole: p.replyRole || '',
+            translationText: ''
+          };
+        });
+        parts.splice.apply(parts, [i, 1].concat(replacementParts));
+        i -= 1;
+        continue;
+      }
     }
     if(t === 'voice'){
       p.text = sanitizeAssistantVoiceText(p.text);
