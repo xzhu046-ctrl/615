@@ -2,6 +2,7 @@
   var ACCOUNTS_KEY = 'qq_accounts_v1';
   var ACTIVE_KEY = 'qq_active_account_id_v1';
   var DEFAULT_KEY = 'qq_default_account_id_v1';
+  var FAVORITES_FALLBACK_PREFIX = 'qq_favorites_fallback__acct_';
 
   function uid(){
     return 'acc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
@@ -37,21 +38,40 @@
     return item;
   }
 
+  function favoritesFallbackKey(accountId){
+    return FAVORITES_FALLBACK_PREFIX + String(accountId || '');
+  }
+
+  function loadFavoritesFallback(accountId){
+    if(!accountId) return [];
+    try{
+      var arr = JSON.parse(localStorage.getItem(favoritesFallbackKey(accountId)) || '[]');
+      return Array.isArray(arr) ? arr : [];
+    }catch(err){
+      return [];
+    }
+  }
+
+  function saveFavoritesFallback(accountId, list){
+    if(!accountId) return false;
+    var safeList = (Array.isArray(list) ? list : []).map(trimFavoriteForQuota).slice(0, 200);
+    try{
+      localStorage.setItem(favoritesFallbackKey(accountId), JSON.stringify(safeList));
+      return true;
+    }catch(err){
+      return false;
+    }
+  }
+
   function saveAccountsWithQuotaFallback(accounts, idx){
     if(saveAccounts(accounts)) return true;
     if(!Array.isArray(accounts) || idx < 0 || idx >= accounts.length) return false;
     var account = Object.assign({}, accounts[idx]);
     var favorites = Array.isArray(account.favorites) ? account.favorites.slice() : [];
     if(!favorites.length) return false;
-    account.favorites = favorites.map(trimFavoriteForQuota);
+    account.favorites = favorites.map(trimFavoriteForQuota).slice(0, 120);
     accounts[idx] = account;
-    if(saveAccounts(accounts)) return true;
-    while(account.favorites.length > 0){
-      account.favorites.pop();
-      accounts[idx] = account;
-      if(saveAccounts(accounts)) return true;
-    }
-    return false;
+    return saveAccounts(accounts);
   }
 
   function ensure(){
@@ -90,6 +110,11 @@
       if(!!a.isDefault !== should){ a.isDefault = should; changed = true; }
       if(!Array.isArray(a.friends)){ a.friends = []; changed = true; }
       if(!Array.isArray(a.favorites)){ a.favorites = []; changed = true; }
+      var fallbackFavs = loadFavoritesFallback(a.id);
+      if(fallbackFavs.length && fallbackFavs.length >= a.favorites.length){
+        a.favorites = fallbackFavs;
+        changed = true;
+      }
     });
     if(changed) saveAccounts(accounts);
     return accounts;
@@ -110,6 +135,9 @@
     mutator(copy);
     accounts[idx] = copy;
     saveAccountsWithQuotaFallback(accounts, idx);
+    if(Array.isArray(copy.favorites)){
+      saveFavoritesFallback(copy.id || activeId, copy.favorites);
+    }
     return copy;
   }
 
@@ -157,16 +185,18 @@
   }
 
   function addFavorite(entry){
-    try{
-      updateActive(function(acct){
-        acct.favorites = Array.isArray(acct.favorites) ? acct.favorites : [];
-        acct.favorites.unshift(entry);
-        acct.favorites = acct.favorites.slice(0, 200);
-      });
-      return true;
-    }catch(err){
-      return false;
-    }
+    var accounts = ensure();
+    var activeId = localStorage.getItem(ACTIVE_KEY);
+    var idx = accounts.findIndex(function(a){ return a.id === activeId; });
+    if(idx < 0) idx = 0;
+    var acct = Object.assign({}, accounts[idx]);
+    var list = Array.isArray(acct.favorites) ? acct.favorites.slice() : [];
+    list.unshift(trimFavoriteForQuota(entry));
+    acct.favorites = list.slice(0, 200);
+    accounts[idx] = acct;
+    var saved = saveAccountsWithQuotaFallback(accounts, idx);
+    var fallbackSaved = saveFavoritesFallback(acct.id || activeId, acct.favorites);
+    return !!(saved || fallbackSaved);
   }
 
   function addFriend(charId){

@@ -57,8 +57,22 @@ button,input,textarea,select{color:var(--b);-webkit-text-fill-color:var(--b)}
 .fav-time{font-size:10px;color:#666;font-weight:700}
 .fav-text{font-size:12px;font-weight:700;line-height:1.5;word-break:break-word;white-space:pre-wrap}
 .fav-rich-wrap{margin-top:7px;border:var(--bd);border-radius:14px;background:linear-gradient(180deg,#fff 0%,#f4f4f4 100%);box-shadow:2px 2px 0 #0a0a0a;padding:6px}
+.fav-rich-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 6px}
+.fav-rich-tag{display:inline-flex;align-items:center;justify-content:center;min-height:24px;padding:0 10px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.12em}
+.fav-rich-expand{width:30px;height:30px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.fav-rich-expand:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
+.fav-rich-expand img{width:16px;height:16px;object-fit:contain;display:block}
 .fav-rich-frame{display:block;width:100%;height:220px;border:none;border-radius:10px;background:#fff}
 .fav-rich-hint{margin-top:6px;font-size:10px;color:#666;font-weight:800;letter-spacing:.04em}
+.fav-rich-full-overlay{position:fixed;inset:0;z-index:190;display:none;align-items:center;justify-content:center;padding:14px;background:rgba(0,0,0,.5)}
+.fav-rich-full-overlay.open{display:flex}
+.fav-rich-full-card{width:min(980px,100%);height:min(92vh,100%);border:var(--bd);border-radius:20px;background:#fff;box-shadow:4px 6px 0 #0a0a0a;padding:10px;display:flex;flex-direction:column;gap:8px}
+.fav-rich-full-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.fav-rich-full-title{display:inline-flex;align-items:center;justify-content:center;min-height:26px;padding:0 12px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.14em}
+.fav-rich-full-close{width:34px;height:34px;border:var(--bd);border-radius:999px;background:#fff;box-shadow:var(--sh);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.fav-rich-full-close:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
+.fav-rich-full-close img{width:18px;height:18px;object-fit:contain;display:block}
+.fav-rich-full-frame{width:100%;flex:1 1 auto;border:none;border-radius:12px;background:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
 .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(10px);background:#111;color:#fff;padding:8px 14px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;transition:all .2s;pointer-events:none;z-index:99}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 #avatarInput{display:none}
@@ -146,6 +160,15 @@ button,input,textarea,select{color:var(--b);-webkit-text-fill-color:var(--b)}
 
   <div class="overlay" id="accountOverlay"><div class="modal"><h3>账号中心</h3><div class="account-list" id="accountList"></div><div class="actions"><button type="button" onclick="createAccountAction()">创建账号</button><button type="button" onclick="closeOverlay('accountOverlay')">关闭</button></div></div></div>
   <div class="overlay" id="favOverlay"><div class="modal"><h3>收藏</h3><div class="fav-list" id="favList"></div><div class="actions"><button type="button" onclick="closeOverlay('favOverlay')">关闭</button></div></div></div>
+  <div class="fav-rich-full-overlay" id="favRichFullOverlay">
+    <div class="fav-rich-full-card">
+      <div class="fav-rich-full-head">
+        <div class="fav-rich-full-title">SURPRISE</div>
+        <button class="fav-rich-full-close" type="button" onclick="closeFavoriteRichFullscreen()"><img src="assets/屏幕缩小.png" alt="缩小"></button>
+      </div>
+      <iframe class="fav-rich-full-frame" id="favRichFullFrame" sandbox="allow-scripts" loading="lazy"></iframe>
+    </div>
+  </div>
   <div class="overlay" id="confirmOverlay"><div class="modal" id="confirmModal"></div></div>
 
   <div class="wallet-page" id="walletPage">
@@ -397,7 +420,21 @@ function getFavoritePreviewText(fav){
   }
   return String(item.text || '').trim() || '空消息';
 }
-function renderFavoriteBody(fav){
+function openFavoriteRichFullscreen(frameId){
+  const overlay = document.getElementById('favRichFullOverlay');
+  const fullFrame = document.getElementById('favRichFullFrame');
+  const sourceFrame = frameId ? document.getElementById(frameId) : null;
+  if(!overlay || !fullFrame || !sourceFrame) return;
+  fullFrame.srcdoc = String(sourceFrame.srcdoc || '');
+  overlay.classList.add('open');
+}
+function closeFavoriteRichFullscreen(){
+  const overlay = document.getElementById('favRichFullOverlay');
+  const fullFrame = document.getElementById('favRichFullFrame');
+  if(overlay) overlay.classList.remove('open');
+  if(fullFrame) fullFrame.srcdoc = '';
+}
+function renderFavoriteBody(fav, frameId){
   const item = fav && typeof fav === 'object' ? fav : {};
   const kind = normalizeFavoriteType(item.type || 'text');
   const richKey = String(item.richPayloadAssetKey || '').trim();
@@ -408,7 +445,7 @@ function renderFavoriteBody(fav){
     const fallbackPayload = { html:'', css:'', js:'', summary:'SURPRISE', text:'SURPRISE' };
     const srcdoc = buildFavoriteRichSrcdoc(richPayload || fallbackPayload);
     const keyAttr = richKey ? (' data-rich-key="' + escAttr(richKey) + '"') : '';
-    return '<div class="fav-rich-wrap"><iframe class="fav-rich-frame" loading="lazy" sandbox="allow-scripts"' + keyAttr + ' srcdoc="' + escAttr(srcdoc) + '"></iframe></div><div class="fav-rich-hint">【SURPRISE】</div>';
+    return '<div class="fav-rich-wrap"><div class="fav-rich-head"><span class="fav-rich-tag">SURPRISE</span><button class="fav-rich-expand" type="button" onclick="openFavoriteRichFullscreen(\'' + escAttr(frameId || '') + '\')"><img src="assets/屏幕放大.png" alt="放大"></button></div><iframe id="' + escAttr(frameId || '') + '" class="fav-rich-frame" loading="lazy" sandbox="allow-scripts"' + keyAttr + ' srcdoc="' + escAttr(srcdoc) + '"></iframe></div><div class="fav-rich-hint">【SURPRISE】</div>';
   }
   return '<div class="fav-text">' + esc(getFavoritePreviewText(item)) + '</div>';
 }
@@ -436,8 +473,9 @@ function renderFavorites(){
   }
   try{
     list.innerHTML = favs.map((f)=>{
+      const frameId = 'favRichFrame_' + (String(f.id || '').replace(/[^a-zA-Z0-9_-]/g, '') || Math.random().toString(36).slice(2,8));
       const av = f.avatar ? 'style="background-image:url(' + escAttr(f.avatar) + ')"' : '';
-      return '<article class="fav-item" data-fav-id="' + escAttr(f.id || '') + '"><div class="fav-av" ' + av + '></div><div class="fav-meta"><div class="fav-name">' + esc(f.name || '未命名') + '</div><div class="fav-time">' + fmtTime(f.at) + '</div>' + renderFavoriteBody(f) + '</div></article>';
+      return '<article class="fav-item" data-fav-id="' + escAttr(f.id || '') + '"><div class="fav-av" ' + av + '></div><div class="fav-meta"><div class="fav-name">' + esc(f.name || '未命名') + '</div><div class="fav-time">' + fmtTime(f.at) + '</div>' + renderFavoriteBody(f, frameId) + '</div></article>';
     }).join('');
   }catch(err){
     list.innerHTML = favs.map((f)=>{
@@ -467,7 +505,7 @@ function fmtTime(ts){ const d=new Date(ts||Date.now()); const p=(n)=>String(n).p
 
 document.getElementById('nameInput').addEventListener('change', saveName);
 document.getElementById('nameInput').addEventListener('blur', saveName);
-['accountOverlay','favOverlay','confirmOverlay'].forEach((id)=>{ const el=document.getElementById(id); el.addEventListener('click',(evt)=>{ if(evt.target===el) el.classList.remove('open'); }); });
+['accountOverlay','favOverlay','confirmOverlay','favRichFullOverlay'].forEach((id)=>{ const el=document.getElementById(id); if(!el) return; el.addEventListener('click',(evt)=>{ if(evt.target!==el) return; if(id==='favRichFullOverlay') closeFavoriteRichFullscreen(); else el.classList.remove('open'); }); });
 
 window.AccountManager.ensure();
 bindAvatarInput();
