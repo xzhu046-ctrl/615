@@ -3028,15 +3028,12 @@ async function maybeCompactMemorySummaries(store){
   if(!character) return store;
   var next = store || loadMemorySummaryStore();
   var threshold = loadMemoryMergeThreshold();
-  var totalTokens = (next.items || []).reduce(function(sum, it){
-    return sum + (Number(it && it.tokens) || approxTokenCount((it && it.text) || ''));
-  }, 0);
   var compactable = (next.items || []).filter(function(it){
     return isMemoryRangeItem(it) && !isPinnedMemoryItem(it);
   });
-  var effectiveThreshold = Math.max(threshold, MEMORY_AUTO_COMPACT_MIN_ITEMS);
-  while(compactable.length >= effectiveThreshold && totalTokens >= MEMORY_AUTO_COMPACT_MIN_TOKENS){
-    var segment = compactable.slice(0, MEMORY_AUTO_COMPACT_BATCH);
+  var effectiveThreshold = Math.max(2, Number(threshold) || DEFAULT_MEMORY_MERGE_THRESHOLD);
+  while(compactable.length >= effectiveThreshold){
+    var segment = compactable.slice(0, effectiveThreshold);
     if(segment.length < 2) break;
     var mergedText = await generateMemoryMetaSummary(segment);
     var merged = {
@@ -3063,9 +3060,6 @@ async function maybeCompactMemorySummaries(store){
       acc.push(it);
       return acc;
     }, []);
-    totalTokens = (next.items || []).reduce(function(sum, it){
-      return sum + (Number(it && it.tokens) || approxTokenCount((it && it.text) || ''));
-    }, 0);
     compactable = (next.items || []).filter(function(it){
       return isMemoryRangeItem(it) && !isPinnedMemoryItem(it);
     });
@@ -3077,14 +3071,12 @@ async function maybeCreateMemorySummaries(){
   if(!character || memorySummaryBusy) return;
   if(!loadAutoSummaryEnabled()) return;
   var summaryEvery = loadSummaryEverySize();
-  if(summaryEvery < MIN_CONTEXT_WINDOW) return;
   var store = loadMemorySummaryStore();
   var covered = Math.max(0, Math.min(store.covered || 0, chatLog.length));
-  var buffer = MIN_CONTEXT_WINDOW;
-  if(chatLog.length - covered < (summaryEvery + buffer)) return;
+  if(chatLog.length - covered < summaryEvery) return;
   memorySummaryBusy = true;
   try{
-    while(chatLog.length - covered >= (summaryEvery + buffer)){
+    while(chatLog.length - covered >= summaryEvery){
       var from = covered;
       var to = covered + summaryEvery;
       var slice = chatLog.slice(from, to);
@@ -3126,13 +3118,7 @@ function getMemorySummaryTokens(){
 }
 function getVisibleChatForModel(){
   var windowSize = loadContextWindowSize();
-  var tailStart = Math.max(0, chatLog.length - windowSize);
-  var covered = Math.max(0, Math.min(chatLog.length, getMemoryCoveredCount()));
-  var start = Math.max(tailStart, covered);
-  if(covered > 0 && covered <= tailStart + MEMORY_SEAM_BRIDGE_SIZE){
-    start = Math.max(0, covered - MEMORY_SEAM_BRIDGE_SIZE);
-  }
-  var visible = chatLog.slice(start);
+  var visible = chatLog.slice(Math.max(0, chatLog.length - windowSize));
   if(Array.isArray(transientHiddenModelMsgIds) && transientHiddenModelMsgIds.length){
     var hidden = new Set(transientHiddenModelMsgIds.map(function(id){ return String(id || ''); }).filter(Boolean));
     visible = visible.filter(function(msg){
