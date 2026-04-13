@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-13T09:16:00Z"></script>
+<script src="../promptManager.js?v=2026-04-13T10:30:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
@@ -5429,8 +5429,14 @@ function buildWeatherCommonSensePrompt(){
   if(userSnapshot && userSnapshot.hour24 !== null && (userSnapshot.hour24 >= 23 || userSnapshot.hour24 <= 4)){
     lines.push('用户当地现在偏深夜或凌晨；如果此刻聊天内容自然涉及状态、困意、熬夜、打扰休息，可以像真人一样稍微意识到对方在晚睡。');
   }
+  if(userSnapshot && userSnapshot.hour24 !== null && userSnapshot.hour24 >= 11 && userSnapshot.hour24 <= 18){
+    lines.push('硬规则：用户当地现在是白天/下午（约 ' + userSnapshot.hour24 + ' 点）。除非用户明确说困、要睡、晚安，否则不要催睡、不要说“太晚了快休息”。');
+  }
   if(charSnapshot && charSnapshot.hour24 !== null && (charSnapshot.hour24 >= 23 || charSnapshot.hour24 <= 5)){
     lines.push('角色当地现在偏深夜或凌晨；你可以在语境合适时自然带出刚醒、犯困、被消息打断休息之类的感觉，但不要每次都强调。');
+  }
+  if(charSnapshot && charSnapshot.hour24 !== null && charSnapshot.hour24 >= 11 && charSnapshot.hour24 <= 18){
+    lines.push('硬规则：角色当地现在是白天/下午（约 ' + charSnapshot.hour24 + ' 点），不要把现在说成深夜或熬夜时段。');
   }
   lines.push('说话时按当地时段自然拿捏语感就好：像 1 点、2 点、3 点更接近“凌晨/夜里”，5 点到 7 点才慢慢像“清晨”，别说得太生硬，也别把凌晨说成“一大早”。');
   lines.push('时间感要像真人的生活状态，不只是报时：凌晨收到消息，可能是刚被吵醒，也可能是根本还没睡；清晨则更像早起、出门前、在路上。');
@@ -7810,6 +7816,7 @@ function getConversationElapsedContext(){
     lines.push('用户当地时间：' + String(localClock.user.nowTime || '未知') + '（' + String(localClock.user.dateKey || '未知日期') + '）');
     lines.push('char 当地时间：' + String(localClock.char.nowTime || '未知') + '（' + String(localClock.char.dateKey || '未知日期') + '）');
   }
+  lines.push('第一句硬规则：先接住“隔了多久才回”这件事，再聊新内容；不能像上一秒无缝续聊。');
   lines.push('先根据“现在的当地时间”判断上一轮话题是不是早就过去了：早餐/早饭/上午/午饭/中午/下午茶/晚饭/晚上/睡前这种时段性内容，绝不能在时间已经过去后还当成正在发生。');
   lines.push('如果对方隔了一小时、半天、一天、两天才回，你的第一句必须先接住“为什么这么久才回、现在已经几点了、上一轮那件事早就过了”这种现实时间差，再继续聊正题。');
   lines.push('严禁把这次回复写成上一轮的无缝下一秒。你必须明确知道：现实世界里时间已经继续往前走了。');
@@ -11228,6 +11235,8 @@ function buildChatExtendedFormatPrompt(){
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
     'rename_profile：用于改昵称。target 只能是 char 或 user；name 是你要改成的新名字。target=char 表示改你在对方这里的名字，target=user 表示改你给对方存的备注/昵称。格式：{"type":"rename_profile","target":"char","name":"新昵称"} 或 {"type":"rename_profile","target":"user","name":"新备注"}。',
     '备注/昵称只是称呼标签，不一定是本名。你不能因为备注名就认定那是对方的法律姓名或唯一正式名字。',
+    '时间硬规则：如果当前当地时间在 11:00-18:59（白天/下午），除非对方明确说困、要睡、晚安，否则不要催睡、不要说“太晚了快休息”。',
+    '时间硬规则：如果系统给了“时间流逝/隔了多久才回”，第一句先接住这段现实间隔，再继续正题。',
     'rich_html 要把重点放在精致、可读、能渲染的成品本体，不是扔一堆半成品代码。你自己不会提“代码、html、css、js”这些词，也不会意识到那是代码；对你来说，那就是一张真的卡片、票据、页面、小物件、签文或帖子。禁止说“我给你做了一个帖子/我写了个页面/我编了个小程序”这类跳戏话。',
     'rich_html 的成品感要明显：层级清楚、留白克制、排版稳定、颜色/字体/装饰有主题，不要像随手拼的 demo，也不要只是一张白底字卡。必要时可以带轻微动画、小交互、小 hover、小按钮反馈（切换、筛选、折叠、标签页、可点详情都可以），但要自然、细腻、像真的页面。',
     '如果是票据、机票、车票、塔罗、签文、搜索结果、论坛贴、聊天截图、菜单、便签、网页、歌单、日记、菜谱、书评、电影单、游戏页面、通话记录、贺卡、认错书、检讨、小作文、外卖订单、设计图纸、合同、学生证、身份证、护照、数学题、物理题、草稿纸、试卷、作业、论文、邮件或帖子，就认真做出那个载体本身的结构与细节，不要只写一段文字糊上去。',
@@ -11238,7 +11247,9 @@ function buildChatExtendedFormatPrompt(){
     '如果用户明确要求你做情书、小卡片、票据、网页、塔罗、签文、帖子、搜索结果、笔记、歌单、日记、菜谱、贺卡、书单、电影单、游戏页面、聊天记录样式页面、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、数学题、物理题、草稿纸、试卷、机票、作业、论文、邮件、邮箱、银行账户或别的小物件，就优先 rich_html，不要偷懒改回 text。',
     '如果当前允许旁白，那么每一轮回复都至少要带一小段 narrator，长度短一点，像镜头余味或动作描写，不要把旁白写得比正文还长。',
     '如果你刚刚嘴快说错了、暴露太多、嘴硬失败、发出去后又后悔，而且这符合你的人设和当下语境，你可以自然地在后面补一条 recall，把刚才那句撤回。',
-    '如果你觉得对方给你的备注太怪、太生分、太幼稚、太不符合你的人设，或者你临时想给对方换一个新的称呼，也可以偶尔用 rename_profile。不要滥用，只有真的符合关系和语境时才改。',
+    'rename_profile 不要只在被要求时才用：当关系升温、称呼被反复使用、你觉得某个昵称更贴关系、或你想调整对方怎么叫你时，可以主动发起一次改名。',
+    'rename_profile 的 target=user 表示你改“你给对方的备注”；target=char 表示你改“对方叫你的名字”。两者都可主动用，但不要一轮连发多个。',
+    '主动改备注要像真人：有理由、有情绪、有关系推进，不要机械刷改名。一般每 8-20 轮最多一次，改完先冷却。',
     '如果用户发来的是旁白、环境描述、动作说明或 html/css/js 卡片，也要按对应类型理解，不要误判成普通对白。',
     '无论你最终发 text、narrator、rich_html、recall 还是别的结构化内容，第一优先级都是读懂并回应对方刚刚那条 user 输入。不要忽略最新一条用户消息，不要只自顾自发旁白、格式卡片或设定话。'
   ];
