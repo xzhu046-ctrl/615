@@ -231,6 +231,55 @@ function familyQueueKey(){ return window.AccountManager.scopedKey('qq_family_car
 function familyActiveKey(){ return window.AccountManager.scopedKey('qq_family_card_active'); }
 function moneyStateStorageId(){ return window.AccountManager.scopedKey('chat_money_state'); }
 let profileMoneyStateCache = { walletState:{ balance:0, records:[] }, familyQueue:[], familyActive:[] };
+let profileFavoritesCache = [];
+
+function favoritesStoreId(){ return window.AccountManager.scopedKey('favorites_store'); }
+function normalizeFavoriteEntries(list){
+  return (Array.isArray(list) ? list : []).filter((item)=>item && typeof item==='object').map((item)=>({
+    id:String(item.id||'').trim() || ('fav_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,7)),
+    from:String(item.from||'').trim(),
+    charId:String(item.charId||'').trim(),
+    name:String(item.name||'').trim(),
+    avatar:String(item.avatar||'').trim(),
+    text:String(item.text||'').trim(),
+    previewText:String(item.previewText||'').trim(),
+    type:normalizeFavoriteType(item.type||'text'),
+    richPayload:String(item.richPayload||'').trim(),
+    richPayloadAssetKey:String(item.richPayloadAssetKey||'').trim(),
+    at:Number(item.at||Date.now())||Date.now()
+  }));
+}
+function getCurrentFavorites(){ return normalizeFavoriteEntries(profileFavoritesCache.length ? profileFavoritesCache : ((active()&&active().favorites)||[])); }
+function syncFavoriteCount(){ const el=document.getElementById('favCount'); if(el) el.textContent = getCurrentFavorites().length + '条'; }
+async function hydrateFavoritesCache(){
+  let accountFavs = normalizeFavoriteEntries((active() && active().favorites) || []);
+  let finalFavs = accountFavs.slice();
+  if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
+    try{
+      const stored = normalizeFavoriteEntries(await window.PhoneStorage.getJson(favoritesStoreId()));
+      if(stored.length){
+        finalFavs = stored.slice();
+        if(stored.length !== accountFavs.length){
+          try{ window.AccountManager.updateActive((a)=>{ a.favorites = stored.slice(0, 200); }); }catch(syncErr){}
+        }
+      }else if(accountFavs.length && typeof window.PhoneStorage.putJson === 'function'){
+        window.PhoneStorage.putJson(favoritesStoreId(), accountFavs.slice(0, 200)).catch(()=>{});
+      }
+    }catch(err){}
+  }
+  profileFavoritesCache = finalFavs.slice(0, 200);
+  syncFavoriteCount();
+  return profileFavoritesCache.slice();
+}
+function saveFavoritesEverywhere(nextList){
+  const safe = normalizeFavoriteEntries(nextList).slice(0, 200);
+  profileFavoritesCache = safe;
+  try{ window.AccountManager.updateActive((a)=>{ a.favorites = safe.slice(); }); }catch(err){}
+  if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
+    window.PhoneStorage.putJson(favoritesStoreId(), safe).catch(()=>{});
+  }
+  syncFavoriteCount();
+}
 
 function defaultWalletState(){ return { balance:0, records:[] }; }
 function syncMoneyStateCache(){ if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){ window.PhoneStorage.put('moneyStates', { id:moneyStateStorageId(), updatedAt:Date.now(), data:Object.assign({}, profileMoneyStateCache) }).catch(()=>{}); } try{ localStorage.removeItem(walletKey()); }catch(e){} try{ localStorage.removeItem(familyActiveKey()); }catch(e){} try{ localStorage.removeItem(familyQueueKey()); }catch(e){} }
@@ -303,7 +352,7 @@ function renderProfile(){
   }).catch(()=>{
     if(acc.avatar){ av.style.backgroundImage='url(' + JSON.stringify(acc.avatar).slice(1,-1) + ')'; av.textContent=''; } else { av.style.backgroundImage=''; av.textContent='+'; }
   });
-  document.getElementById('favCount').textContent=((acc.favorites||[]).length)+'条';
+  syncFavoriteCount();
   document.getElementById('walletSub').textContent=formatMoney(loadWalletState().balance);
 }
 function renderFamilyActiveCards(){
@@ -465,8 +514,7 @@ function hydrateFavoriteRichFrames(){
 }
 function renderFavorites(){
   const list = document.getElementById('favList');
-  const acc = active();
-  const favs = Array.isArray(acc.favorites) ? acc.favorites : [];
+  const favs = getCurrentFavorites();
   if(!favs.length){
     list.innerHTML = '<div class="sub">还没有收藏，去聊天里长按消息收藏吧。</div>';
     return;
@@ -487,8 +535,14 @@ function renderFavorites(){
   bindFavoriteSwipeDelete();
   hydrateFavoriteRichFrames();
 }
-function openFavorites(){ renderFavorites(); document.getElementById('favOverlay').classList.add('open'); }
-function removeFavoriteById(id){ if(!id) return; window.AccountManager.updateActive((a)=>{ const arr=Array.isArray(a.favorites)?a.favorites:[]; a.favorites=arr.filter((it)=>String(it&&it.id||'')!==String(id)); }); renderProfile(); renderFavorites(); }
+async function openFavorites(){ await hydrateFavoritesCache(); renderFavorites(); document.getElementById('favOverlay').classList.add('open'); }
+function removeFavoriteById(id){
+  if(!id) return;
+  const next = getCurrentFavorites().filter((it)=>String(it&&it.id||'')!==String(id));
+  saveFavoritesEverywhere(next);
+  renderProfile();
+  renderFavorites();
+}
 function confirmRemoveFavorite(id){ confirmModal('取消收藏','确定取消收藏？',()=>{ removeFavoriteById(id); }); }
 function bindFavoriteSwipeDelete(){ const list=document.getElementById('favList'); if(!list) return; list.querySelectorAll('.fav-item').forEach((item)=>{ let startX=0,startY=0,dx=0,dragging=false,pointerId=null; const reset=()=>{ item.classList.remove('swiping'); item.style.transform=''; dragging=false; pointerId=null; }; item.addEventListener('pointerdown',(e)=>{ if(e.pointerType==='mouse'&&e.button!==0) return; pointerId=e.pointerId; startX=e.clientX; startY=e.clientY; dx=0; dragging=true; item.classList.add('swiping'); try{ item.setPointerCapture(pointerId); }catch(err){} }); item.addEventListener('pointermove',(e)=>{ if(!dragging || (pointerId!==null&&e.pointerId!==pointerId)) return; const moveX=e.clientX-startX; const moveY=e.clientY-startY; if(Math.abs(moveY)>16 && Math.abs(moveY)>Math.abs(moveX)){ reset(); return; } dx=Math.min(0,Math.max(-68,moveX)); item.style.transform='translateX(' + dx + 'px)'; }); item.addEventListener('pointerup',(e)=>{ if(!dragging || (pointerId!==null&&e.pointerId!==pointerId)) return; const swipe=dx; const id=item.getAttribute('data-fav-id')||''; reset(); if(swipe<=-42){ confirmRemoveFavorite(id); } }); item.addEventListener('pointercancel',reset); item.addEventListener('lostpointercapture',reset); }); }
 function renderAccountList(){ const list=document.getElementById('accountList'); const accounts=window.AccountManager.ensure(); const activeId=active().id; const defaultId=window.AccountManager.getDefaultId(); list.innerHTML=accounts.map((a)=>'<div class="account-item"><div class="account-main"><strong>'+esc(a.name||'未命名')+'</strong><div class="badges">'+(a.id===activeId?'<span class="badge">当前</span>':'')+(a.id===defaultId?'<span class="badge">默认</span>':'')+'</div></div><div class="actions"><button type="button" onclick="switchAccount(\''+escAttr(a.id)+'\')">切换</button><button type="button" onclick="setDefaultAccount(\''+escAttr(a.id)+'\')">设为默认</button></div></div>').join(''); }
@@ -514,8 +568,9 @@ window.addEventListener('beforeunload', restoreParentTopbar);
 window.addEventListener('pagehide', restoreParentTopbar);
 Promise.all([
   hydrateMoneyStateCache(),
+  hydrateFavoritesCache(),
   resolveProfileAvatar()
-]).then((results)=>{ const src=results[1]; if(src){ try{ window.AccountManager.updateActive((a)=>{ a.avatar=src; }); }catch(err){} } renderProfile(); renderWallet(); }).catch(()=>{ renderProfile(); renderWallet(); });
+]).then((results)=>{ const src=results[2]; if(src){ try{ window.AccountManager.updateActive((a)=>{ a.avatar=src; }); }catch(err){} } renderProfile(); renderWallet(); }).catch(()=>{ renderProfile(); renderWallet(); });
 </script>
 </body>
 </html>
