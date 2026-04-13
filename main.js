@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-12T23:37:00Z';
+const APP_BUILD_ID = '2026-04-12T23:47:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -6594,6 +6594,37 @@ function buildAppFrameUrl(src){
   }
 }
 
+var shellLoadingHideTimer = 0;
+function showShellLoadingOverlay(kind){
+  var overlay = document.getElementById('shell-loading-overlay');
+  var image = document.getElementById('shell-loading-image');
+  var copy = document.getElementById('shell-loading-copy');
+  if(!overlay || !image || !copy) return;
+  if(shellLoadingHideTimer){
+    clearTimeout(shellLoadingHideTimer);
+    shellLoadingHideTimer = 0;
+  }
+  var mode = String(kind || 'app').trim().toLowerCase();
+  var isBoot = mode === 'boot';
+  overlay.classList.toggle('is-boot', isBoot);
+  image.src = isBoot ? 'apps/assets/主屏幕加载.jpg' : 'apps/assets/加载.jpg';
+  copy.textContent = '加载中...';
+  overlay.classList.add('show');
+}
+
+function hideShellLoadingOverlay(delay){
+  var overlay = document.getElementById('shell-loading-overlay');
+  if(!overlay) return;
+  if(shellLoadingHideTimer){
+    clearTimeout(shellLoadingHideTimer);
+    shellLoadingHideTimer = 0;
+  }
+  shellLoadingHideTimer = setTimeout(function(){
+    overlay.classList.remove('show');
+    shellLoadingHideTimer = 0;
+  }, Math.max(0, Number(delay) || 0));
+}
+
 function renderApp(id){
   const a=APP_MAP[id]; if(!a) return;
   currentApp=id;
@@ -6637,6 +6668,7 @@ function renderApp(id){
       chatReportedKeyboardShift = 0;
     }
   }
+  showShellLoadingOverlay('app');
   document.getElementById('app-iframe').src = buildAppFrameUrl(a.src);
   if(id === 'chat'){
     pendingOpenChatCharId = '';
@@ -7687,6 +7719,7 @@ if(document.readyState === 'loading'){
 }
 
 window.addEventListener('load', ()=>{
+  showShellLoadingOverlay('boot');
   pushBackendLogEntry({
     level: 'info',
     app: 'shell',
@@ -7729,8 +7762,10 @@ window.addEventListener('load', ()=>{
         message: '页面已加载'
       });
       setTimeout(applyIframeSafeAreaOverrides, 120);
+      hideShellLoadingOverlay(currentApp ? 260 : 2000);
     });
   }
+  hideShellLoadingOverlay(2000);
   var notifyCard = document.getElementById('app-notify-card');
   if(notifyCard){
     notifyCard.addEventListener('click', function(evt){
