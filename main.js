@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-13T12:05:00Z';
+const APP_BUILD_ID = '2026-04-13T13:40:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -648,11 +648,34 @@ function markHostedUpdatePromptShown(fingerprint){
   if(!value) return;
   hostedUpdatePromptDedupeFingerprint = value;
   hostedUpdatePromptDedupeAt = Date.now();
+  try{
+    localStorage.setItem(UPDATE_PROMPT_DEDUPE_KEY, JSON.stringify({
+      fingerprint: value,
+      at: hostedUpdatePromptDedupeAt
+    }));
+  }catch(e){}
+}
+
+function hydrateHostedUpdatePromptDedupe(fingerprint){
+  var value = String(fingerprint || '').trim();
+  if(!value) return;
+  if(hostedUpdatePromptDedupeFingerprint === value && hostedUpdatePromptDedupeAt > 0) return;
+  try{
+    var raw = localStorage.getItem(UPDATE_PROMPT_DEDUPE_KEY) || '';
+    if(!raw) return;
+    var parsed = JSON.parse(raw);
+    var nextFingerprint = String(parsed && parsed.fingerprint || '').trim();
+    var nextAt = Number(parsed && parsed.at || 0) || 0;
+    if(!nextFingerprint || !nextAt) return;
+    hostedUpdatePromptDedupeFingerprint = nextFingerprint;
+    hostedUpdatePromptDedupeAt = nextAt;
+  }catch(e){}
 }
 
 function shouldSuppressHostedUpdatePrompt(fingerprint){
   var value = String(fingerprint || pendingRemoteAppFingerprint || '').trim();
   if(!value) return false;
+  hydrateHostedUpdatePromptDedupe(value);
   if(hostedUpdatePromptDedupeFingerprint !== value) return false;
   var age = Date.now() - (Number(hostedUpdatePromptDedupeAt || 0) || 0);
   return age >= 0 && age < UPDATE_PROMPT_DEDUPE_MS;
@@ -708,7 +731,8 @@ function isAcceptedHostedRemoteBuild(fingerprint){
 
 function showHostedUpdateCard(){
   if(hostedUpdateModalShown) return;
-  if(shouldSuppressHostedUpdatePrompt()) return;
+  var fingerprint = String(pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
+  if(shouldSuppressHostedUpdatePrompt(fingerprint)) return;
   var card = document.getElementById('update-toast-card');
   if(!card){
     hostedUpdateCardPending = true;
@@ -719,7 +743,7 @@ function showHostedUpdateCard(){
   hostedUpdateCardPending = false;
   hostedUpdateModalShown = true;
   hostedUpdateLockedOpen = true;
-  markHostedUpdatePromptShown();
+  markHostedUpdatePromptShown(fingerprint);
 }
 
 function updateHostedUpdateMeta(remoteFingerprint){
@@ -755,11 +779,10 @@ function compareHostedBuildIds(a, b){
 
 function announceHostedUpdate(fingerprint){
   var nextFingerprint = String(fingerprint || pendingRemoteAppFingerprint || '').trim();
-  if(nextFingerprint) pendingRemoteAppFingerprint = nextFingerprint;
-  if(!nextFingerprint){
-    showHostedUpdateCard();
-    return;
-  }
+  if(!nextFingerprint) return;
+  pendingRemoteAppFingerprint = nextFingerprint;
+  if(compareHostedBuildIds(nextFingerprint, APP_BUILD_ID) <= 0) return;
+  if(isAcceptedHostedRemoteBuild(nextFingerprint)) return;
   if(shownHostedUpdateFingerprint === nextFingerprint){
     return;
   }
@@ -995,12 +1018,22 @@ function bindHostedServiceWorker(){
     var triggerUpdateSignal = function(){
       var handledBySw = syncHostedUpdateFromServiceWorker(reg);
       scheduleHostedUpdateCheck(true);
-      if(reg && reg.waiting){
-        if(!handledBySw){
+      if(reg && reg.waiting && !handledBySw){
+        var waitingBuild = String(
+          readBuildIdFromServiceWorkerUrl(reg.waiting && reg.waiting.scriptURL)
+          || pendingRemoteAppFingerprint
+          || getLastSeenHostedRemoteBuild()
+          || ''
+        ).trim();
+        if(waitingBuild && compareHostedBuildIds(waitingBuild, APP_BUILD_ID) > 0){
+          pendingRemoteAppFingerprint = waitingBuild;
+          setLastSeenHostedRemoteBuild(waitingBuild);
           lastHostedUpdateCheckStatus = '检测到新壳版本';
-          updateHostedUpdateMeta(pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '');
+          updateHostedUpdateMeta(waitingBuild);
+          if(!isAcceptedHostedRemoteBuild(waitingBuild)){
+            announceHostedUpdate(waitingBuild);
+          }
         }
-        showHostedUpdateCard();
       }
     };
     if(reg){
@@ -1165,8 +1198,9 @@ function refreshInstalledApp(evt){
     refreshBtn.disabled = true;
     refreshBtn.textContent = '刷新中...';
   }
-  var targetBuild = String(pendingRemoteAppFingerprint || shownHostedUpdateFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
+  var targetBuild = String(pendingRemoteAppFingerprint || shownHostedUpdateFingerprint || getLastSeenHostedRemoteBuild() || APP_BUILD_ID).trim() || APP_BUILD_ID;
   setAcceptedHostedUpdateBuild(targetBuild);
+  markHostedUpdatePromptShown(targetBuild);
   var finishReload = function(){
     swControllerRefreshPending = false;
     hostedRefreshInFlight = false;
@@ -1181,6 +1215,8 @@ function refreshInstalledApp(evt){
     }
     try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
     hideHostedUpdateCard();
+    setAcceptedHostedUpdateBuild(String(targetBuild || APP_BUILD_ID).trim() || APP_BUILD_ID);
+    markHostedUpdatePromptShown(String(targetBuild || APP_BUILD_ID).trim() || APP_BUILD_ID);
     try{
       var url = new URL(window.location.href);
       url.searchParams.set('__appBuild', String(targetBuild || APP_BUILD_ID));
@@ -1200,6 +1236,17 @@ function refreshInstalledApp(evt){
         return readyReg || navigator.serviceWorker.getRegistration();
       }).then(function(reg){
         if(!reg) return null;
+        var waitingOrKnownBuild = String(
+          readBuildIdFromServiceWorkerUrl(reg.waiting && reg.waiting.scriptURL)
+          || pendingRemoteAppFingerprint
+          || shownHostedUpdateFingerprint
+          || getLastSeenHostedRemoteBuild()
+          || targetBuild
+          || APP_BUILD_ID
+        ).trim() || APP_BUILD_ID;
+        targetBuild = waitingOrKnownBuild;
+        setAcceptedHostedUpdateBuild(targetBuild);
+        markHostedUpdatePromptShown(targetBuild);
         if(reg.waiting){
           swControllerRefreshPending = true;
           pendingHostedRefreshBuild = String(targetBuild || readBuildIdFromServiceWorkerUrl(reg.waiting && reg.waiting.scriptURL) || APP_BUILD_ID);
@@ -5256,6 +5303,61 @@ var homeMusicBubbleLastTapAt = 0;
 var homeMusicRenameIndex = -1;
 var homeMusicSearchBusy = false;
 
+function normalizeHomeMusicStorageText(value, limit){
+  var text = String(value == null ? '' : value).trim();
+  if(!text) return '';
+  var maxLen = Math.max(0, Number(limit) || 0);
+  if(!maxLen || text.length <= maxLen) return text;
+  return text.slice(0, maxLen);
+}
+
+function sanitizeHomeMusicTrackForStorage(track){
+  var safe = track && typeof track === 'object' ? track : {};
+  return {
+    id: normalizeHomeMusicStorageText(safe.id || createTrackId('track'), 80),
+    source: (function(){
+      var val = String(safe.source || '').trim();
+      if(val === 'local' || val === 'search' || val === 'proxy') return val;
+      return 'local';
+    })(),
+    remoteId: normalizeHomeMusicStorageText(safe.remoteId || '', 160),
+    name: normalizeHomeMusicStorageText(safe.name || '未命名歌曲', 180) || '未命名歌曲',
+    artist: normalizeHomeMusicStorageText(safe.artist || '本地导入', 180) || '本地导入',
+    cover: normalizeHomeMusicStorageText(safe.cover || '', 2000),
+    remoteUrl: normalizeHomeMusicStorageText(safe.remoteUrl || '', 2000),
+    lyricsText: normalizeHomeMusicStorageText(safe.lyricsText || '', 18000),
+    duration: Math.max(0, Number(safe.duration) || 0),
+    mimeType: normalizeHomeMusicStorageText(safe.mimeType || '', 80),
+    size: Math.max(0, Number(safe.size) || 0),
+    fileName: normalizeHomeMusicStorageText(safe.fileName || '', 200)
+  };
+}
+
+function getHomeMusicLargeStateStorageId(){
+  return mainScopedKey(HOME_MUSIC_STATE_KEY + '_large');
+}
+
+function applyHydratedHomeMusicState(parsed){
+  if(!parsed || typeof parsed !== 'object') return;
+  homeMusicState.tracks = Array.isArray(parsed.tracks) ? parsed.tracks.map(function(track){
+    return sanitizeHomeMusicTrackForStorage(track);
+  }).filter(function(track){
+    return !!String(track && track.id || '').trim();
+  }) : [];
+  homeMusicState.currentTrackId = normalizeHomeMusicStorageText(parsed.currentTrackId || '', 80);
+  homeMusicState.currentTime = Math.max(0, Number(parsed.currentTime) || 0);
+  homeMusicState.bubbleX = typeof parsed.bubbleX === 'number' ? parsed.bubbleX : null;
+  homeMusicState.bubbleY = typeof parsed.bubbleY === 'number' ? parsed.bubbleY : null;
+  homeMusicState.proxyBase = normalizeHomeMusicStorageText(parsed.proxyBase || localStorage.getItem(HOME_MUSIC_PROXY_BASE_KEY) || '', 420);
+  homeMusicState.lyricHidden = !!parsed.lyricHidden;
+  if(typeof parsed.floatingEnabled === 'boolean'){
+    homeMusicState.floatingEnabled = parsed.floatingEnabled;
+  }else{
+    var storedEnabled = localStorage.getItem(HOME_MUSIC_FLOATING_ENABLED_KEY);
+    homeMusicState.floatingEnabled = storedEnabled === '0' ? false : true;
+  }
+}
+
 function getHomeMusicPlaylistTrackById(trackId){
   var tracks = Array.isArray(homeMusicState.tracks) ? homeMusicState.tracks : [];
   return tracks.find(function(track){ return track && track.id === trackId; }) || null;
@@ -5288,7 +5390,9 @@ function formatHomeMusicTime(seconds){
 function serializeHomeMusicState(){
   var currentTrack = getHomeMusicPlaylistTrackById(homeMusicState.currentTrackId);
   return JSON.stringify({
-    tracks: Array.isArray(homeMusicState.tracks) ? homeMusicState.tracks : [],
+    tracks: Array.isArray(homeMusicState.tracks) ? homeMusicState.tracks.map(function(track){
+      return sanitizeHomeMusicTrackForStorage(track);
+    }) : [],
     currentTrackId: currentTrack ? currentTrack.id : '',
     currentTime: Math.max(0, Number(homeMusicState.currentTime) || 0),
     bubbleX: typeof homeMusicState.bubbleX === 'number' ? homeMusicState.bubbleX : null,
@@ -5300,10 +5404,22 @@ function serializeHomeMusicState(){
 }
 
 function persistHomeMusicState(){
+  var stateJson = '';
+  var stateObject = null;
   try{
-    localStorage.setItem(HOME_MUSIC_STATE_KEY, serializeHomeMusicState());
+    stateJson = serializeHomeMusicState();
+    stateObject = JSON.parse(stateJson);
+  }catch(err){
+    stateJson = '';
+    stateObject = null;
+  }
+  try{
+    if(stateJson) localStorage.setItem(HOME_MUSIC_STATE_KEY, stateJson);
     localStorage.setItem(HOME_MUSIC_PROXY_BASE_KEY, String(homeMusicState.proxyBase || ''));
   }catch(err){}
+  if(stateObject){
+    saveLargeState(getHomeMusicLargeStateStorageId(), stateObject).catch(function(){ return null; });
+  }
 }
 
 function hydrateHomeMusicState(){
@@ -5313,20 +5429,7 @@ function hydrateHomeMusicState(){
     if(raw){
       var parsed = JSON.parse(raw);
       if(parsed && typeof parsed === 'object'){
-        homeMusicState.tracks = Array.isArray(parsed.tracks) ? parsed.tracks : [];
-        homeMusicState.currentTrackId = parsed.currentTrackId || '';
-        homeMusicState.currentTime = Math.max(0, Number(parsed.currentTime) || 0);
-        homeMusicState.bubbleX = typeof parsed.bubbleX === 'number' ? parsed.bubbleX : null;
-        homeMusicState.bubbleY = typeof parsed.bubbleY === 'number' ? parsed.bubbleY : null;
-        homeMusicState.proxyBase = parsed.proxyBase || localStorage.getItem(HOME_MUSIC_PROXY_BASE_KEY) || '';
-        homeMusicState.lyricHidden = !!parsed.lyricHidden;
-        if(typeof parsed.floatingEnabled === 'boolean'){
-          homeMusicState.floatingEnabled = parsed.floatingEnabled;
-        }else if(storedEnabled === '0'){
-          homeMusicState.floatingEnabled = false;
-        }else{
-          homeMusicState.floatingEnabled = true;
-        }
+        applyHydratedHomeMusicState(parsed);
       }
     }else{
       homeMusicState.proxyBase = localStorage.getItem(HOME_MUSIC_PROXY_BASE_KEY) || '';
@@ -5340,6 +5443,12 @@ function hydrateHomeMusicState(){
   }catch(storageErr){}
   homeMusicState.previewTrack = null;
   homeMusicState.searchResults = [];
+  loadLargeState(getHomeMusicLargeStateStorageId()).then(function(parsed){
+    if(!parsed || typeof parsed !== 'object') return;
+    if(Array.isArray(homeMusicState.tracks) && homeMusicState.tracks.length) return;
+    applyHydratedHomeMusicState(parsed);
+    if(typeof renderHomeMusic === 'function') renderHomeMusic();
+  }).catch(function(){ return null; });
 }
 
 function getCurrentHomeMusicTrack(){
@@ -5359,6 +5468,7 @@ function getHomeMusicProvider(){
         for(var i = 0; i < files.length; i++){
           var file = files[i];
           if(!file) continue;
+          var parsedName = parseHomeMusicNameArtistFromFileName(file.name || '');
           var id = createTrackId('local');
           if(window.assetStore && typeof window.assetStore.set === 'function'){
             await window.assetStore.set(HOME_MUSIC_TRACK_PREFIX + id, file);
@@ -5368,8 +5478,8 @@ function getHomeMusicProvider(){
           added.push({
             id: id,
             source: 'local',
-            name: (file.name || '未命名歌曲').replace(/\.[^.]+$/, ''),
-            artist: '本地导入',
+            name: parsedName.name,
+            artist: parsedName.artist,
             mimeType: file.type || 'audio/mpeg',
             duration: 0,
             lyricsText: '',
@@ -5389,16 +5499,17 @@ function getHomeMusicProvider(){
         var payload = await res.json();
         var list = Array.isArray(payload) ? payload : (payload.songs || payload.data || []);
         return list.map(function(item, idx){
+          var normalizedPair = splitHomeMusicNameAndArtist(item.name || item.title || '未命名歌曲', item.artist || item.author || item.singer || '未知歌手');
           return {
             id: createTrackId('proxy'),
             source: 'proxy',
             remoteId: item.id || '',
-            name: item.name || item.title || '未命名歌曲',
-            artist: item.artist || item.author || item.singer || '未知歌手',
+            name: normalizedPair.name,
+            artist: normalizedPair.artist,
             cover: item.cover || item.pic || item.coverUrl || '',
             remoteUrl: item.url || item.streamUrl || item.playUrl || '',
             lyricsText: item.lyrics || item.lrc || '',
-            meta: item
+            duration: Math.max(0, Number(item.duration || item.interval || item.time || 0) || 0)
           };
         });
       }
@@ -5485,6 +5596,38 @@ function joinHomeMusicArtists(value){
   return '';
 }
 
+function splitHomeMusicNameAndArtist(name, artist){
+  var title = String(name || '').trim();
+  var singer = String(artist || '').trim();
+  var looksUnknown = !singer || singer === '未知歌手' || singer === '本地导入';
+  if(looksUnknown){
+    var match = title.match(/^(.+?)\s*(?:-|—|–|｜|\|)\s*(.+)$/);
+    if(match){
+      var maybeName = String(match[1] || '').trim();
+      var maybeArtist = String(match[2] || '').trim();
+      if(maybeName && maybeArtist){
+        title = maybeName;
+        singer = maybeArtist;
+      }
+    }
+  }
+  return {
+    name: title || '未命名歌曲',
+    artist: singer || (looksUnknown ? '未知歌手' : singer)
+  };
+}
+
+function parseHomeMusicNameArtistFromFileName(filename){
+  var raw = String(filename || '').trim();
+  if(!raw) return { name:'未命名歌曲', artist:'本地导入' };
+  var base = raw.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  var parsed = splitHomeMusicNameAndArtist(base, '');
+  return {
+    name: parsed.name || '未命名歌曲',
+    artist: parsed.artist && parsed.artist !== '未知歌手' ? parsed.artist : '本地导入'
+  };
+}
+
 function normalizeHomeMusicThirdPartySearchPayload(payload){
   var list = findHomeMusicSearchItems(payload);
   return list.map(function(item, idx){
@@ -5508,16 +5651,17 @@ function normalizeHomeMusicThirdPartySearchPayload(payload){
         ['cover'], ['pic'], ['coverUrl'], ['album', 'pic'], ['album', 'cover']
       ]) || ''
     ).trim();
+    var normalizedPair = splitHomeMusicNameAndArtist(name, artist);
     return {
       id: createTrackId('search'),
       source: 'search',
       remoteId: remoteId || ('search_' + idx),
-      name: name,
-      artist: artist,
+      name: normalizedPair.name,
+      artist: normalizedPair.artist,
       cover: cover,
       remoteUrl: '',
       lyricsText: '',
-      meta: item
+      duration: Math.max(0, Number(getHomeMusicFirstTruthy(item, [['duration'], ['interval'], ['dt'], ['time']]) || 0) || 0)
     };
   }).filter(function(item){
     return !!String(item.name || '').trim();
@@ -6067,9 +6211,10 @@ async function addHomeMusicSearchResult(index){
     return;
   }
   try{
-    var track = cloneHomeMusicTrack(candidate);
+    var track = sanitizeHomeMusicTrackForStorage(cloneHomeMusicTrack(candidate));
     track.id = createTrackId('search');
     await hydrateHomeMusicThirdPartyTrack(track);
+    track = sanitizeHomeMusicTrackForStorage(track);
     var wasPreviewingSame = !!(homeMusicState.previewTrack && String(homeMusicState.previewTrack.remoteId || '') === String(track.remoteId || ''));
     homeMusicState.tracks = [track].concat(homeMusicState.tracks);
     if(wasPreviewingSame){

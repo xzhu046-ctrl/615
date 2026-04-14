@@ -2236,6 +2236,7 @@ var pendingPresenceAutoReplyEnabled = null;
 var chatExportState = null;
 var memoryEditingId = '';
 var memoryEditingType = 'diary';
+var memoryEditingMeta = null;
 var memoryPanelView = 'all';
 var vectorMemoryPromptCache = '';
 var vectorEmbeddingCache = {};
@@ -6373,7 +6374,9 @@ async function replaceRichHtmlFrameForExport(targetCard, sourceFrame){
   var shotImg = document.createElement('img');
   shotImg.setAttribute('src', shot);
   shotImg.setAttribute('alt', 'SURPRISE');
-  shotImg.setAttribute('style', 'display:block;width:' + targetW + 'px;height:' + targetH + 'px;object-fit:contain;border:none;border-radius:12px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08);background:#fff;');
+  shotImg.setAttribute('width', String(targetW));
+  shotImg.setAttribute('height', String(targetH));
+  shotImg.setAttribute('style', 'display:block;width:100%;height:auto;max-width:100%;object-fit:contain;border:none;border-radius:12px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08);background:#fff;');
   frame.parentNode.replaceChild(shotImg, frame);
 }
 
@@ -6394,11 +6397,15 @@ async function buildSingleRichHtmlExportBlob(data, sourceCard){
       if(!exportCard) exportCard = sourceCard.cloneNode(true);
       stripRichHtmlCardActionButtons(exportCard);
       await replaceRichHtmlFrameForExport(exportCard, sourceCard.querySelector('iframe.richhtml-frame'));
+      var sourceWidth = Math.max(260, Math.min(980, Math.ceil(sourceCard.getBoundingClientRect().width || sourceCard.offsetWidth || 452)));
+      exportCard.style.width = sourceWidth + 'px';
+      exportCard.style.maxWidth = sourceWidth + 'px';
     }
     if(!exportCard){
       exportCard = buildRichHtmlCardNode(data);
       var targetWidth = Math.max(260, Math.min(452, Math.floor((window.innerWidth || 390) - 84)));
       exportCard.style.width = targetWidth + 'px';
+      exportCard.style.maxWidth = targetWidth + 'px';
       exportHost.appendChild(exportCard);
       await replaceRichHtmlFrameForExport(exportCard, null);
     }else{
@@ -12083,7 +12090,7 @@ async function callAIChat(provider, key, model, temperature, sys, msgs) {
         body: JSON.stringify({ model: customModel, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
       });
     }catch(err){
-      throw new Error('自定义接口请求失败：可能是跨域(CORS)或网络波动。请检查 ' + baseUrl + ' 是否允许浏览器访问并返回 Access-Control-Allow-Origin。');
+      throw new Error('自定义接口请求失败：可能被浏览器跨域拦截。请在 ' + baseUrl + ' 开启 CORS（Allow-Origin / Allow-Headers / Allow-Methods，并正确响应 OPTIONS）。');
     }
     var dCustom = await readAiJsonResponse(resCustom);
     return extractAiResponseText(dCustom);
@@ -12130,6 +12137,7 @@ function humanizeAiHttpStatus(status, data){
 function humanizeAiApiMessage(message){
   var text = String(message || '').trim();
   if(!text) return '请求失败了。';
+  if(/cors|failed to fetch|networkerror/i.test(text)) return '请求被浏览器拦截了：请给自定义接口开启 CORS，并确保 OPTIONS 预检返回 200/204。';
   if(/429|rate limit|too many requests/i.test(text)) return '请求太多了，模型那边现在限流了（429）。等一小会儿再试。';
   if(/430/.test(text)) return '服务暂时把这次请求拦下来了（430）。等一下再试，或者换个模型。';
   if(/insufficient_quota|quota|额度|余额不足|billing/i.test(text)) return '额度不够了，或者账单那边有问题。';
@@ -15495,7 +15503,7 @@ function buildStructuredMemoryCardsHtml(structuredMem){
   var mem = normalizeStructuredMemoryState(structuredMem || null);
   var blocks = [];
   var factRows = Object.keys(mem.facts || {}).map(function(key, idx){
-    return '<div class="mem-item muted"><div class="mem-item-title"><span>事实</span><div class="mem-item-actions"><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredFactAt(' + idx + ')">×</button></div></div><div class="mem-kv"><span>' + esc(key) + '</span><small>' + esc(String(mem.facts[key] || '')) + '</small></div></div>';
+    return '<div class="mem-item muted"><div class="mem-item-title"><span>事实</span><div class="mem-item-actions"><button class="mem-mini-btn" type="button" onclick="openStructuredMemoryEditor(\'fact\',' + idx + ')">编辑</button><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredFactAt(' + idx + ')">×</button></div></div><div class="mem-kv"><span>' + esc(key) + '</span><small>' + esc(String(mem.facts[key] || '')) + '</small></div></div>';
   });
   if(factRows.length){
     blocks.push('<div class="memory-section-title"><span>事实 / 偏好</span><strong>' + factRows.length + '</strong></div>' + factRows.join(''));
@@ -15504,11 +15512,11 @@ function buildStructuredMemoryCardsHtml(structuredMem){
   if(eventMonths.length){
     blocks.push('<div class="memory-section-title"><span>事件时间线</span><strong>' + eventMonths.length + '</strong></div>' + eventMonths.map(function(ym, idx){
       var entries = String(mem.events[ym] || '').split('|').filter(Boolean).join(' · ');
-      return '<div class="mem-item muted"><div class="mem-item-title"><span>' + esc(ym) + '</span><div class="mem-item-actions"><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredEventMonthAt(' + idx + ')">×</button></div></div><div class="mem-item-body">' + esc(entries) + '</div></div>';
+      return '<div class="mem-item muted"><div class="mem-item-title"><span>' + esc(ym) + '</span><div class="mem-item-actions"><button class="mem-mini-btn" type="button" onclick="openStructuredMemoryEditor(\'event-month\',' + idx + ')">编辑</button><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredEventMonthAt(' + idx + ')">×</button></div></div><div class="mem-item-body">' + esc(entries) + '</div></div>';
     }).join(''));
   }
   if(mem.relationship){
-    blocks.push('<div class="memory-section-title"><span>关系变化</span><strong>1</strong></div><div class="mem-item muted"><div class="mem-item-title"><span>关系变化</span><div class="mem-item-actions"><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredRelationship()">×</button></div></div><div class="mem-item-body">' + esc(mem.relationship) + '</div></div>');
+    blocks.push('<div class="memory-section-title"><span>关系变化</span><strong>1</strong></div><div class="mem-item muted"><div class="mem-item-title"><span>关系变化</span><div class="mem-item-actions"><button class="mem-mini-btn" type="button" onclick="openStructuredMemoryEditor(\'relationship\',0)">编辑</button><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredRelationship()">×</button></div></div><div class="mem-item-body">' + esc(mem.relationship) + '</div></div>');
   }
   var listKinds = [
     { key:'decisions', label:'决定' },
@@ -15519,7 +15527,7 @@ function buildStructuredMemoryCardsHtml(structuredMem){
     var rows = Array.isArray(mem[kind.key]) ? mem[kind.key] : [];
     if(!rows.length) return;
     blocks.push('<div class="memory-section-title"><span>' + esc(kind.label) + '</span><strong>' + rows.length + '</strong></div>' + rows.map(function(row, idx){
-      return '<div class="mem-item muted"><div class="mem-item-title"><span>' + esc(kind.label) + '</span><div class="mem-item-actions"><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredListItem(\'' + esc(kind.key) + '\',' + idx + ')">×</button></div></div><div class="mem-item-body">' + esc(String(row || '')) + '</div></div>';
+      return '<div class="mem-item muted"><div class="mem-item-title"><span>' + esc(kind.label) + '</span><div class="mem-item-actions"><button class="mem-mini-btn" type="button" onclick="openStructuredMemoryEditor(\'list-item\',' + idx + ',\'' + esc(kind.key) + '\')">编辑</button><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredListItem(\'' + esc(kind.key) + '\',' + idx + ')">×</button></div></div><div class="mem-item-body">' + esc(String(row || '')) + '</div></div>';
     }).join(''));
   });
   if(mem.custom && typeof mem.custom === 'object'){
@@ -15528,7 +15536,7 @@ function buildStructuredMemoryCardsHtml(structuredMem){
       if(!rows.length) return;
       var customName = String((mem.customCategories && mem.customCategories[code] && mem.customCategories[code].name) || code);
       blocks.push('<div class="memory-section-title"><span>' + esc(customName) + '</span><strong>' + rows.length + '</strong></div>' + rows.map(function(row, idx){
-        return '<div class="mem-item muted"><div class="mem-item-title"><span>' + esc(customName) + '</span><div class="mem-item-actions"><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredCustomItem(\'' + esc(code) + '\',' + idx + ')">×</button></div></div><div class="mem-item-body">' + esc(String(row || '')) + '</div></div>';
+        return '<div class="mem-item muted"><div class="mem-item-title"><span>' + esc(customName) + '</span><div class="mem-item-actions"><button class="mem-mini-btn" type="button" onclick="openStructuredMemoryEditor(\'custom-item\',' + idx + ',\'' + esc(code) + '\')">编辑</button><button class="mem-mini-btn icon" type="button" onclick="deleteStructuredCustomItem(\'' + esc(code) + '\',' + idx + ')">×</button></div></div><div class="mem-item-body">' + esc(String(row || '')) + '</div></div>';
       }).join(''));
     });
   }
@@ -15536,6 +15544,58 @@ function buildStructuredMemoryCardsHtml(structuredMem){
     return '<div class="mem-empty">结构化记忆暂时为空，达到设定条数后会自动提取。</div>';
   }
   return blocks.join('');
+}
+function openStructuredMemoryEditor(kind, idx, extra){
+  var mode = String(kind || '').trim();
+  var index = Math.max(0, Number(idx) || 0);
+  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var structured = normalizeStructuredMemoryState(store.advancedMemory.structured || null);
+  var title = document.getElementById('memEditorTitle');
+  var input = document.getElementById('memEditorInput');
+  var overlay = document.getElementById('memEditorOverlay');
+  if(!title || !input || !overlay) return;
+  var preset = '';
+  var meta = { kind: mode, idx: index, extra: String(extra || '').trim() };
+  if(mode === 'fact'){
+    var factKeys = Object.keys(structured.facts || {});
+    var factKey = factKeys[index];
+    if(!factKey) return;
+    meta.key = factKey;
+    preset = String(structured.facts[factKey] || '');
+    title.textContent = '编辑结构化记忆 · 事实';
+  }else if(mode === 'event-month'){
+    var months = Object.keys(structured.events || {}).sort();
+    var month = months[index];
+    if(!month) return;
+    meta.month = month;
+    preset = String(structured.events[month] || '').split('|').filter(Boolean).join(' · ');
+    title.textContent = '编辑结构化记忆 · 事件';
+  }else if(mode === 'relationship'){
+    preset = String(structured.relationship || '');
+    title.textContent = '编辑结构化记忆 · 关系';
+  }else if(mode === 'list-item'){
+    var listKey = String(extra || '').trim();
+    var list = Array.isArray(structured[listKey]) ? structured[listKey] : null;
+    if(!list || index >= list.length) return;
+    meta.listKey = listKey;
+    preset = String(list[index] || '');
+    title.textContent = '编辑结构化记忆';
+  }else if(mode === 'custom-item'){
+    var code = String(extra || '').trim();
+    var customRows = structured.custom && Array.isArray(structured.custom[code]) ? structured.custom[code] : null;
+    if(!customRows || index >= customRows.length) return;
+    meta.code = code;
+    preset = String(customRows[index] || '');
+    title.textContent = '编辑结构化记忆';
+  }else{
+    return;
+  }
+  memoryEditingType = 'structured';
+  memoryEditingId = '';
+  memoryEditingMeta = meta;
+  input.value = preset;
+  overlay.classList.add('open');
+  setTimeout(function(){ input.focus(); }, 20);
 }
 function deleteStructuredFactAt(idx){
   var index = Number(idx);
@@ -16349,6 +16409,7 @@ if(_listenPromptOverlay){
 function openMemoryEditor(id){
   memoryEditingId = id || '';
   memoryEditingType = 'diary';
+  memoryEditingMeta = null;
   var title = document.getElementById('memEditorTitle');
   var input = document.getElementById('memEditorInput');
   var overlay = document.getElementById('memEditorOverlay');
@@ -16391,6 +16452,7 @@ function openMemoryEditor(id){
 function closeMemoryEditor(){
   memoryEditingId = '';
   memoryEditingType = 'diary';
+  memoryEditingMeta = null;
   document.getElementById('memEditorOverlay')?.classList.remove('open');
 }
 async function confirmMemoryEditor(){
@@ -16423,6 +16485,45 @@ async function confirmMemoryEditor(){
         createdAt: Date.now()
       });
     }
+  }else if(memoryEditingType === 'structured'){
+    var sm = store.advancedMemory.structured;
+    var meta = memoryEditingMeta && typeof memoryEditingMeta === 'object' ? memoryEditingMeta : null;
+    if(!meta){
+      toast('未找到结构化记忆位置');
+      return;
+    }
+    if(meta.kind === 'fact'){
+      var key = String(meta.key || '').trim();
+      if(!key) return;
+      sm.facts[key] = text;
+    }else if(meta.kind === 'event-month'){
+      var month = String(meta.month || '').trim();
+      if(!month) return;
+      sm.events[month] = text.split(/[\n\r]+|(?:\s*[·｜|]\s*)/).map(function(seg){ return String(seg || '').trim(); }).filter(Boolean).join('|');
+    }else if(meta.kind === 'relationship'){
+      sm.relationship = text;
+    }else if(meta.kind === 'list-item'){
+      var listKey = String(meta.listKey || '').trim();
+      var list = Array.isArray(sm[listKey]) ? sm[listKey] : null;
+      var listIdx = Math.max(0, Number(meta.idx) || 0);
+      if(!list || listIdx >= list.length){
+        toast('该条记忆不存在了');
+        return;
+      }
+      list[listIdx] = text;
+    }else if(meta.kind === 'custom-item'){
+      var code = String(meta.code || '').trim();
+      var rows = sm.custom && Array.isArray(sm.custom[code]) ? sm.custom[code] : null;
+      var rowIdx = Math.max(0, Number(meta.idx) || 0);
+      if(!rows || rowIdx >= rows.length){
+        toast('该条记忆不存在了');
+        return;
+      }
+      rows[rowIdx] = text;
+    }else{
+      toast('暂不支持这种结构化编辑');
+      return;
+    }
   }else{
     if(memoryEditingId){
       var idx = store.items.findIndex(function(it){ return String(it.id) === String(memoryEditingId); });
@@ -16449,7 +16550,7 @@ async function confirmMemoryEditor(){
   saveMemorySummaryStore(store);
   closeMemoryEditor();
   refreshMemoryUi();
-  toast(savedType === 'vector-core' ? '核心记忆已保存' : '记忆已保存');
+  toast(savedType === 'vector-core' ? '核心记忆已保存' : (savedType === 'structured' ? '结构化记忆已保存' : '记忆已保存'));
 }
 function deleteMemoryItem(id){
   if(!character || !id) return;
