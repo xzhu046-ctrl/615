@@ -1053,7 +1053,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 .recall-reveal s{color:#888;text-decoration-thickness:1.5px}
 .richhtml-card{position:relative;display:flex;flex-direction:column;gap:10px;width:min(452px,calc(100vw - 84px));max-width:100%;padding:9px;border:1.5px solid #111;border-radius:20px;background:linear-gradient(180deg,#fff 0%,#f6f6f6 100%);box-shadow:4px 5px 0 #111,0 14px 22px rgba(0,0,0,.06);overflow:visible}
 .richhtml-shell .richhtml-card{margin-top:0}
-.richhtml-frame{width:100%;min-height:214px;border:none;border-radius:12px;background:#fff;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.richhtml-frame{width:100%;aspect-ratio:1/1;min-height:0;height:auto;border:none;border-radius:12px;background:#fff;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
 .richhtml-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .richhtml-kicker{display:inline-flex;align-items:center;justify-content:center;min-height:26px;padding:0 12px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}
 .richhtml-head-actions{display:inline-flex;align-items:center;gap:8px}
@@ -6380,43 +6380,80 @@ async function replaceRichHtmlFrameForExport(targetCard, sourceFrame){
   frame.parentNode.replaceChild(shotImg, frame);
 }
 
-async function buildSingleRichHtmlExportBlob(data, sourceCard){
-  var exportHost = document.createElement('div');
-  exportHost.style.position = 'fixed';
-  exportHost.style.left = '-99999px';
-  exportHost.style.top = '0';
-  exportHost.style.opacity = '0';
-  exportHost.style.pointerEvents = 'none';
-  exportHost.style.zIndex = '-1';
-  exportHost.style.background = 'transparent';
-  document.body.appendChild(exportHost);
+function richHtmlDataUrlToBlob(dataUrl){
+  var raw = String(dataUrl || '').trim();
+  if(!raw || raw.indexOf('data:') !== 0) return null;
+  var comma = raw.indexOf(',');
+  if(comma < 0) return null;
+  var meta = raw.slice(5, comma);
+  var body = raw.slice(comma + 1);
+  var mime = (meta.split(';')[0] || 'image/png').trim() || 'image/png';
+  var isBase64 = /;base64/i.test(meta);
   try{
-    var exportCard = null;
-    if(sourceCard && sourceCard.nodeType === 1){
-      exportCard = cloneNodeWithInlineStyles(sourceCard);
-      if(!exportCard) exportCard = sourceCard.cloneNode(true);
-      stripRichHtmlCardActionButtons(exportCard);
-      await replaceRichHtmlFrameForExport(exportCard, sourceCard.querySelector('iframe.richhtml-frame'));
-      var sourceWidth = Math.max(260, Math.min(980, Math.ceil(sourceCard.getBoundingClientRect().width || sourceCard.offsetWidth || 452)));
-      exportCard.style.width = sourceWidth + 'px';
-      exportCard.style.maxWidth = sourceWidth + 'px';
+    if(isBase64){
+      var bin = atob(body);
+      var len = bin.length;
+      var bytes = new Uint8Array(len);
+      for(var i = 0; i < len; i += 1){
+        bytes[i] = bin.charCodeAt(i);
+      }
+      return new Blob([bytes], { type: mime });
     }
-    if(!exportCard){
-      exportCard = buildRichHtmlCardNode(data);
+    return new Blob([decodeURIComponent(body)], { type: mime });
+  }catch(err){
+    return null;
+  }
+}
+
+async function buildSingleRichHtmlExportBlob(data, sourceCard){
+  var exportHost = null;
+  var sourceFrame = sourceCard && sourceCard.nodeType === 1 ? sourceCard.querySelector('iframe.richhtml-frame') : null;
+  var mountedFrame = null;
+  try{
+    if(!sourceFrame){
+      exportHost = document.createElement('div');
+      exportHost.style.position = 'fixed';
+      exportHost.style.left = '-99999px';
+      exportHost.style.top = '0';
+      exportHost.style.opacity = '0';
+      exportHost.style.pointerEvents = 'none';
+      exportHost.style.zIndex = '-1';
+      exportHost.style.background = 'transparent';
+      document.body.appendChild(exportHost);
+      var holder = document.createElement('div');
       var targetWidth = Math.max(260, Math.min(452, Math.floor((window.innerWidth || 390) - 84)));
-      exportCard.style.width = targetWidth + 'px';
-      exportCard.style.maxWidth = targetWidth + 'px';
-      exportHost.appendChild(exportCard);
-      await replaceRichHtmlFrameForExport(exportCard, null);
-    }else{
-      exportHost.appendChild(exportCard);
+      holder.style.width = targetWidth + 'px';
+      holder.style.maxWidth = targetWidth + 'px';
+      holder.style.margin = '0';
+      holder.style.padding = '0';
+      holder.style.background = '#fff';
+      mountedFrame = document.createElement('iframe');
+      mountedFrame.className = 'richhtml-frame';
+      mountedFrame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+      mountedFrame.setAttribute('loading', 'lazy');
+      mountedFrame.style.display = 'block';
+      mountedFrame.style.width = '100%';
+      mountedFrame.style.height = 'auto';
+      mountedFrame.style.aspectRatio = '1/1';
+      mountedFrame.style.border = 'none';
+      mountedFrame.style.borderRadius = '0';
+      mountedFrame.style.boxShadow = 'none';
+      mountedFrame.srcdoc = buildRichHtmlVisibleDoc(data);
+      holder.appendChild(mountedFrame);
+      exportHost.appendChild(holder);
+      sourceFrame = mountedFrame;
     }
-    exportCard.style.margin = '0';
-    exportCard.style.transform = 'none';
-    await waitForNodeImages(exportCard);
-    return await renderNodeAsPngBlob(exportCard);
+    await waitForFrameReady(sourceFrame, 1800);
+    var shot = await snapshotRichHtmlFrame(sourceFrame);
+    if(shot){
+      var blob = richHtmlDataUrlToBlob(shot);
+      if(blob && blob.size){
+        return blob;
+      }
+    }
+    throw new Error('empty richhtml export');
   } finally {
-    if(exportHost.parentNode) exportHost.parentNode.removeChild(exportHost);
+    if(exportHost && exportHost.parentNode) exportHost.parentNode.removeChild(exportHost);
   }
 }
 
@@ -6496,7 +6533,6 @@ function renderRichHtmlBubble(host, raw){
     + '</div>';
   var frame = host.querySelector('.richhtml-frame');
   if(frame){
-    bindRichHtmlFrameAutoHeight(frame, 860);
     frame.srcdoc = buildRichHtmlVisibleDoc(data);
   }
   var card = host.querySelector('.richhtml-card');
