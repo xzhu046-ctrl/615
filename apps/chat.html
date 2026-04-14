@@ -12053,6 +12053,22 @@ function looksLikeRichHtmlContainer(value){
   return /<[a-z][\s\S]*>/i.test(html);
 }
 
+function isRenderableRichHtmlPayload(raw){
+  var data = parseRichHtmlPayload(raw);
+  var html = String(data && data.html || '').trim();
+  return !!html && looksLikeRichHtmlContainer(html);
+}
+
+function extractRichHtmlPayloadText(raw){
+  var data = parseRichHtmlPayload(raw);
+  var parts = [
+    String(data && data.text || '').trim(),
+    String(data && data.summary || '').trim(),
+    extractPlainTextFromHtmlMarkup(String(data && data.html || '')).trim()
+  ].filter(Boolean);
+  return String(parts[0] || '').trim();
+}
+
 function isLikelyRichHtmlObject(obj){
   if(!obj || typeof obj !== 'object') return false;
   if(obj.rich_html && typeof obj.rich_html === 'object') return true;
@@ -12110,6 +12126,73 @@ function collectRichHtmlCandidatesFromReplyNode(node, bucket){
     var value = node[key];
     if(value && typeof value === 'object'){
       collectRichHtmlCandidatesFromReplyNode(value, out);
+    }
+  });
+  return out;
+}
+
+function collectNarratorCandidatesFromReplyNode(node, bucket){
+  var out = Array.isArray(bucket) ? bucket : [];
+  if(node == null) return out;
+  if(Array.isArray(node)){
+    node.forEach(function(item){ collectNarratorCandidatesFromReplyNode(item, out); });
+    return out;
+  }
+  if(typeof node !== 'object') return out;
+  var type = normalizeMessageType(node.type || '');
+  if(type === 'narrator'){
+    out.push(String(node.content || node.text || node.reply_content || node.description || '').trim());
+  }
+  if(node.narrator_message && typeof node.narrator_message === 'object'){
+    out.push(String(node.narrator_message.content || node.narrator_message.text || '').trim());
+  }
+  if(typeof node.narrator === 'string') out.push(String(node.narrator || '').trim());
+  if(typeof node.narration === 'string') out.push(String(node.narration || '').trim());
+  Object.keys(node).forEach(function(key){
+    if(key === 'content' || key === 'text' || key === 'summary' || key === 'html' || key === 'css' || key === 'js') return;
+    var value = node[key];
+    if(value && typeof value === 'object'){
+      collectNarratorCandidatesFromReplyNode(value, out);
+    }
+  });
+  return out;
+}
+
+function collectVisibleMessageCandidatesFromReplyNode(node, bucket){
+  var out = Array.isArray(bucket) ? bucket : [];
+  if(node == null) return out;
+  if(Array.isArray(node)){
+    node.forEach(function(item){ collectVisibleMessageCandidatesFromReplyNode(item, out); });
+    return out;
+  }
+  if(typeof node !== 'object') return out;
+  var type = normalizeMessageType(node.type || 'text');
+  var content = String(node.content || node.reply_content || node.description || node.text || '').trim();
+  var hasBody = !!content;
+  if(type === 'richhtml'){
+    var richRaw = buildRichHtmlPayload({
+      html: node.html || (node.rich_html && node.rich_html.html) || (node.html_card && node.html_card.html) || '',
+      css: node.css || (node.rich_html && node.rich_html.css) || (node.html_card && node.html_card.css) || '',
+      js: node.js || (node.rich_html && node.rich_html.js) || (node.html_card && node.html_card.js) || '',
+      summary: node.summary || node.text || node.content || '',
+      text: node.text || node.content || ''
+    });
+    hasBody = hasBody || !!extractRichHtmlPayloadText(richRaw);
+  }
+  if(hasBody || type === 'richhtml' || type === 'voice' || type === 'image' || type === 'meme' || type === 'moneypacket' || type === 'offlineinvite' || type === 'renameprofile' || type === 'recall'){
+    out.push({ type:type, content:content });
+  }
+  if(node.rich_html && typeof node.rich_html === 'object'){
+    out.push({ type:'richhtml', content:String(node.rich_html.summary || node.rich_html.text || node.summary || '').trim() });
+  }
+  if(node.html_card && typeof node.html_card === 'object'){
+    out.push({ type:'richhtml', content:String(node.html_card.summary || node.html_card.text || node.summary || '').trim() });
+  }
+  Object.keys(node).forEach(function(key){
+    if(key === 'content' || key === 'text' || key === 'summary' || key === 'html' || key === 'css' || key === 'js') return;
+    var value = node[key];
+    if(value && typeof value === 'object'){
+      collectVisibleMessageCandidatesFromReplyNode(value, out);
     }
   });
   return out;
@@ -12182,6 +12265,53 @@ async function maybeRepairBrokenRichHtmlReply(reply, provider, key, model, tempe
   return String(reply || '');
 }
 
+function detectMissingNarratorReply(rawReply){
+  var parsed = maybeParseReplyJson(rawReply);
+  if(!parsed || (typeof parsed !== 'object' && !Array.isArray(parsed))){
+    return { missing:false };
+  }
+  var narrators = collectNarratorCandidatesFromReplyNode(parsed, []).filter(Boolean);
+  if(narrators.length > 0){
+    return { missing:false };
+  }
+  var visible = collectVisibleMessageCandidatesFromReplyNode(parsed, []);
+  var hasNonNarrator = visible.some(function(item){
+    return normalizeMessageType(item && item.type || 'text') !== 'narrator';
+  });
+  return { missing: !!hasNonNarrator };
+}
+
+async function maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, sys, msgs){
+  if(!narratorSettingEnabled()) return String(reply || '');
+  var issue = detectMissingNarratorReply(reply);
+  if(!issue.missing) return String(reply || '');
+  var narratorLang = getNarratorReplyLanguage();
+  var narratorOption = getReplyLanguageOption(narratorLang);
+  var repairSys = [
+    sys,
+    '【返工】你漏掉了 narrator。当前设置要求每轮都要带一小段 narrator（旁白）。',
+    '请只重写上一条 assistant 回复，保留原结构和语义，只补上简短 narrator，不要改成空泛模板。'
+  ].join('\n\n');
+  var repairMsgs = msgs.concat([
+    { role:'assistant', content:String(reply || '') },
+    {
+      role:'user',
+      content:'请重写上一条 assistant 回复，并确保包含一条简短 narrator。'
+        + (narratorOption && narratorOption.value !== 'zh' ? (' narrator 语言使用' + (narratorOption.nativeLabel || narratorOption.label) + '。') : ' narrator 默认简体中文。')
+    }
+  ]);
+  try{
+    var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
+    var repairedIssue = detectMissingNarratorReply(repaired);
+    if(!repairedIssue.missing){
+      return String(repaired || '');
+    }
+  }catch(err){
+    console.warn('repair missing narrator failed', err);
+  }
+  return String(reply || '');
+}
+
 // ════════════════════════════════════════════
 //  AI API calls
 // ════════════════════════════════════════════
@@ -12205,6 +12335,7 @@ async function callAI(provider, key) {
   var sys = buildSystemPrompt();
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
+  reply = await maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, sys, msgs);
   if(shouldEnforceForeignReplyLanguage()){
     var lang = getCharacterReplyLanguage();
     var option = getReplyLanguageOption(lang);
@@ -12222,6 +12353,7 @@ async function callAI(provider, key) {
       }]);
       reply = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs) || reply;
       reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
+      reply = await maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
     }
   }
   return reply;
@@ -19888,18 +20020,6 @@ async function deliverAiReply(text, limitOverride){
     rawParts = splitPlainTextToParts(text);
   }
   if(!rawParts.length) rawParts = [{text:String(text||'(空消息)'), t:'text'}];
-  if(narratorSettingEnabled()){
-    var hasNarratorPart = rawParts.some(function(part){
-      return normalizeMessageType(part && part.t || 'text') === 'narrator';
-    });
-    if(!hasNarratorPart){
-      rawParts.unshift({
-        text: buildAutoNarratorForReply(rawParts),
-        t: 'narrator',
-        translationText: ''
-      });
-    }
-  }
   var parts = [];
   rawParts.forEach(function(part){
     if(!part) return;
@@ -19945,7 +20065,7 @@ async function deliverAiReply(text, limitOverride){
   });
   if(!nonNarratorParts.length){
     var loneNarrator = parts[0] && String(parts[0].text || '').trim();
-    if(loneNarrator){
+    if(loneNarrator && narratorLooksLikeSpeechPrelude(loneNarrator)){
       parts.push({
         text: buildAutoTextFromNarrator(loneNarrator),
         t: 'text',
@@ -19974,6 +20094,12 @@ async function deliverAiReply(text, limitOverride){
     }
     if(t === 'image' && /(?:^|[\s"'“”‘’])[a-z0-9_\-\u4e00-\u9fa5]+\.(png|jpe?g|gif|webp)(?:[\s"'“”‘’]|$)/i.test(String(p.text || ''))){
       t = 'text';
+    }
+    if(t === 'richhtml' && !isRenderableRichHtmlPayload(p.text)){
+      var richDowngrade = extractRichHtmlPayloadText(p.text);
+      t = 'text';
+      p.t = 'text';
+      p.text = richDowngrade || String(p.text || '').trim();
     }
     if(t === 'text'){
       p.text = sanitizeAssistantTextForChat(p.text);
