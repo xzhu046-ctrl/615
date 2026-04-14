@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-04-14T00:40:00Z';
+const CACHE_VERSION = '2026-04-14T18:20:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -24,6 +24,8 @@ const CORE_URLS = [
   './apps/assets/亲亲脸.png',
   './apps/assets/吉他小黑猫.jpg',
   './apps/assets/loading-cat.png',
+  './apps/assets/聊天设置.png',
+  './apps/assets/拉黑.png',
   './apps/assets/屏幕放大.png',
   './apps/assets/屏幕缩小.png',
   './apps/assets/聊天按钮.png',
