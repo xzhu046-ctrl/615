@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-13T14:15:00Z';
+const APP_BUILD_ID = '2026-04-13T15:00:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -5291,6 +5291,7 @@ var homeMusicState = {
   objectUrl: '',
   isReady: false,
   isPlaying: false,
+  searchQuery: '',
   lyricHidden: false,
   floatingEnabled: true,
   customBubbleIcon: ''
@@ -5499,7 +5500,9 @@ function getHomeMusicProvider(){
         var payload = await res.json();
         var list = Array.isArray(payload) ? payload : (payload.songs || payload.data || []);
         return list.map(function(item, idx){
+          var fallbackName = String(query || '').trim() || ('歌曲 ' + String(idx + 1));
           var normalizedPair = splitHomeMusicNameAndArtist(item.name || item.title || '未命名歌曲', item.artist || item.author || item.singer || '未知歌手');
+          if(isHomeMusicUnknownName(normalizedPair.name)) normalizedPair.name = fallbackName;
           return {
             id: createTrackId('proxy'),
             source: 'proxy',
@@ -5524,7 +5527,7 @@ function getHomeMusicProvider(){
         });
         if(!res.ok) throw new Error('搜索失败：' + res.status);
         var payload = await res.json();
-        return normalizeHomeMusicThirdPartySearchPayload(payload);
+        return normalizeHomeMusicThirdPartySearchPayload(payload, query);
       }
     }
   };
@@ -5617,6 +5620,12 @@ function splitHomeMusicNameAndArtist(name, artist){
   };
 }
 
+function isHomeMusicUnknownName(value){
+  var text = String(value || '').trim();
+  if(!text) return true;
+  return text === '未命名歌曲' || text === '未知歌曲' || /^untitled$/i.test(text);
+}
+
 function parseHomeMusicNameArtistFromFileName(filename){
   var raw = String(filename || '').trim();
   if(!raw) return { name:'未命名歌曲', artist:'本地导入' };
@@ -5628,7 +5637,8 @@ function parseHomeMusicNameArtistFromFileName(filename){
   };
 }
 
-function normalizeHomeMusicThirdPartySearchPayload(payload){
+function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
+  var fallbackBase = String(queryHint || '').trim();
   var list = findHomeMusicSearchItems(payload);
   return list.map(function(item, idx){
     var remoteId = String(
@@ -5652,6 +5662,9 @@ function normalizeHomeMusicThirdPartySearchPayload(payload){
       ]) || ''
     ).trim();
     var normalizedPair = splitHomeMusicNameAndArtist(name, artist);
+    if(isHomeMusicUnknownName(normalizedPair.name)){
+      normalizedPair.name = fallbackBase || ('歌曲 ' + String(idx + 1));
+    }
     return {
       id: createTrackId('search'),
       source: 'search',
@@ -6150,6 +6163,7 @@ async function submitHomeMusicSearch(){
     renderHomeMusicSearchResults('先输入歌名或歌手名吧');
     return;
   }
+  homeMusicState.searchQuery = query;
   homeMusicSearchBusy = true;
   renderHomeMusicSearchResults();
   try{
@@ -6215,6 +6229,9 @@ async function addHomeMusicSearchResult(index){
     track.id = createTrackId('search');
     await hydrateHomeMusicThirdPartyTrack(track);
     track = sanitizeHomeMusicTrackForStorage(track);
+    if(isHomeMusicUnknownName(track.name)){
+      track.name = String((candidate && candidate.name) || homeMusicState.searchQuery || track.remoteId || '歌曲').trim() || '歌曲';
+    }
     var wasPreviewingSame = !!(homeMusicState.previewTrack && String(homeMusicState.previewTrack.remoteId || '') === String(track.remoteId || ''));
     homeMusicState.tracks = [track].concat(homeMusicState.tracks);
     if(wasPreviewingSame){
