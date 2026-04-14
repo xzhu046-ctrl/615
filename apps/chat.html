@@ -11537,6 +11537,7 @@ function buildChatExtendedFormatPrompt(){
     '如果是票据、机票、车票、塔罗、签文、搜索结果、论坛贴、聊天截图、菜单、便签、网页、歌单、日记、菜谱、书评、电影单、游戏页面、通话记录、贺卡、认错书、检讨、小作文、外卖订单、设计图纸、合同、学生证、身份证、护照、数学题、物理题、草稿纸、试卷、作业、论文、邮件或帖子，就认真做出那个载体本身的结构与细节，不要只写一段文字糊上去。',
     '如果做的是歌词摘抄，必须写真实歌曲名和真实作者/歌手；如果做的是文学摘抄，必须写真实文学作品名和真实作家，不要编造来源。',
     'rich_html 里可见的文字、按钮、标题、角标、签文、小注释都算成品的一部分，必须一起设计好，不要出现空盒子、假按钮、占位符、乱码或只有一行说明。',
+    '严禁输出空壳卡片：不要返回 {"html":"","css":"","js":""} 这类对象；如果做不到完整卡片，就改回 text/narrator。',
     'rich_html 不只用于情书。只要上下文适合，你可以偶尔主动发一个 SURPRISE 小卡片：聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、通话记录、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、邮箱主页、邮箱收件箱、邮件线程、邮件草稿、银行账户总览、银行账户余额、银行账户明细、小费条、电影票、飞机票、火车票、塔罗牌、签文、百度搜索结果、论坛帖子、伪小红书帖子、便签、清单、聊天截图、网页、小票据、明信片、随手写的页面、PPT、文档、名片、周易/八卦、中式抽签、月老签、简历、说明书、调查问卷、MBTI 测试、测试结果、quiz/test/exam 都可以。',
     'rich_html 就算是临时起意，也要真的给完整 html/css/js 成品，不要只有一句说明，不要空白，不要半成品。只要你决定发 rich_html，就必须把 html/css/js 都认真做完，而且让页面本身有可玩性和互动感。',
     '如果用户明确要求你做情书、小卡片、票据、网页、塔罗、签文、帖子、搜索结果、笔记、歌单、日记、菜谱、贺卡、书单、电影单、游戏页面、聊天记录样式页面、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、数学题、物理题、草稿纸、试卷、机票、作业、论文、邮件、邮箱、银行账户、PPT、文档、名片、便签、周易/八卦、中式算卦、抽签、月老签、简历、说明书、调查问卷、MBTI 测试、测试结果、quiz/test/exam 或别的小物件，就优先 rich_html，不要偷懒改回 text。',
@@ -12019,6 +12020,168 @@ async function requestAndDeliverAiReply(provider, key){
   }
 }
 
+function unwrapCodeFence(raw){
+  var text = String(raw || '').trim();
+  if(!text) return '';
+  var fenceMatch = text.match(/^```[a-zA-Z0-9_-]*\s*([\s\S]*?)```$/);
+  if(fenceMatch) return String(fenceMatch[1] || '').trim();
+  return text;
+}
+
+function maybeParseReplyJson(raw){
+  var text = unwrapCodeFence(raw);
+  if(!text) return null;
+  try{
+    return JSON.parse(text);
+  }catch(err){}
+  try{
+    var normalized = text
+      .replace(/[｛﹛]/g, '{')
+      .replace(/[｝﹜]/g, '}')
+      .replace(/[“”„‟＂]/g, '"')
+      .replace(/[‘’‚‛＇]/g, "'")
+      .replace(/[：﹕]/g, ':')
+      .replace(/[，﹐]/g, ',');
+    return JSON.parse(normalized);
+  }catch(err){}
+  return null;
+}
+
+function looksLikeRichHtmlContainer(value){
+  var html = String(value || '').trim();
+  if(!html) return false;
+  return /<[a-z][\s\S]*>/i.test(html);
+}
+
+function isLikelyRichHtmlObject(obj){
+  if(!obj || typeof obj !== 'object') return false;
+  if(obj.rich_html && typeof obj.rich_html === 'object') return true;
+  if(obj.html_card && typeof obj.html_card === 'object') return true;
+  var type = normalizeMessageType(obj.type || '');
+  if(type === 'richhtml') return true;
+  var hasCardField = Object.prototype.hasOwnProperty.call(obj, 'html')
+    || Object.prototype.hasOwnProperty.call(obj, 'css')
+    || Object.prototype.hasOwnProperty.call(obj, 'js');
+  if(!hasCardField) return false;
+  var summary = String(obj.summary || obj.text || obj.content || '').trim();
+  var html = String(obj.html || '').trim();
+  var css = String(obj.css || '').trim();
+  var js = String(obj.js || '').trim();
+  return !!(summary || html || css || js);
+}
+
+function collectRichHtmlCandidatesFromReplyNode(node, bucket){
+  var out = Array.isArray(bucket) ? bucket : [];
+  if(node == null) return out;
+  if(Array.isArray(node)){
+    node.forEach(function(item){ collectRichHtmlCandidatesFromReplyNode(item, out); });
+    return out;
+  }
+  if(typeof node !== 'object') return out;
+  if(node.rich_html && typeof node.rich_html === 'object'){
+    out.push({
+      html: String(node.rich_html.html || '').trim(),
+      css: String(node.rich_html.css || '').trim(),
+      js: String(node.rich_html.js || '').trim(),
+      summary: String(node.rich_html.summary || node.summary || node.text || node.content || '').trim(),
+      text: String(node.rich_html.text || node.text || node.content || '').trim()
+    });
+  }
+  if(node.html_card && typeof node.html_card === 'object'){
+    out.push({
+      html: String(node.html_card.html || '').trim(),
+      css: String(node.html_card.css || '').trim(),
+      js: String(node.html_card.js || '').trim(),
+      summary: String(node.html_card.summary || node.summary || node.text || node.content || '').trim(),
+      text: String(node.html_card.text || node.text || node.content || '').trim()
+    });
+  }
+  if(isLikelyRichHtmlObject(node)){
+    out.push({
+      html: String(node.html || '').trim(),
+      css: String(node.css || '').trim(),
+      js: String(node.js || '').trim(),
+      summary: String(node.summary || node.text || node.content || '').trim(),
+      text: String(node.text || node.content || '').trim()
+    });
+  }
+  Object.keys(node).forEach(function(key){
+    if(key === 'rich_html' || key === 'html_card') return;
+    var value = node[key];
+    if(value && typeof value === 'object'){
+      collectRichHtmlCandidatesFromReplyNode(value, out);
+    }
+  });
+  return out;
+}
+
+function detectBrokenRichHtmlReply(rawReply){
+  var raw = String(rawReply || '').trim();
+  if(!raw) return { broken:false };
+  var parsed = maybeParseReplyJson(raw);
+  var candidates = [];
+  if(parsed && (typeof parsed === 'object' || Array.isArray(parsed))){
+    collectRichHtmlCandidatesFromReplyNode(parsed, candidates);
+  }
+  if(!candidates.length && /"html"\s*:\s*""\s*,\s*"css"\s*:\s*""\s*,\s*"js"\s*:\s*""/i.test(raw) && /"summary"\s*:|"text"\s*:/i.test(raw)){
+    return {
+      broken: true,
+      reason: 'empty-richhtml-shell',
+      hint: String((raw.match(/"summary"\s*:\s*"([^"]+)"/i) || [,''])[1] || '').trim()
+    };
+  }
+  for(var i = 0; i < candidates.length; i += 1){
+    var item = candidates[i] || {};
+    var html = String(item.html || '').trim();
+    var css = String(item.css || '').trim();
+    var js = String(item.js || '').trim();
+    var summary = String(item.summary || item.text || '').trim();
+    var hasSignal = !!(summary || html || css || js);
+    if(!hasSignal) continue;
+    if(!looksLikeRichHtmlContainer(html)){
+      return {
+        broken: true,
+        reason: 'non-renderable-richhtml',
+        hint: summary
+      };
+    }
+  }
+  return { broken:false };
+}
+
+async function maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs){
+  var issue = detectBrokenRichHtmlReply(reply);
+  if(!issue.broken) return String(reply || '');
+  var hint = String(issue.hint || '').trim();
+  var repairSys = [
+    sys,
+    '【返工】上一条 assistant 回复里出现了空壳 rich_html（html/css/js 为空，或 html 不可渲染）。',
+    '如果你选择 rich_html，必须给出可渲染的完整 html 成品（可以配 css/js），不能输出空字段模板。',
+    '禁止输出 {"html":"","css":"","js":""...} 这种空壳对象。',
+    '如果这轮不适合做卡片，就改成普通 text / narrator，而不是给空壳 rich_html。'
+  ].join('\n\n');
+  var repairMsgs = msgs.concat([
+    { role:'assistant', content:String(reply || '') },
+    {
+      role:'user',
+      content: '请只重写你刚才那条 assistant 回复，保持原有语气和上下文。'
+        + '若发 SURPRISE 卡片，请给可渲染完整 html。'
+        + (hint ? ('卡片主题可围绕：' + hint + '。') : '')
+        + '不要返回空壳卡片对象。'
+    }
+  ]);
+  try{
+    var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
+    var repairedIssue = detectBrokenRichHtmlReply(repaired);
+    if(!repairedIssue.broken){
+      return String(repaired || '');
+    }
+  }catch(err){
+    console.warn('repair rich_html reply failed', err);
+  }
+  return String(reply || '');
+}
+
 // ════════════════════════════════════════════
 //  AI API calls
 // ════════════════════════════════════════════
@@ -12041,6 +12204,7 @@ async function callAI(provider, key) {
   await prepareVectorPromptMemory(msgs);
   var sys = buildSystemPrompt();
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
+  reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
   if(shouldEnforceForeignReplyLanguage()){
     var lang = getCharacterReplyLanguage();
     var option = getReplyLanguageOption(lang);
@@ -12057,6 +12221,7 @@ async function callAI(provider, key) {
         content:'请把你刚才那条 assistant 回复按同样结构重写成' + (option && (option.nativeLabel || option.label) || '目标语言') + '原文，不要再输出中文正文。'
       }]);
       reply = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs) || reply;
+      reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
     }
   }
   return reply;
@@ -19235,6 +19400,9 @@ async function deliverAiReply(text, limitOverride){
     var c = '';
     var t = normalizeMessageType(item.type || 'text');
     var translation = String(item.translation || item.translationText || item.translated || item.zh || item.zh_cn || '').trim();
+    var hasDirectRichFields = Object.prototype.hasOwnProperty.call(item, 'html')
+      || Object.prototype.hasOwnProperty.call(item, 'css')
+      || Object.prototype.hasOwnProperty.call(item, 'js');
     if(typeof item.content === 'string') c = item.content;
     else if(typeof item.reply_content === 'string') c = item.reply_content;
     else if(typeof item.description === 'string') c = item.description;
@@ -19343,6 +19511,16 @@ async function deliverAiReply(text, limitOverride){
     }
     if(t === 'narrator' && narratorSettingEnabled() === false) t = 'text';
     if(t === 'image' && !looksLikeVisualDescription(c)) t = 'text';
+    if(t === 'text' && !item.type && hasDirectRichFields){
+      c = buildRichHtmlPayload({
+        html: item.html || '',
+        css: item.css || '',
+        js: item.js || '',
+        summary: item.summary || item.text || item.content || item.reply_content || item.description || '',
+        text: item.text || item.content || item.reply_content || item.description || ''
+      });
+      t = 'richhtml';
+    }
     if(!c && t !== 'recall') return;
     if(t === 'text' && (item.html || item.css || item.js)){
       c = buildRichHtmlPayload({
@@ -19449,9 +19627,26 @@ async function deliverAiReply(text, limitOverride){
     };
     var type = readField('type');
     var content = readField(['content', 'reply_content', 'description', 'text']);
+    var summary = readField('summary');
+    var html = readField('html');
+    var css = readField('css');
+    var js = readField('js');
     var replyTo = readField(['reply_to', 'replyTo']);
     var replyRole = readField(['reply_role', 'replyRole']);
-    if(!type && !content) return null;
+    var hasLooseRichFields = !!(html || css || js || summary);
+    if(!type && !content && !hasLooseRichFields) return null;
+    if((!type || normalizeMessageType(type) === 'text') && hasLooseRichFields){
+      return {
+        type: 'rich_html',
+        html: html,
+        css: css,
+        js: js,
+        summary: summary || content || '',
+        text: content || summary || '',
+        reply_to: replyTo,
+        reply_role: replyRole
+      };
+    }
     return {
       type: type || 'text',
       content: content || '',
@@ -19500,6 +19695,9 @@ async function deliverAiReply(text, limitOverride){
           if(isReplyMetadataOnly(obj)) return;
           var c = obj.content || obj.reply_content || obj.description;
           var t = normalizeMessageType(obj.type || 'text');
+          var hasDirectRichFields = Object.prototype.hasOwnProperty.call(obj, 'html')
+            || Object.prototype.hasOwnProperty.call(obj, 'css')
+            || Object.prototype.hasOwnProperty.call(obj, 'js');
           if(!c){
             if(obj.voice_message && typeof obj.voice_message === 'object'){
               c = obj.voice_message.content || obj.voice_message.text || '';
@@ -19547,6 +19745,16 @@ async function deliverAiReply(text, limitOverride){
               target: obj.target || obj.scope || obj.subject || '',
               name: obj.name || obj.nickname || obj.new_name || obj.newName || obj.alias || ''
             });
+          }
+          if(t === 'text' && !obj.type && hasDirectRichFields){
+            c = buildRichHtmlPayload({
+              html: obj.html || '',
+              css: obj.css || '',
+              js: obj.js || '',
+              summary: obj.summary || obj.text || obj.content || obj.reply_content || obj.description || '',
+              text: obj.text || obj.content || obj.reply_content || obj.description || ''
+            });
+            t = 'richhtml';
           }
           if(t === 'text' && (obj.html || obj.css || obj.js)){
             c = buildRichHtmlPayload({
