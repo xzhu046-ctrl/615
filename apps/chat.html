@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-15T03:38:00Z"></script>
+<script src="../promptManager.js?v=2026-04-15T03:52:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
@@ -4585,12 +4585,21 @@ function resolveNarratorUserReference(){
   if(preferred && preferred !== '你' && preferred !== 'USER') return preferred;
   return '对方';
 }
+function resolveNarratorCharReference(){
+  var preferred = String(getCurrentCharDisplayName() || '').trim();
+  if(preferred && preferred !== 'CHAR' && preferred !== '角色') return preferred;
+  return '对方';
+}
 function sanitizeNarratorPerspectiveText(raw){
   var text = String(raw || '').trim();
   if(!text) return text;
   var userRef = resolveNarratorUserReference();
+  var charRef = resolveNarratorCharReference();
   return text
+    .replace(/\bchar\b/gi, charRef)
+    .replace(/角色/g, charRef)
     .replace(/\bUSER\b/g, userRef)
+    .replace(/\buser\b/gi, userRef)
     .replace(/用户/g, userRef);
 }
 function getSubAccountIdentityHint(){
@@ -8570,24 +8579,6 @@ function sanitizeAssistantTextForChat(raw){
   return t;
 }
 
-function narratorLooksLikeSpeechPrelude(text){
-  var t = String(text || '').trim();
-  if(!t) return false;
-  return /(打字|敲[击打]着?(?:屏幕|键盘)|正[在要]?开口|欲言又止|像是要说|像是想说|将要说|刚要说|张了张嘴|唇(?:瓣|角).{0,6}(动|张)|喉结|呼吸一顿|话到嘴边|准备说|似乎要说)/.test(t);
-}
-
-function buildAutoTextFromNarrator(narratorText){
-  var lang = getCharacterReplyLanguage();
-  var seed = String(narratorText || '').trim();
-  if(lang === 'en') return /[!?]$/.test(seed) ? 'I heard you.' : 'I am right here.';
-  if(lang === 'ja') return /[？?]$/.test(seed) ? '聞こえてるよ。' : 'ちゃんとここにいる。';
-  if(lang === 'ko') return /[？?]$/.test(seed) ? '듣고 있어.' : '여기 있어.';
-  if(lang === 'fr') return /[？?]$/.test(seed) ? 'Je t’entends.' : 'Je suis là.';
-  if(lang === 'de') return /[？?]$/.test(seed) ? 'Ich höre dich.' : 'Ich bin hier.';
-  if(lang === 'yue') return /[？?]$/.test(seed) ? '我聽到你。' : '我喺度。';
-  return /[？?]$/.test(seed) ? '我听见你了。' : '我在呢。';
-}
-
 function isBlockedMemePayload(raw){
   var t = String(raw || '').trim();
   if(!t) return false;
@@ -12446,7 +12437,7 @@ function buildChatExtendedFormatPrompt(){
     '【扩展消息类型】',
     '你除了普通 text / voice_message / image_message / money_packet / offline_invite，还可以在合适时使用 narrator / rich_html / recall / rename_profile。',
     'narrator：用于动作、环境、声音、镜头感、心理余波，是旁白，不是说出口的话。格式：{"type":"narrator","content":"..."}',
-    'narrator 里禁止写“用户”“USER”这种偷懒指代。涉及对方时，只能直接写对方名字、昵称，或者自然的第三人称代称。',
+    'narrator 里禁止写“用户”“USER”“user”“角色”“CHAR”“char”这种偷懒指代。涉及双方时，只能直接写名字、昵称，或者自然的第三人称代称。',
     'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件，也包括聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、通话记录、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、邮箱主页、邮箱收件箱、邮件线程、邮件草稿、银行账户总览、银行账户余额、银行账户明细、影评、药品单、医院开的单子、知乎帖子、小说简介、伪小红书帖子、直播间、抖音样式页、社交媒体主页、社交媒体帖子、社交媒体评论、测评、repo、银行账单、银行流水、法院传票、学签、旅游签、工签、银行卡、PPT页、文档页、名片、便签、周易/八卦、中式算卦、抽签、月老签、简历、说明书、调查问卷、MBTI 测试、测试结果、quiz/test/exam 这类页面或卡片。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}',
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
     'rename_profile：用于改昵称。target 只能是 char 或 user；name 是你要改成的新名字。target=char 表示改你在对方这里的名字，target=user 表示改你给对方存的备注/昵称。格式：{"type":"rename_profile","target":"char","name":"新昵称"} 或 {"type":"rename_profile","target":"user","name":"新备注"}。',
@@ -21886,18 +21877,6 @@ async function deliverAiReply(text, limitOverride){
   var nonNarratorParts = parts.filter(function(part){
     return normalizeMessageType(part && part.t || 'text') !== 'narrator';
   });
-  if(!nonNarratorParts.length){
-    var loneNarrator = parts[0] && String(parts[0].text || '').trim();
-    if(loneNarrator && narratorSettingEnabled()){
-      parts.push({
-        text: buildAutoTextFromNarrator(loneNarrator),
-        t: 'text',
-        replyTo: '',
-        replyRole: '',
-        translationText: ''
-      });
-    }
-  }
   var sentCount = 0;
   var sentTexts = [];
   var sentIds = [];
