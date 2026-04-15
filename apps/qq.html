@@ -550,24 +550,6 @@ body{
 .quick-face:nth-child(3){transform:rotate(-5deg) translateY(11px)}
 .quick-face:active{transform:translate(1px,1px);box-shadow:2px 2px 0 rgba(0,0,0,.82)}
 .quick-face::after{display:none}
-.quick-face-badge{
-  position:absolute;
-  left:8px;
-  top:8px;
-  min-height:18px;
-  padding:0 7px;
-  border:1.5px solid #111;
-  border-radius:999px;
-  background:rgba(255,255,255,.92);
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  font-family:var(--fontcute, var(--fontd));
-  font-size:8px;
-  font-weight:900;
-  color:#111;
-  z-index:2;
-}
 .quick-face-photo{
   width:100%;
   aspect-ratio:1/1;
@@ -2152,9 +2134,18 @@ function updateSkyPill(){
 function renderQuickAvatarStrip(renderChars){
   var strip = document.getElementById('quickAvatarStrip');
   if(!strip) return;
-  var picks = (Array.isArray(renderChars) ? renderChars : []).filter(function(c){ return c && !c.isSunnySupport; }).slice(0, 3);
+  var picks = (Array.isArray(renderChars) ? renderChars : [])
+    .filter(function(c){ return c && !c.isSunnySupport; })
+    .slice()
+    .sort(function(a, b){
+      var bTs = lastActivityOf(b);
+      var aTs = lastActivityOf(a);
+      if(bTs !== aTs) return bTs - aTs;
+      return String(a.nickname || a.name || '').localeCompare(String(b.nickname || b.name || ''), 'zh-Hans-CN');
+    })
+    .slice(0, 3);
   if(!picks.length){
-    strip.innerHTML = '<div class="quick-face"><span class="quick-face-badge">CHAR</span><div class="quick-face-photo"><div class="quick-face-fallback">✦</div></div><div class="quick-face-meta"><span>聊天</span><span>最近聊天</span></div></div>';
+    strip.innerHTML = '<div class="quick-face"><div class="quick-face-photo"><div class="quick-face-fallback">✦</div></div><div class="quick-face-meta"><span>聊天</span><span>最近聊天</span></div></div>';
     return;
   }
   strip.innerHTML = picks.map(function(c){
@@ -2163,7 +2154,7 @@ function renderQuickAvatarStrip(renderChars){
       ? '<img src="' + esc(src) + '" alt="">'
       : '<div class="quick-face-fallback">' + esc(c.avatar || '✦') + '</div>';
     var name = String(c.nickname || c.name || '未命名');
-    return '<button class="quick-face" type="button" data-chat-id="' + esc(c.id) + '"><span class="quick-face-badge">CHAR</span><span class="quick-face-photo">' + inner + '</span><span class="quick-face-meta"><span>聊天</span><span>' + esc(name.slice(0, 8)) + '</span></span></button>';
+    return '<button class="quick-face" type="button" data-chat-id="' + esc(c.id) + '"><span class="quick-face-photo">' + inner + '</span><span class="quick-face-meta"><span>聊天</span><span>' + esc(name.slice(0, 8)) + '</span></span></button>';
   }).join('');
   document.querySelectorAll('#quickAvatarStrip .quick-face[data-chat-id]').forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -2694,9 +2685,11 @@ window.addEventListener('message', async function(e){
     if(payload.id){
       livePreviewCache[payload.id] = normalizePreviewMessage({ content: payload.last || '', type: payload.lastType || 'text' });
       var current = chatSummaryCache[payload.id] || { last:{ content:'', type:'text' }, unread:0 };
+      var lastAt = Number(payload.lastAt || payload.ts || Date.now()) || Date.now();
       chatSummaryCache[payload.id] = {
         last: livePreviewCache[payload.id],
-        unread: Number(current.unread || 0) || 0
+        unread: Number(current.unread || 0) || 0,
+        lastAt: lastAt
       };
       renderList();
     }
