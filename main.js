@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-15T08:24:00Z';
+const APP_BUILD_ID = '2026-04-15T09:05:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -5919,15 +5919,31 @@ function isRenderableHomeMusicFloatingIcon(src){
 function applyHomeMusicBubbleAppearance(){
   var bubble = document.getElementById('home-music-bubble');
   if(!bubble) return;
-  bubble.style.setProperty('--home-music-bubble-scale', String(normalizeHomeMusicBubbleScale(homeMusicState.bubbleScale)));
+  var scale = normalizeHomeMusicBubbleScale(homeMusicState.bubbleScale);
+  bubble.style.setProperty('--home-music-bubble-scale', String(scale));
   var src = String(homeMusicState.customBubbleIcon || '').trim();
   if(isRenderableHomeMusicFloatingIcon(src)){
     bubble.classList.add('is-custom-image');
     bubble.innerHTML = '<img class="home-music-bubble-custom-image" src="' + escapeHtml(src) + '" alt="音乐悬浮球">';
+    bubble.style.minWidth = (44 * scale) + 'px';
+    bubble.style.minHeight = (44 * scale) + 'px';
+    bubble.style.width = 'auto';
+    bubble.style.height = 'auto';
+    var img = bubble.querySelector('.home-music-bubble-custom-image');
+    if(img){
+      img.style.width = (60 * scale) + 'px';
+      img.style.height = (60 * scale) + 'px';
+      img.style.maxWidth = Math.min(window.innerWidth * 0.2, 72 * scale) + 'px';
+      img.style.maxHeight = Math.min(window.innerWidth * 0.2, 72 * scale) + 'px';
+    }
     return;
   }
   bubble.classList.remove('is-custom-image');
   bubble.innerHTML = '<span class="home-music-bubble-icon">♪</span>';
+  bubble.style.minWidth = '';
+  bubble.style.minHeight = '';
+  bubble.style.width = (44 * scale) + 'px';
+  bubble.style.height = (44 * scale) + 'px';
 }
 
 function hydrateHomeMusicFloatingIcon(){

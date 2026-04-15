@@ -6192,6 +6192,23 @@ async function ensureAvatarVisionSummary(role, src){
   return String(summary || '').trim();
 }
 
+async function buildAvatarVisionPromptMessage(){
+  if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return '';
+  var userSrc = await resolveChatUserAvatarAsync(character.id).catch(function(){ return ''; });
+  var charSrc = await resolveBestCharAvatarSource().catch(function(){ return ''; });
+  var userSummary = await ensureAvatarVisionSummary('user', userSrc);
+  var charSummary = await ensureAvatarVisionSummary('char', charSrc);
+  if(!userSummary && !charSummary) return '';
+  var lines = [
+    '【头像识图预处理结果】',
+    '下面这些内容已经先根据当前真实头像图片识别好了，不是猜测，也不是用户额外补充的设定。',
+    '这一轮只要聊到头像、长相、穿搭、构图、颜色、氛围、配对头像、情侣头像，就先按这里理解；如果这里都看不清，就直接承认看不清，不要脑补。'
+  ];
+  if(userSummary) lines.push('用户当前头像：' + userSummary);
+  if(charSummary) lines.push('你当前头像：' + charSummary);
+  return lines.join('\n');
+}
+
 async function appendAvatarVisionContextToSystemPrompt(systemPrompt){
   if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return String(systemPrompt || '');
   var userSrc = await resolveChatUserAvatarAsync(character.id).catch(function(){ return ''; });
@@ -10783,6 +10800,8 @@ function compactChar(c){
     replyLanguage:normalizeReplyLanguage(c.replyLanguage||c.language||'zh'),
     translationMode:normalizeTranslationMode(c.translationMode||'ondemand'),
     allowNarrator:c.allowNarrator !== false,
+    avatarVisionEnabled:!!c.avatarVisionEnabled,
+    charAvatarAutoEnabled:!!c.charAvatarAutoEnabled,
     userNameProfile:String(c.userNameProfile||''),
     userNicknameNote:String(c.userNicknameNote||''),
     userPersonaProfile:String(c.userPersonaProfile||'')
@@ -12231,30 +12250,37 @@ function parseAvatarAutoDecision(raw){
   return null;
 }
 
+function resolveAutoAvatarDecisionItem(list, rawValue){
+  var items = Array.isArray(list) ? list : [];
+  var needle = String(rawValue || '').trim();
+  if(!needle) return null;
+  var exact = items.find(function(item){
+    return String(item && item.id || '').trim() === needle;
+  });
+  if(exact) return exact;
+  return findAvatarLibraryItemByInstruction(items, needle);
+}
+
 async function maybeTriggerAutoAvatarResponse(payload){
   if(!character || !character.id) return false;
   if(!loadCharAvatarAutoEnabled(character.id)) return false;
   var now = Date.now();
   var lastAutoAt = loadCharAvatarAutoLastActionAt(character.id);
-  var avatarAutoCooldownMs = 6 * 60 * 60 * 1000;
+  var avatarAutoCooldownMs = 2 * 60 * 60 * 1000;
   if(lastAutoAt && now - lastAutoAt < avatarAutoCooldownMs) return false;
   var visionRequired = !!loadAvatarVisionEnabled(character.id);
   var store = avatarLibraryCache && (avatarLibraryCache.char || avatarLibraryCache.user) ? avatarLibraryCache : await loadAvatarLibraryStore(character.id);
   avatarLibraryCache = store;
-  var charOptions = Array.isArray(store.char) ? store.char.slice(0, 10) : [];
-  var userOptions = Array.isArray(store.user) ? store.user.slice(0, 10) : [];
+  var charOptions = Array.isArray(store.char) ? store.char.slice(0, 24) : [];
+  var userOptions = Array.isArray(store.user) ? store.user.slice(0, 24) : [];
   if(!charOptions.length && !userOptions.length) return false;
   var userItem = payload && payload.changedUserItem && typeof payload.changedUserItem === 'object' ? payload.changedUserItem : null;
   var visionSummary = '';
   if(visionRequired){
     try{
-      visionSummary = await describeImageWithVision(payload && payload.changedUserSrc || '');
+      visionSummary = await ensureAvatarVisionSummary('user', payload && payload.changedUserSrc || '');
     }catch(err){
       console.warn('describeImageWithVision failed', err);
-    }
-    if(!String(visionSummary || '').trim()){
-      console.warn('avatar auto skipped: AI vision is enabled but no visual summary was produced');
-      return false;
     }
   }
   var persona = String(character.personality || character.description || '').trim().slice(0, 1200);
@@ -12264,16 +12290,29 @@ async function maybeTriggerAutoAvatarResponse(payload){
   }).filter(Boolean).join('\n');
   var currentUserName = getAvatarTargetDisplayName('user');
   var currentCharName = getAvatarTargetDisplayName('char');
+  var pairedCandidate = null;
+  if(userItem && String(userItem.pairTag || '').trim()){
+    pairedCandidate = charOptions.find(function(item){
+      return String(item && item.pairTag || '').trim() === String(userItem.pairTag || '').trim();
+    }) || null;
+  }
+  if(pairedCandidate){
+    var pairedChanged = await applyAvatarLibraryItem(pairedCandidate.id, 'char', 'char').then(function(){ return true; }).catch(function(){ return false; });
+    if(pairedChanged){
+      saveCharAvatarAutoLastActionAt(character.id, now);
+      return true;
+    }
+  }
   var sys = [
     '你是头像选择器，要代入聊天角色本人。',
     '现在用户刚换了头像，角色看到了系统提示，判断角色会不会顺手换头像。',
     '优先参考角色人设、关系状态、最近聊天、头像库备注和配对标签。',
     '触发频率和你主动改备注同一逻辑：中频率、偶尔发生、改完先冷却，不要每次看到头像变化都机械跟着改。',
-    visionRequired ? '这次 AI 识图已开启；你必须先根据“识图结果”真正看见用户现在的头像，再决定反应。不能假装看过，也不能忽略识图结果。' : '这次 AI 识图关闭；你只能根据头像名字、说明、配对标签和聊天上下文来判断。',
+    visionRequired ? '这次 AI 识图已开启；你必须先根据“识图结果”真正看见用户现在的头像，再决定反应。不能假装看过，也不能忽略识图结果。若识图结果为空，就当作这次没看清。' : '这次 AI 识图关闭；你只能根据头像名字、说明、配对标签和聊天上下文来判断。',
     '同一个 pairTag 默认就代表它们是一组配对头像；如果还额外标记成情侣头像，就把这组理解成更强提示。',
     '如果角色不想换，就明确返回不换。',
     '只返回 JSON，不要解释，不要 markdown。',
-    '格式：{"changeChar":true|false,"charAvatarId":"...","changeUser":true|false,"userAvatarId":"..."}'
+    '格式：{"changeChar":true|false,"charAvatar":"头像名或id","changeUser":true|false,"userAvatar":"头像名或id"}'
   ].join('\n');
   var user = [
     '角色名：' + currentCharName,
@@ -12301,24 +12340,18 @@ async function maybeTriggerAutoAvatarResponse(payload){
     console.warn('avatar auto AI failed', err);
   }
   var changed = false;
-  if(decision && decision.changeChar && decision.charAvatarId){
-    var charItem = charOptions.find(function(item){ return String(item.id || '') === String(decision.charAvatarId || ''); });
+  if(decision && decision.changeChar){
+    var charRef = decision.charAvatar || decision.charAvatarId || decision.charAvatarName || decision.name || '';
+    var charItem = resolveAutoAvatarDecisionItem(charOptions, charRef);
     if(charItem){
       changed = await applyAvatarLibraryItem(charItem.id, 'char', 'char').then(function(){ return true; }).catch(function(){ return false; }) || changed;
     }
   }
-  if(decision && decision.changeUser && decision.userAvatarId){
-    var userOption = userOptions.find(function(item){ return String(item.id || '') === String(decision.userAvatarId || ''); });
+  if(decision && decision.changeUser){
+    var userRef = decision.userAvatar || decision.userAvatarId || decision.userAvatarName || decision.userName || '';
+    var userOption = resolveAutoAvatarDecisionItem(userOptions, userRef);
     if(userOption){
       changed = await applyAvatarLibraryItem(userOption.id, 'user', 'char').then(function(){ return true; }).catch(function(){ return false; }) || changed;
-    }
-  }
-  if(!changed && userItem && userItem.pairTag){
-    var paired = charOptions.find(function(item){
-      return String(item.pairTag || '') === String(userItem.pairTag || '');
-    });
-    if(paired){
-      changed = await applyAvatarLibraryItem(paired.id, 'char', 'char').then(function(){ return true; }).catch(function(){ return false; }) || changed;
     }
   }
   if(!changed && visionRequired && String(payload && payload.changedUserSrc || '').trim()){
@@ -12648,12 +12681,25 @@ function confirmUnblockFromSettings(){
 
 function buildChatExtendedFormatPrompt(){
   var avatarStore = avatarLibraryCache && (avatarLibraryCache.char || avatarLibraryCache.user) ? avatarLibraryCache : null;
+  function formatAvatarLibraryPromptEntries(items){
+    return (Array.isArray(items) ? items : []).slice(0, 24).map(function(item){
+      var label = String(item && item.label || '').trim();
+      if(!label) return '';
+      var bits = [label];
+      if(String(item && item.pairTag || '').trim()) bits.push('标签:' + String(item.pairTag || '').trim());
+      if(String(item && item.note || '').trim()) bits.push('说明:' + String(item.note || '').trim());
+      if(item && item.couple) bits.push('情侣头像');
+      return bits.join('｜');
+    }).filter(Boolean);
+  }
   var charAvatarNames = avatarStore && Array.isArray(avatarStore.char) ? avatarStore.char.map(function(item){
     return String(item && item.label || '').trim();
   }).filter(Boolean) : [];
   var userAvatarNames = avatarStore && Array.isArray(avatarStore.user) ? avatarStore.user.map(function(item){
     return String(item && item.label || '').trim();
   }).filter(Boolean) : [];
+  var charAvatarEntries = formatAvatarLibraryPromptEntries(avatarStore && avatarStore.char);
+  var userAvatarEntries = formatAvatarLibraryPromptEntries(avatarStore && avatarStore.user);
   var lines = [
     '【扩展消息类型】',
     '你除了普通 text / voice_message / image_message / money_packet / offline_invite，还可以在合适时使用 narrator / rich_html / recall / rename_profile / change_avatar / change_user_avatar。',
@@ -12685,6 +12731,8 @@ function buildChatExtendedFormatPrompt(){
     '主动改备注和主动换头像都按中频率偶尔触发即可，改完先冷却一阵。',
     '你的头像库可用名字：' + (charAvatarNames.length ? charAvatarNames.join('、') : '（空）'),
     'USER 头像库可用名字：' + (userAvatarNames.length ? userAvatarNames.join('、') : '（空）'),
+    '你的头像库详细条目：' + (charAvatarEntries.length ? charAvatarEntries.join('；') : '（空）'),
+    'USER 头像库详细条目：' + (userAvatarEntries.length ? userAvatarEntries.join('；') : '（空）'),
     '如果用户发来的是旁白、环境描述、动作说明或 html/css/js 卡片，也要按对应类型理解，不要误判成普通对白。',
     '无论你最终发 text、narrator、rich_html、recall 还是别的结构化内容，第一优先级都是读懂并回应对方刚刚那条 user 输入。别忽略最新一条用户消息，也别只顾着自说自话。'
   ];
@@ -13587,17 +13635,11 @@ async function callAI(provider, key) {
     msgs.push({ role: 'user', content: pendingModelUserCue });
   }
   await prepareVectorPromptMemory(msgs);
-  var avatarVisionMsgs = await buildAvatarVisionMessagesForPrompt(provider);
-  if(avatarVisionMsgs && avatarVisionMsgs.length){
-    msgs = avatarVisionMsgs.concat(msgs);
-    msgs = await preprocessAvatarVisionMessagesForPrompt(msgs);
+  var avatarVisionPrompt = await buildAvatarVisionPromptMessage();
+  if(avatarVisionPrompt){
+    msgs.unshift({ role:'user', content: avatarVisionPrompt });
   }
   var sys = buildSystemPrompt();
-  sys = await appendAvatarVisionContextToSystemPrompt(sys);
-  var avatarVisionLatest = await buildAvatarVisionLatestMessage();
-  if(avatarVisionLatest){
-    msgs.push({ role:'user', content: avatarVisionLatest });
-  }
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, sys, msgs);
@@ -19642,9 +19684,11 @@ function currentVisibleUserAvatarSrc(){
   return '';
 }
 
-function getLoadedCharAvatarTemplate(preferredSrc){
+function getLoadedAvatarTemplate(preferredSrc, preferredSelectors){
   var want = normalizeAvatarSrc(preferredSrc);
-  var selectors = ['#hdrAvatar img', '#csCharAvatar img', '#idcAvatar img', '#chatExportIdcAvatar img'];
+  var selectors = Array.isArray(preferredSelectors) && preferredSelectors.length
+    ? preferredSelectors.slice()
+    : ['#hdrAvatar img', '#csCharAvatar img', '#idcAvatar img', '#chatExportIdcAvatar img', '#csUserAvatar img', '.msg.user .msg-avatar img', '#chatExportUserAvatar img'];
   for(var i = 0; i < selectors.length; i++){
     var node = document.querySelector(selectors[i]);
     if(!node) continue;
@@ -19665,7 +19709,7 @@ function getLoadedCharAvatarTemplate(preferredSrc){
 }
 
 function renderLoadedAvatarToObjectUrl(preferredSrc){
-  var sourceImg = getLoadedCharAvatarTemplate(preferredSrc);
+  var sourceImg = getLoadedAvatarTemplate(preferredSrc);
   if(!sourceImg) return Promise.resolve('');
   var cacheKey = normalizeAvatarSrc((sourceImg.getAttribute && sourceImg.getAttribute('src')) || sourceImg.src || preferredSrc || '');
   if(cacheKey && chatAvatarObjectUrlCache[cacheKey]) return Promise.resolve(chatAvatarObjectUrlCache[cacheKey]);
@@ -19773,9 +19817,15 @@ function setAvatarNodeFromSource(targetEl, src, fallbackText, includeHint){
   if(!targetEl) return;
   var safeText = String(fallbackText || 'AI').slice(0, 2);
   var text = normalizeAvatarSrc(src);
+  var roleSelectors = ['#hdrAvatar img', '#csCharAvatar img', '#idcAvatar img', '#chatExportIdcAvatar img', '.msg.ai .msg-avatar img', '#typing-ind .msg-avatar img'];
+  try{
+    if(targetEl.id === 'csUserAvatar' || targetEl.id === 'chatExportUserAvatar' || (targetEl.closest && targetEl.closest('.msg.user'))){
+      roleSelectors = ['#csUserAvatar img', '.msg.user .msg-avatar img', '#chatExportUserAvatar img'];
+    }
+  }catch(err){}
   targetEl.innerHTML = '';
   if(isRenderableAvatarSrc(text)){
-    var clonedImg = getLoadedCharAvatarTemplate(text);
+    var clonedImg = getLoadedAvatarTemplate(text, roleSelectors);
     if(clonedImg){
       clonedImg.alt = 'char';
       clonedImg.setAttribute('data-fallback', safeText);
