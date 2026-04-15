@@ -12685,12 +12685,32 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
   if (!key && provider !== 'custom') throw new Error('未配置 API key');
   var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider);
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.9');
+  var sys = String(systemPrompt || '');
+  var user = String(userPrompt || '');
+  var avatarVisionHint = '';
+  var combinedPrompt = (sys + '\n' + user).trim();
+  var shouldAttachAvatarVision = !!(character && character.id && loadAvatarVisionEnabled(character.id) && /头像|avatar|识图|配对|情侣头像|换头像|表情包|图片|图里|图上|照片|长相|穿搭|构图|风格/i.test(combinedPrompt));
+  if(shouldAttachAvatarVision){
+    try{
+      sys = await appendAvatarVisionContextToSystemPrompt(sys);
+    }catch(err){
+      console.warn('appendAvatarVisionContextToSystemPrompt in callAIWithCustomPrompts failed', err);
+    }
+    try{
+      avatarVisionHint = await buildAvatarVisionLatestMessage();
+    }catch(err2){
+      console.warn('buildAvatarVisionLatestMessage in callAIWithCustomPrompts failed', err2);
+    }
+    if(avatarVisionHint){
+      user = [avatarVisionHint, user].filter(Boolean).join('\n\n');
+    }
+  }
 
   if (provider === 'openai') {
     var res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-      body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] })
+      body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] })
     });
     var d = await readAiJsonResponse(res);
     return extractAiResponseText(d);
@@ -12705,7 +12725,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true'
       },
-      body: JSON.stringify({ model: model, temperature: temperature, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] })
+      body: JSON.stringify({ model: model, temperature: temperature, system: sys, messages: [{ role: 'user', content: user }] })
     });
     var dClaude = await readAiJsonResponse(resClaude);
     return extractAiResponseText(dClaude);
@@ -12718,9 +12738,9 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [
-          { role: 'user', parts: [{ text: '[系统提示]\\n' + systemPrompt }] },
+          { role: 'user', parts: [{ text: '[系统提示]\\n' + sys }] },
           { role: 'model', parts: [{ text: '好的，我会按要求返回。' }] },
-          { role: 'user', parts: [{ text: userPrompt }] }
+          { role: 'user', parts: [{ text: user }] }
         ],
         generationConfig: { temperature: temperature }
       })
@@ -12738,7 +12758,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
         'HTTP-Referer': 'https://ephone.app',
         'X-Title': 'Ephone'
       },
-      body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] })
+      body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] })
     });
     var dOr = await readAiJsonResponse(resOr);
     return extractAiResponseText(dOr);
@@ -12753,7 +12773,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
     var resCustom = await fetch(baseUrl + '/chat/completions', {
       method: 'POST',
       headers: headers,
-      body: JSON.stringify({ model: customModel, temperature: temperature, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] })
+      body: JSON.stringify({ model: customModel, temperature: temperature, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] })
     });
     var dCustom = await readAiJsonResponse(resCustom);
     return extractAiResponseText(dCustom);
@@ -14159,7 +14179,6 @@ async function maybeRepairForbiddenNarratorReply(reply, provider, key, model, te
 async function callAI(provider, key) {
   var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider);
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '1');
-  var multimodalAvatarProvider = provider === 'gemini';
   if(character && character.id){
     try{
       avatarLibraryCache = await loadAvatarLibraryStore(character.id);
@@ -14182,24 +14201,24 @@ async function callAI(provider, key) {
     msgs.push({ role: 'user', content: pendingModelUserCue });
   }
   await prepareVectorPromptMemory(msgs);
-  if(multimodalAvatarProvider){
-    try{
-      var avatarVisionMessages = await buildAvatarVisionMessagesForPrompt(provider);
-      if(Array.isArray(avatarVisionMessages) && avatarVisionMessages.length){
-        msgs = avatarVisionMessages.concat(msgs);
-      }
-    }catch(avatarVisionErr){
-      console.warn('buildAvatarVisionMessagesForPrompt failed', avatarVisionErr);
-    }
-  }
   var avatarVisionPrompt = '';
-  if(!multimodalAvatarProvider){
-    avatarVisionPrompt = await buildAvatarVisionPromptMessage();
+  var sys = buildSystemPrompt();
+  try{
+    sys = await appendAvatarVisionContextToSystemPrompt(sys);
+  }catch(avatarVisionSysErr){
+    console.warn('appendAvatarVisionContextToSystemPrompt failed', avatarVisionSysErr);
+  }
+  try{
+    avatarVisionPrompt = await buildAvatarVisionLatestMessage();
+    if(!avatarVisionPrompt){
+      avatarVisionPrompt = await buildAvatarVisionPromptMessage();
+    }
+  }catch(avatarVisionPromptErr){
+    console.warn('buildAvatarVisionLatestMessage failed', avatarVisionPromptErr);
   }
   if(avatarVisionPrompt){
     msgs.unshift({ role:'user', content: avatarVisionPrompt });
   }
-  var sys = buildSystemPrompt();
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, sys, msgs);
