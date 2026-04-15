@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-15T03:10:00Z"></script>
+<script src="../promptManager.js?v=2026-04-15T03:38:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
@@ -6117,6 +6117,125 @@ async function buildAvatarVisionMessagesForPrompt(provider){
   return out;
 }
 
+function getVisionProviderConfig(){
+  var provider = String(localStorage.getItem('provider') || 'openai').trim() || 'openai';
+  var key = String(localStorage.getItem('key_' + provider) || '').trim();
+  var model = String(localStorage.getItem('model_' + provider) || getDefaultModel(provider) || '').trim();
+  return {
+    provider: provider,
+    key: key,
+    model: model || getDefaultModel(provider) || 'gpt-4o-mini'
+  };
+}
+
+async function toVisionInlineImage(cleanSrc){
+  var src = String(cleanSrc || '').trim();
+  if(!src) return null;
+  var mimeType = 'image/jpeg';
+  var base64Data = '';
+  var dataUrlMatch = src.match(/^data:(.*?);base64,(.*)$/i);
+  if(dataUrlMatch){
+    mimeType = String(dataUrlMatch[1] || mimeType).trim() || mimeType;
+    base64Data = String(dataUrlMatch[2] || '').trim();
+  }else{
+    var imageRes = await fetch(src);
+    var blob = await imageRes.blob();
+    mimeType = String(blob.type || mimeType).trim() || mimeType;
+    base64Data = await new Promise(function(resolve){
+      var reader = new FileReader();
+      reader.onloadend = function(){
+        var result = String(reader.result || '');
+        resolve(result.split(',')[1] || '');
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+  if(!base64Data) return null;
+  return {
+    mimeType: mimeType,
+    data: base64Data
+  };
+}
+
+async function callStandaloneVisionAPI(imageSrc, promptText, options){
+  var cleanSrc = String(imageSrc || '').trim();
+  var prompt = String(promptText || '').trim();
+  var opts = options && typeof options === 'object' ? options : {};
+  var maxTokens = Math.max(40, Math.min(800, Number(opts.maxTokens) || 160));
+  if(!cleanSrc || !prompt) return '';
+  var cfg = getVisionProviderConfig();
+  if(!cfg.key || !cfg.model) return '';
+  if(cfg.provider === 'gemini'){
+    try{
+      var inlineImage = await toVisionInlineImage(cleanSrc);
+      if(!inlineImage) return '';
+      var geminiPayload = {
+        contents: [{
+          parts: [
+            { text: prompt },
+            {
+              inline_data: {
+                mime_type: inlineImage.mimeType,
+                data: inlineImage.data
+              }
+            }
+          ]
+        }]
+      };
+      var geminiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + cfg.model + ':generateContent?key=' + cfg.key, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(geminiPayload)
+      });
+      var geminiData = await readAiJsonResponse(geminiRes);
+      return String(extractAiResponseText(geminiData) || '').trim();
+    }catch(err){
+      console.warn('callStandaloneVisionAPI gemini failed', err);
+      return '';
+    }
+  }
+  if(cfg.provider === 'openai' || cfg.provider === 'openrouter' || cfg.provider === 'custom'){
+    try{
+      var endpoint = cfg.provider === 'openrouter'
+        ? 'https://openrouter.ai/api/v1/chat/completions'
+        : (cfg.provider === 'custom'
+          ? String((localStorage.getItem('custom_url') || '').replace(/\/$/, '') || '').trim() + '/chat/completions'
+          : 'https://api.openai.com/v1/chat/completions');
+      var headers = { 'Content-Type': 'application/json' };
+      if(cfg.provider === 'openrouter'){
+        headers.Authorization = 'Bearer ' + cfg.key;
+        headers['HTTP-Referer'] = 'https://ephone.app';
+        headers['X-Title'] = 'Ephone';
+      }else if(cfg.provider === 'custom'){
+        if(cfg.key) headers.Authorization = 'Bearer ' + cfg.key;
+      }else{
+        headers.Authorization = 'Bearer ' + cfg.key;
+      }
+      var openRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          model: cfg.model,
+          max_tokens: maxTokens,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: cleanSrc } }
+            ]
+          }]
+        })
+      });
+      var openData = await readAiJsonResponse(openRes);
+      return String(extractAiResponseText(openData) || '').trim();
+    }catch(err2){
+      console.warn('callStandaloneVisionAPI openai-compatible failed', err2);
+      return '';
+    }
+  }
+  return '';
+}
+
 function loadCharAvatarAutoEnabled(charId){
   if(!charId) return false;
   try{ return localStorage.getItem(charAvatarAutoToggleKey(charId)) === '1'; }catch(e){ return false; }
@@ -11889,95 +12008,14 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
 async function describeImageWithVision(imageSrc, options){
   var opts = options && typeof options === 'object' ? options : {};
   var visionKind = String(opts.kind || 'avatar').trim() || 'avatar';
-  var provider = localStorage.getItem('provider') || 'openai';
-  var key = localStorage.getItem('key_' + provider);
   var cleanSrc = String(imageSrc || '').trim();
-  if(!key || !cleanSrc) return '';
-  var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider) || 'gpt-4.1-mini';
-  var systemText = visionKind === 'meme'
-    ? '你是表情包识别器。只返回一小句中文，写出画面内容、情绪语气和适合表达的意思，不超过20字，不要解释。'
-    : '你是头像图像描述器。只返回一段很短的中文描述，写出画面主体、构图气质、颜色氛围、适合怎样的配对头像。不要解释。';
-  var userText = visionKind === 'meme'
-    ? '请识别这张表情包，用一句很短的中文说出它在表达什么情绪或态度。'
-    : '请识别这张头像，用一句到两句中文描述它的主体、风格和适合的配对方向。';
-  if(provider === 'gemini'){
-    var base64Data = '';
-    var mimeType = 'image/jpeg';
-    var dataUrlMatch = cleanSrc.match(/^data:(.*?);base64,(.*)$/i);
-    if(dataUrlMatch){
-      mimeType = String(dataUrlMatch[1] || 'image/jpeg').trim() || 'image/jpeg';
-      base64Data = String(dataUrlMatch[2] || '').trim();
-    }else{
-      try{
-        var imageRes = await fetch(cleanSrc);
-        var blob = await imageRes.blob();
-        mimeType = String(blob.type || mimeType).trim() || mimeType;
-        base64Data = await new Promise(function(resolve){
-          var reader = new FileReader();
-          reader.onloadend = function(){
-            var result = String(reader.result || '');
-            resolve(result.split(',')[1] || '');
-          };
-          reader.readAsDataURL(blob);
-        });
-      }catch(err){
-        console.warn('gemini avatar vision image fetch failed', err);
-        return '';
-      }
-    }
-    if(!base64Data) return '';
-    var geminiPayload = {
-      contents: [
-        { role: 'user', parts: [{ text: systemText }] },
-        { role: 'model', parts: [{ text: '好的，我会严格按照要求识别这张头像。' }] },
-        {
-          role: 'user',
-          parts: [
-            { text: userText },
-            {
-              inline_data: {
-                mime_type: mimeType,
-                data: base64Data
-              }
-            }
-          ]
-        }
-      ],
-      generationConfig: {
-        temperature: 0.35
-      }
-    };
-    var geminiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(geminiPayload)
-    });
-    var geminiData = await readAiJsonResponse(geminiRes);
-    return String(extractAiResponseText(geminiData) || '').trim();
-  }
-  if(provider === 'openai'){
-    var res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-      body: JSON.stringify({
-        model: model,
-        temperature: 0.35,
-        messages: [
-          { role: 'system', content: systemText },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: userText },
-              { type: 'image_url', image_url: { url: cleanSrc, detail: 'high' } }
-            ]
-          }
-        ]
-      })
-    });
-    var data = await readAiJsonResponse(res);
-    return String(extractAiResponseText(data) || '').trim();
-  }
-  return '';
+  if(!cleanSrc) return '';
+  var promptText = visionKind === 'meme'
+    ? '请用一句简短中文描述这个表情包的内容和情绪，不超过20字。看不清就直说，不要瞎猜，不要解释。'
+    : '请详细描述这张头像图片里能真实看到的内容：人物数量、主体、动作/姿态、主要颜色、背景元素、整体气质、是否像情侣/配套头像。用两三句中文直接描述；看不清就直说，不要瞎猜。';
+  return await callStandaloneVisionAPI(cleanSrc, promptText, {
+    maxTokens: visionKind === 'meme' ? 100 : 220
+  });
 }
 
 function parseAvatarAutoDecision(raw){
@@ -12423,7 +12461,7 @@ function buildChatExtendedFormatPrompt(){
     '用户明确要整理成笔记/清单/讲义/卡片/票据/页面/帖子/签文等时，优先 rich_html；而且必须一次给成品，不准只给框架。',
     '如果做歌词/文学摘抄，必须用真实作品和真实作者，不准编来源。',
     '如果做互动卡片，交互也要是真的：刮刮乐能刮，捏捏乐能按回弹，拼贴像手工，页面可有轻微自然的小动画或小反馈。',
-    '如果当前允许旁白，那么每一轮回复都至少要带一小段 narrator，长度短一点，像镜头余味或动作描写，不要把旁白写得比正文还长，也不要偷掉不写。',
+    '如果当前允许旁白，那么 narrator 只能陪衬真实回复：每一轮都带一小段简短 narrator，同时还必须至少有一条真正发出去的非 narrator 消息。不要把旁白写得比正文还长，也不要只发旁白。',
     'narrator 必须是具体的动作、环境、声音、镜头或情绪余波，不能偷懒写成空话、套话、泛泛抒情。',
     '如果你刚刚嘴快说错了、暴露太多、嘴硬失败、发出去后又后悔，而且这符合你的人设和当下语境，你可以自然地在后面补一条 recall，把刚才那句撤回。',
     'rename_profile 不要只在被要求时才用：当关系升温、称呼被反复使用、你觉得某个昵称更贴关系、或你想调整对方怎么叫你时，可以主动发起一次改名。',
@@ -13168,6 +13206,21 @@ function detectMissingNarratorReply(rawReply){
   return { missing: !!hasNonNarrator };
 }
 
+function detectNarratorOnlyReply(rawReply){
+  if(!narratorSettingEnabled()) return { narratorOnly:false };
+  var parsed = maybeParseReplyJson(rawReply);
+  if(!parsed || (typeof parsed !== 'object' && !Array.isArray(parsed))){
+    return { narratorOnly:false };
+  }
+  var narrators = collectNarratorCandidatesFromReplyNode(parsed, []).filter(Boolean);
+  if(!narrators.length) return { narratorOnly:false };
+  var visible = collectVisibleMessageCandidatesFromReplyNode(parsed, []);
+  var hasNonNarrator = visible.some(function(item){
+    return normalizeMessageType(item && item.type || 'text') !== 'narrator';
+  });
+  return { narratorOnly: !hasNonNarrator };
+}
+
 async function maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, sys, msgs){
   if(!narratorSettingEnabled()) return String(reply || '');
   var issue = detectMissingNarratorReply(reply);
@@ -13195,6 +13248,38 @@ async function maybeRepairMissingNarratorReply(reply, provider, key, model, temp
     }
   }catch(err){
     console.warn('repair missing narrator failed', err);
+  }
+  return String(reply || '');
+}
+
+async function maybeRepairNarratorOnlyReply(reply, provider, key, model, temperature, sys, msgs){
+  if(!narratorSettingEnabled()) return String(reply || '');
+  var issue = detectNarratorOnlyReply(reply);
+  if(!issue.narratorOnly) return String(reply || '');
+  var narratorLang = getNarratorReplyLanguage();
+  var narratorOption = getReplyLanguageOption(narratorLang);
+  var repairSys = [
+    sys,
+    '【返工】你刚才那条回复只有 narrator，没有真正发出去的消息。',
+    '当前设置里 narrator 只能陪衬真实回复，不能单独成轮。',
+    '请只重写上一条 assistant 回复：保留那段简短 narrator，同时至少补上一条真正可见的非 narrator 消息，直接回应用户刚刚那句。'
+  ].join('\n\n');
+  var repairMsgs = msgs.concat([
+    { role:'assistant', content:String(reply || '') },
+    {
+      role:'user',
+      content:'请重写上一条 assistant 回复。保留简短 narrator，同时补上一条真正发出去的话；不要只剩旁白。'
+        + (narratorOption && narratorOption.value !== 'zh' ? (' narrator 语言继续使用' + (narratorOption.nativeLabel || narratorOption.label) + '。') : '')
+    }
+  ]);
+  try{
+    var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
+    var repairedIssue = detectNarratorOnlyReply(repaired);
+    if(!repairedIssue.narratorOnly){
+      return String(repaired || '');
+    }
+  }catch(err){
+    console.warn('repair narrator-only reply failed', err);
   }
   return String(reply || '');
 }
@@ -13256,17 +13341,12 @@ async function callAI(provider, key) {
     msgs.push({ role: 'user', content: pendingModelUserCue });
   }
   await prepareVectorPromptMemory(msgs);
-  var avatarVisionMsgs = await buildAvatarVisionMessagesForPrompt(provider);
-  if(avatarVisionMsgs.length){
-    msgs = msgs.concat(avatarVisionMsgs);
-  }
   var sys = buildSystemPrompt();
-  if(provider !== 'gemini'){
-    sys = await appendAvatarVisionContextToSystemPrompt(sys);
-  }
+  sys = await appendAvatarVisionContextToSystemPrompt(sys);
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, sys, msgs);
+  reply = await maybeRepairNarratorOnlyReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, sys, msgs);
   if(shouldEnforceForeignReplyLanguage()){
     var lang = getCharacterReplyLanguage();
@@ -13286,6 +13366,7 @@ async function callAI(provider, key) {
       reply = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs) || reply;
       reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
       reply = await maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
+      reply = await maybeRepairNarratorOnlyReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
       reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
     }
   }
@@ -21807,7 +21888,7 @@ async function deliverAiReply(text, limitOverride){
   });
   if(!nonNarratorParts.length){
     var loneNarrator = parts[0] && String(parts[0].text || '').trim();
-    if(loneNarrator && narratorLooksLikeSpeechPrelude(loneNarrator)){
+    if(loneNarrator && narratorSettingEnabled()){
       parts.push({
         text: buildAutoTextFromNarrator(loneNarrator),
         t: 'text',
