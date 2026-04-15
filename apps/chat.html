@@ -4532,6 +4532,75 @@ function parseRenameProfilePayload(raw){
   }catch(e){}
   return null;
 }
+
+function parseAvatarChangePayload(raw, fallbackTarget){
+  var target = normalizeMessageType(fallbackTarget || 'changeavatar');
+  if(raw && typeof raw === 'object'){
+    var directName = String(raw.name || raw.avatar_name || raw.avatarName || raw.label || raw.id || raw.pairTag || '').trim();
+    if(directName) return { target: target, name: directName };
+  }
+  try{
+    var parsed = JSON.parse(String(raw || ''));
+    if(parsed && typeof parsed === 'object'){
+      var jsonType = normalizeMessageType(parsed.type || target);
+      var jsonName = String(parsed.name || parsed.avatar_name || parsed.avatarName || parsed.label || parsed.id || parsed.pairTag || '').trim();
+      if(jsonName) return { target: jsonType || target, name: jsonName };
+    }
+  }catch(e){}
+  return null;
+}
+
+function findAvatarLibraryItemByInstruction(list, rawName){
+  var items = Array.isArray(list) ? list : [];
+  var needle = String(rawName || '').trim();
+  if(!needle) return null;
+  var lower = needle.toLowerCase();
+  function normalize(s){
+    return String(s || '').trim().toLowerCase();
+  }
+  var exact = items.find(function(item){
+    return normalize(item && item.id) === lower
+      || normalize(item && item.label) === lower
+      || normalize(item && item.pairTag) === lower
+      || normalize(item && item.note) === lower;
+  });
+  if(exact) return exact;
+  var fuzzy = items.find(function(item){
+    return normalize(item && item.label).indexOf(lower) >= 0
+      || lower.indexOf(normalize(item && item.label)) >= 0
+      || normalize(item && item.pairTag).indexOf(lower) >= 0
+      || lower.indexOf(normalize(item && item.pairTag)) >= 0
+      || normalize(item && item.note).indexOf(lower) >= 0;
+  });
+  return fuzzy || null;
+}
+
+async function applyAvatarAction(payload, actorRole, fallbackTarget){
+  if(!character || !character.id) return null;
+  var info = parseAvatarChangePayload(payload, fallbackTarget);
+  if(!info) return null;
+  var targetType = normalizeMessageType(info.target || fallbackTarget || 'changeavatar');
+  var role = targetType === 'changeuseravatar' ? 'user' : 'char';
+  var store = avatarLibraryCache && avatarLibraryCache[role] ? avatarLibraryCache : await loadAvatarLibraryStore(character.id);
+  avatarLibraryCache = store;
+  var item = findAvatarLibraryItemByInstruction(store[role], info.name);
+  if(!item) return null;
+  var src = String(await loadStoredAsset(item.assetKey).catch(function(){ return item.previewData || ''; }) || '').trim();
+  if(!src) return null;
+  var changed = await applyRoleAvatarChange(role, src, {
+    actorRole: actorRole || 'assistant',
+    itemMeta: item,
+    forceNoticeOnSame: true,
+    skipAuto: true
+  }).then(function(result){
+    return !!result;
+  }).catch(function(err){
+    console.warn('applyAvatarAction failed', err);
+    return false;
+  });
+  return changed ? item : null;
+}
+
 async function applyRenameProfileAction(payload, actorRole){
   if(!character || !character.id) return null;
   var info = parseRenameProfilePayload(payload);
@@ -8025,6 +8094,8 @@ function normalizeMessageType(type){
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
   if(type === 'rich_html' || type === 'richhtml' || type === 'html_card') return 'richhtml';
   if(type === 'narrator' || type === 'aside' || type === 'narration') return 'narrator';
+  if(type === 'change_avatar' || type === 'changeavatar') return 'changeavatar';
+  if(type === 'change_user_avatar' || type === 'changeuseravatar') return 'changeuseravatar';
   if(type === 'rename_profile' || type === 'renameprofile' || type === 'rename_nickname' || type === 'nickname_update') return 'renameprofile';
   if(type === 'recall_notice' || type === 'recallnotice' || type === 'withdraw_notice') return 'recallnotice';
   if(type === 'recall' || type === 'withdraw') return 'recall';
@@ -12535,14 +12606,24 @@ function confirmUnblockFromSettings(){
 }
 
 function buildChatExtendedFormatPrompt(){
+  var avatarStore = avatarLibraryCache && (avatarLibraryCache.char || avatarLibraryCache.user) ? avatarLibraryCache : null;
+  var charAvatarNames = avatarStore && Array.isArray(avatarStore.char) ? avatarStore.char.map(function(item){
+    return String(item && item.label || '').trim();
+  }).filter(Boolean) : [];
+  var userAvatarNames = avatarStore && Array.isArray(avatarStore.user) ? avatarStore.user.map(function(item){
+    return String(item && item.label || '').trim();
+  }).filter(Boolean) : [];
   var lines = [
     '【扩展消息类型】',
-    '你除了普通 text / voice_message / image_message / money_packet / offline_invite，还可以在合适时使用 narrator / rich_html / recall / rename_profile。',
+    '你除了普通 text / voice_message / image_message / money_packet / offline_invite，还可以在合适时使用 narrator / rich_html / recall / rename_profile / change_avatar / change_user_avatar。',
     'narrator：用于动作、环境、声音、镜头感、心理余波，是旁白，不是说出口的话。格式：{"type":"narrator","content":"..."}',
     'narrator 里禁止写“用户”“USER”“user”“角色”“CHAR”“char”这种偷懒指代。涉及双方时，只能直接写名字、昵称，或者自然的第三人称代称。',
     'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件，也包括聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、通话记录、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、邮箱主页、邮箱收件箱、邮件线程、邮件草稿、银行账户总览、银行账户余额、银行账户明细、影评、药品单、医院开的单子、知乎帖子、小说简介、伪小红书帖子、直播间、抖音样式页、社交媒体主页、社交媒体帖子、社交媒体评论、测评、repo、银行账单、银行流水、法院传票、学签、旅游签、工签、银行卡、PPT页、文档页、名片、便签、周易/八卦、中式算卦、抽签、月老签、简历、说明书、调查问卷、MBTI 测试、测试结果、quiz/test/exam 这类页面或卡片。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}',
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
     'rename_profile：用于改昵称。target 只能是 char 或 user；name 是你要改成的新名字。target=char 表示改你在对方这里的名字，target=user 表示改你给对方存的备注/昵称。格式：{"type":"rename_profile","target":"char","name":"新昵称"} 或 {"type":"rename_profile","target":"user","name":"新备注"}。',
+    'change_avatar：用于从你的头像库里换上你自己的头像。格式：{"type":"change_avatar","name":"头像名"}。',
+    'change_user_avatar：用于从 USER 头像库里换上对方头像。格式：{"type":"change_user_avatar","name":"头像名"}。',
+    '换头像时必须真的从头像库里选一张存在的头像名，不要口头说“我换了”却不用动作。选不到合适头像就不要假装已经换好。',
     '备注/昵称只是称呼标签，不一定是本名。你不能因为备注名就认定那是对方的法律姓名或唯一正式名字。',
     '时间感知要自然：白天/下午一般不必反复催睡，但若对方明确说困、刚聊到作息或连续熬夜，也可以顺着关心一句。',
     '如果系统给了“时间流逝/隔了多久才回”，第一句优先接住这段现实间隔，再继续正题。',
@@ -12561,6 +12642,8 @@ function buildChatExtendedFormatPrompt(){
     'rename_profile 的 target=user 表示你改“你给对方的备注”；target=char 表示你改“对方叫你的名字”。两者都可主动用，但不要一轮连发多个。',
     '主动改备注和主动换头像都要像真人：看聊天上下文、关系推进、刚发生的事与人设自行判断，不要机械刷操作，也不要完全不发生。',
     '主动改备注和主动换头像都按中频率偶尔触发即可，改完先冷却一阵。',
+    '你的头像库可用名字：' + (charAvatarNames.length ? charAvatarNames.join('、') : '（空）'),
+    'USER 头像库可用名字：' + (userAvatarNames.length ? userAvatarNames.join('、') : '（空）'),
     '如果用户发来的是旁白、环境描述、动作说明或 html/css/js 卡片，也要按对应类型理解，不要误判成普通对白。',
     '无论你最终发 text、narrator、rich_html、recall 还是别的结构化内容，第一优先级都是读懂并回应对方刚刚那条 user 输入。别忽略最新一条用户消息，也别只顾着自说自话。'
   ];
@@ -13197,7 +13280,7 @@ function collectVisibleMessageCandidatesFromReplyNode(node, bucket){
     });
     hasBody = hasBody || !!extractRichHtmlPayloadText(richRaw);
   }
-  if(hasBody || type === 'richhtml' || type === 'voice' || type === 'image' || type === 'meme' || type === 'moneypacket' || type === 'offlineinvite' || type === 'renameprofile' || type === 'recall'){
+  if(hasBody || type === 'richhtml' || type === 'voice' || type === 'image' || type === 'meme' || type === 'moneypacket' || type === 'offlineinvite' || type === 'renameprofile' || type === 'changeavatar' || type === 'changeuseravatar' || type === 'recall'){
     out.push({ type:type, content:content });
   }
   if(node.rich_html && typeof node.rich_html === 'object'){
@@ -13305,7 +13388,7 @@ function detectNarratorOnlyReply(rawReply){
   var parsed = maybeParseReplyJson(rawReply);
   if(!parsed || (typeof parsed !== 'object' && !Array.isArray(parsed))){
     var hasNarratorSignal = /"type"\s*:\s*"narrator"|"narrator_message"\s*:/i.test(raw);
-    var hasNonNarratorSignal = /"type"\s*:\s*"(text|voice_message|image_message|image|voice|meme|money_packet|moneypacket|offline_invite|offlineinvite|rich_html|richhtml|rename_profile|renameprofile|recall)"/i.test(raw)
+    var hasNonNarratorSignal = /"type"\s*:\s*"(text|voice_message|image_message|image|voice|meme|money_packet|moneypacket|offline_invite|offlineinvite|rich_html|richhtml|rename_profile|renameprofile|change_avatar|changeavatar|change_user_avatar|changeuseravatar|recall)"/i.test(raw)
       || /"rich_html"\s*:|"html_card"\s*:/i.test(raw);
     return { narratorOnly: !!hasNarratorSignal && !hasNonNarratorSignal };
   }
@@ -21608,6 +21691,12 @@ async function deliverAiReply(text, limitOverride){
         name: item.name || item.nickname || item.new_name || item.newName || item.alias || ''
       });
     }
+    if((t === 'changeavatar' || t === 'changeuseravatar') && !c){
+      c = JSON.stringify({
+        type: t === 'changeuseravatar' ? 'change_user_avatar' : 'change_avatar',
+        name: item.name || item.avatar_name || item.avatarName || item.label || item.id || item.pairTag || ''
+      });
+    }
     if(t === 'richhtml' && !c && (item.html || item.css || item.js)){
       c = buildRichHtmlPayload({
         html: item.html || '',
@@ -21899,6 +21988,12 @@ async function deliverAiReply(text, limitOverride){
               name: obj.name || obj.nickname || obj.new_name || obj.newName || obj.alias || ''
             });
           }
+          if((t === 'changeavatar' || t === 'changeuseravatar') && !c){
+            c = JSON.stringify({
+              type: t === 'changeuseravatar' ? 'change_user_avatar' : 'change_avatar',
+              name: obj.name || obj.avatar_name || obj.avatarName || obj.label || obj.id || obj.pairTag || ''
+            });
+          }
           if(t === 'text' && !obj.type && hasDirectRichFields){
             c = buildRichHtmlPayload({
               html: obj.html || '',
@@ -22149,6 +22244,15 @@ async function deliverAiReply(text, limitOverride){
       sentIds.push(renameNoticeEntry.id);
       lastSentKey = dedupeKey;
       sentTexts.push('【改名通知】');
+      sentCount++;
+      await sleep(140 + Math.floor(Math.random() * 70));
+      continue;
+    }
+    if(t === 'changeavatar' || t === 'changeuseravatar'){
+      var avatarAction = await applyAvatarAction(p.text, 'char', t);
+      if(!avatarAction) continue;
+      lastSentKey = dedupeKey;
+      sentTexts.push(t === 'changeuseravatar' ? '【换了USER头像】' : '【换了CHAR头像】');
       sentCount++;
       await sleep(140 + Math.floor(Math.random() * 70));
       continue;

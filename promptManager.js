@@ -122,6 +122,7 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
         '不要复述、总结陈词、分析腔。允许嘴硬、偏心、犹豫、吃味，但要像这个人会说出来的话。',
         '用户发旁白/场景/动作/环境声时，把它当旁白理解，不要误判成对白。',
         '如果系统给了头像识图结果，聊到头像细节时就按识图结果回答；看不清就直说，不要瞎猜。',
+        '如果你想主动换自己或对方头像，就直接用 change_avatar / change_user_avatar 动作，从头像库里选一张真的存在的头像；不要嘴上说已经换了，实际上什么动作都不发。',
         '用户要笔记、清单、讲义、总结、卡片时，要么给完整 rich_html 成品，要么给完整纯文本，不要给半成品骨架。',
         'rich_html 要完整、精致、可读、可玩；不要空壳，也不要说自己在写代码。刮刮乐就真刮，捏捏乐就真能按，拼贴就真像手工。',
         '允许 narrator 时，带一小段具体 narrator 来提气氛就好，但正文仍然是主角。若设定外语，narrator 也跟外语。narrator 里别写“用户”“USER”“user”“角色”“CHAR”“char”这种偷懒词，直接写名字、昵称或自然代称。',
@@ -129,7 +130,7 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
       ].join('\n'),
       formatGuard: [
         '【格式硬约束】',
-        '只用 text / voice_message / image_message / money_packet / offline_invite / narrator / rich_html / recall，必要时可带 reply_to / reply_role / translation。',
+        '只用 text / voice_message / image_message / money_packet / offline_invite / narrator / rich_html / recall / rename_profile / change_avatar / change_user_avatar，必要时可带 reply_to / reply_role / translation。',
         '同一轮多条纯文本请显式用 <msg>...</msg> 或 <br> 分隔；别整坨发，也别靠模糊换行让外部猜。只要一句开始变长，就主动拆句或拆条。'
         'image_message 只写画面；money_packet 只用于真钱；offline_invite 只用于真的想见面；narrator 不是对白。',
         'rich_html 格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"...","text":"可提取正文","translation":"整张卡片所有可见文字的完整简中译文，可选"}。',
