@@ -14226,9 +14226,20 @@ async function callAI(provider, key) {
   if(avatarVisionPrompt){
     msgs.unshift({ role:'user', content: avatarVisionPrompt });
   }
-  var avatarFocusCue = buildAvatarVisionFocusedCue(extractLatestUserTextForAvatarCue(msgs));
+  var latestUserTextForAvatarCue = extractLatestUserTextForAvatarCue(msgs);
+  var avatarFocusCue = buildAvatarVisionFocusedCue(latestUserTextForAvatarCue);
   if(avatarFocusCue){
     msgs.unshift({ role:'user', content: avatarFocusCue });
+  }
+  if(provider === 'gemini' && shouldForceAvatarFocusCue(latestUserTextForAvatarCue)){
+    try{
+      var avatarVisionMessages = await buildAvatarVisionMessagesForPrompt(provider);
+      if(Array.isArray(avatarVisionMessages) && avatarVisionMessages.length){
+        msgs = avatarVisionMessages.concat(msgs);
+      }
+    }catch(avatarVisionErr){
+      console.warn('buildAvatarVisionMessagesForPrompt for focused avatar cue failed', avatarVisionErr);
+    }
   }
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
