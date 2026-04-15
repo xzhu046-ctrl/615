@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-15T09:05:00Z';
+const APP_BUILD_ID = '2026-04-15T09:34:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1431,6 +1431,12 @@ function slimChar(c){
     translationEnabled:!!c.translationEnabled,
     replyLanguage:String(c.replyLanguage||c.language||'zh'),
     translationMode:String(c.translationMode||'ondemand'),
+    allowNarrator:c.allowNarrator !== false,
+    avatarVisionEnabled:!!c.avatarVisionEnabled,
+    charAvatarAutoEnabled:!!c.charAvatarAutoEnabled,
+    voiceCallInputMode:String(c.voiceCallInputMode||'text'),
+    voiceCallStarter:String(c.voiceCallStarter||'char'),
+    voiceCallTone:String(c.voiceCallTone||''),
     userNameProfile:String(c.userNameProfile||''),
     userNicknameNote:String(c.userNicknameNote||''),
     userPersonaProfile:userPersonaProfile
@@ -5920,7 +5926,10 @@ function applyHomeMusicBubbleAppearance(){
   var bubble = document.getElementById('home-music-bubble');
   if(!bubble) return;
   var scale = normalizeHomeMusicBubbleScale(homeMusicState.bubbleScale);
+  var floating = document.getElementById('home-music-floating');
   bubble.style.setProperty('--home-music-bubble-scale', String(scale));
+  if(floating) floating.style.setProperty('--home-music-bubble-scale', String(scale));
+  try{ document.documentElement.style.setProperty('--home-music-bubble-scale', String(scale)); }catch(err){}
   var src = String(homeMusicState.customBubbleIcon || '').trim();
   if(isRenderableHomeMusicFloatingIcon(src)){
     bubble.classList.add('is-custom-image');
@@ -5981,6 +5990,13 @@ function saveHomeMusicFloatingSettings(payload){
   }
   persistHomeMusicState();
   renderHomeMusic();
+  applyHomeMusicBubbleAppearance();
+  requestAnimationFrame(function(){
+    syncHomeMusicBubbleLayout();
+  });
+  setTimeout(function(){
+    syncHomeMusicBubbleLayout();
+  }, 80);
 }
 
 function applyHomeMusicBubblePosition(){
