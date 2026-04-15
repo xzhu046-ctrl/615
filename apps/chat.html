@@ -12455,6 +12455,7 @@ async function restoreOrStartChat() {
   renderLoadingState();
   storageHydrationPromise = hydrateCharacterStorageState();
   var restored = await storageHydrationPromise;
+  primeUserAvatarSourceNode().catch(function(){});
   await restorePersistedVoiceCallSession();
   if (!restored.length) restored = await loadPreferredStoredChatForCurrentCharacter();
   if(restored.length && !hasAnyGreetingForCharacter() && isLikelyStrayGreetingHistory(restored)){
@@ -12487,6 +12488,7 @@ async function restoreOrStartChat() {
 async function syncChatLogFromStorageForCurrentCharacter(){
   if(!character || !character.id) return false;
   try{
+    primeUserAvatarSourceNode().catch(function(){});
     var normalized = await loadPreferredStoredChatForCurrentCharacter();
     if(!normalized.length) return false;
     var currentSig = JSON.stringify(chatLog.map(function(item){ return [item.id, item.role, item.type, item.content, item.readAt || 0]; }));
@@ -21158,6 +21160,24 @@ function syncSettingsCharAvatarPreview(){
     return src;
   }).catch(function(){
     setAvatarNodeFromSource(av, '', character.avatar || 'AI', true);
+    return '';
+  });
+}
+
+function primeUserAvatarSourceNode(){
+  if(!character || !character.id) return Promise.resolve('');
+  var host = document.getElementById('csUserAvatar');
+  var fallback = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
+  return resolveChatUserAvatarAsync(character.id).then(function(src){
+    var safeSrc = String(src || '').trim();
+    if(host){
+      setAvatarNodeFromSource(host, safeSrc, fallback, true);
+    }
+    return safeSrc;
+  }).catch(function(){
+    if(host){
+      setAvatarNodeFromSource(host, '', fallback, true);
+    }
     return '';
   });
 }
