@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-15T10:46:00Z';
+const APP_BUILD_ID = '2026-04-15T11:02:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -966,8 +966,20 @@ async function buildRemoteAppFingerprint(){
   return '';
 }
 
-function getServiceWorkerUrl(){
-  return SERVICE_WORKER_PATH + '?build=' + encodeURIComponent(APP_BUILD_ID);
+function getRequestedHostedBuild(){
+  try{
+    var url = new URL(window.location.href);
+    var asked = String(url.searchParams.get('__appBuild') || '').trim();
+    if(asked && compareHostedBuildIds(asked, APP_BUILD_ID) > 0){
+      return asked;
+    }
+  }catch(err){}
+  return '';
+}
+
+function getServiceWorkerUrl(buildOverride){
+  var build = String(buildOverride || getRequestedHostedBuild() || APP_BUILD_ID).trim() || APP_BUILD_ID;
+  return SERVICE_WORKER_PATH + '?build=' + encodeURIComponent(build);
 }
 
 async function primeLatestCoreFiles(){
@@ -1015,7 +1027,7 @@ async function clearHostedUpdateCaches(){
 function bindHostedServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   if(!window.isSecureContext) return;
-  navigator.serviceWorker.register(getServiceWorkerUrl()).then(function(reg){
+  navigator.serviceWorker.register(getServiceWorkerUrl(), { updateViaCache:'none' }).then(function(reg){
     var triggerUpdateSignal = function(){
       var handledBySw = syncHostedUpdateFromServiceWorker(reg);
       scheduleHostedUpdateCheck(true);
@@ -1271,7 +1283,51 @@ function refreshInstalledApp(evt){
             }, 2000);
             return 'waiting';
           }
-          return 'updated';
+          return navigator.serviceWorker.register(getServiceWorkerUrl(targetBuild), { updateViaCache:'none' }).then(function(nextReg){
+            if(nextReg && nextReg.waiting){
+              swControllerRefreshPending = true;
+              pendingHostedRefreshBuild = String(targetBuild || readBuildIdFromServiceWorkerUrl(nextReg.waiting && nextReg.waiting.scriptURL) || APP_BUILD_ID);
+              nextReg.waiting.postMessage({ type:'SKIP_WAITING' });
+              setTimeout(function(){
+                if(swControllerRefreshPending){
+                  finishReload();
+                }
+              }, 2000);
+              return 'waiting';
+            }
+            if(nextReg && nextReg.installing){
+              return new Promise(function(resolve){
+                var installing = nextReg.installing;
+                var settled = false;
+                var settle = function(value){
+                  if(settled) return;
+                  settled = true;
+                  resolve(value);
+                };
+                installing.addEventListener('statechange', function(){
+                  if(installing.state === 'installed' && nextReg.waiting){
+                    swControllerRefreshPending = true;
+                    pendingHostedRefreshBuild = String(targetBuild || readBuildIdFromServiceWorkerUrl(nextReg.waiting && nextReg.waiting.scriptURL) || APP_BUILD_ID);
+                    nextReg.waiting.postMessage({ type:'SKIP_WAITING' });
+                    setTimeout(function(){
+                      if(swControllerRefreshPending){
+                        finishReload();
+                      }
+                    }, 2000);
+                    settle('waiting');
+                    return;
+                  }
+                  if(installing.state === 'redundant'){
+                    settle('updated');
+                  }
+                });
+                setTimeout(function(){
+                  settle('updated');
+                }, 2500);
+              });
+            }
+            return 'updated';
+          });
         }).catch(function(){ return null; });
       });
     })
