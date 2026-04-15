@@ -47,15 +47,15 @@ textarea{resize:none}
 .ptab{padding:7px 14px;border:var(--border);border-radius:20px;font-family:var(--font-d);font-weight:800;font-size:12px;cursor:pointer;background:var(--white);transition:all .15s;box-shadow:2px 2px 0 var(--black)}
 .ptab.active{background:var(--black);color:var(--white)}
 .ptab:active{transform:translate(2px,2px);box-shadow:0 0 0 var(--black)}
-.preset-shell{margin-top:8px;padding-top:10px;border-top:var(--border);display:flex;flex-direction:column;gap:10px}
+.preset-shell{margin-top:10px;padding:12px;border:var(--border);border-radius:16px;background:linear-gradient(180deg,#fff 0%,#f7f7f7 100%);box-shadow:2px 2px 0 var(--black);display:flex;flex-direction:column;gap:12px}
 .preset-row{display:flex;gap:8px;align-items:center}
 .preset-row input{flex:1}
 .preset-list{display:flex;flex-wrap:wrap;gap:8px}
-.preset-chip{display:flex;align-items:center;gap:6px;padding:8px 10px;border:var(--border);border-radius:14px;background:var(--white);box-shadow:2px 2px 0 var(--black);min-width:0;max-width:100%}
+.preset-chip{display:flex;align-items:center;gap:8px;padding:9px 11px;border:var(--border);border-radius:12px;background:#fff;box-shadow:2px 2px 0 var(--black);min-width:0;max-width:100%}
 .preset-chip.active{background:var(--black);color:var(--white)}
-.preset-chip-main{display:flex;align-items:center;gap:6px;min-width:0;cursor:pointer;background:transparent;border:none;padding:0;color:inherit}
-.preset-chip-name{font-family:var(--font-d);font-size:12px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
-.preset-chip-meta{font-size:10px;font-weight:800;opacity:.72;text-transform:uppercase;letter-spacing:.04em}
+.preset-chip-main{display:flex;align-items:center;gap:8px;min-width:0;cursor:pointer;background:transparent;border:none;padding:0;color:inherit}
+.preset-chip-name{font-family:var(--font-d);font-size:12px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:128px}
+.preset-chip-meta{display:inline-flex;align-items:center;justify-content:center;padding:2px 8px;border:1.5px solid currentColor;border-radius:999px;font-size:10px;font-weight:900;opacity:.88;text-transform:uppercase;letter-spacing:.05em}
 .preset-chip-del{width:24px;height:24px;border:var(--border);border-radius:999px;background:#fff;color:#0a0a0a;font-family:var(--font-d);font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;box-shadow:1px 1px 0 var(--black)}
 .preset-chip.active .preset-chip-del{background:#fff;color:#0a0a0a}
 .preset-empty{font-size:11px;color:#777;font-weight:700;line-height:1.5}
@@ -495,6 +495,7 @@ var curProvider = localStorage.getItem('provider') || 'openai';
 var AI_BG_ENABLED_KEY = 'ai_bg_activity_enabled';
 var AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 var API_PRESETS_KEY = 'api_provider_presets_v1';
+var API_PRESETS_KV_ID = 'api_provider_presets';
 var PROVIDER_LABELS = {
   openai: 'OpenAI',
   claude: 'Claude',
@@ -630,20 +631,51 @@ function normalizeApiPresetItem(item){
   };
 }
 
-function loadApiPresets(){
+async function loadApiPresets(){
+  try{
+    var payload = null;
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.get === 'function'){
+      payload = await window.parent.PhoneStorage.get('kv', API_PRESETS_KV_ID).catch(function(){ return null; });
+    }else if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+      payload = await window.PhoneStorage.get('kv', API_PRESETS_KV_ID).catch(function(){ return null; });
+    }
+    var fromKv = payload && payload.value;
+    if(Array.isArray(fromKv)) return fromKv.map(normalizeApiPresetItem);
+  }catch(err){
+    console.warn('loadApiPresets kv failed', err);
+  }
   try{
     var parsed = JSON.parse(localStorage.getItem(API_PRESETS_KEY) || '[]');
     if(!Array.isArray(parsed)) return [];
     return parsed.map(normalizeApiPresetItem);
-  }catch(err){
-    console.warn('loadApiPresets failed', err);
+  }catch(err2){
+    console.warn('loadApiPresets local failed', err2);
     return [];
   }
 }
 
-function saveApiPresets(list){
+async function saveApiPresets(list){
   var safeList = Array.isArray(list) ? list.map(normalizeApiPresetItem) : [];
-  localStorage.setItem(API_PRESETS_KEY, JSON.stringify(safeList));
+  var stored = false;
+  try{
+    var payload = { id: API_PRESETS_KV_ID, value: safeList, updatedAt: Date.now() };
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.put === 'function'){
+      await window.parent.PhoneStorage.put('kv', payload);
+      stored = true;
+    }else if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+      await window.PhoneStorage.put('kv', payload);
+      stored = true;
+    }
+  }catch(err){
+    console.warn('saveApiPresets kv failed', err);
+  }
+  if(!stored){
+    if(!safeStorageSet(API_PRESETS_KEY, JSON.stringify(safeList))){
+      throw new Error('api preset storage quota exceeded');
+    }
+  }else{
+    safeStorageSet(API_PRESETS_KEY, JSON.stringify(safeList.slice(0, 2)));
+  }
   return safeList;
 }
 
@@ -695,10 +727,10 @@ function persistCurrentApiSettings(){
   if(mm && mm.value) safeStorageSet('model_custom_manual', mm.value);
 }
 
-function renderApiPresetList(){
+async function renderApiPresetList(){
   var host = document.getElementById('api-preset-list');
   if(!host) return;
-  var presets = loadApiPresets();
+  var presets = await loadApiPresets();
   if(!presets.length){
     host.innerHTML = '<div class="preset-empty">还没有 API 预设，存一套以后就能一键切换。</div>';
     return;
@@ -716,7 +748,7 @@ function renderApiPresetList(){
   }).join('');
 }
 
-function saveCurrentApiPreset(){
+async function saveCurrentApiPreset(){
   var input = document.getElementById('api-preset-name');
   var name = String((input && input.value) || '').trim();
   if(!name){
@@ -725,7 +757,7 @@ function saveCurrentApiPreset(){
   }
   var preset = collectCurrentApiPresetDraft();
   preset.name = name;
-  var presets = loadApiPresets();
+  var presets = await loadApiPresets();
   var existingIndex = presets.findIndex(function(item){ return String(item.name || '') === name; });
   if(existingIndex >= 0){
     preset.id = presets[existingIndex].id;
@@ -733,13 +765,18 @@ function saveCurrentApiPreset(){
   }else{
     presets.unshift(preset);
   }
-  saveApiPresets(presets);
-  renderApiPresetList();
-  showToast('API 预设已保存');
+  try{
+    await saveApiPresets(presets);
+    await renderApiPresetList();
+    showToast('API 预设已保存');
+  }catch(err){
+    console.error(err);
+    showToast('API 预设保存失败');
+  }
 }
 
-function applyApiPreset(id){
-  var preset = loadApiPresets().find(function(item){ return String(item.id || '') === String(id || ''); });
+async function applyApiPreset(id){
+  var preset = (await loadApiPresets()).find(function(item){ return String(item.id || '') === String(id || ''); });
   if(!preset){
     showToast('这个预设不见了');
     return;
@@ -762,15 +799,20 @@ function applyApiPreset(id){
   switchProvider(preset.provider || 'openai', true);
   persistCurrentApiSettings();
   dirty = false;
-  renderApiPresetList();
+  await renderApiPresetList();
   showToast('已切换到 ' + (preset.name || 'API 预设'));
 }
 
-function deleteApiPreset(id){
-  var presets = loadApiPresets().filter(function(item){ return String(item.id || '') !== String(id || ''); });
-  saveApiPresets(presets);
-  renderApiPresetList();
-  showToast('预设已删除');
+async function deleteApiPreset(id){
+  var presets = (await loadApiPresets()).filter(function(item){ return String(item.id || '') !== String(id || ''); });
+  try{
+    await saveApiPresets(presets);
+    await renderApiPresetList();
+    showToast('预设已删除');
+  }catch(err){
+    console.error(err);
+    showToast('删除预设失败');
+  }
 }
 
 function bindTextNormalization() {
