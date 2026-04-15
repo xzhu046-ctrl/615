@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-14T23:12:00Z"></script>
+<script src="../promptManager.js?v=2026-04-14T23:18:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
@@ -11599,7 +11599,7 @@ async function describeImageWithVision(imageSrc){
           role: 'user',
           content: [
             { type: 'text', text: '请识别这张头像，用一句到两句中文描述它的主体、风格和适合的配对方向。' },
-            { type: 'image_url', image_url: { url: String(imageSrc || '').trim(), detail: 'low' } }
+            { type: 'image_url', image_url: { url: String(imageSrc || '').trim(), detail: 'high' } }
           ]
         }
       ]
@@ -11631,6 +11631,7 @@ function parseAvatarAutoDecision(raw){
 async function maybeTriggerAutoAvatarResponse(payload){
   if(!character || !character.id) return false;
   if(!loadCharAvatarAutoEnabled(character.id)) return false;
+  var visionRequired = !!loadAvatarVisionEnabled(character.id);
   var store = avatarLibraryCache && (avatarLibraryCache.char || avatarLibraryCache.user) ? avatarLibraryCache : await loadAvatarLibraryStore(character.id);
   avatarLibraryCache = store;
   var charOptions = Array.isArray(store.char) ? store.char.slice(0, 10) : [];
@@ -11638,11 +11639,15 @@ async function maybeTriggerAutoAvatarResponse(payload){
   if(!charOptions.length && !userOptions.length) return false;
   var userItem = payload && payload.changedUserItem && typeof payload.changedUserItem === 'object' ? payload.changedUserItem : null;
   var visionSummary = '';
-  if(loadAvatarVisionEnabled(character.id)){
+  if(visionRequired){
     try{
       visionSummary = await describeImageWithVision(payload && payload.changedUserSrc || '');
     }catch(err){
       console.warn('describeImageWithVision failed', err);
+    }
+    if(!String(visionSummary || '').trim()){
+      console.warn('avatar auto skipped: AI vision is enabled but no visual summary was produced');
+      return false;
     }
   }
   var persona = String(character.personality || character.description || '').trim().slice(0, 1200);
@@ -11656,6 +11661,7 @@ async function maybeTriggerAutoAvatarResponse(payload){
     '你是头像选择器，要代入聊天角色本人。',
     '现在用户刚换了头像，角色看到了系统提示，判断角色会不会顺手换头像。',
     '优先参考角色人设、关系状态、最近聊天、头像库备注和配对标签。',
+    visionRequired ? '这次 AI 识图已开启；你必须先根据“识图结果”真正看见用户现在的头像，再决定反应。不能假装看过，也不能忽略识图结果。' : '这次 AI 识图关闭；你只能根据头像名字、说明、配对标签和聊天上下文来判断。',
     '同一个 pairTag 默认就代表它们是一组配对头像；如果还额外标记成情侣头像，就把这组理解成更强提示。',
     '如果角色不想换，就明确返回不换。',
     '只返回 JSON，不要解释，不要 markdown。',
