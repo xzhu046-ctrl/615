@@ -2768,6 +2768,7 @@ var innerVoiceStoreCache = { current: null, items: [] };
 var moneyStateCache = null;
 var callRecordStoreCache = { items: [] };
 var voiceCallState = null;
+var voiceCallTicker = 0;
 var voiceCallRecordOpenId = '';
 var voiceCallSpeechRecognition = null;
 var voiceCallSpeechListening = false;
@@ -5097,6 +5098,9 @@ function moneyStateStorageId(){
 function callRecordStorageId(charId){
   return accountScopedKey('call_records_' + String(charId || ''));
 }
+function voiceCallSessionStorageId(charId){
+  return accountScopedKey('voice_call_session_' + String(charId || ''));
+}
 function momentsPostsStorageId(){
   return accountScopedKey('moments_posts');
 }
@@ -6294,6 +6298,51 @@ function defaultVoiceCallState(){
   };
 }
 
+function normalizeVoiceCallTranscriptLine(raw){
+  var item = raw && typeof raw === 'object' ? raw : {};
+  var role = String(item.role || '').trim();
+  role = role === 'user' ? 'user' : (role === 'system' ? 'system' : 'assistant');
+  var text = String(item.text || '').trim();
+  if(!text) return null;
+  return {
+    id: String(item.id || ('call_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7))),
+    role: role,
+    text: text,
+    at: Number(item.at || Date.now()) || Date.now()
+  };
+}
+
+function normalizeVoiceCallSessionSnapshot(raw){
+  var source = raw && typeof raw === 'object' ? raw : {};
+  var transcript = Array.isArray(source.transcript)
+    ? source.transcript.map(normalizeVoiceCallTranscriptLine).filter(Boolean).slice(-120)
+    : [];
+  var normalized = Object.assign(defaultVoiceCallState(), {
+    active: !!source.active,
+    incoming: !!source.incoming,
+    minimized: !!source.minimized,
+    startedAt: Number(source.startedAt || 0) || 0,
+    connectedAt: Number(source.connectedAt || 0) || 0,
+    transcript: transcript,
+    draftInputMode: normalizeVoiceCallInputMode(source.draftInputMode || 'text'),
+    draftStarter: normalizeVoiceCallStarter(source.draftStarter || 'char'),
+    draftTone: String(source.draftTone || '').trim().slice(0, 320),
+    pendingInviteText: String(source.pendingInviteText || '').trim().slice(0, 400),
+    requestSource: String(source.requestSource || '').trim() === 'char' ? 'char' : 'user',
+    summary: String(source.summary || '').trim(),
+    recordId: String(source.recordId || '').trim(),
+    awaitingReply: false
+  });
+  if(!normalized.active && !normalized.incoming){
+    return defaultVoiceCallState();
+  }
+  if(!normalized.startedAt) normalized.startedAt = Date.now();
+  if(normalized.active && !normalized.connectedAt){
+    normalized.connectedAt = normalized.startedAt || Date.now();
+  }
+  return normalized;
+}
+
 function normalizeVoiceCallInputMode(value){
   return String(value || '').trim().toLowerCase() === 'speech' ? 'speech' : 'text';
 }
@@ -6893,6 +6942,139 @@ function removeJsonFromLargeStore(id){
   return window.PhoneStorage.removeJson(id).catch(function(err){
     console.error('remove large state failed:', id, err);
   });
+}
+
+function stopVoiceCallTicker(){
+  if(voiceCallTicker){
+    clearInterval(voiceCallTicker);
+    voiceCallTicker = 0;
+  }
+}
+
+function startVoiceCallTicker(){
+  stopVoiceCallTicker();
+  var state = ensureVoiceCallState();
+  tickVoiceCallTimer();
+  if(!state.active && !state.incoming) return;
+  voiceCallTicker = setInterval(tickVoiceCallTimer, 1000);
+}
+
+function snapshotCurrentVoiceCallState(){
+  var state = normalizeVoiceCallSessionSnapshot(voiceCallState || defaultVoiceCallState());
+  if(!state.active && !state.incoming) return null;
+  return {
+    active: !!state.active,
+    incoming: !!state.incoming,
+    minimized: !!state.minimized,
+    startedAt: Number(state.startedAt || 0) || Date.now(),
+    connectedAt: Number(state.connectedAt || 0) || 0,
+    transcript: (Array.isArray(state.transcript) ? state.transcript : []).map(function(item){
+      return normalizeVoiceCallTranscriptLine(item);
+    }).filter(Boolean),
+    draftInputMode: normalizeVoiceCallInputMode(state.draftInputMode || 'text'),
+    draftStarter: normalizeVoiceCallStarter(state.draftStarter || 'char'),
+    draftTone: String(state.draftTone || '').trim().slice(0, 320),
+    pendingInviteText: String(state.pendingInviteText || '').trim().slice(0, 400),
+    requestSource: String(state.requestSource || '').trim() === 'char' ? 'char' : 'user',
+    summary: String(state.summary || '').trim(),
+    recordId: String(state.recordId || '').trim(),
+    savedAt: Date.now()
+  };
+}
+
+function persistVoiceCallSession(){
+  var charId = String((character && character.id) || '').trim();
+  var storeId = voiceCallSessionStorageId(charId);
+  var snapshot = snapshotCurrentVoiceCallState();
+  if(!charId || !storeId) return Promise.resolve(false);
+  if(!snapshot){
+    try{ localStorage.removeItem(storeId); }catch(err){}
+    return removeJsonFromLargeStore(storeId).then(function(){ return true; });
+  }
+  try{ localStorage.setItem(storeId, JSON.stringify(snapshot)); }catch(err){}
+  return requestPersistentChatStorage().catch(function(){ return false; }).then(function(){
+    return saveJsonToLargeStore(storeId, snapshot).then(function(){ return true; });
+  });
+}
+
+async function restorePersistedVoiceCallSession(){
+  stopVoiceCallTicker();
+  voiceCallMinimized = false;
+  voiceCallState = defaultVoiceCallState();
+  if(!character || !character.id){
+    closeVoiceCallOverlay();
+    return false;
+  }
+  var storeId = voiceCallSessionStorageId(character.id);
+  var stored = await loadJsonFromLargeStore(storeId);
+  if(!stored){
+    try{
+      stored = JSON.parse(localStorage.getItem(storeId) || 'null');
+    }catch(err){
+      stored = null;
+    }
+  }
+  var next = normalizeVoiceCallSessionSnapshot(stored);
+  if(!next.active && !next.incoming){
+    closeVoiceCallOverlay();
+    return false;
+  }
+  voiceCallState = next;
+  voiceCallMinimized = !!next.minimized;
+  syncVoiceCallIdentityUi();
+  var incomingSub = document.getElementById('voiceCallIncomingSub');
+  if(incomingSub && next.incoming){
+    incomingSub.textContent = next.pendingInviteText || (currentVoiceCallCharName() + ' 想和你打一通电话');
+  }
+  syncVoiceCallSettingsUi();
+  renderVoiceCallFeed();
+  renderVoiceCallTranscriptDock();
+  if(next.incoming || !voiceCallMinimized){
+    openVoiceCallOverlay();
+    if(next.incoming) document.getElementById('voiceCallIncomingDrawer')?.classList.add('open');
+  }else{
+    closeVoiceCallOverlay();
+    startVoiceCallTicker();
+  }
+  return true;
+}
+
+function findLatestPendingVoiceCallRequest(){
+  for(var i = chatLog.length - 1; i >= 0; i -= 1){
+    var item = chatLog[i] || {};
+    if(item.hidden) continue;
+    if(String(item.role || '') !== 'assistant') continue;
+    if(normalizeMessageType(item.type || 'text') !== 'voicecallrequest') continue;
+    if(Number(item.readAt || 0) > 0) continue;
+    return item;
+  }
+  return null;
+}
+
+function markVoiceCallRequestEntrySeen(entryId){
+  var targetId = String(entryId || '').trim();
+  if(!targetId) return false;
+  var found = false;
+  var seenAt = Date.now();
+  chatLog.forEach(function(item){
+    if(!item || String(item.id || '').trim() !== targetId) return;
+    item.readAt = seenAt;
+    found = true;
+  });
+  return found;
+}
+
+function maybeResumePendingVoiceCallRequestFromChatLog(){
+  var state = ensureVoiceCallState();
+  if(state.active || state.incoming) return false;
+  var pending = findLatestPendingVoiceCallRequest();
+  if(!pending) return false;
+  var opened = openIncomingVoiceCallRequest(String(pending.content || '').trim());
+  if(!opened) return false;
+  if(markVoiceCallRequestEntrySeen(pending.id)){
+    saveChat(true).catch(function(){});
+  }
+  return true;
 }
 
 function getStoredCharactersSnapshot(){
@@ -12273,6 +12455,7 @@ async function restoreOrStartChat() {
   renderLoadingState();
   storageHydrationPromise = hydrateCharacterStorageState();
   var restored = await storageHydrationPromise;
+  await restorePersistedVoiceCallSession();
   if (!restored.length) restored = await loadPreferredStoredChatForCurrentCharacter();
   if(restored.length && !hasAnyGreetingForCharacter() && isLikelyStrayGreetingHistory(restored)){
     restored = [];
@@ -12281,6 +12464,7 @@ async function restoreOrStartChat() {
     chatLog = restored;
     appendMoneyDebugLog('restore', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
     renderChatLog(false);
+    maybeResumePendingVoiceCallRequestFromChatLog();
     return;
   }
   // Fresh start — show greeting
@@ -12297,6 +12481,7 @@ async function restoreOrStartChat() {
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">' + esc(character.name) + '</div><div class="welcome-sub">发送消息开始对话，或按 ✦ 触发回复</div></div>';
   }
   renderReplyPreview();
+  maybeResumePendingVoiceCallRequestFromChatLog();
 }
 
 async function syncChatLogFromStorageForCurrentCharacter(){
@@ -12314,6 +12499,7 @@ async function syncChatLogFromStorageForCurrentCharacter(){
     chatLog = normalized;
     appendMoneyDebugLog('sync_from_storage', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
     renderChatLog(false);
+    maybeResumePendingVoiceCallRequestFromChatLog();
     return true;
   }catch(e){
     return false;
@@ -17534,6 +17720,7 @@ async function saveVoiceCallSettings(){
   });
   syncVoiceCallSettingsUi();
   closeVoiceCallSettingsPanel();
+  persistVoiceCallSession();
   toast('通话设置已保存');
 }
 
@@ -17602,6 +17789,7 @@ function appendVoiceCallLine(role, text){
   state.transcript.push(line);
   renderVoiceCallFeed();
   renderVoiceCallTranscriptDock();
+  persistVoiceCallSession();
   return line;
 }
 
@@ -17689,6 +17877,7 @@ async function triggerVoiceCallAssistantTurn(userText){
   if(!state.active || state.awaitingReply || !character) return false;
   state.awaitingReply = true;
   syncVoiceCallSettingsUi();
+  persistVoiceCallSession();
   try{
     var prompt = buildVoiceCallPrompt(userText);
     var raw = await callAIWithCustomPrompts(prompt.system, prompt.user);
@@ -17705,6 +17894,7 @@ async function triggerVoiceCallAssistantTurn(userText){
   }finally{
     state.awaitingReply = false;
     syncVoiceCallSettingsUi();
+    persistVoiceCallSession();
   }
 }
 
@@ -17716,13 +17906,15 @@ function openVoiceCallOverlay(){
   syncVoiceCallSettingsUi();
   renderVoiceCallFeed();
   renderVoiceCallTranscriptDock();
-  tickVoiceCallTimer();
+  startVoiceCallTicker();
 }
 
 function closeVoiceCallOverlay(){
   document.getElementById('voiceCallOverlay')?.classList.remove('open');
   document.getElementById('voiceCallIncomingDrawer')?.classList.remove('open');
   closeVoiceCallSettingsPanel();
+  var state = ensureVoiceCallState();
+  if(!state.active && !state.incoming) stopVoiceCallTicker();
 }
 
 function minimizeVoiceCallOverlay(){
@@ -17730,6 +17922,7 @@ function minimizeVoiceCallOverlay(){
   if(!state.active && !state.incoming) return;
   state.minimized = true;
   voiceCallMinimized = true;
+  persistVoiceCallSession();
   closeVoiceCallOverlay();
   toast('通话被轻轻收起来了');
 }
@@ -17739,6 +17932,7 @@ function restoreVoiceCallOverlay(){
   if(!state.active && !state.incoming) return;
   state.minimized = false;
   voiceCallMinimized = false;
+  persistVoiceCallSession();
   openVoiceCallOverlay();
   if(state.incoming) document.getElementById('voiceCallIncomingDrawer')?.classList.add('open');
 }
@@ -17766,6 +17960,7 @@ async function openVoiceCallFromAddon(){
     draftTone: settings.tone,
     requestSource: 'user'
   });
+  persistVoiceCallSession();
   openVoiceCallOverlay();
   appendVoiceCallLine('system', '电话接通了。');
   if(normalizeVoiceCallStarter(settings.starter) !== 'user'){
@@ -18005,7 +18200,9 @@ async function endVoiceCallSession(){
   await appendVoiceCallSummaryToMemory(record.summary);
   await saveChat(true);
   voiceCallState = defaultVoiceCallState();
+  voiceCallMinimized = false;
   voiceCallRecordOpenId = record.id;
+  persistVoiceCallSession();
   closeVoiceCallOverlay();
   openVoiceCallRecordViewer(record.id);
 }
@@ -18025,6 +18222,7 @@ function openIncomingVoiceCallRequest(text){
     pendingInviteText: String(text || '').trim(),
     requestSource: 'char'
   });
+  persistVoiceCallSession();
   syncVoiceCallIdentityUi();
   var incomingSub = document.getElementById('voiceCallIncomingSub');
   if(incomingSub) incomingSub.textContent = String(text || '').trim() || (currentVoiceCallCharName() + ' 想和你打一通电话');
@@ -18041,6 +18239,7 @@ function acceptIncomingVoiceCall(){
   state.connectedAt = Date.now();
   document.getElementById('voiceCallIncomingDrawer')?.classList.remove('open');
   appendVoiceCallLine('system', '你接起了这通电话。');
+  persistVoiceCallSession();
   var starter = normalizeVoiceCallStarter(state.draftStarter || getVoiceCallSettings().starter);
   if(starter !== 'user'){
     setTimeout(function(){
@@ -18056,6 +18255,8 @@ function rejectIncomingVoiceCall(){
   renderChatLog(true);
   saveChat(true);
   voiceCallState = defaultVoiceCallState();
+  voiceCallMinimized = false;
+  persistVoiceCallSession();
   closeVoiceCallOverlay();
 }
 
@@ -20088,6 +20289,7 @@ function persistChatBeforeLeave(){
     count: Array.isArray(chatLog) ? chatLog.length : 0,
     tail: summarizeChatTail(chatLog)
   });
+  persistVoiceCallSession();
   try{ saveChat(true); }catch(e){}
   saveMoneyReplySnapshot('before_leave');
 }
@@ -23579,6 +23781,21 @@ window.addEventListener('message', async function(e) {
         weather: incomingWeather && incomingWeather.weatherIcon ? incomingWeather.weatherIcon : ((parseOfflineInvitePayload(incoming.content) || {}).weather || '')
       })), true);
       if(incomingInviteEntry && incomingInviteEntry.id) queueChatMessageTranslationPrefetch(incomingInviteEntry.id);
+      return;
+    }
+    if(normalizeMessageType(incoming.type || 'text') === 'voicecallrequest'){
+      incoming.readAt = incoming.readAt || Date.now();
+      chatLog.push(incoming);
+      addMessage('ai', incoming.content, true, incoming.type, incoming.id);
+      var currentCallState = ensureVoiceCallState();
+      var openedBackgroundCall = (!currentCallState.active && !currentCallState.incoming)
+        ? openIncomingVoiceCallRequest(String(incoming.content || '').trim())
+        : false;
+      if(openedBackgroundCall){
+        var bgCallNotice = appendSystemNotice(currentVoiceCallCharName() + ' 想和你打一通电话^^');
+        if(bgCallNotice) addMessage('system', bgCallNotice.content, true, 'text', bgCallNotice.id);
+      }
+      await saveChat(true);
       return;
     }
     chatLog.push(incoming);

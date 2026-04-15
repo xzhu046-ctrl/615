@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-15T09:34:00Z';
+const APP_BUILD_ID = '2026-04-15T10:05:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1737,10 +1737,11 @@ function parseBgAction(raw){
     var imageText = String(data.imageText || data.image_text || '').trim();
     if(act === '说说') act = 'say';
     if(act === '动态') act = 'dynamic';
-    if(act === 'message' || act === 'say' || act === 'dynamic'){
+    if(act === '打电话' || act === '来电' || act === 'voice_call') act = 'call';
+    if(act === 'message' || act === 'say' || act === 'dynamic' || act === 'call'){
       return {
         action: act,
-        content: content || (act === 'message' ? '刚刚想到你了。' : '想把这一刻记下来。'),
+        content: content || (act === 'message' ? '刚刚想到你了。' : (act === 'call' ? '忽然很想听听你的声音。' : '想把这一刻记下来。')),
         imageText: imageText || ''
       };
     }
@@ -1798,6 +1799,17 @@ function coerceBgAction(parsed, convoState){
   var idleMs = Math.max(0, Number(convoState && convoState.idleMs) || 0);
   if(waitingForReply){
     next.action = 'message';
+    return next;
+  }
+  if(next.action === 'call'){
+    if(unreadAssistantCount > 0){
+      next.action = 'message';
+      return next;
+    }
+    if(idleMs && idleMs < 25 * 60 * 1000){
+      next.action = 'message';
+      return next;
+    }
     return next;
   }
   if(unreadAssistantCount >= 2 && next.action === 'message'){
@@ -2262,6 +2274,37 @@ async function appendBackgroundAiMessage(character, accountId, content){
     kind:'chat',
     charId: character.id,
     text: String(entry.content || '').trim()
+  });
+  return true;
+}
+
+async function appendBackgroundVoiceCallRequest(character, accountId, content){
+  if(!character || !character.id) return false;
+  if(!isCharBgEnabled(character.id, accountId || getDefaultAccountId())) return false;
+  var history = await readBackgroundChatHistory(character.id, accountId);
+  var now = Date.now();
+  var entry = {
+    id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
+    role: 'assistant',
+    content: String(content || '').trim() || '忽然很想听听你的声音。',
+    type: 'voice_call_request',
+    replyToId: null,
+    sentAt: now,
+    readAt: null
+  };
+  history.push(entry);
+  await writeBackgroundChatHistory(character.id, accountId, history);
+  renderHomeDockBadges();
+  try{
+    var f = document.getElementById('app-iframe');
+    if(f && f.contentWindow){
+      f.contentWindow.postMessage({ type:'BACKGROUND_AI_MESSAGE', payload:{ charId: character.id, entry: entry } }, '*');
+    }
+  }catch(e){}
+  maybeShowShellActivityNotification({
+    kind:'chat',
+    charId: character.id,
+    text: '想和你打一通电话^^'
   });
   return true;
 }
@@ -3407,12 +3450,14 @@ async function runAiBackgroundActivity(){
   var sysPrompt = [
     '你正在执行“后台活动”任务，请扮演聊天角色，输出一个严格 JSON 对象。',
     '你只能返回 JSON，不要返回任何解释、markdown、代码块。',
-    'JSON 格式：{"action":"message|say|dynamic","content":"...","imageText":"..."}',
+    'JSON 格式：{"action":"message|say|dynamic|call","content":"...","imageText":"..."}',
     'action=message 表示给用户主动发一条聊天消息；action=say 表示发朋友圈说说；action=dynamic 表示发朋友圈动态。',
+    'action=call 表示想主动给用户打一通电话；content 写来电时会说的一句自然理由。',
     'content 必填，简短自然；imageText 只在 dynamic 时填写。',
     '如果 action=dynamic，则 content 和 imageText 都必须是图像描述（物体/场景/画面细节），不能是普通聊天句。',
+    '如果 action=call，不要写系统提示，不要写“拨号中”，而要写像真人会说的来电理由。',
     '如果用户其实正在等你回，或你们已经隔了一阵子没说话，优先选 message，不要用发朋友圈糊弄过去。',
-    '只有在真的更像这个角色会去发动态/说说的时候，才选 say 或 dynamic。'
+    '只有在真的更像这个角色会去发动态/说说的时候，才选 say 或 dynamic；只有在真的会忍不住想直接听到对方声音时，才选 call。'
   ].join('\n');
   var userPrompt = [
     '角色名：' + (character.nickname || character.name || '角色'),
@@ -3426,8 +3471,8 @@ async function runAiBackgroundActivity(){
     convoState.unreadAssistantCount > 0
       ? ('你这边已经累计有 ' + convoState.unreadAssistantCount + ' 条未读主动消息了，别一直刷屏。')
       : '目前没有你发出后还没被对方看到的主动消息。',
-    '请像真人一样在这三种动作里选一个最自然的：主动聊天 / 发说说 / 发动态。',
-    '要求：不要机械，不要复读用户原话，不要出现“我是AI/不能发朋友圈”等元话；如果选 message，要有一点“主动来找对方”的感觉。',
+    '请像真人一样在这四种动作里选一个最自然的：主动聊天 / 发说说 / 发动态 / 主动打电话。',
+    '要求：不要机械，不要复读用户原话，不要出现“我是AI/不能发朋友圈”等元话；如果选 message，要有一点“主动来找对方”的感觉；如果选 call，要像是真的想直接听听对方声音。',
     buildBackgroundReplyLanguagePrompt(character) || ''
   ].join('\n\n');
 
@@ -3435,11 +3480,13 @@ async function runAiBackgroundActivity(){
   if(!isCharBgEnabled(character.id, defaultId)) return false;
   var parsed = coerceBgAction(parseBgAction(rawReply), convoState);
   if(!parsed) return false;
-  if(parsed.action !== 'message' && loadShellCharMomentsFreq(character.id, defaultId) === 'low'){
+  if(parsed.action !== 'message' && parsed.action !== 'call' && loadShellCharMomentsFreq(character.id, defaultId) === 'low'){
     return false;
   }
   if(parsed.action === 'message'){
     return await appendBackgroundAiMessage(character, defaultId, parsed.content);
+  }else if(parsed.action === 'call'){
+    return await appendBackgroundVoiceCallRequest(character, defaultId, parsed.content);
   }else{
     return await appendBackgroundMoment(character, defaultId, parsed.action, parsed.content, parsed.imageText);
   }
