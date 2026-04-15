@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-15T01:36:00Z"></script>
+<script src="../promptManager.js?v=2026-04-15T01:52:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
@@ -5861,6 +5861,106 @@ function loadAvatarVisionEnabled(charId){
 function saveAvatarVisionEnabled(charId, enabled){
   if(!charId) return;
   safeLocalStorageSet(avatarVisionToggleKey(charId), enabled ? '1' : '0');
+}
+
+function avatarVisionSummaryStorageId(charId){
+  return accountScopedKey('avatar_vision_summary_' + String(charId || '').trim());
+}
+
+function computeAvatarVisionSignature(src){
+  var text = String(src || '').trim();
+  if(!text) return '';
+  var seed = text.length + '|' + text.slice(0, 96) + '|' + text.slice(-64);
+  var hash = 0;
+  for(var i = 0; i < seed.length; i += 1){
+    hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+  }
+  return String(text.length) + ':' + String(hash >>> 0);
+}
+
+function defaultAvatarVisionSummaryStore(){
+  return {
+    user: { signature:'', summary:'', updatedAt:0 },
+    char: { signature:'', summary:'', updatedAt:0 }
+  };
+}
+
+function normalizeAvatarVisionSummaryStore(raw){
+  var base = defaultAvatarVisionSummaryStore();
+  if(!raw || typeof raw !== 'object') return base;
+  ['user','char'].forEach(function(role){
+    var item = raw[role] && typeof raw[role] === 'object' ? raw[role] : {};
+    base[role] = {
+      signature: String(item.signature || '').trim(),
+      summary: String(item.summary || '').trim(),
+      updatedAt: Number(item.updatedAt || 0) || 0
+    };
+  });
+  return base;
+}
+
+function loadAvatarVisionSummaryStore(charId){
+  if(!charId) return Promise.resolve(defaultAvatarVisionSummaryStore());
+  return loadJsonFromLargeStore(avatarVisionSummaryStorageId(charId)).then(function(stored){
+    return normalizeAvatarVisionSummaryStore(stored);
+  });
+}
+
+function saveAvatarVisionSummaryStore(charId, store){
+  if(!charId) return Promise.resolve(defaultAvatarVisionSummaryStore());
+  var normalized = normalizeAvatarVisionSummaryStore(store);
+  return saveJsonToLargeStore(avatarVisionSummaryStorageId(charId), normalized).then(function(saved){
+    return normalizeAvatarVisionSummaryStore(saved || normalized);
+  });
+}
+
+async function ensureAvatarVisionSummary(role, src){
+  if(!character || !character.id) return '';
+  if(!loadAvatarVisionEnabled(character.id)) return '';
+  var safeRole = role === 'char' ? 'char' : 'user';
+  var cleanSrc = String(src || '').trim();
+  if(!cleanSrc) return '';
+  var signature = computeAvatarVisionSignature(cleanSrc);
+  if(!signature) return '';
+  var store = await loadAvatarVisionSummaryStore(character.id);
+  var current = store[safeRole] || {};
+  if(String(current.signature || '') === signature && String(current.summary || '').trim()){
+    return String(current.summary || '').trim();
+  }
+  var summary = '';
+  try{
+    summary = await describeImageWithVision(cleanSrc);
+  }catch(err){
+    console.warn('ensureAvatarVisionSummary failed', err);
+  }
+  if(!String(summary || '').trim()) return '';
+  store[safeRole] = {
+    signature: signature,
+    summary: String(summary || '').trim(),
+    updatedAt: Date.now()
+  };
+  await saveAvatarVisionSummaryStore(character.id, store).catch(function(err){
+    console.warn('saveAvatarVisionSummaryStore failed', err);
+    return store;
+  });
+  return String(summary || '').trim();
+}
+
+async function appendAvatarVisionContextToSystemPrompt(systemPrompt){
+  if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return String(systemPrompt || '');
+  var userSrc = await resolveChatUserAvatarAsync(character.id).catch(function(){ return ''; });
+  var charSrc = await resolveBestCharAvatarSource().catch(function(){ return ''; });
+  var userSummary = await ensureAvatarVisionSummary('user', userSrc);
+  var charSummary = await ensureAvatarVisionSummary('char', charSrc);
+  if(!userSummary && !charSummary) return String(systemPrompt || '');
+  var lines = [
+    '【当前头像识图结果】',
+    '下面是基于真实头像图片得到的识图结果，不是猜测。',
+    '当用户聊到头像、长相、构图、穿搭、颜色、风格、情侣头像配对时，必须以这些识图结果为准；看不清就直说，不准瞎猜。'
+  ];
+  if(userSummary) lines.push('用户当前头像：' + userSummary);
+  if(charSummary) lines.push('你当前头像：' + charSummary);
+  return [String(systemPrompt || '').trim(), lines.join('\n')].filter(Boolean).join('\n\n---\n\n');
 }
 
 function loadCharAvatarAutoEnabled(charId){
@@ -12925,6 +13025,7 @@ async function callAI(provider, key) {
   }
   await prepareVectorPromptMemory(msgs);
   var sys = buildSystemPrompt();
+  sys = await appendAvatarVisionContextToSystemPrompt(sys);
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, sys, msgs);
