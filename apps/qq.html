@@ -960,7 +960,7 @@ body{
 .contacts-drawer-list::-webkit-scrollbar{display:none}
 .contacts-drawer-item{
   display:grid;
-  grid-template-columns:76px 1fr;
+  grid-template-columns:76px minmax(0,1fr) 42px;
   align-items:center;
   gap:12px;
   border:2px solid #0f0f10;
@@ -1005,6 +1005,27 @@ body{
   flex-direction:column;
   gap:4px;
 }
+.contacts-drawer-delete{
+  width:36px;
+  height:36px;
+  border:2px solid #8f0d16;
+  border-radius:12px;
+  background:linear-gradient(180deg,#fff3f4 0%,#ffd9de 100%);
+  box-shadow:2px 2px 0 rgba(143,13,22,.9);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  padding:0;
+  flex-shrink:0;
+}
+.contacts-drawer-delete img{
+  width:18px;
+  height:18px;
+  object-fit:contain;
+  display:block;
+}
+.contacts-drawer-delete:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(143,13,22,.9)}
 .contacts-drawer-name{
   font-family:var(--fontcute, var(--fontd));
   font-size:16px;
@@ -1498,6 +1519,26 @@ function getStoredCharactersSnapshot(){
   }catch(err){
     return [];
   }
+}
+function getStoredWorldbooksSnapshot(){
+  if(window.MetadataStore && typeof window.MetadataStore.getWorldbooksSync === 'function'){
+    return window.MetadataStore.getWorldbooksSync();
+  }
+  try{
+    var data = JSON.parse(localStorage.getItem('worldbooks') || '{}');
+    return data && typeof data === 'object' ? data : {};
+  }catch(err){
+    return {};
+  }
+}
+function saveStoredWorldbooksSnapshot(nextWorldbooks){
+  if(window.MetadataStore && typeof window.MetadataStore.saveWorldbooks === 'function'){
+    return window.MetadataStore.saveWorldbooks(nextWorldbooks && typeof nextWorldbooks === 'object' ? nextWorldbooks : {});
+  }
+  try{
+    localStorage.setItem('worldbooks', JSON.stringify(nextWorldbooks && typeof nextWorldbooks === 'object' ? nextWorldbooks : {}));
+  }catch(err){}
+  return Promise.resolve(nextWorldbooks || {});
 }
 
 function accountScopedKey(base){
@@ -2220,10 +2261,11 @@ function renderContactsDrawer(renderChars){
     var avatar = src
       ? '<img src="' + esc(src) + '" alt="">'
       : '<span>' + esc(c.avatar || '✦') + '</span>';
-    return '<button class="contacts-drawer-item" type="button" data-chat-id="' + esc(c.id) + '">' +
+    return '<div class="contacts-drawer-item" role="button" tabindex="0" data-chat-id="' + esc(c.id) + '">' +
       '<span class="contacts-drawer-avatar">' + avatar + '</span>' +
       '<span class="contacts-drawer-meta"><span class="contacts-drawer-name">' + esc(name) + '</span><span class="contacts-drawer-note">' + esc(sub) + '</span></span>' +
-    '</button>';
+      '<button class="contacts-drawer-delete" type="button" data-chat-delete="' + esc(c.id) + '" aria-label="删除联系人" title="删除联系人"><img src="assets/Recycle-Bin-2--Streamline-Sharp.png" alt=""></button>' +
+    '</div>';
   }).join('');
   document.querySelectorAll('#contactsDrawerList .contacts-drawer-item[data-chat-id]').forEach(function(btn){
     btn.addEventListener('click', function(){
@@ -2231,6 +2273,22 @@ function renderContactsDrawer(renderChars){
       var id = btn.getAttribute('data-chat-id') || '';
       closeContactsDrawer();
       if(id) openCharacterContact(id);
+    });
+    btn.addEventListener('keydown', function(evt){
+      if(evt.key !== 'Enter' && evt.key !== ' ') return;
+      evt.preventDefault();
+      if(isContactsDrawerTapSuppressed()) return;
+      var id = btn.getAttribute('data-chat-id') || '';
+      closeContactsDrawer();
+      if(id) openCharacterContact(id);
+    });
+  });
+  document.querySelectorAll('#contactsDrawerList .contacts-drawer-delete[data-chat-delete]').forEach(function(btn){
+    btn.addEventListener('click', function(evt){
+      evt.preventDefault();
+      evt.stopPropagation();
+      var id = btn.getAttribute('data-chat-delete') || '';
+      if(id) deleteContactCharacter(id);
     });
   });
 }
@@ -2571,6 +2629,58 @@ function openCharacterContact(charId){
   if(!targetId) return;
   closeContactsDrawer();
   openChat(targetId);
+}
+async function deleteContactCharacter(charId){
+  var targetId = String(charId || '').trim();
+  if(!targetId) return;
+  var target = await resolveLatestChar(targetId, chars.find(function(item){ return item && String(item.id || '') === targetId; }));
+  var label = String((target && (target.name || target.nickname)) || '这个联系人').trim() || '这个联系人';
+  if(!window.confirm('确认删除 ' + label + '？这会一起删除这个联系人的所有世界书。')) return;
+  try{
+    if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
+      await window.MetadataStore.loadCharacters(true);
+    }
+    if(window.MetadataStore && typeof window.MetadataStore.loadWorldbooks === 'function'){
+      await window.MetadataStore.loadWorldbooks(true);
+    }
+    var allChars = getStoredCharactersSnapshot().filter(function(item){
+      return !(item && String(item.id || '') === targetId);
+    });
+    var allWorldbooks = getStoredWorldbooksSnapshot();
+    if(allWorldbooks && typeof allWorldbooks === 'object' && Object.prototype.hasOwnProperty.call(allWorldbooks, targetId)){
+      delete allWorldbooks[targetId];
+    }
+    if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
+      await window.MetadataStore.saveCharacters(allChars);
+    }else{
+      try{ localStorage.setItem('characters', JSON.stringify(allChars)); }catch(err){}
+    }
+    await saveStoredWorldbooksSnapshot(allWorldbooks);
+    try{
+      if(window.assetStore && typeof window.assetStore.remove === 'function'){
+        await window.assetStore.remove('char_avatar_' + targetId);
+      }else{
+        localStorage.removeItem('char_avatar_' + targetId);
+      }
+    }catch(err){}
+    try{
+      localStorage.removeItem('wbCharId');
+      localStorage.removeItem('pendingChatCharId');
+      localStorage.removeItem('pendingChatChar');
+    }catch(err){}
+    closeContactsDrawer();
+    await loadChars();
+    renderList();
+    renderMomentsBadge();
+    syncHomeBadgeCount();
+    showToast('已删除：' + label);
+    try{
+      window.parent.postMessage({ type:'WORLDBOOK_UPDATED' }, '*');
+    }catch(err){}
+  }catch(err){
+    console.error('delete contact failed', err);
+    showToast('删除失败，再试一次吧');
+  }
 }
 function handleContactsCreateOverlay(evt){
   if(evt.target === evt.currentTarget) closeContactsCreate();
