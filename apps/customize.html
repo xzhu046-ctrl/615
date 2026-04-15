@@ -55,13 +55,23 @@ input[type="text"]:focus{box-shadow:3px 4px 0 #0a0a0a}
 .danmaku-input:focus{box-shadow:var(--sh)}
 .btn-white{background:var(--w);color:var(--b)}
 .music-float-preview{width:100%;height:94px;border:var(--bd);border-radius:16px;background:linear-gradient(180deg,#f5f5f5 0%,#e9e9e9 100%);box-shadow:var(--sh);display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;transition:filter .2s ease,opacity .2s ease}
-.music-float-preview img{width:62px;height:62px;object-fit:contain;display:block}
-.music-float-preview-default{width:62px;height:62px;border:var(--bd);border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(236,236,236,.94));box-shadow:0 0 0 1.5px rgba(255,255,255,.96),3px 4px 0 #0a0a0a,0 8px 14px rgba(0,0,0,.14);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:900}
+.music-float-preview img{width:calc(62px * var(--music-float-preview-scale,1));height:calc(62px * var(--music-float-preview-scale,1));object-fit:contain;display:block;transition:width .2s cubic-bezier(.22,1,.36,1),height .2s cubic-bezier(.22,1,.36,1)}
+.music-float-preview-default{width:calc(62px * var(--music-float-preview-scale,1));height:calc(62px * var(--music-float-preview-scale,1));border:var(--bd);border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(236,236,236,.94));box-shadow:0 0 0 1.5px rgba(255,255,255,.96),3px 4px 0 #0a0a0a,0 8px 14px rgba(0,0,0,.14);display:flex;align-items:center;justify-content:center;font-size:calc(24px * var(--music-float-preview-scale,1));font-weight:900;transition:width .2s cubic-bezier(.22,1,.36,1),height .2s cubic-bezier(.22,1,.36,1),font-size .2s cubic-bezier(.22,1,.36,1)}
+.music-float-size-row{display:flex;align-items:center;gap:10px;margin-top:12px}
+.music-float-size-label{font-family:var(--fontd);font-size:12px;font-weight:900;min-width:38px}
+.music-float-size-value{min-width:42px;text-align:right;font-family:var(--fontd);font-size:12px;font-weight:900;color:var(--g)}
+.temp-slider{flex:1;-webkit-appearance:none;appearance:none;height:22px;background:transparent;border:none;outline:none;cursor:pointer}
+.temp-slider::-webkit-slider-runnable-track{height:2px;background:var(--b);border:none;border-radius:999px}
+.temp-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:var(--w);border:2px solid var(--b);box-shadow:2px 2px 0 var(--b);margin-top:-7px}
+.temp-slider::-moz-range-track{height:2px;background:var(--b);border:none;border-radius:999px}
+.temp-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--w);border:2px solid var(--b);box-shadow:2px 2px 0 var(--b)}
 .music-float-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
 .music-float-card.is-disabled .music-float-preview,
+.music-float-card.is-disabled .music-float-size-row,
 .music-float-card.is-disabled .music-float-actions,
 .music-float-card.is-disabled .icon-actions{filter:grayscale(1);opacity:.5}
 .music-float-card.is-disabled .music-float-preview,
+.music-float-card.is-disabled .music-float-size-row,
 .music-float-card.is-disabled .music-float-actions .btn,
 .music-float-card.is-disabled .icon-actions .btn{pointer-events:none}
 @media (max-width: 360px){
@@ -161,6 +171,11 @@ input[type="text"]:focus{box-shadow:3px 4px 0 #0a0a0a}
       </div>
     </div>
     <div class="music-float-preview" id="music-float-preview" role="button" tabindex="0" aria-label="点击更换悬浮球图案" onclick="pickMusicFloatingIcon()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();pickMusicFloatingIcon();}"></div>
+    <div class="music-float-size-row">
+      <span class="music-float-size-label">大小</span>
+      <input class="temp-slider" id="music-float-size" type="range" min="0.75" max="1.6" step="0.01" value="1" oninput="updateMusicFloatingSize(this.value)">
+      <span class="music-float-size-value" id="music-float-size-value">100%</span>
+    </div>
     <div class="music-float-actions">
       <button class="btn btn-white" onclick="resetMusicFloatingIcon()">重置</button>
       <button class="btn btn-white" id="musicFloatSaveBtn" onclick="saveMusicFloatingSettings()">保存悬浮球</button>
@@ -202,11 +217,13 @@ const LIVE_DANMAKU_DEFAULTS = {
 const LIVE_DANMAKU_ENABLED_KEY = 'home_live_danmaku_enabled';
 const HOME_MUSIC_FLOATING_ENABLED_KEY = 'home_music_floating_enabled_v1';
 const HOME_MUSIC_FLOATING_ICON_KEY = 'home_music_floating_icon_v1';
+const HOME_MUSIC_FLOATING_SIZE_KEY = 'home_music_floating_size_v1';
 let stagedIcons = {};
 let frameVisible = true;
 let liveDanmakuEnabled = true;
 let musicFloatingEnabled = true;
 let musicFloatingIconDraft = '';
+let musicFloatingSizeDraft = 1;
 let musicFloatingSaving = false;
 
 function getDefaultPhoneFrameVisibility(){
@@ -342,6 +359,16 @@ function getMusicFloatingEnabled(){
   return true;
 }
 
+function normalizeMusicFloatingSize(value){
+  const num = Number(value);
+  if(!isFinite(num)) return 1;
+  return Math.max(0.75, Math.min(1.6, Math.round(num * 100) / 100));
+}
+
+function getMusicFloatingSize(){
+  return normalizeMusicFloatingSize(localStorage.getItem(HOME_MUSIC_FLOATING_SIZE_KEY) || '1');
+}
+
 function renderMusicFloatingToggle(){
   const btn = document.getElementById('music-float-toggle-btn');
   const label = document.getElementById('music-float-toggle-label');
@@ -358,16 +385,19 @@ function renderMusicFloatingToggle(){
 function renderMusicFloatingSectionState(){
   const card = document.getElementById('musicFloatCard');
   const preview = document.getElementById('music-float-preview');
+  const sizeRow = document.querySelector('.music-float-size-row');
   if(card) card.classList.toggle('is-disabled', !musicFloatingEnabled);
   if(preview){
     preview.setAttribute('aria-disabled', musicFloatingEnabled ? 'false' : 'true');
     preview.title = musicFloatingEnabled ? '点击更换悬浮球图案' : '请先打开悬浮球开关';
   }
+  if(sizeRow) sizeRow.setAttribute('aria-disabled', musicFloatingEnabled ? 'false' : 'true');
 }
 
 function renderMusicFloatingPreview(){
   const box = document.getElementById('music-float-preview');
   if(!box) return;
+  box.style.setProperty('--music-float-preview-scale', String(normalizeMusicFloatingSize(musicFloatingSizeDraft)));
   box.innerHTML = '';
   if(musicFloatingIconDraft){
     const img = document.createElement('img');
@@ -380,6 +410,20 @@ function renderMusicFloatingPreview(){
   fallback.className = 'music-float-preview-default';
   fallback.textContent = '♪';
   box.appendChild(fallback);
+}
+
+function renderMusicFloatingSize(){
+  const input = document.getElementById('music-float-size');
+  const value = document.getElementById('music-float-size-value');
+  musicFloatingSizeDraft = normalizeMusicFloatingSize(musicFloatingSizeDraft);
+  if(input) input.value = String(musicFloatingSizeDraft);
+  if(value) value.textContent = Math.round(musicFloatingSizeDraft * 100) + '%';
+  renderMusicFloatingPreview();
+}
+
+function updateMusicFloatingSize(nextValue){
+  musicFloatingSizeDraft = normalizeMusicFloatingSize(nextValue);
+  renderMusicFloatingSize();
 }
 
 function toggleMusicFloatingEnabled(){
@@ -433,7 +477,8 @@ function pickMusicFloatingIcon(){
 
 function resetMusicFloatingIcon(){
   musicFloatingIconDraft = '';
-  renderMusicFloatingPreview();
+  musicFloatingSizeDraft = 1;
+  renderMusicFloatingSize();
   toast('已恢复默认悬浮球，记得保存');
 }
 
@@ -445,6 +490,7 @@ async function saveMusicFloatingSettings(){
   let failed = false;
   try{
     localStorage.setItem(HOME_MUSIC_FLOATING_ENABLED_KEY, musicFloatingEnabled ? '1' : '0');
+    localStorage.setItem(HOME_MUSIC_FLOATING_SIZE_KEY, String(normalizeMusicFloatingSize(musicFloatingSizeDraft)));
     if(window.assetStore){
       if(musicFloatingIconDraft){
         const ok = await window.assetStore.saveOrFallback(HOME_MUSIC_FLOATING_ICON_KEY, musicFloatingIconDraft);
@@ -464,7 +510,8 @@ async function saveMusicFloatingSettings(){
       type: 'SET_HOME_MUSIC_FLOATING',
       payload: {
         enabled: musicFloatingEnabled,
-        icon: musicFloatingIconDraft || null
+        icon: musicFloatingIconDraft || null,
+        size: normalizeMusicFloatingSize(musicFloatingSizeDraft)
       }
     }, '*');
   }catch(err){}
@@ -653,9 +700,11 @@ async function saveIcons(){
   frameVisible = getPhoneFrameVisibility();
   liveDanmakuEnabled = getLiveDanmakuEnabled();
   musicFloatingEnabled = getMusicFloatingEnabled();
+  musicFloatingSizeDraft = getMusicFloatingSize();
   renderPhoneFrameToggle();
   renderLiveDanmakuToggle();
   renderMusicFloatingToggle();
+  renderMusicFloatingSize();
   renderMusicFloatingPreview();
   renderLiveDanmakuInputs();
   const applyFloatingPreview = function(src){
