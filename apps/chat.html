@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-15T04:16:00Z"></script>
+<script src="../promptManager.js?v=2026-04-15T04:31:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
@@ -6130,10 +6130,12 @@ function getVisionProviderConfig(){
   var provider = String(localStorage.getItem('provider') || 'openai').trim() || 'openai';
   var key = String(localStorage.getItem('key_' + provider) || '').trim();
   var model = String(localStorage.getItem('model_' + provider) || getDefaultModel(provider) || '').trim();
+  var customUrl = String(localStorage.getItem('custom_url') || '').trim().replace(/\/$/, '');
   return {
     provider: provider,
     key: key,
-    model: model || getDefaultModel(provider) || 'gpt-4o-mini'
+    model: model || getDefaultModel(provider) || 'gpt-4o-mini',
+    customUrl: customUrl
   };
 }
 
@@ -6174,10 +6176,31 @@ async function callStandaloneVisionAPI(imageSrc, promptText, options){
   if(!cleanSrc || !prompt) return '';
   var cfg = getVisionProviderConfig();
   if(!cfg.key || !cfg.model) return '';
-  if(cfg.provider === 'gemini'){
+  var treatAsGemini = cfg.provider === 'gemini'
+    || (cfg.provider === 'custom' && /generativelanguage|googleapis|gemini/i.test(String(cfg.customUrl || '')));
+  if(treatAsGemini){
     try{
       var inlineImage = await toVisionInlineImage(cleanSrc);
       if(!inlineImage) return '';
+      var geminiEndpoint = '';
+      if(cfg.provider === 'custom' && cfg.customUrl){
+        if(/:generateContent/i.test(cfg.customUrl)){
+          geminiEndpoint = cfg.customUrl;
+        }else if(/\/models\/?$/i.test(cfg.customUrl)){
+          geminiEndpoint = cfg.customUrl + '/' + cfg.model + ':generateContent';
+        }else if(/\/v1beta$/i.test(cfg.customUrl)){
+          geminiEndpoint = cfg.customUrl + '/models/' + cfg.model + ':generateContent';
+        }else if(/\/v1beta\/models/i.test(cfg.customUrl)){
+          geminiEndpoint = cfg.customUrl.replace(/\/$/, '') + '/' + cfg.model + ':generateContent';
+        }else{
+          geminiEndpoint = cfg.customUrl + '/v1beta/models/' + cfg.model + ':generateContent';
+        }
+        if(geminiEndpoint.indexOf('?key=') === -1){
+          geminiEndpoint += (geminiEndpoint.indexOf('?') === -1 ? '?key=' : '&key=') + encodeURIComponent(cfg.key);
+        }
+      }else{
+        geminiEndpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' + cfg.model + ':generateContent?key=' + cfg.key;
+      }
       var geminiPayload = {
         contents: [{
           parts: [
@@ -6191,7 +6214,7 @@ async function callStandaloneVisionAPI(imageSrc, promptText, options){
           ]
         }]
       };
-      var geminiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + cfg.model + ':generateContent?key=' + cfg.key, {
+      var geminiRes = await fetch(geminiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(geminiPayload)
@@ -6243,6 +6266,22 @@ async function callStandaloneVisionAPI(imageSrc, promptText, options){
     }
   }
   return '';
+}
+
+async function buildAvatarVisionLatestMessage(){
+  if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return '';
+  var userSrc = await resolveChatUserAvatarAsync(character.id).catch(function(){ return ''; });
+  var charSrc = await resolveBestCharAvatarSource().catch(function(){ return ''; });
+  var userSummary = await ensureAvatarVisionSummary('user', userSrc);
+  var charSummary = await ensureAvatarVisionSummary('char', charSrc);
+  if(!userSummary && !charSummary) return '';
+  var lines = [
+    '【当前可见头像识图】',
+    '这是你这轮回复前真正看到的头像信息，优先级很高。聊到头像、外观、构图、风格、是否像情侣头像时，按这里回答；看不清就直说，不要瞎猜。'
+  ];
+  if(userSummary) lines.push('用户头像识图：' + userSummary);
+  if(charSummary) lines.push('你自己的头像识图：' + charSummary);
+  return lines.join('\n');
 }
 
 function loadCharAvatarAutoEnabled(charId){
@@ -12033,7 +12072,7 @@ async function maybeTriggerAutoAvatarResponse(payload){
   if(!loadCharAvatarAutoEnabled(character.id)) return false;
   var now = Date.now();
   var lastAutoAt = loadCharAvatarAutoLastActionAt(character.id);
-  var avatarAutoCooldownMs = 18 * 60 * 60 * 1000;
+  var avatarAutoCooldownMs = 6 * 60 * 60 * 1000;
   if(lastAutoAt && now - lastAutoAt < avatarAutoCooldownMs) return false;
   var visionRequired = !!loadAvatarVisionEnabled(character.id);
   var store = avatarLibraryCache && (avatarLibraryCache.char || avatarLibraryCache.user) ? avatarLibraryCache : await loadAvatarLibraryStore(character.id);
@@ -12116,6 +12155,17 @@ async function maybeTriggerAutoAvatarResponse(payload){
     });
     if(paired){
       changed = await applyAvatarLibraryItem(paired.id, 'char', 'char').then(function(){ return true; }).catch(function(){ return false; }) || changed;
+    }
+  }
+  if(!changed && visionRequired && String(payload && payload.changedUserSrc || '').trim()){
+    var cropped = await createAutoPairedAvatarFromUser(String(payload.changedUserSrc || '').trim(), 'char').catch(function(){
+      return '';
+    });
+    if(String(cropped || '').trim()){
+      changed = await applyRoleAvatarChange('char', cropped, {
+        actorRole: 'char',
+        skipAuto: true
+      }).then(function(){ return true; }).catch(function(){ return false; }) || changed;
     }
   }
   if(changed){
@@ -13334,6 +13384,10 @@ async function callAI(provider, key) {
   await prepareVectorPromptMemory(msgs);
   var sys = buildSystemPrompt();
   sys = await appendAvatarVisionContextToSystemPrompt(sys);
+  var avatarVisionLatest = await buildAvatarVisionLatestMessage();
+  if(avatarVisionLatest){
+    msgs.push({ role:'user', content: avatarVisionLatest });
+  }
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, sys, msgs);
@@ -20610,6 +20664,49 @@ async function appendAvatarChangeNoticeAndPersist(actorRole, targetRole){
   try{ await saveChat(true); }catch(err){ console.warn('avatar notice save failed', err); }
 }
 
+async function createAutoPairedAvatarFromUser(dataUrl, role){
+  var src = String(dataUrl || '').trim();
+  if(!src) return '';
+  return await new Promise(function(resolve){
+    var img = new Image();
+    img.onload = function(){
+      try{
+        var w = Number(img.naturalWidth || img.width || 0) || 0;
+        var h = Number(img.naturalHeight || img.height || 0) || 0;
+        if(w <= 0 || h <= 0){
+          resolve(src);
+          return;
+        }
+        var canvas = document.createElement('canvas');
+        var size = Math.max(1, Math.min(w, h));
+        canvas.width = size;
+        canvas.height = size;
+        var ctx = canvas.getContext('2d');
+        if(!ctx){
+          resolve(src);
+          return;
+        }
+        var sx = 0;
+        var sy = 0;
+        if(w > h){
+          sx = role === 'char' ? Math.max(0, w - size) : 0;
+          sy = 0;
+        }else if(h > w){
+          sx = 0;
+          sy = role === 'char' ? Math.max(0, h - size) : 0;
+        }
+        ctx.clearRect(0, 0, size, size);
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, size, size);
+        resolve(canvas.toDataURL('image/jpeg', 0.9) || src);
+      }catch(err){
+        resolve(src);
+      }
+    };
+    img.onerror = function(){ resolve(src); };
+    img.src = src;
+  });
+}
+
 async function applyRoleAvatarChange(targetRole, src, options){
   options = options || {};
   if(!character || !character.id) return false;
@@ -20643,6 +20740,15 @@ async function applyRoleAvatarChange(targetRole, src, options){
     if(normalizeAvatarSrc(currentUserSrc) === normalizeAvatarSrc(cleanSrc)){
       if(!silent && forceNoticeOnSame){
         await appendAvatarChangeNoticeAndPersist(actorRole, role);
+      }
+      if(actorRole === 'user' && !skipAuto){
+        maybeTriggerAutoAvatarResponse({
+          changedUserSrc: cleanSrc,
+          changedUserItem: itemMeta,
+          actorRole: actorRole
+        }).catch(function(err){
+          console.warn('auto avatar response failed', err);
+        });
       }
       return false;
     }
