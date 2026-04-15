@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-14T22:55:00Z"></script>
+<script src="../promptManager.js?v=2026-04-14T23:07:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
@@ -2111,7 +2111,8 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
       </div>
       <div class="avatar-meta-actions">
         <button class="confirm-btn" type="button" onclick="closeAvatarMetaOverlay()">取消</button>
-        <button class="confirm-btn primary" type="button" onclick="confirmAvatarMetaOverlay()">收进头像库</button>
+        <button class="confirm-btn" id="avatarMetaApplyBtn" type="button" onclick="applyAvatarMetaSelection()" style="display:none">换上这张</button>
+        <button class="confirm-btn primary" id="avatarMetaSaveBtn" type="button" onclick="confirmAvatarMetaOverlay()">收进头像库</button>
       </div>
     </div>
   </div>
@@ -19805,7 +19806,7 @@ function buildAvatarChangeNotice(actorRole, targetRole){
   if((actorRole === 'user' || actorRole === 'char' || actorRole === 'assistant') && (target === actorRole || (actorRole === 'assistant' && target === 'char'))){
     return actor + '把自己的头像换掉啦^^';
   }
-  return actor + '把' + getAvatarTargetDisplayName(targetRole) + '的头像换掉啦';
+  return actor + '把' + getAvatarTargetDisplayName(targetRole) + '的头像换掉啦^^';
 }
 
 async function appendAvatarChangeNoticeAndPersist(actorRole, targetRole){
@@ -19882,6 +19883,21 @@ function renderAvatarLibraryPreviewNode(item){
   '</button>';
 }
 
+function openAvatarMetaEditorForItem(item, role){
+  if(!item) return;
+  openAvatarMetaOverlay({
+    role: role === 'user' ? 'user' : 'char',
+    mode: 'edit',
+    itemId: String(item.id || ''),
+    assetKey: String(item.assetKey || ''),
+    src: String(item.previewData || '').trim(),
+    label: String(item.label || '').trim(),
+    note: String(item.note || '').trim(),
+    pairTag: String(item.pairTag || '').trim(),
+    couple: !!item.couple
+  });
+}
+
 function renderChatSettingsAvatarShelf(role){
   var safeRole = role === 'user' ? 'user' : 'char';
   var host = document.getElementById(safeRole === 'user' ? 'csUserAvatarShelf' : 'csCharAvatarShelf');
@@ -19916,7 +19932,9 @@ function renderChatSettingsAvatarShelf(role){
   host.innerHTML = html.join('');
   host.querySelectorAll('[data-avatar-shelf-id]').forEach(function(btn){
     btn.addEventListener('click', function(){
-      applyAvatarLibraryItem(btn.getAttribute('data-avatar-shelf-id') || '', safeRole, 'user');
+      var itemId = btn.getAttribute('data-avatar-shelf-id') || '';
+      var item = items.find(function(entry){ return String(entry.id || '') === String(itemId || ''); });
+      openAvatarMetaEditorForItem(item, safeRole);
     });
   });
   var addBtn = host.querySelector('[data-avatar-shelf-add="' + safeRole + '"]');
@@ -19952,7 +19970,7 @@ function renderAvatarLibraryOverlay(){
     var btn = host.querySelector('[data-avatar-lib-id="' + item.id + '"]');
     if(btn){
       btn.addEventListener('click', function(){
-        applyAvatarLibraryItem(item.id, role, 'user');
+        openAvatarMetaEditorForItem(item, role);
       });
     }
     loadStoredAsset(item.assetKey).then(function(src){
@@ -20001,19 +20019,27 @@ function openAvatarMetaOverlay(draft){
   var preview = document.getElementById('avatarMetaPreview');
   var title = document.getElementById('avatarMetaTitle');
   var sub = document.getElementById('avatarMetaSub');
+  var saveBtn = document.getElementById('avatarMetaSaveBtn');
+  var applyBtn = document.getElementById('avatarMetaApplyBtn');
   if(preview){
     preview.innerHTML = pendingAvatarMetaDraft.src ? ('<img src="' + escAttr(pendingAvatarMetaDraft.src) + '" alt="">') : '';
   }
-  if(title) title.textContent = (pendingAvatarMetaDraft.role === 'user' ? '收进 USER 头像库' : '收进 CHAR 头像库');
-  if(sub) sub.textContent = '可以顺手写说明，也可以标记成情侣头像。';
+  if(title) title.textContent = pendingAvatarMetaDraft.mode === 'edit'
+    ? (pendingAvatarMetaDraft.role === 'user' ? '编辑 USER 头像' : '编辑 CHAR 头像')
+    : (pendingAvatarMetaDraft.role === 'user' ? '收进 USER 头像库' : '收进 CHAR 头像库');
+  if(sub) sub.textContent = pendingAvatarMetaDraft.mode === 'edit'
+    ? '先改信息，确定想用再点“换上这张”。'
+    : '可以顺手写说明，也可以标记成情侣头像。';
   var labelInput = document.getElementById('avatarMetaLabel');
   var noteInput = document.getElementById('avatarMetaNote');
   var pairTagInput = document.getElementById('avatarMetaPairTag');
   if(labelInput) labelInput.value = String(pendingAvatarMetaDraft.label || '').trim();
-  if(noteInput) noteInput.value = '';
-  if(pairTagInput) pairTagInput.value = '';
+  if(noteInput) noteInput.value = String(pendingAvatarMetaDraft.note || '').trim();
+  if(pairTagInput) pairTagInput.value = String(pendingAvatarMetaDraft.pairTag || '').trim();
   var toggle = document.getElementById('avatarMetaCoupleToggle');
-  if(toggle) toggle.classList.remove('on');
+  if(toggle) toggle.classList.toggle('on', !!pendingAvatarMetaDraft.couple);
+  if(saveBtn) saveBtn.textContent = pendingAvatarMetaDraft.mode === 'edit' ? '保存信息' : '收进头像库';
+  if(applyBtn) applyBtn.style.display = pendingAvatarMetaDraft.mode === 'edit' ? '' : 'none';
   document.getElementById('avatarMetaOverlay')?.classList.add('open');
 }
 
@@ -20034,6 +20060,27 @@ async function confirmAvatarMetaOverlay(){
   var note = String((document.getElementById('avatarMetaNote') || {}).value || '').trim();
   var pairTag = String((document.getElementById('avatarMetaPairTag') || {}).value || '').trim();
   var couple = !!(document.getElementById('avatarMetaCoupleToggle') && document.getElementById('avatarMetaCoupleToggle').classList.contains('on'));
+  if(pendingAvatarMetaDraft.mode === 'edit' && pendingAvatarMetaDraft.itemId){
+    var existingStore = await loadAvatarLibraryStore(character.id);
+    var list = existingStore[role] || [];
+    var idx = list.findIndex(function(entry){ return String(entry.id || '') === String(pendingAvatarMetaDraft.itemId || ''); });
+    if(idx >= 0){
+      list[idx] = Object.assign({}, list[idx], {
+        label: label,
+        note: note,
+        pairTag: pairTag,
+        couple: couple,
+        previewData: src || list[idx].previewData || ''
+      });
+      await saveAvatarLibraryStore(character.id, existingStore);
+      avatarLibraryCache = existingStore;
+      renderChatSettingsAvatarShelves();
+      renderAvatarLibraryOverlay();
+      closeAvatarMetaOverlay();
+      toast('头像信息已更新');
+      return;
+    }
+  }
   var compactDataUrl = await shrinkDataUrl(src, 720).catch(function(){ return src; });
   var finalSrc = String(compactDataUrl || src).trim() || src;
   var assetId = accountScopedKey('avatar_lib_asset_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7));
@@ -20061,6 +20108,16 @@ async function confirmAvatarMetaOverlay(){
   renderChatSettingsAvatarShelves();
   renderAvatarLibraryOverlay();
   toast('头像已经收进库里啦');
+}
+
+async function applyAvatarMetaSelection(){
+  if(!pendingAvatarMetaDraft || !pendingAvatarMetaDraft.itemId) return;
+  var role = pendingAvatarMetaDraft.role === 'user' ? 'user' : 'char';
+  var itemId = String(pendingAvatarMetaDraft.itemId || '');
+  await confirmAvatarMetaOverlay();
+  if(!itemId) return;
+  closeAvatarMetaOverlay();
+  await applyAvatarLibraryItem(itemId, role, 'user');
 }
 
 function handleAvatarPickerFile(role, file){
