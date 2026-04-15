@@ -6493,6 +6493,72 @@ function saveAvatarVisionSummaryStore(charId, store){
   });
 }
 
+var avatarVisionSummaryPromiseMap = Object.create(null);
+
+function currentRawUserAvatarSource(charId){
+  var keys = [];
+  if(!isDefaultAccountContext()) keys.push(accountScopedKey('qq_profile_avatar_asset'));
+  if(charId) keys.push(userKey('user_avatar'));
+  if(charId) keys.push(accountScopedKey('user_avatar_' + charId));
+  keys.push(accountScopedKey('user_avatar'));
+  if(charId) keys.push('user_avatar_' + charId);
+  keys.push('user_avatar');
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var src = String(localStorage.getItem(keys[i]) || '').trim();
+      if(isRenderableAvatarSrc(src)) return src;
+    }catch(err){}
+  }
+  try{
+    var active = String(getActiveAccountProfileAvatar() || '').trim();
+    if(isRenderableAvatarSrc(active)) return active;
+  }catch(err2){}
+  return currentUserAvatarForFamily(charId) || '';
+}
+
+function currentRawCharAvatarSource(charId){
+  if(character && String((character && character.id) || '') === String(charId || '')){
+    var rawCurrent = String(character.imageData || '').trim();
+    if(isRenderableAvatarSrc(rawCurrent)) return rawCurrent;
+  }
+  var keys = [];
+  if(charId) keys.push('char_avatar_' + charId);
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var src = String(localStorage.getItem(keys[i]) || '').trim();
+      if(isRenderableAvatarSrc(src)) return src;
+    }catch(err){}
+  }
+  return currentCharAvatarForFamily(charId) || '';
+}
+
+function resolveAvatarVisionSourceAsync(role, charId){
+  var safeRole = role === 'char' ? 'char' : 'user';
+  if(safeRole === 'user'){
+    var rawUser = currentRawUserAvatarSource(charId);
+    if(isRenderableAvatarSrc(rawUser)) return Promise.resolve(rawUser);
+    var userKeys = [];
+    if(!isDefaultAccountContext()) userKeys.push(accountScopedKey('qq_profile_avatar_asset'));
+    if(charId) userKeys.push(userKey('user_avatar'));
+    if(charId) userKeys.push(accountScopedKey('user_avatar_' + charId));
+    userKeys.push(accountScopedKey('user_avatar'));
+    if(charId) userKeys.push('user_avatar_' + charId);
+    userKeys.push('user_avatar');
+    return loadFirstAvatarAsset(userKeys).then(function(src){
+      src = String(src || '').trim();
+      return isRenderableAvatarSrc(src) ? src : rawUser;
+    }).catch(function(){ return rawUser; });
+  }
+  var rawChar = currentRawCharAvatarSource(charId);
+  if(isRenderableAvatarSrc(rawChar)) return Promise.resolve(rawChar);
+  var charKeys = [];
+  if(charId) charKeys.push('char_avatar_' + charId);
+  return loadFirstAvatarAsset(charKeys).then(function(src){
+    src = String(src || '').trim();
+    return isRenderableAvatarSrc(src) ? src : rawChar;
+  }).catch(function(){ return rawChar; });
+}
+
 async function ensureAvatarVisionSummary(role, src){
   if(!character || !character.id) return '';
   if(!loadAvatarVisionEnabled(character.id)) return '';
@@ -6501,6 +6567,9 @@ async function ensureAvatarVisionSummary(role, src){
   if(!cleanSrc) return '';
   var signature = computeAvatarVisionSignature(cleanSrc);
   if(!signature) return '';
+  var promiseKey = String(character.id) + '::' + safeRole + '::' + signature;
+  if(avatarVisionSummaryPromiseMap[promiseKey]) return avatarVisionSummaryPromiseMap[promiseKey];
+  var task = (async function(){
   var store = await loadAvatarVisionSummaryStore(character.id);
   var current = store[safeRole] || {};
   if(String(current.signature || '') === signature && String(current.summary || '').trim()){
@@ -6523,12 +6592,19 @@ async function ensureAvatarVisionSummary(role, src){
     return store;
   });
   return String(summary || '').trim();
+  })();
+  avatarVisionSummaryPromiseMap[promiseKey] = task;
+  try{
+    return await task;
+  } finally {
+    delete avatarVisionSummaryPromiseMap[promiseKey];
+  }
 }
 
 async function buildAvatarVisionPromptMessage(){
   if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return '';
-  var userSrc = await resolveChatUserAvatarAsync(character.id).catch(function(){ return ''; });
-  var charSrc = await resolveBestCharAvatarSource().catch(function(){ return ''; });
+  var userSrc = await resolveAvatarVisionSourceAsync('user', character.id).catch(function(){ return ''; });
+  var charSrc = await resolveAvatarVisionSourceAsync('char', character.id).catch(function(){ return ''; });
   var userSummary = await ensureAvatarVisionSummary('user', userSrc);
   var charSummary = await ensureAvatarVisionSummary('char', charSrc);
   if(!userSummary && !charSummary) return '';
@@ -6544,8 +6620,8 @@ async function buildAvatarVisionPromptMessage(){
 
 async function appendAvatarVisionContextToSystemPrompt(systemPrompt){
   if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return String(systemPrompt || '');
-  var userSrc = await resolveChatUserAvatarAsync(character.id).catch(function(){ return ''; });
-  var charSrc = await resolveBestCharAvatarSource().catch(function(){ return ''; });
+  var userSrc = await resolveAvatarVisionSourceAsync('user', character.id).catch(function(){ return ''; });
+  var charSrc = await resolveAvatarVisionSourceAsync('char', character.id).catch(function(){ return ''; });
   var userSummary = await ensureAvatarVisionSummary('user', userSrc);
   var charSummary = await ensureAvatarVisionSummary('char', charSrc);
   if(!userSummary && !charSummary) return String(systemPrompt || '');
@@ -6562,7 +6638,7 @@ async function appendAvatarVisionContextToSystemPrompt(systemPrompt){
 async function buildAvatarVisionMessagesForPrompt(provider){
   if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return [];
   var out = [];
-  var userSrc = await resolveChatUserAvatarAsync(character.id).catch(function(){ return ''; });
+  var userSrc = await resolveAvatarVisionSourceAsync('user', character.id).catch(function(){ return ''; });
   if(String(userSrc || '').trim()){
     out.push({
       role: 'user',
@@ -6573,7 +6649,7 @@ async function buildAvatarVisionMessagesForPrompt(provider){
       ]
     });
   }
-  var charSrc = await resolveBestCharAvatarSource().catch(function(){ return ''; });
+  var charSrc = await resolveAvatarVisionSourceAsync('char', character.id).catch(function(){ return ''; });
   if(String(charSrc || '').trim()){
     out.push({
       role: 'user',
@@ -6782,8 +6858,8 @@ async function callStandaloneVisionAPI(imageSrc, promptText, options){
 
 async function buildAvatarVisionLatestMessage(){
   if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return '';
-  var userSrc = await resolveChatUserAvatarAsync(character.id).catch(function(){ return ''; });
-  var charSrc = await resolveBestCharAvatarSource().catch(function(){ return ''; });
+  var userSrc = await resolveAvatarVisionSourceAsync('user', character.id).catch(function(){ return ''; });
+  var charSrc = await resolveAvatarVisionSourceAsync('char', character.id).catch(function(){ return ''; });
   var userSummary = await ensureAvatarVisionSummary('user', userSrc);
   var charSummary = await ensureAvatarVisionSummary('char', charSrc);
   if(!userSummary && !charSummary) return '';
