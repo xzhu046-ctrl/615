@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-15T02:16:00Z"></script>
+<script src="../promptManager.js?v=2026-04-15T02:27:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
@@ -5963,60 +5963,29 @@ async function appendAvatarVisionContextToSystemPrompt(systemPrompt){
   return [String(systemPrompt || '').trim(), lines.join('\n')].filter(Boolean).join('\n\n---\n\n');
 }
 
-function extractLatestUserPromptText(msgs){
-  var list = Array.isArray(msgs) ? msgs : [];
-  for(var i = list.length - 1; i >= 0; i -= 1){
-    var item = list[i];
-    if(!item || item.role !== 'user') continue;
-    if(typeof item.content === 'string') return String(item.content || '').trim();
-    if(Array.isArray(item.content)){
-      var text = item.content.map(function(part){
-        return part && part.type === 'text' ? String(part.text || '').trim() : '';
-      }).filter(Boolean).join('\n');
-      if(text) return text;
-    }
-  }
-  return '';
-}
-
-function isAvatarDetailQuestion(text){
-  var t = String(text || '').trim();
-  if(!t) return false;
-  return /(头像|情头|自拍|照片|图里|图上|长相|样子|细节|构图|穿搭|颜色|氛围)/.test(t);
-}
-
-async function buildAvatarVisionMessagesForPrompt(provider, latestUserText){
+async function buildAvatarVisionMessagesForPrompt(provider){
   if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return [];
   if(provider !== 'gemini' && provider !== 'openai') return [];
-  if(!isAvatarDetailQuestion(latestUserText)) return [];
-  var wantsUser = /(我头像|我的头像|我这张头像|看看我头像|我头像里|我长什么样|我的情头|我的自拍|我图片里)/.test(latestUserText);
-  var wantsChar = /(你头像|你的头像|你这张头像|看看你头像|你头像里|你的情头|你的自拍)/.test(latestUserText);
-  var includeUser = wantsUser || !wantsChar;
-  var includeChar = wantsChar;
   var out = [];
-  if(includeUser){
-    var userSrc = await resolveChatUserAvatarAsync(character.id).catch(function(){ return ''; });
-    if(String(userSrc || '').trim()){
-      out.push({
-        role: 'user',
-        content: [
-          { type: 'text', text: '【补充图片】下面这张是用户当前头像。请直接根据真实图片回答刚才关于头像的问题，不要猜。' },
-          { type: 'image_url', image_url: { url: String(userSrc || '').trim(), detail: 'high' } }
-        ]
-      });
-    }
+  var userSrc = await resolveChatUserAvatarAsync(character.id).catch(function(){ return ''; });
+  if(String(userSrc || '').trim()){
+    out.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: '【头像上下文】下面这张是用户当前头像。请把它当作真实可见的头像上下文来理解，不要瞎猜。' },
+        { type: 'image_url', image_url: { url: String(userSrc || '').trim(), detail: 'high' } }
+      ]
+    });
   }
-  if(includeChar){
-    var charSrc = await resolveBestCharAvatarSource().catch(function(){ return ''; });
-    if(String(charSrc || '').trim()){
-      out.push({
-        role: 'user',
-        content: [
-          { type: 'text', text: '【补充图片】下面这张是角色当前头像。请直接根据真实图片回答刚才关于头像的问题，不要猜。' },
-          { type: 'image_url', image_url: { url: String(charSrc || '').trim(), detail: 'high' } }
-        ]
-      });
-    }
+  var charSrc = await resolveBestCharAvatarSource().catch(function(){ return ''; });
+  if(String(charSrc || '').trim()){
+    out.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: '【头像上下文】下面这张是角色当前头像。请把它当作真实可见的头像上下文来理解，不要瞎猜。' },
+        { type: 'image_url', image_url: { url: String(charSrc || '').trim(), detail: 'high' } }
+      ]
+    });
   }
   return out;
 }
@@ -13143,13 +13112,14 @@ async function callAI(provider, key) {
     msgs.push({ role: 'user', content: pendingModelUserCue });
   }
   await prepareVectorPromptMemory(msgs);
-  var latestUserPromptText = extractLatestUserPromptText(msgs);
-  var avatarVisionMsgs = await buildAvatarVisionMessagesForPrompt(provider, latestUserPromptText);
+  var avatarVisionMsgs = await buildAvatarVisionMessagesForPrompt(provider);
   if(avatarVisionMsgs.length){
     msgs = msgs.concat(avatarVisionMsgs);
   }
   var sys = buildSystemPrompt();
-  sys = await appendAvatarVisionContextToSystemPrompt(sys);
+  if(provider !== 'gemini'){
+    sys = await appendAvatarVisionContextToSystemPrompt(sys);
+  }
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, sys, msgs);
