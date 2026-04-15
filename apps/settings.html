@@ -47,6 +47,18 @@ textarea{resize:none}
 .ptab{padding:7px 14px;border:var(--border);border-radius:20px;font-family:var(--font-d);font-weight:800;font-size:12px;cursor:pointer;background:var(--white);transition:all .15s;box-shadow:2px 2px 0 var(--black)}
 .ptab.active{background:var(--black);color:var(--white)}
 .ptab:active{transform:translate(2px,2px);box-shadow:0 0 0 var(--black)}
+.preset-shell{margin-top:8px;padding-top:10px;border-top:var(--border);display:flex;flex-direction:column;gap:10px}
+.preset-row{display:flex;gap:8px;align-items:center}
+.preset-row input{flex:1}
+.preset-list{display:flex;flex-wrap:wrap;gap:8px}
+.preset-chip{display:flex;align-items:center;gap:6px;padding:8px 10px;border:var(--border);border-radius:14px;background:var(--white);box-shadow:2px 2px 0 var(--black);min-width:0;max-width:100%}
+.preset-chip.active{background:var(--black);color:var(--white)}
+.preset-chip-main{display:flex;align-items:center;gap:6px;min-width:0;cursor:pointer;background:transparent;border:none;padding:0;color:inherit}
+.preset-chip-name{font-family:var(--font-d);font-size:12px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+.preset-chip-meta{font-size:10px;font-weight:800;opacity:.72;text-transform:uppercase;letter-spacing:.04em}
+.preset-chip-del{width:24px;height:24px;border:var(--border);border-radius:999px;background:#fff;color:#0a0a0a;font-family:var(--font-d);font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;box-shadow:1px 1px 0 var(--black)}
+.preset-chip.active .preset-chip-del{background:#fff;color:#0a0a0a}
+.preset-empty{font-size:11px;color:#777;font-weight:700;line-height:1.5}
 
 .provider-section{display:none;flex-direction:column;gap:10px}
 .provider-section.active{display:flex}
@@ -270,9 +282,18 @@ textarea{resize:none}
           <div class="temp-val" id="temp-label-custom">1.00</div>
         </div>
         <div class="fetch-status" id="fetch-status-custom"></div>
-        <div style="font-size:11px;color:#888;line-height:1.5;margin-top:4px">
+      <div style="font-size:11px;color:#888;line-height:1.5;margin-top:4px">
           支持任意兼容 OpenAI 的代理服务（LM Studio、Ollama、SillyTavern API server 等），会调用 <code>/models</code> 接口获取模型列表。
         </div>
+      </div>
+
+      <div class="preset-shell">
+        <label>API 预设</label>
+        <div class="preset-row">
+          <input type="text" id="api-preset-name" placeholder="给这套 API 起个名字..." oninput="markDirty()">
+          <button class="btn btn-white btn-sm" type="button" onclick="saveCurrentApiPreset()">保存预设</button>
+        </div>
+        <div class="preset-list" id="api-preset-list"></div>
       </div>
 
       <button class="btn btn-black btn-full" style="margin-top:10px" onclick="saveAll()">保存 API 设置</button>
@@ -473,6 +494,7 @@ var dirty = false;
 var curProvider = localStorage.getItem('provider') || 'openai';
 var AI_BG_ENABLED_KEY = 'ai_bg_activity_enabled';
 var AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
+var API_PRESETS_KEY = 'api_provider_presets_v1';
 var PROVIDER_LABELS = {
   openai: 'OpenAI',
   claude: 'Claude',
@@ -521,6 +543,7 @@ function init() {
   document.getElementById('ai-bg-switch').classList.toggle('on', aiBgEnabled);
   document.getElementById('ai-bg-interval').value = localStorage.getItem(AI_BG_INTERVAL_KEY) || '6';
   loadShellNotificationSettings();
+  renderApiPresetList();
   renderMobileConsole();
   readCurrentBuildId().then(function(currentBuild){
     updateSettingsUpdateStatus(currentBuild, '', '等待检查');
@@ -570,6 +593,184 @@ function toggleAiBg(){
 
 function normalizeHeartText(value){
   return typeof value === 'string' ? value.replace(/\u2665(\uFE0E|\uFE0F)?/g, '\u2665\uFE0E') : value;
+}
+
+function normalizeApiPresetItem(item){
+  var src = item && typeof item === 'object' ? item : {};
+  var keys = src.keys && typeof src.keys === 'object' ? src.keys : {};
+  var models = src.models && typeof src.models === 'object' ? src.models : {};
+  var temps = src.temps && typeof src.temps === 'object' ? src.temps : {};
+  return {
+    id: String(src.id || ('api_preset_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7))),
+    name: String(src.name || '未命名预设').trim() || '未命名预设',
+    provider: String(src.provider || 'openai').trim() || 'openai',
+    customUrl: String(src.customUrl || '').trim(),
+    customManual: String(src.customManual || '').trim(),
+    keys: {
+      openai: String(keys.openai || '').trim(),
+      claude: String(keys.claude || '').trim(),
+      gemini: String(keys.gemini || '').trim(),
+      openrouter: String(keys.openrouter || '').trim(),
+      custom: String(keys.custom || '').trim()
+    },
+    models: {
+      openai: String(models.openai || '').trim(),
+      claude: String(models.claude || '').trim(),
+      gemini: String(models.gemini || '').trim(),
+      openrouter: String(models.openrouter || '').trim(),
+      custom: String(models.custom || '').trim()
+    },
+    temps: {
+      openai: String(temps.openai || '1').trim() || '1',
+      claude: String(temps.claude || '1').trim() || '1',
+      gemini: String(temps.gemini || '1').trim() || '1',
+      openrouter: String(temps.openrouter || '1').trim() || '1',
+      custom: String(temps.custom || '1').trim() || '1'
+    }
+  };
+}
+
+function loadApiPresets(){
+  try{
+    var parsed = JSON.parse(localStorage.getItem(API_PRESETS_KEY) || '[]');
+    if(!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeApiPresetItem);
+  }catch(err){
+    console.warn('loadApiPresets failed', err);
+    return [];
+  }
+}
+
+function saveApiPresets(list){
+  var safeList = Array.isArray(list) ? list.map(normalizeApiPresetItem) : [];
+  localStorage.setItem(API_PRESETS_KEY, JSON.stringify(safeList));
+  return safeList;
+}
+
+function collectCurrentApiPresetDraft(){
+  var providers = ['openai','claude','gemini','openrouter','custom'];
+  var keys = {};
+  var models = {};
+  var temps = {};
+  providers.forEach(function(p){
+    keys[p] = String(((document.getElementById('key-' + p) || {}).value) || '').trim();
+    models[p] = String(((document.getElementById('model-' + p) || {}).value) || '').trim();
+    temps[p] = String(((document.getElementById('temp-' + p) || {}).value) || '1').trim() || '1';
+  });
+  return normalizeApiPresetItem({
+    provider: curProvider,
+    customUrl: String(((document.getElementById('key-custom-url') || {}).value) || '').trim(),
+    customManual: String(((document.getElementById('model-custom-manual') || {}).value) || '').trim(),
+    keys: keys,
+    models: models,
+    temps: temps
+  });
+}
+
+function getApiPresetFingerprint(preset){
+  var normalized = normalizeApiPresetItem(preset);
+  return JSON.stringify({
+    provider: normalized.provider,
+    customUrl: normalized.customUrl,
+    customManual: normalized.customManual,
+    keys: normalized.keys,
+    models: normalized.models,
+    temps: normalized.temps
+  });
+}
+
+function persistCurrentApiSettings(){
+  safeStorageSet('provider', curProvider);
+  ['openai','claude','gemini','openrouter','custom'].forEach(function(p) {
+    var k = document.getElementById('key-'+p);
+    if(k && k.value) safeStorageSet('key_'+p, k.value);
+    var m = document.getElementById('model-'+p);
+    if(m && m.value) safeStorageSet('model_'+p, m.value);
+    var t = document.getElementById('temp-'+p);
+    if(t) safeStorageSet('temp_'+p, t.value || '1');
+  });
+  var cu = document.getElementById('key-custom-url');
+  if(cu) safeStorageSet('custom_url', cu.value);
+  var mm = document.getElementById('model-custom-manual');
+  if(mm && mm.value) safeStorageSet('model_custom_manual', mm.value);
+}
+
+function renderApiPresetList(){
+  var host = document.getElementById('api-preset-list');
+  if(!host) return;
+  var presets = loadApiPresets();
+  if(!presets.length){
+    host.innerHTML = '<div class="preset-empty">还没有 API 预设，存一套以后就能一键切换。</div>';
+    return;
+  }
+  var activeFingerprint = getApiPresetFingerprint(collectCurrentApiPresetDraft());
+  host.innerHTML = presets.map(function(item){
+    var isActive = getApiPresetFingerprint(item) === activeFingerprint;
+    return '<div class="preset-chip' + (isActive ? ' active' : '') + '">' +
+      '<button class="preset-chip-main" type="button" onclick="applyApiPreset(\'' + String(item.id || '').replace(/'/g, '&#39;') + '\')">' +
+        '<span class="preset-chip-name">' + escapeHtml(item.name) + '</span>' +
+        '<span class="preset-chip-meta">' + escapeHtml(PROVIDER_LABELS[item.provider] || item.provider) + '</span>' +
+      '</button>' +
+      '<button class="preset-chip-del" type="button" onclick="deleteApiPreset(\'' + String(item.id || '').replace(/'/g, '&#39;') + '\')">×</button>' +
+    '</div>';
+  }).join('');
+}
+
+function saveCurrentApiPreset(){
+  var input = document.getElementById('api-preset-name');
+  var name = String((input && input.value) || '').trim();
+  if(!name){
+    showToast('先起一个预设名字');
+    return;
+  }
+  var preset = collectCurrentApiPresetDraft();
+  preset.name = name;
+  var presets = loadApiPresets();
+  var existingIndex = presets.findIndex(function(item){ return String(item.name || '') === name; });
+  if(existingIndex >= 0){
+    preset.id = presets[existingIndex].id;
+    presets[existingIndex] = preset;
+  }else{
+    presets.unshift(preset);
+  }
+  saveApiPresets(presets);
+  renderApiPresetList();
+  showToast('API 预设已保存');
+}
+
+function applyApiPreset(id){
+  var preset = loadApiPresets().find(function(item){ return String(item.id || '') === String(id || ''); });
+  if(!preset){
+    showToast('这个预设不见了');
+    return;
+  }
+  ['openai','claude','gemini','openrouter','custom'].forEach(function(p){
+    var keyInput = document.getElementById('key-' + p);
+    var modelInput = document.getElementById('model-' + p);
+    var tempInput = document.getElementById('temp-' + p);
+    if(keyInput) keyInput.value = String((preset.keys || {})[p] || '');
+    if(modelInput && String((preset.models || {})[p] || '').trim()) setSelectValue('model-' + p, String((preset.models || {})[p] || '').trim());
+    if(tempInput){
+      tempInput.value = String((preset.temps || {})[p] || '1');
+      syncTempLabel(p);
+    }
+  });
+  var customUrl = document.getElementById('key-custom-url');
+  if(customUrl) customUrl.value = String(preset.customUrl || '');
+  var customManual = document.getElementById('model-custom-manual');
+  if(customManual) customManual.value = String(preset.customManual || '');
+  switchProvider(preset.provider || 'openai', true);
+  persistCurrentApiSettings();
+  dirty = false;
+  renderApiPresetList();
+  showToast('已切换到 ' + (preset.name || 'API 预设'));
+}
+
+function deleteApiPreset(id){
+  var presets = loadApiPresets().filter(function(item){ return String(item.id || '') !== String(id || ''); });
+  saveApiPresets(presets);
+  renderApiPresetList();
+  showToast('预设已删除');
 }
 
 function bindTextNormalization() {
@@ -1874,19 +2075,7 @@ async function confirmFormat() {
 
 async function saveAll() {
   try{
-    safeStorageSet('provider', curProvider);
-    ['openai','claude','gemini','openrouter','custom'].forEach(function(p) {
-      var k = document.getElementById('key-'+p);
-      if(k && k.value) safeStorageSet('key_'+p, k.value);
-      var m = document.getElementById('model-'+p);
-      if(m && m.value) safeStorageSet('model_'+p, m.value);
-      var t = document.getElementById('temp-'+p);
-      if(t) safeStorageSet('temp_'+p, t.value || '1');
-    });
-    var cu = document.getElementById('key-custom-url');
-    if(cu) safeStorageSet('custom_url', cu.value);
-    var mm = document.getElementById('model-custom-manual');
-    if(mm && mm.value) safeStorageSet('model_custom_manual', mm.value);
+    persistCurrentApiSettings();
     safeStorageSet('sysprompt', document.getElementById('sysprompt').value);
     safeStorageSet(AI_BG_ENABLED_KEY, document.getElementById('ai-bg-switch').classList.contains('on') ? '1' : '0');
     var aiBgInterval = parseInt(document.getElementById('ai-bg-interval').value || '6', 10);
@@ -1898,6 +2087,7 @@ async function saveAll() {
     await persistShellNotifySettingsState();
     safeStorageSet('shell_notify_app_name', shellNotifySettingsState.appName);
     dirty = false;
+    renderApiPresetList();
     showToast('设置已保存');
     try{
       window.parent.postMessage({

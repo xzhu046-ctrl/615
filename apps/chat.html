@@ -1412,7 +1412,6 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
           <div class="cs-stack" style="margin-top:10px">
             <div class="cs-subcard">
               <div class="cs-subcard-title">CHAR 头像库</div>
-              <div class="toggle-sub" style="margin-bottom:8px">点拍立得就直接换上，最左边可以继续往库里收新头像。</div>
               <div class="cs-avatar-library-strip" id="csCharAvatarShelf"></div>
             </div>
             <div>
@@ -1481,7 +1480,6 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
               <div class="toggle-row" style="padding-top:0">
                 <div class="toggle-left">
                   <div class="toggle-label">开启翻译模式</div>
-                  <div class="toggle-sub">打开后才会按你选的语言生成原文，并出现“译”按钮。</div>
                 </div>
                 <div class="toggle-switch" id="csReplyLanguageToggle" onclick="toggleReplyLanguageSwitch()"></div>
               </div>
@@ -1509,27 +1507,18 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
             <div class="cs-subcard">
               <div class="cs-subcard-title">旁白发送</div>
               <div class="toggle-row" style="padding-top:0">
-                <div class="toggle-left">
-                  <div class="toggle-sub">开启后，角色会把动作、环境、声音和镜头感也一起认真写出来。</div>
-                </div>
                 <div class="toggle-switch on" id="csNarratorToggle" onclick="toggleNarratorSwitch()"></div>
               </div>
             </div>
             <div class="cs-subcard">
               <div class="cs-subcard-title">AI 识图</div>
               <div class="toggle-row" style="padding-top:0">
-                <div class="toggle-left">
-                  <div class="toggle-sub">开启后，角色会尝试根据真实头像内容和头像库标签来判断要不要换头像。</div>
-                </div>
                 <div class="toggle-switch" id="csAvatarVisionToggle" onclick="toggleAvatarVisionSwitch()"></div>
               </div>
             </div>
             <div class="cs-subcard">
               <div class="cs-subcard-title">CHAR 换头像</div>
               <div class="toggle-row" style="padding-top:0">
-                <div class="toggle-left">
-                  <div class="toggle-sub">开启后，角色可以根据人设和头像库，自己给自己或给你换头像。</div>
-                </div>
                 <div class="toggle-switch" id="csCharAvatarAutoToggle" onclick="toggleCharAvatarAutoSwitch()"></div>
               </div>
             </div>
@@ -1569,7 +1558,6 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
           <div class="cs-stack" style="margin-top:10px">
             <div class="cs-subcard">
               <div class="cs-subcard-title">USER 头像库</div>
-              <div class="toggle-sub" style="margin-bottom:8px">点拍立得就直接换上，也可以把情侣头像一对一对收进来。</div>
               <div class="cs-avatar-library-strip" id="csUserAvatarShelf"></div>
             </div>
             <div id="csUserPersonaWrap">
@@ -4599,6 +4587,59 @@ async function applyAvatarAction(payload, actorRole, fallbackTarget){
     return false;
   });
   return changed ? item : null;
+}
+
+async function maybeApplyAvatarActionFromPlainText(text){
+  if(!character || !character.id) return null;
+  var raw = String(text || '').trim();
+  if(!raw) return null;
+  if(!/(头像|头图)/.test(raw)) return null;
+  if(!/(换|改|用了|配上|配成|换成|给你|给我|给自己|帮你|帮我)/.test(raw)) return null;
+  var store = avatarLibraryCache && (avatarLibraryCache.char || avatarLibraryCache.user) ? avatarLibraryCache : await loadAvatarLibraryStore(character.id);
+  avatarLibraryCache = store;
+  function scoreItem(role, item){
+    if(!item) return -1;
+    var score = -1;
+    var label = String(item.label || '').trim();
+    var pairTag = String(item.pairTag || '').trim();
+    var note = String(item.note || '').trim();
+    if(label && raw.indexOf(label) >= 0) score = Math.max(score, 100 + label.length);
+    if(pairTag && raw.indexOf(pairTag) >= 0) score = Math.max(score, 70 + pairTag.length);
+    if(note && note.length >= 2 && raw.indexOf(note) >= 0) score = Math.max(score, 40 + note.length);
+    return score;
+  }
+  function bestItem(role){
+    var items = Array.isArray(store[role]) ? store[role] : [];
+    var winner = null;
+    items.forEach(function(item){
+      var score = scoreItem(role, item);
+      if(score < 0) return;
+      if(!winner || score > winner.score) winner = { role: role, item: item, score: score };
+    });
+    return winner;
+  }
+  var wantsUser = /(给你|给我|帮你|帮我|你的头像|把你|把我)/.test(raw);
+  var wantsChar = /(我自己|给自己|我的头像|我也换|我换成|我这边|我用了)/.test(raw);
+  var charWinner = bestItem('char');
+  var userWinner = bestItem('user');
+  var winner = null;
+  if(wantsUser && userWinner) winner = userWinner;
+  else if(wantsChar && charWinner) winner = charWinner;
+  else if(charWinner && userWinner) winner = charWinner.score >= userWinner.score ? charWinner : userWinner;
+  else winner = charWinner || userWinner;
+  if(!winner || !winner.item) return null;
+  var src = String(await loadStoredAsset(winner.item.assetKey).catch(function(){ return winner.item.previewData || ''; }) || '').trim();
+  if(!src) return null;
+  var changed = await applyRoleAvatarChange(winner.role, src, {
+    actorRole: 'char',
+    itemMeta: winner.item,
+    forceNoticeOnSame: true,
+    skipAuto: true
+  }).catch(function(err){
+    console.warn('maybeApplyAvatarActionFromPlainText failed', err);
+    return false;
+  });
+  return changed ? winner.item : null;
 }
 
 async function applyRenameProfileAction(payload, actorRole){
@@ -12623,7 +12664,7 @@ function buildChatExtendedFormatPrompt(){
     'rename_profile：用于改昵称。target 只能是 char 或 user；name 是你要改成的新名字。target=char 表示改你在对方这里的名字，target=user 表示改你给对方存的备注/昵称。格式：{"type":"rename_profile","target":"char","name":"新昵称"} 或 {"type":"rename_profile","target":"user","name":"新备注"}。',
     'change_avatar：用于从你的头像库里换上你自己的头像。格式：{"type":"change_avatar","name":"头像名"}。',
     'change_user_avatar：用于从 USER 头像库里换上对方头像。格式：{"type":"change_user_avatar","name":"头像名"}。',
-    '换头像时必须真的从头像库里选一张存在的头像名，不要口头说“我换了”却不用动作。选不到合适头像就不要假装已经换好。',
+    '换头像时必须真的从头像库里选一张存在的头像名，并且直接发动作；不要用 text 口头说“我换了”“我给你换好了”。选不到合适头像就不要假装已经换好。',
     '备注/昵称只是称呼标签，不一定是本名。你不能因为备注名就认定那是对方的法律姓名或唯一正式名字。',
     '时间感知要自然：白天/下午一般不必反复催睡，但若对方明确说困、刚聊到作息或连续熬夜，也可以顺着关心一句。',
     '如果系统给了“时间流逝/隔了多久才回”，第一句优先接住这段现实间隔，再继续正题。',
@@ -13524,6 +13565,13 @@ async function maybeRepairForbiddenNarratorReply(reply, provider, key, model, te
 async function callAI(provider, key) {
   var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider);
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '1');
+  if(character && character.id){
+    try{
+      avatarLibraryCache = await loadAvatarLibraryStore(character.id);
+    }catch(err){
+      console.warn('load avatar library before callAI failed', err);
+    }
+  }
   await ensureMemeVisionForPrompt();
   var msgs = getVisibleChatForModel().map(function(m){
     if(!m) return null;
@@ -14216,9 +14264,10 @@ function addMessage(role, content, doScroll, msgType, msgId) {
       openInnerVoiceOverlay();
     });
   } else if (viewRole === 'user') {
-    av.textContent = '+';
+    var userFallback = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
+    setAvatarNodeFromSource(av, '', userFallback, false);
     resolveChatUserAvatarAsync(character && character.id).then(function(uav){
-      if (isRenderableAvatarSrc(uav)) av.innerHTML = '<img src="' + uav + '">';
+      setAvatarNodeFromSource(av, uav, userFallback, false);
     });
   } else if(viewRole === 'system'){
     av.style.display = 'none';
@@ -17117,10 +17166,10 @@ function hideTyping() {
 }
 
 function refreshUserAvatars(){
+  var fallback = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
   resolveChatUserAvatarAsync(character && character.id).then(function(uav){
-    var html = (uav && uav.startsWith('data:')) ? '<img src="' + uav + '">' : '+';
     document.querySelectorAll('.msg.user .msg-avatar').forEach(function(el){
-      el.innerHTML = html;
+      setAvatarNodeFromSource(el, uav, fallback, false);
     });
   });
 }
@@ -20939,7 +20988,9 @@ async function applyRoleAvatarChange(targetRole, src, options){
     await saveStoredAsset(userKey('user_avatar'), cleanSrc);
     await saveStoredAsset('user_avatar_' + character.id, cleanSrc);
     var uav = document.getElementById('csUserAvatar');
-    if(uav) uav.innerHTML = '<img src="' + cleanSrc + '"><div class="avatar-pick-hint">换头像</div>';
+    if(uav){
+      setAvatarNodeFromSource(uav, cleanSrc, String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你', true);
+    }
     refreshUserAvatars();
   }
   await syncHistoricalChatAvatars();
@@ -22208,6 +22259,14 @@ async function deliverAiReply(text, limitOverride){
     if(t === 'text'){
       p.text = sanitizeAssistantTextForChat(p.text);
       if(!p.text) continue;
+      var avatarActionFromText = await maybeApplyAvatarActionFromPlainText(p.text);
+      if(avatarActionFromText){
+        lastSentKey = 'avatartext::' + String(avatarActionFromText.id || avatarActionFromText.label || '');
+        sentTexts.push('【换了头像】');
+        sentCount++;
+        await sleep(140 + Math.floor(Math.random() * 70));
+        continue;
+      }
     }
     if(t === 'voice'){
       p.text = sanitizeAssistantVoiceText(p.text);
