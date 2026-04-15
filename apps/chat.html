@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-15T04:31:00Z"></script>
+<script src="../promptManager.js?v=2026-04-15T04:42:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
@@ -13249,9 +13249,13 @@ function detectMissingNarratorReply(rawReply){
 
 function detectNarratorOnlyReply(rawReply){
   if(!narratorSettingEnabled()) return { narratorOnly:false };
+  var raw = String(rawReply || '').trim();
   var parsed = maybeParseReplyJson(rawReply);
   if(!parsed || (typeof parsed !== 'object' && !Array.isArray(parsed))){
-    return { narratorOnly:false };
+    var hasNarratorSignal = /"type"\s*:\s*"narrator"|"narrator_message"\s*:/i.test(raw);
+    var hasNonNarratorSignal = /"type"\s*:\s*"(text|voice_message|image_message|image|voice|meme|money_packet|moneypacket|offline_invite|offlineinvite|rich_html|richhtml|rename_profile|renameprofile|recall)"/i.test(raw)
+      || /"rich_html"\s*:|"html_card"\s*:/i.test(raw);
+    return { narratorOnly: !!hasNarratorSignal && !hasNonNarratorSignal };
   }
   var narrators = collectNarratorCandidatesFromReplyNode(parsed, []).filter(Boolean);
   if(!narrators.length) return { narratorOnly:false };
@@ -13318,6 +13322,24 @@ async function maybeRepairNarratorOnlyReply(reply, provider, key, model, tempera
     var repairedIssue = detectNarratorOnlyReply(repaired);
     if(!repairedIssue.narratorOnly){
       return String(repaired || '');
+    }
+    var secondRepairSys = [
+      sys,
+      '【再次返工】上一条回复依然只有 narrator，还是没有真正发出去的消息。',
+      '这次请把要求听清：必须至少包含一条 type=text 的真实回复，直接接住用户刚刚那句；narrator 只能当陪衬。',
+      '不要解释规则，不要只写旁白，不要再漏掉正文。'
+    ].join('\n\n');
+    var secondRepairMsgs = msgs.concat([
+      { role:'assistant', content:String(repaired || reply || '') },
+      {
+        role:'user',
+        content:'重写上一条 assistant 回复。必须至少有一条 type=text 的真实回复，直接回应我刚才那句；如果要 narrator，也只能顺手带一小段。'
+      }
+    ]);
+    var repairedTwice = await callAIChat(provider, key, model, temperature, secondRepairSys, secondRepairMsgs);
+    var repairedTwiceIssue = detectNarratorOnlyReply(repairedTwice);
+    if(!repairedTwiceIssue.narratorOnly){
+      return String(repairedTwice || '');
     }
   }catch(err){
     console.warn('repair narrator-only reply failed', err);
