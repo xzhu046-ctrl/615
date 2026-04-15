@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-15T01:52:00Z"></script>
+<script src="../promptManager.js?v=2026-04-15T02:03:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
@@ -11725,28 +11725,89 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
 async function describeImageWithVision(imageSrc){
   var provider = localStorage.getItem('provider') || 'openai';
   var key = localStorage.getItem('key_' + provider);
-  if(provider !== 'openai' || !key || !String(imageSrc || '').trim()) return '';
+  var cleanSrc = String(imageSrc || '').trim();
+  if(!key || !cleanSrc) return '';
   var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider) || 'gpt-4.1-mini';
-  var res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-    body: JSON.stringify({
-      model: model,
-      temperature: 0.35,
-      messages: [
-        { role: 'system', content: '你是头像图像描述器。只返回一段很短的中文描述，写出画面主体、构图气质、颜色氛围、适合怎样的配对头像。不要解释。' },
+  var systemText = '你是头像图像描述器。只返回一段很短的中文描述，写出画面主体、构图气质、颜色氛围、适合怎样的配对头像。不要解释。';
+  var userText = '请识别这张头像，用一句到两句中文描述它的主体、风格和适合的配对方向。';
+  if(provider === 'gemini'){
+    var base64Data = '';
+    var mimeType = 'image/jpeg';
+    var dataUrlMatch = cleanSrc.match(/^data:(.*?);base64,(.*)$/i);
+    if(dataUrlMatch){
+      mimeType = String(dataUrlMatch[1] || 'image/jpeg').trim() || 'image/jpeg';
+      base64Data = String(dataUrlMatch[2] || '').trim();
+    }else{
+      try{
+        var imageRes = await fetch(cleanSrc);
+        var blob = await imageRes.blob();
+        mimeType = String(blob.type || mimeType).trim() || mimeType;
+        base64Data = await new Promise(function(resolve){
+          var reader = new FileReader();
+          reader.onloadend = function(){
+            var result = String(reader.result || '');
+            resolve(result.split(',')[1] || '');
+          };
+          reader.readAsDataURL(blob);
+        });
+      }catch(err){
+        console.warn('gemini avatar vision image fetch failed', err);
+        return '';
+      }
+    }
+    if(!base64Data) return '';
+    var geminiPayload = {
+      contents: [
+        { role: 'user', parts: [{ text: systemText }] },
+        { role: 'model', parts: [{ text: '好的，我会严格按照要求识别这张头像。' }] },
         {
           role: 'user',
-          content: [
-            { type: 'text', text: '请识别这张头像，用一句到两句中文描述它的主体、风格和适合的配对方向。' },
-            { type: 'image_url', image_url: { url: String(imageSrc || '').trim(), detail: 'high' } }
+          parts: [
+            { text: userText },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: base64Data
+              }
+            }
           ]
         }
-      ]
-    })
-  });
-  var data = await readAiJsonResponse(res);
-  return String(extractAiResponseText(data) || '').trim();
+      ],
+      generationConfig: {
+        temperature: 0.35
+      }
+    };
+    var geminiRes = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(geminiPayload)
+    });
+    var geminiData = await readAiJsonResponse(geminiRes);
+    return String(extractAiResponseText(geminiData) || '').trim();
+  }
+  if(provider === 'openai'){
+    var res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      body: JSON.stringify({
+        model: model,
+        temperature: 0.35,
+        messages: [
+          { role: 'system', content: systemText },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: userText },
+              { type: 'image_url', image_url: { url: cleanSrc, detail: 'high' } }
+            ]
+          }
+        ]
+      })
+    });
+    var data = await readAiJsonResponse(res);
+    return String(extractAiResponseText(data) || '').trim();
+  }
+  return '';
 }
 
 function parseAvatarAutoDecision(raw){
