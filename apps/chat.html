@@ -6796,6 +6796,43 @@ async function buildAvatarVisionLatestMessage(){
   return lines.join('\n');
 }
 
+function extractLatestUserTextForAvatarCue(msgs){
+  var list = Array.isArray(msgs) ? msgs.slice() : [];
+  for(var i = list.length - 1; i >= 0; i -= 1){
+    var msg = list[i];
+    if(!msg || msg.role !== 'user') continue;
+    var content = '';
+    if(typeof msg.content === 'string'){
+      content = String(msg.content || '').trim();
+    }else if(Array.isArray(msg.content)){
+      content = msg.content.map(function(part){
+        return part && part.type === 'text' ? String(part.text || '').trim() : '';
+      }).filter(Boolean).join('\n');
+    }
+    content = String(content || '').trim();
+    if(!content) continue;
+    if(/^【当前可见头像识图】|^【头像识图预处理结果】|^【头像问答提醒】/.test(content)) continue;
+    return content;
+  }
+  return '';
+}
+
+function shouldForceAvatarFocusCue(text){
+  var clean = String(text || '').trim();
+  if(!clean) return false;
+  return /头像|avatar|情头|情侣头像|配对头像|图里|图上|看我头像|看下头像|看看头像|头像细节|长相|穿搭|构图|风格/.test(clean);
+}
+
+function buildAvatarVisionFocusedCue(latestUserText){
+  var clean = String(latestUserText || '').trim();
+  if(!shouldForceAvatarFocusCue(clean)) return '';
+  return [
+    '【头像问答提醒】',
+    '用户这轮正在直接问头像或头像细节。',
+    '你必须优先依据本轮已经给你的真实头像识图结果回答，先接住头像问题本身；看不清就直接说看不清，不准瞎猜，不准岔开话题。'
+  ].join('\n');
+}
+
 function loadCharAvatarAutoEnabled(charId){
   if(!charId) return false;
   try{ return localStorage.getItem(charAvatarAutoToggleKey(charId)) === '1'; }catch(e){ return false; }
@@ -14184,6 +14221,51 @@ async function maybeRepairForbiddenNarratorReply(reply, provider, key, model, te
   return String(reply || '');
 }
 
+async function generateReplySupplement(mode, provider, key, model, temperature, sys, msgs, rawReply){
+  var safeMode = mode === 'narrator' ? 'narrator' : 'text';
+  var repairSys = [
+    sys,
+    safeMode === 'narrator'
+      ? '【补全】请只补一小段 narrator。它必须具体、简短，像动作/环境/声音/镜头余味，不要空话。只输出旁白内容本身，不要 JSON，不要引号，不要解释。'
+      : '【补全】请只补一句真正说出口的短回复。它必须直接接住用户刚刚那句，像真人会发出去的话。只输出这一句正文，不要 JSON，不要 narrator，不要动作描写，不要解释。'
+  ].join('\n\n');
+  var repairMsgs = (Array.isArray(msgs) ? msgs.slice() : []).concat([
+    { role:'assistant', content:String(rawReply || '') },
+    {
+      role:'user',
+      content: safeMode === 'narrator'
+        ? '只补一小段 narrator，短一点，具体一点。'
+        : '只补一句真正会发出去的短回复，不要旁白。'
+    }
+  ]);
+  try{
+    var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
+    var clean = String(repaired || '').trim();
+    if(!clean) return '';
+    clean = unwrapCodeFence(clean);
+    var parsed = maybeParseReplyJson(clean);
+    if(parsed && (typeof parsed === 'object' || Array.isArray(parsed))){
+      var visible = collectVisibleMessageCandidatesFromReplyNode(parsed, []);
+      var narrators = collectNarratorCandidatesFromReplyNode(parsed, []).filter(Boolean);
+      if(safeMode === 'narrator'){
+        var narr = String(narrators[0] || '').trim();
+        return sanitizeNarratorPerspectiveText(narr);
+      }
+      var nonNarr = visible.find(function(item){
+        return normalizeMessageType(item && item.type || 'text') !== 'narrator' && String(item && item.content || '').trim();
+      });
+      return sanitizeAssistantTextForChat(String(nonNarr && nonNarr.content || '').trim());
+    }
+    if(safeMode === 'narrator'){
+      return sanitizeNarratorPerspectiveText(clean.replace(/^[-*•]\s*/, '').split(/\n+/)[0] || '');
+    }
+    return sanitizeAssistantTextForChat(clean.replace(/^[-*•]\s*/, '').split(/\n+/)[0] || '');
+  }catch(err){
+    console.warn('generateReplySupplement failed', safeMode, err);
+    return '';
+  }
+}
+
 // ════════════════════════════════════════════
 //  AI API calls
 // ════════════════════════════════════════════
@@ -14229,6 +14311,10 @@ async function callAI(provider, key) {
   }
   if(avatarVisionPrompt){
     msgs.unshift({ role:'user', content: avatarVisionPrompt });
+  }
+  var avatarFocusCue = buildAvatarVisionFocusedCue(extractLatestUserTextForAvatarCue(msgs));
+  if(avatarFocusCue){
+    msgs.unshift({ role:'user', content: avatarFocusCue });
   }
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
@@ -22966,6 +23052,24 @@ async function deliverAiReply(text, limitOverride){
   var maxN = Number.isFinite(hardMax) ? Math.max(0, Math.floor(hardMax)) : (character && character.msgMax ? character.msgMax : 3);
   var softMaxN = Math.max(maxN, 6);
   if(maxN <= 0) return [];
+  var provider = localStorage.getItem('provider') || 'openai';
+  var key = localStorage.getItem('key_' + provider);
+  var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider);
+  var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '1');
+  var baseSys = buildSystemPrompt();
+  try{
+    baseSys = await appendAvatarVisionContextToSystemPrompt(baseSys);
+  }catch(err){
+    console.warn('appendAvatarVisionContextToSystemPrompt in deliverAiReply failed', err);
+  }
+  var baseMsgs = getVisibleChatForModel().map(function(m){
+    if(!m) return null;
+    if(m.hidden){
+      if(m.role === 'system') return { role:'user', content:String(m.content || '') };
+      return null;
+    }
+    return { role:m.role, content:formatMessageForModel(m) };
+  }).filter(Boolean);
   var clean = function(raw){
     if(!raw) return '';
     var t = String(raw)
@@ -23588,6 +23692,25 @@ async function deliverAiReply(text, limitOverride){
     });
   });
   parts = expandedParts;
+  if(narratorSettingEnabled()){
+    var hasNarratorPart = parts.some(function(part){
+      return normalizeMessageType(part && part.t || 'text') === 'narrator' && String(part && part.text || '').trim();
+    });
+    var hasNonNarratorPart = parts.some(function(part){
+      return normalizeMessageType(part && part.t || 'text') !== 'narrator' && String(part && part.text || '').trim();
+    });
+    if(hasNarratorPart && !hasNonNarratorPart){
+      var spokenSupplement = await generateReplySupplement('text', provider, key, model, temperature, baseSys, baseMsgs, text);
+      if(spokenSupplement){
+        parts.push({ text: spokenSupplement, t: 'text', replyTo:'', replyRole:'', translationText:'' });
+      }
+    }else if(!hasNarratorPart && hasNonNarratorPart){
+      var narratorSupplement = await generateReplySupplement('narrator', provider, key, model, temperature, baseSys, baseMsgs, text);
+      if(narratorSupplement){
+        parts.unshift({ text: narratorSupplement, t: 'narrator', replyTo:'', replyRole:'', translationText:'' });
+      }
+    }
+  }
   var hasExplicitMultiBubble = parts.length >= 2 || rawParts.length >= 2;
   var cap = hasExplicitMultiBubble ? softMaxN : maxN;
   if(parts.length > cap){
