@@ -6101,12 +6101,12 @@ async function appendAvatarVisionContextToSystemPrompt(systemPrompt){
 
 async function buildAvatarVisionMessagesForPrompt(provider){
   if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return [];
-  if(provider !== 'gemini' && provider !== 'openai') return [];
   var out = [];
   var userSrc = await resolveChatUserAvatarAsync(character.id).catch(function(){ return ''; });
   if(String(userSrc || '').trim()){
     out.push({
       role: 'user',
+      visionRole: 'user',
       content: [
         { type: 'text', text: '【头像上下文】下面这张是用户当前头像。请把它当作真实可见的头像上下文来理解，不要瞎猜。' },
         { type: 'image_url', image_url: { url: String(userSrc || '').trim(), detail: 'high' } }
@@ -6117,10 +6117,62 @@ async function buildAvatarVisionMessagesForPrompt(provider){
   if(String(charSrc || '').trim()){
     out.push({
       role: 'user',
+      visionRole: 'char',
       content: [
         { type: 'text', text: '【头像上下文】下面这张是角色当前头像。请把它当作真实可见的头像上下文来理解，不要瞎猜。' },
         { type: 'image_url', image_url: { url: String(charSrc || '').trim(), detail: 'high' } }
       ]
+    });
+  }
+  return out;
+}
+
+async function preprocessAvatarVisionMessagesForPrompt(messages){
+  var list = Array.isArray(messages) ? messages : [];
+  if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return list;
+  var out = [];
+  for(var i = 0; i < list.length; i += 1){
+    var msg = list[i];
+    if(!msg || !Array.isArray(msg.content) || !String(msg.visionRole || '').trim()){
+      out.push(msg);
+      continue;
+    }
+    var visionRole = String(msg.visionRole || '').trim() === 'char' ? 'char' : 'user';
+    var imageUrl = '';
+    var textParts = [];
+    for(var j = 0; j < msg.content.length; j += 1){
+      var part = msg.content[j];
+      if(!part) continue;
+      if(part.type === 'text' && String(part.text || '').trim()){
+        textParts.push(String(part.text || '').trim());
+      }else if(part.type === 'image_url' && part.image_url && String(part.image_url.url || '').trim()){
+        imageUrl = String(part.image_url.url || '').trim();
+      }
+    }
+    if(!imageUrl){
+      out.push(msg);
+      continue;
+    }
+    var desc = '';
+    try{
+      desc = await ensureAvatarVisionSummary(visionRole, imageUrl);
+    }catch(err){
+      console.warn('ensureAvatarVisionSummary in prompt preprocess failed', err);
+    }
+    if(!String(desc || '').trim()){
+      try{
+        desc = await describeImageWithVision(imageUrl, { kind:'avatar' });
+      }catch(err2){
+        console.warn('describeImageWithVision in prompt preprocess failed', err2);
+      }
+    }
+    out.push({
+      role: msg.role,
+      content: textParts.concat(
+        String(desc || '').trim()
+          ? [(visionRole === 'user' ? '用户当前头像真实识图结果：' : '角色当前头像真实识图结果：') + String(desc || '').trim()]
+          : []
+      ).filter(Boolean).join('\n')
     });
   }
   return out;
@@ -13404,6 +13456,11 @@ async function callAI(provider, key) {
     msgs.push({ role: 'user', content: pendingModelUserCue });
   }
   await prepareVectorPromptMemory(msgs);
+  var avatarVisionMsgs = await buildAvatarVisionMessagesForPrompt(provider);
+  if(avatarVisionMsgs && avatarVisionMsgs.length){
+    msgs = avatarVisionMsgs.concat(msgs);
+    msgs = await preprocessAvatarVisionMessagesForPrompt(msgs);
+  }
   var sys = buildSystemPrompt();
   sys = await appendAvatarVisionContextToSystemPrompt(sys);
   var avatarVisionLatest = await buildAvatarVisionLatestMessage();
@@ -15565,6 +15622,10 @@ function familyCardAvatarHtml(src, fallback, extraClass){
 }
 
 function currentUserAvatarForFamily(charId){
+  if(character && String(character.id || '') === String(charId || '')){
+    var liveUser = String(currentVisibleUserAvatarSrc() || '').trim();
+    if(isRenderableAvatarSrc(liveUser)) return liveUser;
+  }
   var keys = [];
   if(!isDefaultAccountContext()) keys.push(accountScopedKey('qq_profile_avatar_asset'));
   if(charId) keys.push(userKey('user_avatar'));
@@ -15585,6 +15646,10 @@ function currentUserAvatarForFamily(charId){
   return '';
 }
 function resolveChatUserAvatarAsync(charId){
+  if(character && String(character.id || '') === String(charId || '')){
+    var liveUser = String(currentVisibleUserAvatarSrc() || '').trim();
+    if(isRenderableAvatarSrc(liveUser)) return ensureChatRenderableAvatarSrc(liveUser);
+  }
   var keys = [];
   if(!isDefaultAccountContext()) keys.push(accountScopedKey('qq_profile_avatar_asset'));
   if(charId) keys.push(userKey('user_avatar'));
@@ -19428,6 +19493,20 @@ function currentVisibleCharAvatarSrc(){
     var src = String((node && node.getAttribute('src')) || (node && node.src) || '').trim();
     if(src) return src;
   }
+  return '';
+}
+
+function currentVisibleUserAvatarSrc(){
+  var selectors = ['#csUserAvatar img', '.msg.user .msg-avatar img', '#chatExportUserAvatar img'];
+  for(var i = 0; i < selectors.length; i++){
+    var node = document.querySelector(selectors[i]);
+    var src = String((node && node.getAttribute && node.getAttribute('src')) || (node && node.src) || '').trim();
+    if(isRenderableAvatarSrc(src)) return src;
+  }
+  try{
+    var active = String(getActiveAccountProfileAvatar() || '').trim();
+    if(isRenderableAvatarSrc(active)) return active;
+  }catch(err){}
   return '';
 }
 
