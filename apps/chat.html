@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-15T01:20:00Z"></script>
+<script src="../promptManager.js?v=2026-04-15T01:36:00Z"></script>
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
@@ -6250,6 +6250,11 @@ function clearComposerMode(){
 
 function toggleNarratorComposer(){
   closeAddonPanel();
+  if(!narratorSettingEnabled()){
+    clearComposerMode();
+    toast('旁白发送已关闭');
+    return;
+  }
   setComposerMode(composerMode === 'narrator' ? 'text' : 'narrator');
 }
 
@@ -9357,6 +9362,7 @@ function renderChatLog(keepScroll){
   }
   rendered.items.forEach(function(m){
     if(m && m.hidden) return;
+    if(m && normalizeMessageType(m.type || 'text') === 'narrator' && !narratorSettingEnabled()) return;
     addMessage(m.role, m.content, false, m.type, m.id);
   });
   if(keepScroll){
@@ -12225,13 +12231,16 @@ function onKey(e) {
 function buildOutgoingComposerPayload(rawText){
   var text = String(rawText || '').trim();
   if(!text) return null;
-  if(composerMode === 'narrator'){
+  if(composerMode === 'narrator' && narratorSettingEnabled()){
     return {
       type: 'narrator',
       storageContent: narratorStorageText(text),
       displayContent: narratorStorageText(text),
       modelSeed: buildNarratorContextText(text)
     };
+  }
+  if(composerMode === 'narrator' && !narratorSettingEnabled()){
+    clearComposerMode();
   }
   var rich = parseRichHtmlBlocks(text);
   if(rich){
@@ -13462,6 +13471,9 @@ function toggleSunnyWizardTrait(msgId, trait){
 
 function addMessage(role, content, doScroll, msgType, msgId) {
   if (doScroll === undefined) doScroll = true;
+  if(normalizeMessageType(msgType || 'text') === 'narrator' && !narratorSettingEnabled()){
+    return;
+  }
   var msgs = document.getElementById('messages');
   // Remove welcome message
   var w = msgs.querySelector('.welcome'); if (w) w.remove();
@@ -20393,6 +20405,9 @@ async function saveChatSettings() {
     character.replyLanguage = replyLanguage;
     character.translationMode = translationMode;
     character.allowNarrator = narratorEnabled;
+    if(!narratorEnabled){
+      clearComposerMode();
+    }
     character.avatarVisionEnabled = !!avatarVisionEnabled;
     character.charAvatarAutoEnabled = !!charAvatarAutoEnabled;
     saveAvatarVisionEnabled(character.id, !!avatarVisionEnabled);
