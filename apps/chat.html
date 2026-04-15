@@ -14104,83 +14104,42 @@ function detectNarratorOnlyReply(rawReply){
   return { narratorOnly: !hasNonNarrator };
 }
 
-async function maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, sys, msgs){
+async function maybeRepairNarratorReply(reply, provider, key, model, temperature, sys, msgs){
   if(!narratorSettingEnabled()) return String(reply || '');
-  var issue = detectMissingNarratorReply(reply);
-  if(!issue.missing) return String(reply || '');
+  var missingIssue = detectMissingNarratorReply(reply);
+  var onlyIssue = detectNarratorOnlyReply(reply);
+  if(!missingIssue.missing && !onlyIssue.narratorOnly) return String(reply || '');
   var narratorLang = getNarratorReplyLanguage();
   var narratorOption = getReplyLanguageOption(narratorLang);
   var repairSys = [
     sys,
-    '【返工】你漏掉了 narrator。当前设置要求每轮都要带一小段 narrator（旁白）。',
-    '请只重写上一条 assistant 回复，保留原结构和语义，只补上简短 narrator，不要改成空泛模板。'
+    onlyIssue.narratorOnly
+      ? '【返工】你刚才那条回复只有 narrator，没有真正发出去的消息。当前设置里 narrator 只能陪衬真实回复，不能单独成轮。'
+      : '【返工】你漏掉了 narrator。当前设置要求这轮带一小段 narrator（旁白）。',
+    onlyIssue.narratorOnly
+      ? '请只重写上一条 assistant 回复：保留简短 narrator，同时至少补上一条真正可见的非 narrator 消息，直接回应用户刚刚那句。'
+      : '请只重写上一条 assistant 回复，保留原结构和语义，只补上一小段简短 narrator，不要改成空泛模板。'
   ].join('\n\n');
   var repairMsgs = msgs.concat([
     { role:'assistant', content:String(reply || '') },
     {
       role:'user',
-      content:'请重写上一条 assistant 回复，并确保包含一条简短 narrator。'
-        + (narratorOption && narratorOption.value !== 'zh' ? (' narrator 语言使用' + (narratorOption.nativeLabel || narratorOption.label) + '。') : ' narrator 默认简体中文。')
+      content: onlyIssue.narratorOnly
+        ? ('请重写上一条 assistant 回复。保留简短 narrator，同时补上一条真正发出去的话；不要只剩旁白。'
+          + (narratorOption && narratorOption.value !== 'zh' ? (' narrator 语言继续使用' + (narratorOption.nativeLabel || narratorOption.label) + '。') : ''))
+        : ('请重写上一条 assistant 回复，并确保包含一条简短 narrator。'
+          + (narratorOption && narratorOption.value !== 'zh' ? (' narrator 语言使用' + (narratorOption.nativeLabel || narratorOption.label) + '。') : ' narrator 默认简体中文。'))
     }
   ]);
   try{
     var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
-    var repairedIssue = detectMissingNarratorReply(repaired);
-    if(!repairedIssue.missing){
+    var repairedMissing = detectMissingNarratorReply(repaired);
+    var repairedOnly = detectNarratorOnlyReply(repaired);
+    if(!repairedMissing.missing && !repairedOnly.narratorOnly){
       return String(repaired || '');
     }
   }catch(err){
-    console.warn('repair missing narrator failed', err);
-  }
-  return String(reply || '');
-}
-
-async function maybeRepairNarratorOnlyReply(reply, provider, key, model, temperature, sys, msgs){
-  if(!narratorSettingEnabled()) return String(reply || '');
-  var issue = detectNarratorOnlyReply(reply);
-  if(!issue.narratorOnly) return String(reply || '');
-  var narratorLang = getNarratorReplyLanguage();
-  var narratorOption = getReplyLanguageOption(narratorLang);
-  var repairSys = [
-    sys,
-    '【返工】你刚才那条回复只有 narrator，没有真正发出去的消息。',
-    '当前设置里 narrator 只能陪衬真实回复，不能单独成轮。',
-    '请只重写上一条 assistant 回复：保留那段简短 narrator，同时至少补上一条真正可见的非 narrator 消息，直接回应用户刚刚那句。'
-  ].join('\n\n');
-  var repairMsgs = msgs.concat([
-    { role:'assistant', content:String(reply || '') },
-    {
-      role:'user',
-      content:'请重写上一条 assistant 回复。保留简短 narrator，同时补上一条真正发出去的话；不要只剩旁白。'
-        + (narratorOption && narratorOption.value !== 'zh' ? (' narrator 语言继续使用' + (narratorOption.nativeLabel || narratorOption.label) + '。') : '')
-    }
-  ]);
-  try{
-    var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
-    var repairedIssue = detectNarratorOnlyReply(repaired);
-    if(!repairedIssue.narratorOnly){
-      return String(repaired || '');
-    }
-    var secondRepairSys = [
-      sys,
-      '【再次返工】上一条回复依然只有 narrator，还是没有真正发出去的消息。',
-      '这次请把要求听清：必须至少包含一条 type=text 的真实回复，直接接住用户刚刚那句；narrator 只能当陪衬。',
-      '不要解释规则，不要只写旁白，不要再漏掉正文。'
-    ].join('\n\n');
-    var secondRepairMsgs = msgs.concat([
-      { role:'assistant', content:String(repaired || reply || '') },
-      {
-        role:'user',
-        content:'重写上一条 assistant 回复。必须至少有一条 type=text 的真实回复，直接回应我刚才那句；如果要 narrator，也只能顺手带一小段。'
-      }
-    ]);
-    var repairedTwice = await callAIChat(provider, key, model, temperature, secondRepairSys, secondRepairMsgs);
-    var repairedTwiceIssue = detectNarratorOnlyReply(repairedTwice);
-    if(!repairedTwiceIssue.narratorOnly){
-      return String(repairedTwice || '');
-    }
-  }catch(err){
-    console.warn('repair narrator-only reply failed', err);
+    console.warn('repair narrator reply failed', err);
   }
   return String(reply || '');
 }
@@ -14219,51 +14178,6 @@ async function maybeRepairForbiddenNarratorReply(reply, provider, key, model, te
     console.warn('repair forbidden narrator failed', err);
   }
   return String(reply || '');
-}
-
-async function generateReplySupplement(mode, provider, key, model, temperature, sys, msgs, rawReply){
-  var safeMode = mode === 'narrator' ? 'narrator' : 'text';
-  var repairSys = [
-    sys,
-    safeMode === 'narrator'
-      ? '【补全】请只补一小段 narrator。它必须具体、简短，像动作/环境/声音/镜头余味，不要空话。只输出旁白内容本身，不要 JSON，不要引号，不要解释。'
-      : '【补全】请只补一句真正说出口的短回复。它必须直接接住用户刚刚那句，像真人会发出去的话。只输出这一句正文，不要 JSON，不要 narrator，不要动作描写，不要解释。'
-  ].join('\n\n');
-  var repairMsgs = (Array.isArray(msgs) ? msgs.slice() : []).concat([
-    { role:'assistant', content:String(rawReply || '') },
-    {
-      role:'user',
-      content: safeMode === 'narrator'
-        ? '只补一小段 narrator，短一点，具体一点。'
-        : '只补一句真正会发出去的短回复，不要旁白。'
-    }
-  ]);
-  try{
-    var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
-    var clean = String(repaired || '').trim();
-    if(!clean) return '';
-    clean = unwrapCodeFence(clean);
-    var parsed = maybeParseReplyJson(clean);
-    if(parsed && (typeof parsed === 'object' || Array.isArray(parsed))){
-      var visible = collectVisibleMessageCandidatesFromReplyNode(parsed, []);
-      var narrators = collectNarratorCandidatesFromReplyNode(parsed, []).filter(Boolean);
-      if(safeMode === 'narrator'){
-        var narr = String(narrators[0] || '').trim();
-        return sanitizeNarratorPerspectiveText(narr);
-      }
-      var nonNarr = visible.find(function(item){
-        return normalizeMessageType(item && item.type || 'text') !== 'narrator' && String(item && item.content || '').trim();
-      });
-      return sanitizeAssistantTextForChat(String(nonNarr && nonNarr.content || '').trim());
-    }
-    if(safeMode === 'narrator'){
-      return sanitizeNarratorPerspectiveText(clean.replace(/^[-*•]\s*/, '').split(/\n+/)[0] || '');
-    }
-    return sanitizeAssistantTextForChat(clean.replace(/^[-*•]\s*/, '').split(/\n+/)[0] || '');
-  }catch(err){
-    console.warn('generateReplySupplement failed', safeMode, err);
-    return '';
-  }
 }
 
 // ════════════════════════════════════════════
@@ -14318,8 +14232,7 @@ async function callAI(provider, key) {
   }
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
-  reply = await maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, sys, msgs);
-  reply = await maybeRepairNarratorOnlyReply(reply, provider, key, model, temperature, sys, msgs);
+  reply = await maybeRepairNarratorReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, sys, msgs);
   if(shouldEnforceForeignReplyLanguage()){
     var lang = getCharacterReplyLanguage();
@@ -14338,8 +14251,7 @@ async function callAI(provider, key) {
       }]);
       reply = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs) || reply;
       reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
-      reply = await maybeRepairMissingNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
-      reply = await maybeRepairNarratorOnlyReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
+      reply = await maybeRepairNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
       reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
     }
   }
@@ -23052,24 +22964,6 @@ async function deliverAiReply(text, limitOverride){
   var maxN = Number.isFinite(hardMax) ? Math.max(0, Math.floor(hardMax)) : (character && character.msgMax ? character.msgMax : 3);
   var softMaxN = Math.max(maxN, 6);
   if(maxN <= 0) return [];
-  var provider = localStorage.getItem('provider') || 'openai';
-  var key = localStorage.getItem('key_' + provider);
-  var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider);
-  var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '1');
-  var baseSys = buildSystemPrompt();
-  try{
-    baseSys = await appendAvatarVisionContextToSystemPrompt(baseSys);
-  }catch(err){
-    console.warn('appendAvatarVisionContextToSystemPrompt in deliverAiReply failed', err);
-  }
-  var baseMsgs = getVisibleChatForModel().map(function(m){
-    if(!m) return null;
-    if(m.hidden){
-      if(m.role === 'system') return { role:'user', content:String(m.content || '') };
-      return null;
-    }
-    return { role:m.role, content:formatMessageForModel(m) };
-  }).filter(Boolean);
   var clean = function(raw){
     if(!raw) return '';
     var t = String(raw)
@@ -23692,25 +23586,6 @@ async function deliverAiReply(text, limitOverride){
     });
   });
   parts = expandedParts;
-  if(narratorSettingEnabled()){
-    var hasNarratorPart = parts.some(function(part){
-      return normalizeMessageType(part && part.t || 'text') === 'narrator' && String(part && part.text || '').trim();
-    });
-    var hasNonNarratorPart = parts.some(function(part){
-      return normalizeMessageType(part && part.t || 'text') !== 'narrator' && String(part && part.text || '').trim();
-    });
-    if(hasNarratorPart && !hasNonNarratorPart){
-      var spokenSupplement = await generateReplySupplement('text', provider, key, model, temperature, baseSys, baseMsgs, text);
-      if(spokenSupplement){
-        parts.push({ text: spokenSupplement, t: 'text', replyTo:'', replyRole:'', translationText:'' });
-      }
-    }else if(!hasNarratorPart && hasNonNarratorPart){
-      var narratorSupplement = await generateReplySupplement('narrator', provider, key, model, temperature, baseSys, baseMsgs, text);
-      if(narratorSupplement){
-        parts.unshift({ text: narratorSupplement, t: 'narrator', replyTo:'', replyRole:'', translationText:'' });
-      }
-    }
-  }
   var hasExplicitMultiBubble = parts.length >= 2 || rawParts.length >= 2;
   var cap = hasExplicitMultiBubble ? softMaxN : maxN;
   if(parts.length > cap){
