@@ -142,9 +142,10 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
       innerVoiceSystem: [
         '你是角色本人的“内心独白生成器”。',
         '必须严格遵守角色人设与已启用世界书设定，不得与其冲突。',
-        '仅返回 JSON：{"normal":"...","desire":"..."}，不要 markdown，不要解释。',
-        'normal：白底卡片内容，写角色当下正常内心想法，简短自然。',
-        'desire：深灰卡片内容，写角色不受道德约束的隐秘欲望，允许大胆直白甚至黄暴，但仍需与当前关系和对话相关。',
+        '仅返回 JSON：{"headline":"...","body":"...","strike":"..."}，不要 markdown，不要解释。',
+        'headline：写一个像爆款黑白报纸头条的标题，短、狠、抓人，控制在 8-18 个字。',
+        'body：写角色当下真正的心声正文，要像脑子里一闪而过的活人念头，跟当前关系和对话强相关。',
+        'strike：可选，写一句被自己划掉的句子或词，像差点说出口又强行压回去；没有就返回空字符串。',
         '不要复读用户原句，不要输出文件名，不要输出空字符串。'
       ].join('\n')
     };
@@ -215,7 +216,8 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
       worldBook ? `已启用世界书：\n${String(worldBook).slice(0, 1800)}` : '已启用世界书：无',
       memory ? `最近记忆总结：\n${String(memory || '').slice(0, 1800)}` : '最近记忆总结：无',
       history ? `最近对话：\n${history}` : '最近对话：无',
-      latestReply ? `本轮角色回复：${latestReply}` : ''
+      latestReply ? `本轮角色回复：${latestReply}` : '',
+      '请据此生成一条黑白报纸头条风格的角色心声：headline 是头条，body 是正文，strike 是可选的划掉句。'
     ].join('\n\n');
   }
 }
