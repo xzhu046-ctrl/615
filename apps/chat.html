@@ -12714,7 +12714,18 @@ function parseMoneyPacketPayload(raw){
   if(typeof raw === 'object') return raw;
   try{
     var obj = JSON.parse(String(raw));
-    return obj && typeof obj === 'object' ? obj : null;
+    if(!obj || typeof obj !== 'object') return null;
+    var objType = String(obj.type || '').trim().toLowerCase();
+    var objMode = String(obj.mode || '').trim().toLowerCase();
+    var looksLikeMoney = objType === 'money_packet'
+      || objType === 'moneypacket'
+      || objMode === 'transfer'
+      || objMode === 'red_packet'
+      || objMode === 'redpacket'
+      || Object.prototype.hasOwnProperty.call(obj, 'amount')
+      || Object.prototype.hasOwnProperty.call(obj, 'coverId')
+      || Object.prototype.hasOwnProperty.call(obj, 'coverName');
+    return looksLikeMoney ? obj : null;
   }catch(e){
     var text = String(raw || '').trim();
     var bracketMatch = text.match(/^\[(?:money_packet)\s+([^\]]+)\]$/i);
@@ -12751,7 +12762,12 @@ function parseMoneyPacketPayload(raw){
 }
 
 function tryPromoteTextToMoneyPacket(raw){
-  var payload = parseMoneyPacketPayload(raw);
+  var text = String(raw || '').trim();
+  var looksLikeExplicitMoneyText =
+    /^\[(?:money_packet)\s+[^\]]+\]$/i.test(text)
+    || /^\[(转账信息|红包信息)\s*::\s*[0-9]+(?:\.[0-9]+)?\s*::\s*[^\]]*\]$/.test(text);
+  if(!looksLikeExplicitMoneyText) return null;
+  var payload = parseMoneyPacketPayload(text);
   if(!payload) return null;
   if(String(payload.type || 'money_packet') !== 'money_packet') payload.type = 'money_packet';
   return JSON.stringify(payload);
