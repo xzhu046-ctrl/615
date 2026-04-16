@@ -1,7 +1,7 @@
 // EPHONE Main OS Logic
 const APP_MAP = {
   qq:         { title: 'QQ',             src: 'apps/qq.html' },
-  chat:       { title: 'Chat',           src: 'apps/chat.html' },
+  chat:       { title: 'Chat',           src: 'apps/chat.html', hideTopbar: true },
   characters: { title: 'Contacts',       src: 'apps/characters.html' },
   settings:   { title: '设置',           src: 'apps/settings.html' },
   customize:  { title: '外观',           src: 'apps/customize.html' },
@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T03:18:00Z';
+const APP_BUILD_ID = '2026-04-16T03:31:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -7297,8 +7297,12 @@ async function formatEphone(){
   setWallpaper('default');
   restoreHomeAppIcons();
   document.getElementById('wgt-avatar').textContent='✿';
+  document.getElementById('wgt-user-avatar').textContent='你';
   document.getElementById('wgt-name').textContent='No companion yet';
-  document.getElementById('wgt-sub').textContent='Tap to import a character card!';
+  document.getElementById('wgt-char-role').textContent='CHAR';
+  document.getElementById('wgt-user-role').textContent='USER';
+  document.getElementById('wgt-char-last').textContent='Tap to import a character card!';
+  document.getElementById('wgt-user-last').textContent='之后这里会显示你说过的最后一句话。';
   ['top','1','2','3'].forEach((id)=>renderHomeSlot(id, null));
   renderCharNote();
   renderClockLocation();
@@ -7484,16 +7488,6 @@ window.addEventListener('message',(e)=>{
       var ac = getActiveCharacterData();
       if(ac) renderBondWidget(ac);
     }
-    var picked = payload && Object.prototype.hasOwnProperty.call(payload, 'last')
-      ? { content: (payload.last || ''), type: normalizeChatPreviewType(payload.lastType || 'text') }
-      : payload && payload.id
-        ? pickLatestPreview(getStoredChatMessages(payload.id))
-        : { content: '', type: 'text' };
-    var subText = picked.content || payload.last || '';
-    var lastType = normalizeChatPreviewType(picked.type || payload.lastType || 'text');
-    subText = getPreviewTextForWidget({ content: subText, type: lastType });
-    var subEl = document.getElementById('wgt-sub');
-    if(subEl) subEl.textContent = formatCharSub(subText);
     renderHomeDockBadges();
   }
 });
@@ -7728,6 +7722,39 @@ function getPreviewTextForWidget(preview){
   return next.content || '';
 }
 
+function getLatestPreviewForRole(messages, role){
+  var list = Array.isArray(messages) ? messages : [];
+  var target = String(role || '').trim().toLowerCase();
+  for(var i = list.length - 1; i >= 0; i--){
+    var entry = list[i] || {};
+    if(entry.hidden) continue;
+    var entryRole = String((entry.role || entry.sender || entry.from || '') || '').toLowerCase();
+    var matched = target === 'user'
+      ? entryRole === 'user'
+      : isAssistantPreviewMessage(entry);
+    if(!matched) continue;
+    return normalizePreviewMessage(entry);
+  }
+  return { content:'', type:'text' };
+}
+
+function formatWidgetConversationLine(text, fallback){
+  var src = String(text || '').replace(/\s+/g, ' ').trim();
+  if(!src) return String(fallback || '').trim();
+  var max = 34;
+  return src.length > max ? (src.slice(0, max - 1).trim() + '…') : src;
+}
+
+function applyWidgetUserAvatarContent(target, src, fallback){
+  if(!target) return;
+  var safeSrc = normalizeShellAssetSrc(src || '');
+  if(isRenderableShellAvatarSrc(safeSrc)){
+    target.innerHTML = '<img src="' + safeSrc + '" alt="">';
+    return;
+  }
+  target.textContent = String(fallback || '你').trim() || '你';
+}
+
 function getPreviewStampFromMessages(messages){
   var list = Array.isArray(messages) ? messages : [];
   var lastTs = 0;
@@ -7739,18 +7766,25 @@ function getPreviewStampFromMessages(messages){
 }
 
 function setWidgetCharacter(c){
-  const displayName = c?.nickname || c?.name || '';
+  const displayName = c?.nickname || c?.name || 'No companion yet';
   document.getElementById('wgt-name').textContent = displayName;
   function applyWidgetSub(messages){
-    var lastLine = '';
+    var charLine = '';
+    var userLine = '';
     try{
       var eventPreview = c && c.id ? getWidgetPreview(c.id) : null;
       var latestStamp = getPreviewStampFromMessages(messages);
       if(eventPreview && eventPreview.at >= latestStamp && (eventPreview.content || normalizeChatPreviewType(eventPreview.type || 'text') !== 'text')){
-        lastLine = getPreviewTextForWidget(eventPreview);
-      }else if(Array.isArray(messages) && messages.length){
+        charLine = getPreviewTextForWidget(eventPreview);
+      }
+      if(Array.isArray(messages) && messages.length){
+        if(!charLine){
+          var charMsg = getLatestPreviewForRole(messages, 'assistant');
+          charLine = getPreviewTextForWidget(charMsg);
+        }
+        var userMsg = getLatestPreviewForRole(messages, 'user');
+        userLine = getPreviewTextForWidget(userMsg);
         var lastMsg = pickLatestPreview(messages);
-        lastLine = getPreviewTextForWidget(lastMsg);
         if(c && c.id && (lastMsg.content || normalizeChatPreviewType(lastMsg.type || 'text') !== 'text')){
           storeWidgetPreview(c.id, {
             content: lastMsg.content || '',
@@ -7760,8 +7794,12 @@ function setWidgetCharacter(c){
         }
       }
     }catch(e){}
-    var sub = lastLine || c?.description || '';
-    document.getElementById('wgt-sub').textContent = formatCharSub(sub);
+    var charText = formatWidgetConversationLine(charLine || c?.description || '', 'Tap to import a character card!');
+    var userText = formatWidgetConversationLine(userLine, '之后这里会显示你说过的最后一句话。');
+    var charLineEl = document.getElementById('wgt-char-last');
+    var userLineEl = document.getElementById('wgt-user-last');
+    if(charLineEl) charLineEl.textContent = charText;
+    if(userLineEl) userLineEl.textContent = userText;
   }
   applyWidgetSub(c?.id ? getStoredChatMessages(c.id) : []);
   if(c?.id){
@@ -7772,7 +7810,32 @@ function setWidgetCharacter(c){
     });
   }
   const avEl = document.getElementById('wgt-avatar');
+  const userAvEl = document.getElementById('wgt-user-avatar');
   var liveAvatarSrc = normalizeShellAssetSrc(c && c.imageData || '');
+  var widgetEl = document.getElementById('widget-character');
+  if(c && c.id){
+    var userLabel = getBondWidgetUserName(c, getChatUserName(c.id));
+    var charRoleEl = document.getElementById('wgt-char-role');
+    var userRoleEl = document.getElementById('wgt-user-role');
+    if(charRoleEl) charRoleEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
+    if(userRoleEl) userRoleEl.textContent = String(userLabel || 'USER').trim() || 'USER';
+    getChatUserAvatar(c.id).then(function(userSrc){
+      applyWidgetUserAvatarContent(userAvEl, userSrc, String(userLabel || '你').slice(0, 2));
+    });
+  }else{
+    var emptyCharRoleEl = document.getElementById('wgt-char-role');
+    var emptyUserRoleEl = document.getElementById('wgt-user-role');
+    if(emptyCharRoleEl) emptyCharRoleEl.textContent = 'CHAR';
+    if(emptyUserRoleEl) emptyUserRoleEl.textContent = 'USER';
+    applyWidgetUserAvatarContent(userAvEl, '', '你');
+  }
+  if(widgetEl){
+    if(isRenderableShellAvatarSrc(liveAvatarSrc)){
+      widgetEl.style.setProperty('--widget-char-art', 'url("' + liveAvatarSrc.replace(/"/g, '\\"') + '")');
+    }else{
+      widgetEl.style.setProperty('--widget-char-art', 'none');
+    }
+  }
   if (isRenderableShellAvatarSrc(liveAvatarSrc)) {
     avEl.innerHTML = '<img src="'+liveAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
   } else {
@@ -7782,10 +7845,23 @@ function setWidgetCharacter(c){
     loadStoredAsset('char_avatar_' + c.id).then((override)=>{
       var safeOverride = normalizeShellAssetSrc(override || '');
       if(isRenderableShellAvatarSrc(safeOverride)){
+        if(widgetEl){
+          widgetEl.style.setProperty('--widget-char-art', 'url("' + safeOverride.replace(/"/g, '\\"') + '")');
+        }
         avEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
       }
     });
   }
+}
+
+function onWidgetCharacterTap(e){
+  if(e && e.stopPropagation) e.stopPropagation();
+  var active = getActiveCharacterData();
+  if(active && active.id){
+    openApp('chat');
+    return;
+  }
+  openApp('characters');
 }
 
 function normalizeUnreadBadgeCount(n){
