@@ -45,7 +45,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T05:34:00Z';
+const APP_BUILD_ID = '2026-04-16T05:41:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -7950,7 +7950,7 @@ function setWidgetCharacter(c){
     avEl.textContent = c?.avatar || '✿';
   }
   if (isRenderableShellAvatarSrc(orbAvatarSrc)) {
-    if(sideAvEl) sideAvEl.innerHTML = '<img src="'+orbAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
+    if(sideAvEl) sideAvEl.innerHTML = '<img src="'+orbAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;object-position:center;display:block">';
     if(sideOrbEl) sideOrbEl.classList.add('has-image');
   } else {
     if(sideAvEl) sideAvEl.textContent = (orbCharacter && orbCharacter.avatar) || c?.avatar || '✿';
@@ -7968,27 +7968,101 @@ function setWidgetCharacter(c){
     loadStoredAsset('char_avatar_' + orbCharacter.id).then((override)=>{
       var safeOverride = normalizeShellAssetSrc(override || '');
       if(isRenderableShellAvatarSrc(safeOverride)){
-        if(sideAvEl) sideAvEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
+        if(sideAvEl) sideAvEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;object-position:center;display:block">';
         if(sideOrbEl) sideOrbEl.classList.add('has-image');
       }
     });
   }
 }
 
-function beginWidgetBubbleEdit(e, role){
-  if(e && e.stopPropagation) e.stopPropagation();
+function getWidgetBubbleTextElement(role){
   var targetId = String(role || '') === 'user' ? 'wgt-user-last' : 'wgt-char-last';
-  var target = document.getElementById(targetId);
-  var current = target ? String(target.textContent || '').trim() : '';
-  var next = window.prompt('输入新的文案，留空会恢复联动内容', current);
-  if(next === null) return;
-  setWidgetTextOverride(role, next);
+  return document.getElementById(targetId);
+}
+
+function finishWidgetBubbleEdit(role, opts){
+  var target = getWidgetBubbleTextElement(role);
+  if(!target) return;
+  var options = opts || {};
+  var rawValue = String(target.textContent || '').replace(/\s+/g, ' ').trim();
+  var fallback = String(target.dataset.originalText || '').trim();
+  var value = options.cancel ? fallback : rawValue;
+  target.contentEditable = 'false';
+  target.removeAttribute('data-editing');
+  target.classList.remove('editing');
+  var line = target.closest('.widget-character-line');
+  if(line) line.classList.remove('editing');
+  if(options.cancel){
+    target.textContent = fallback;
+    return;
+  }
+  setWidgetTextOverride(role, value);
   var active = getActiveCharacterData();
   if(active){
     setWidgetCharacter(active);
   }else{
     setWidgetCharacter({ name:'No companion yet' });
   }
+}
+
+function beginWidgetBubbleEdit(e, role){
+  if(e && e.stopPropagation) e.stopPropagation();
+  if(e && e.preventDefault) e.preventDefault();
+  var target = getWidgetBubbleTextElement(role);
+  if(!target) return;
+  if(target.getAttribute('data-editing') === 'true') return;
+  ['char','user'].forEach(function(key){
+    if(key !== String(role || '')) finishWidgetBubbleEdit(key, { cancel: false });
+  });
+  target.dataset.originalText = String(target.textContent || '').trim();
+  target.setAttribute('data-editing', 'true');
+  target.contentEditable = 'true';
+  target.classList.add('editing');
+  var line = target.closest('.widget-character-line');
+  if(line) line.classList.add('editing');
+  try{
+    var range = document.createRange();
+    range.selectNodeContents(target);
+    range.collapse(false);
+    var sel = window.getSelection();
+    if(sel){
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }catch(err){}
+  target.focus();
+}
+
+function bindWidgetBubbleEditors(){
+  ['char','user'].forEach(function(role){
+    var target = getWidgetBubbleTextElement(role);
+    if(!target || target.dataset.editorBound === 'true') return;
+    target.dataset.editorBound = 'true';
+    target.addEventListener('keydown', function(evt){
+      if(evt.key === 'Enter'){
+        evt.preventDefault();
+        finishWidgetBubbleEdit(role, { cancel: false });
+      }else if(evt.key === 'Escape'){
+        evt.preventDefault();
+        finishWidgetBubbleEdit(role, { cancel: true });
+      }
+    });
+    target.addEventListener('blur', function(){
+      if(target.getAttribute('data-editing') === 'true'){
+        finishWidgetBubbleEdit(role, { cancel: false });
+      }
+    });
+    target.addEventListener('paste', function(evt){
+      evt.preventDefault();
+      var text = '';
+      try{
+        text = (evt.clipboardData || window.clipboardData).getData('text') || '';
+      }catch(err){
+        text = '';
+      }
+      document.execCommand('insertText', false, text.replace(/\s+/g, ' '));
+    });
+  });
 }
 
 function onWidgetCharacterTap(e){
@@ -8326,6 +8400,7 @@ function restoreState(){
   bindTopFrameEditor();
   bindHomeMusicSystem();
   bindWidgetCharacterBackgroundInput();
+  bindWidgetBubbleEditors();
   bindHomeAppPressState();
   applyLiveDanmakuVisibility(getLiveDanmakuEnabled());
   restoreHomeSlots();
