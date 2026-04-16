@@ -1937,6 +1937,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
     <button class="addon-item" type="button" title="语音通话" aria-label="语音通话" onclick="openVoiceCallFromAddon()"><span class="addon-icon narrator" aria-hidden="true"><img src="assets/语音通话.png" alt=""></span></button>
     <button class="addon-item" type="button" title="旁白" aria-label="旁白" onclick="toggleNarratorComposer()"><span class="addon-icon narrator" aria-hidden="true"><img src="assets/旁白.png" alt=""></span></button>
     <button class="addon-item" type="button" title="红包 / 转账" aria-label="红包 / 转账" onclick="openMoneyComposer()"><span class="addon-icon money" aria-hidden="true"><img src="assets/Bill-Dollar-2--Streamline-Sharp.png" alt=""></span></button>
+    <button class="addon-item" type="button" title="暂停输出" aria-label="暂停输出" onclick="stopCurrentAiOutput()"><span class="addon-icon narrator" aria-hidden="true"><img src="assets/暂停.svg" alt=""></span></button>
     <button class="addon-item" type="button" title="重新生成" aria-label="重新生成" onclick="rerollLast()"><span class="addon-icon reroll" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3.5a8.5 8.5 0 1 1-7.9 11.65 1 1 0 0 1 1.86-.72A6.5 6.5 0 1 0 7.2 7.1H10a1 1 0 1 1 0 2H4.8a1 1 0 0 1-1-1V3a1 1 0 1 1 2 0v2.65A8.44 8.44 0 0 1 12 3.5Z"></path></svg></span></button>
     <button class="addon-item" type="button" title="表情包" aria-label="表情包" onclick="openMemePicker()"><span class="addon-icon meme" aria-hidden="true"><img src="assets/亲亲脸.png" alt=""></span></button>
   </div>
@@ -3176,6 +3177,8 @@ var stagedChatHeaderBackground = '';
 var stagedWeatherSettings = { char: null, user: null };
 var weatherSearchState = { char: false, user: false };
 var isTyping = false;
+var activeAiAbortController = null;
+var activeAiAbortReason = '';
 var transientHiddenModelMsgIds = [];
 var wbEnabled = false;
 var wbEntries = [];
@@ -5177,6 +5180,65 @@ function getVisibleChatForModel(){
   }
   return visible;
 }
+function buildContinueReplyCue(){
+  var visible = getVisibleChatForModel();
+  var latest = null;
+  var latestSystem = null;
+  for(var i = visible.length - 1; i >= 0; i -= 1){
+    var item = visible[i];
+    if(!item) continue;
+    if(!latest) latest = item;
+    if(!latestSystem && item.role === 'system') latestSystem = item;
+    if(latest && latestSystem) break;
+  }
+  var lines = [
+    '这次用户没有输入新内容，只是点了继续回复。',
+    '请根据最近聊天自然续上一小段，像接着刚才的话往下说。'
+  ];
+  if(latest){
+    if(latest.role === 'system'){
+      lines.push('最新一条是系统提示，先把那条系统提示读进去，再决定你要怎么继续。');
+    }else if(latest.role === 'assistant'){
+      lines.push('优先接住你自己上一句刚停住的情绪或话题，不要突然跳题。');
+    }else{
+      lines.push('优先接住用户上一句还在延续的话题，不要像重开新话题。');
+    }
+  }
+  if(latestSystem){
+    lines.push('最近如果有系统提示，也要把它当成当前上下文的一部分，但不要逐字复述“系统提示”。');
+  }
+  lines.push('如果此刻没有自然可接的内容，可以少说，甚至沉默；但只要有明显能续的话题，就继续。');
+  return lines.join('\n');
+}
+function isAbortLikeError(err){
+  if(!err) return false;
+  var name = String(err.name || '').trim();
+  var msg = String(err.message || err || '').trim();
+  return name === 'AbortError' || /abort|aborted|cancelled|canceled/i.test(msg);
+}
+function beginAiAbortSession(){
+  activeAiAbortReason = '';
+  activeAiAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  return activeAiAbortController;
+}
+function endAiAbortSession(controller){
+  if(controller && activeAiAbortController && controller !== activeAiAbortController) return;
+  activeAiAbortController = null;
+  activeAiAbortReason = '';
+}
+function stopCurrentAiOutput(){
+  closeAddonPanel();
+  if(!isTyping || !(activeAiAbortController && activeAiAbortController.signal)){
+    toast('现在没有正在输出');
+    return;
+  }
+  activeAiAbortReason = 'user-stop';
+  try{
+    activeAiAbortController.abort();
+  }catch(err){
+    console.warn('abort current ai output failed', err);
+  }
+}
 function loadInnerVoiceStore(){
   if(!character) return defaultInnerVoiceStore();
   return cloneJsonSafe(normalizeInnerVoiceStore(innerVoiceStoreCache), defaultInnerVoiceStore());
@@ -5271,6 +5333,12 @@ function getChatUserName(charId){
   var scoped = accountScopedKey('user_name_' + safeCharId);
   var fallback = 'user_name_' + safeCharId;
   return String(localStorage.getItem(scoped) || localStorage.getItem(fallback) || '').trim() || getActiveAccountProfileName() || 'USER';
+}
+function getCurrentUserDisplayName(){
+  var preferred = String((character && character.userNicknameNote) || '').trim()
+    || String(getChatUserName(character && character.id) || '').trim()
+    || String(resolveDisplayUserName() || '').trim();
+  return preferred || '你';
 }
 function getCurrentCharDisplayName(){
   return String((character && (character.nickname || character.name)) || '对方').trim() || '对方';
@@ -12514,7 +12582,7 @@ function renderChatHeaderBackgroundPreview(src){
   var charName = document.getElementById('csHeaderBgPreviewCharName');
   var userName = document.getElementById('csHeaderBgPreviewUserName');
   if(charName) charName.textContent = String((character && (character.nickname || character.name)) || 'CHAR').trim() || 'CHAR';
-  if(userName) userName.textContent = String(getChatUserName(character && character.id) || resolveDisplayUserName() || 'USER').trim() || 'USER';
+  if(userName) userName.textContent = String(getCurrentUserDisplayName() || 'USER').trim() || 'USER';
 }
 
 function applyChatHeaderBackground(src){
@@ -12777,7 +12845,7 @@ function updateHeader() {
   if (!character) return;
   var headerCharId = String((character && character.id) || '').trim();
   var displayName = character.nickname || character.name || '角色';
-  var userDisplayName = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
+  var userDisplayName = getCurrentUserDisplayName();
   var sunny = isSunnyChat();
   var charNameNode = document.getElementById('hdrCharName');
   var userNameNode = document.getElementById('hdrUserName');
@@ -14614,6 +14682,7 @@ async function triggerReply() {
       });
     }else{
       registerPresenceNudge('request');
+      pendingModelUserCue = [pendingModelUserCue, buildContinueReplyCue()].filter(Boolean).join('\n');
     }
     if(isSunnyChat()){
       await handleSunnyLocalReply();
@@ -14687,6 +14756,7 @@ async function triggerReply() {
 
 async function requestAndDeliverAiReply(provider, key){
   transientHiddenModelMsgIds = [];
+  var abortController = beginAiAbortSession();
   var typingStartedAt = Date.now();
   isTyping = true;
   document.getElementById('genBtn').disabled = true;
@@ -14763,6 +14833,11 @@ async function requestAndDeliverAiReply(provider, key){
     var typingElapsedOnError = Date.now() - typingStartedAt;
     if(typingElapsedOnError < 420) await sleep(420 - typingElapsedOnError);
     hideTyping();
+    if(isAbortLikeError(err) && activeAiAbortReason === 'user-stop'){
+      toast('这句先停在这里');
+      hideError();
+      return false;
+    }
     var errMsg = humanizeAiError(err);
     showError('AI 回复失败: ' + errMsg);
     toast(errMsg, { sticky:true });
@@ -14774,6 +14849,7 @@ async function requestAndDeliverAiReply(provider, key){
     pendingModelUserCue = '';
     pendingListenInviteDecision = null;
     isTyping = false;
+    endAiAbortSession(abortController);
     document.getElementById('genBtn').disabled = false;
     document.getElementById('sendBtn').disabled = false;
   }
@@ -15200,10 +15276,12 @@ async function callAI(provider, key) {
 }
 
 async function callAIChat(provider, key, model, temperature, sys, msgs) {
+  var abortSignal = activeAiAbortController && activeAiAbortController.signal ? activeAiAbortController.signal : undefined;
   if (provider === 'openai') {
     var resOpenAi = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      signal: abortSignal,
       body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
     });
     var dOpenAi = await readAiJsonResponse(resOpenAi);
@@ -15219,6 +15297,7 @@ async function callAIChat(provider, key, model, temperature, sys, msgs) {
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true'
       },
+      signal: abortSignal,
       body: JSON.stringify({ model: model, temperature: temperature, system: sys, messages: msgs })
     });
     var dClaude = await readAiJsonResponse(resClaude);
@@ -15250,7 +15329,7 @@ async function callAIChat(provider, key, model, temperature, sys, msgs) {
               base64Data = String(dataUrlMatch[2] || '').trim();
             }else{
               try{
-                var imageRes = await fetch(imageUrl);
+                var imageRes = await fetch(imageUrl, { signal: abortSignal });
                 var blob = await imageRes.blob();
                 mimeType = String(blob.type || mimeType).trim() || mimeType;
                 base64Data = await new Promise(function(resolve){
@@ -15285,6 +15364,7 @@ async function callAIChat(provider, key, model, temperature, sys, msgs) {
     var resGemini = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: abortSignal,
       body: JSON.stringify({ contents: contents, generationConfig: { temperature: temperature } })
     });
     var dGemini = await readAiJsonResponse(resGemini);
@@ -15300,6 +15380,7 @@ async function callAIChat(provider, key, model, temperature, sys, msgs) {
         'HTTP-Referer': 'https://ephone.app',
         'X-Title': 'Ephone'
       },
+      signal: abortSignal,
       body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
     });
     var dOr = await readAiJsonResponse(resOr);
@@ -15317,6 +15398,7 @@ async function callAIChat(provider, key, model, temperature, sys, msgs) {
       resCustom = await fetch(baseUrl + '/chat/completions', {
         method: 'POST',
         headers: headers,
+        signal: abortSignal,
         body: JSON.stringify({ model: customModel, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
       });
     }catch(err){
@@ -18546,7 +18628,7 @@ function getVoiceCallStarterLabel(mode){
 }
 
 function currentVoiceCallUserName(){
-  return String(getChatUserName(character && character.id) || resolveDisplayUserName() || 'USER').trim() || 'USER';
+  return String(getCurrentUserDisplayName() || 'USER').trim() || 'USER';
 }
 
 function currentVoiceCallCharName(){
@@ -22302,7 +22384,7 @@ function syncChatSettingsHero(){
   var userNameInput = document.getElementById('csUserName');
   var userNickInput = document.getElementById('csUserNick');
   var charName = String((charNickInput && charNickInput.value) || (charNameInput && charNameInput.value) || (character && (character.nickname || character.name)) || 'CHAR').trim() || 'CHAR';
-  var userName = String((userNickInput && userNickInput.value) || (userNameInput && userNameInput.value) || getChatUserName(character && character.id) || resolveDisplayUserName() || 'USER').trim() || 'USER';
+  var userName = String((userNickInput && userNickInput.value) || (userNameInput && userNameInput.value) || getCurrentUserDisplayName() || 'USER').trim() || 'USER';
   var charSrc = getAvatarSrcFromSelectors(['#csCharAvatar img','#hdrAvatar img']) || currentVisibleCharAvatarSrc() || '';
   renderChatSettingsHeroPhoto('csHeroCharPhoto', charSrc, charName.slice(0, 2), charName);
   var userImg = document.querySelector('#csUserAvatar img');
