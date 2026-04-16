@@ -14901,10 +14901,7 @@ async function requestAndDeliverAiReply(provider, key){
     reply = headerStatusParsed.text || reply;
     reply = String(reply == null ? '' : reply).trim();
     if(!reply){
-      clearPresenceNudgeState(character && character.id);
-      await saveChat(true);
-      hideError();
-      return true;
+      throw new Error('AI 返回了空回复');
     }
     var typingElapsed = Date.now() - typingStartedAt;
     if(typingElapsed < 560) await sleep(560 - typingElapsed);
@@ -15119,6 +15116,35 @@ function collectVisibleMessageCandidatesFromReplyNode(node, bucket){
   return out;
 }
 
+function isChatDisplayableReplyType(type){
+  var safe = normalizeMessageType(type || 'text');
+  return safe === 'text'
+    || safe === 'voice'
+    || safe === 'image'
+    || safe === 'meme'
+    || safe === 'moneypacket'
+    || safe === 'offlineinvite'
+    || safe === 'richhtml'
+    || safe === 'narrator'
+    || safe === 'recallnotice';
+}
+
+function detectNonDisplayableReply(rawReply){
+  var raw = String(rawReply || '').trim();
+  var parsed = maybeParseReplyJson(rawReply);
+  if(!parsed || (typeof parsed !== 'object' && !Array.isArray(parsed))){
+    return { nonDisplayable:false };
+  }
+  var visible = collectVisibleMessageCandidatesFromReplyNode(parsed, []);
+  if(!visible.length){
+    return { nonDisplayable:true };
+  }
+  var hasDisplayable = visible.some(function(item){
+    return isChatDisplayableReplyType(item && item.type || 'text');
+  });
+  return { nonDisplayable: !hasDisplayable };
+}
+
 function detectBrokenRichHtmlReply(rawReply){
   var raw = String(rawReply || '').trim();
   if(!raw) return { broken:false };
@@ -15219,7 +15245,7 @@ function detectNarratorOnlyReply(rawReply){
   var parsed = maybeParseReplyJson(rawReply);
   if(!parsed || (typeof parsed !== 'object' && !Array.isArray(parsed))){
     var hasNarratorSignal = /"type"\s*:\s*"narrator"|"narrator_message"\s*:/i.test(raw);
-    var hasNonNarratorSignal = /"type"\s*:\s*"(text|voice_message|image_message|image|voice|meme|money_packet|moneypacket|rich_html|richhtml|rename_profile|renameprofile|change_avatar|changeavatar|change_user_avatar|changeuseravatar|recall)"/i.test(raw)
+    var hasNonNarratorSignal = /"type"\s*:\s*"(text|voice_message|image_message|image|voice|meme|money_packet|moneypacket|rich_html|richhtml|offline_invite|offlineinvite|recall_notice|recallnotice|narrator)"/i.test(raw)
       || /"rich_html"\s*:|"html_card"\s*:/i.test(raw);
     return { narratorOnly: !!hasNarratorSignal && !hasNonNarratorSignal };
   }
@@ -15227,7 +15253,7 @@ function detectNarratorOnlyReply(rawReply){
   if(!narrators.length) return { narratorOnly:false };
   var visible = collectVisibleMessageCandidatesFromReplyNode(parsed, []);
   var hasNonNarrator = visible.some(function(item){
-    return normalizeMessageType(item && item.type || 'text') !== 'narrator';
+    return isChatDisplayableReplyType(item && item.type || 'text') && normalizeMessageType(item && item.type || 'text') !== 'narrator';
   });
   return { narratorOnly: !hasNonNarrator };
 }
@@ -15268,6 +15294,31 @@ async function maybeRepairForbiddenNarratorReply(reply, provider, key, model, te
     }
   }catch(err){
     console.warn('repair forbidden narrator failed', err);
+  }
+  return String(reply || '');
+}
+
+async function maybeRepairNonDisplayableReply(reply, provider, key, model, temperature, sys, msgs){
+  var issue = detectNonDisplayableReply(reply);
+  if(!issue.nonDisplayable) return String(reply || '');
+  var repairSys = [
+    sys,
+    '【返工】上一条 assistant 回复没有任何能真正显示在聊天里的内容。',
+    '隐藏动作类消息不能单独作为整轮回复；如果要换头像、改备注或做别的动作，也必须至少再带一条真正显示在聊天里的内容。',
+    '请重写上一条 assistant 回复，至少包含一条可显示的 text / voice_message / image_message / meme / money_packet / rich_html / narrator。'
+  ].join('\n\n');
+  var repairMsgs = msgs.concat([
+    { role:'assistant', content:String(reply || '') },
+    { role:'user', content:'请把上一条 assistant 回复重写成正常可显示的聊天内容。不要只给隐藏动作。' }
+  ]);
+  try{
+    var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
+    var repairedIssue = detectNonDisplayableReply(repaired);
+    if(!repairedIssue.nonDisplayable){
+      return String(repaired || '');
+    }
+  }catch(err){
+    console.warn('repair non-displayable reply failed', err);
   }
   return String(reply || '');
 }
@@ -15337,6 +15388,7 @@ async function callAI(provider, key) {
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairNarratorReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, sys, msgs);
+  reply = await maybeRepairNonDisplayableReply(reply, provider, key, model, temperature, sys, msgs);
   if(shouldEnforceForeignReplyLanguage()){
     var lang = getCharacterReplyLanguage();
     var option = getReplyLanguageOption(lang);
@@ -15356,6 +15408,7 @@ async function callAI(provider, key) {
       reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
       reply = await maybeRepairNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
       reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
+      reply = await maybeRepairNonDisplayableReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
     }
   }
   return reply;
@@ -25285,7 +25338,7 @@ async function deliverAiReply(text, limitOverride){
       await sleep(140 + Math.floor(Math.random() * 70));
     }
   }
-  if(sentCount === 0) return sentIds;
+  if(sentCount === 0) throw new Error('AI 没有返回可显示的聊天内容');
   if(sentTexts.length){
     refreshInnerVoiceFromAi(sentTexts[sentTexts.length - 1]);
   }
