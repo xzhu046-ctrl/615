@@ -7454,7 +7454,9 @@ function buildAvatarVisionFocusedCue(latestUserText){
   return [
     '【头像问答提醒】',
     '用户这轮正在直接问头像或头像细节。',
-    '你必须优先依据本轮已经给你的真实头像识图结果回答，先接住头像问题本身；看不清就直接说看不清，不准瞎猜，不准岔开话题。'
+    '你必须优先依据本轮已经给你的真实头像识图结果回答，先接住头像问题本身；看不清就直接说看不清，不准瞎猜，不准岔开话题。',
+    '先分清“你当前头像”和“用户当前头像”分别是哪一张，再回答；不要把用户头像错认成你自己的头像。',
+    '如果两张当前头像本来就在互相呼应、像一组配对或情头，就先承认这一点，不要反问用户是在和谁用。'
   ].join('\n');
 }
 
@@ -14060,6 +14062,55 @@ async function resolveCurrentAvatarLibraryItem(role, store){
   return null;
 }
 
+function formatAvatarLibraryItemForPrompt(item){
+  if(!item) return '';
+  var payload = {
+    id: String(item.id || '').trim(),
+    label: String(item.label || '').trim(),
+    note: String(item.note || '').trim(),
+    pairTag: String(item.pairTag || '').trim(),
+    couple: !!item.couple
+  };
+  return JSON.stringify(payload);
+}
+
+async function buildCurrentAvatarFactsBlock(){
+  if(!character || !character.id) return '';
+  var store = null;
+  try{
+    store = avatarLibraryCache && (avatarLibraryCache.char || avatarLibraryCache.user)
+      ? avatarLibraryCache
+      : await loadAvatarLibraryStore(character.id);
+    avatarLibraryCache = store;
+  }catch(err){
+    console.warn('load avatar library in buildCurrentAvatarFactsBlock failed', err);
+  }
+  var currentCharItem = await resolveCurrentAvatarLibraryItem('char', store).catch(function(){ return null; });
+  var currentUserItem = await resolveCurrentAvatarLibraryItem('user', store).catch(function(){ return null; });
+  var charSummary = '';
+  var userSummary = '';
+  if(loadAvatarVisionEnabled(character.id)){
+    try{
+      charSummary = await ensureAvatarVisionSummary('char', await resolveAvatarVisionSourceAsync('char', character.id).catch(function(){ return ''; }));
+    }catch(err){}
+    try{
+      userSummary = await ensureAvatarVisionSummary('user', await resolveAvatarVisionSourceAsync('user', character.id).catch(function(){ return ''; }));
+    }catch(err2){}
+  }
+  if(!currentCharItem && !currentUserItem && !charSummary && !userSummary) return '';
+  var lines = [
+    '【当前头像事实】',
+    '下面是此刻正在使用的头像信息，不是猜测。',
+    '“你当前头像”指角色自己现在正在用的头像；“用户当前头像”指对方现在正在用的头像。不要把两者搞混，更不要把用户头像说成你自己的头像。',
+    '如果这两张当前头像明显互相呼应、像一组配对或情头，就先默认你们正在配着用；不要反问用户“在和谁用情头”。'
+  ];
+  if(currentCharItem) lines.push('你当前头像（库内信息）：' + formatAvatarLibraryItemForPrompt(currentCharItem));
+  if(charSummary) lines.push('你当前头像（识图结果）：' + charSummary);
+  if(currentUserItem) lines.push('用户当前头像（库内信息）：' + formatAvatarLibraryItemForPrompt(currentUserItem));
+  if(userSummary) lines.push('用户当前头像（识图结果）：' + userSummary);
+  return lines.join('\n');
+}
+
 function isSameAvatarLibraryItem(a, b){
   if(!a || !b) return false;
   var aId = String(a.id || '').trim();
@@ -15430,6 +15481,14 @@ async function callAI(provider, key) {
   await prepareVectorPromptMemory(msgs);
   var avatarVisionPrompt = '';
   var sys = buildSystemPrompt();
+  try{
+    var currentAvatarFacts = await buildCurrentAvatarFactsBlock();
+    if(currentAvatarFacts){
+      sys = [sys, currentAvatarFacts].filter(Boolean).join('\n\n---\n\n');
+    }
+  }catch(currentAvatarFactsErr){
+    console.warn('buildCurrentAvatarFactsBlock failed', currentAvatarFactsErr);
+  }
   try{
     sys = await appendAvatarVisionContextToSystemPrompt(sys);
   }catch(avatarVisionSysErr){
