@@ -10915,7 +10915,7 @@ function shouldHonorReplyHint(replyTo, msgType){
   if(normalizeMessageType(msgType || 'text') === 'image') return true;
   if(hint === 'last_user' || hint === 'last_ai' || hint === 'last_assistant') return true;
   if(isWeakReplyHint(hint)) return false;
-  return String(hint).trim().length >= 6;
+  return String(hint).trim().length >= 4;
 }
 function resolveReplyTargetId(replyTo, replyRole){
   var hint = normalizeReplyHint(replyTo);
@@ -10987,7 +10987,7 @@ function inferReplyTargetForPart(aiText, usedSet){
   if(isGenericAssistantLine(aiText)) return null;
   if(!hasReplyCueInText(aiText)) return null;
   var recentUsers = chatLog.slice().reverse().filter(function(m){ return m.role === 'user'; }).slice(0, 8);
-  if(recentUsers.length < 2) return null;
+  if(!recentUsers.length) return null;
   var best = null;
   var second = null;
   var cueBoost = hasReplyCueInText(aiText) ? 0.05 : 0;
@@ -11006,9 +11006,10 @@ function inferReplyTargetForPart(aiText, usedSet){
   });
   if(!best) return null;
   var margin = best.score - ((second && second.score) || 0);
-  // Only auto-attach a quote when the semantic target is clearly better than nearby alternatives.
-  if(best.score >= 0.38 && margin >= 0.1) return best.id;
-  if(hasReplyCueInText(aiText) && best.score >= 0.32 && margin >= 0.08) return best.id;
+  if(recentUsers.length === 1 && best.score >= 0.12) return best.id;
+  // Auto-attach only when one target is reasonably clear, but don't make it so strict that it feels dull.
+  if(best.score >= 0.28 && margin >= 0.06) return best.id;
+  if(hasReplyCueInText(aiText) && best.score >= 0.22 && margin >= 0.04) return best.id;
   return null;
 }
 
@@ -24839,6 +24840,7 @@ async function deliverAiReply(text, limitOverride){
   var sentTexts = [];
   var sentIds = [];
   var usedReplyTargets = new Set();
+  var inferredReplyUsed = false;
   var lastSentKey = '';
   var pendingAvatarActions = [];
   var visibleAssistantSent = 0;
@@ -24953,11 +24955,12 @@ async function deliverAiReply(text, limitOverride){
     }
     if(entry.replyToId){
       usedReplyTargets.add(entry.replyToId);
-    }else if(t === 'text' && parts.length >= 2){
+    }else if(t === 'text' && parts.length >= 2 && !inferredReplyUsed){
       var inferredTarget = inferReplyTargetForPart(p.text, usedReplyTargets);
       if(inferredTarget){
         entry.replyToId = inferredTarget;
         usedReplyTargets.add(inferredTarget);
+        inferredReplyUsed = true;
       }
     }
     chatLog.push(entry);
