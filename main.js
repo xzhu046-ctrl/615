@@ -26,13 +26,16 @@ const PHONE_FRAME_STORAGE_KEY = 'phone_frame_visible';
 const LIVE_DANMAKU_DEFAULTS = {
   '1': ['啊啊啊太可爱了','宝宝上线了','今天状态好好'],
   '2': ['蹲到你了','这张也太甜','晚安打卡'],
-  '3': ['今日份心动','镜头感满分','路过被可爱到']
+  '3': ['今日份心动','镜头感满分','路过被可爱到'],
+  '4': ['刷到你啦','直播感拉满','小心心掉满屏']
 };
 const LIVE_DANMAKU_ENABLED_KEY = 'home_live_danmaku_enabled';
 const AI_BG_ENABLED_KEY = 'ai_bg_activity_enabled';
 const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
+const WIDGET_TEXT_OVERRIDE_CHAR_KEY = 'widget_text_override_char';
+const WIDGET_TEXT_OVERRIDE_USER_KEY = 'widget_text_override_user';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const WIDGET_CHARACTER_BG_KEY = 'widget_character_bg';
@@ -41,7 +44,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T04:12:00Z';
+const APP_BUILD_ID = '2026-04-16T04:23:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -1412,7 +1415,7 @@ function getLiveDanmakuTexts(slotId){
 }
 
 function setLiveDanmakuTexts(textMap){
-  ['1','2','3'].forEach((slotId)=>{
+  ['1','2','3','4'].forEach((slotId)=>{
     const values = Array.isArray(textMap && textMap[slotId]) ? textMap[slotId] : [];
     const defaults = LIVE_DANMAKU_DEFAULTS[slotId];
     const next = defaults.map((text, idx)=>{
@@ -5283,7 +5286,7 @@ function renderHomeSlot(slotId, dataUrl){
       homeMusicAlbumCoverSrc = dataUrl;
       el.innerHTML = '<img src="' + dataUrl + '" alt=""><span class="slot-plus">+</span>';
       renderHomeMusicCover();
-    }else if(slotId === '1' || slotId === '2' || slotId === '3'){
+    }else if(slotId === '1' || slotId === '2' || slotId === '3' || slotId === '4'){
       const liveTexts = getLiveDanmakuTexts(slotId);
       el.innerHTML =
         '<img src="' + dataUrl + '" alt="">' +
@@ -5317,7 +5320,7 @@ function setHomeSlotImage(slotId, dataUrl){
 }
 
 function restoreHomeSlots(){
-  ['top','1','2','3','photo1','photo2','musicAlbum'].forEach((id)=>{
+  ['top','1','2','3','4','photo1','photo2','musicAlbum'].forEach((id)=>{
     loadStoredAsset('home_slot_' + id).then((dataUrl)=>{
       renderHomeSlot(id, dataUrl);
     });
@@ -7298,14 +7301,18 @@ async function formatEphone(){
   setWallpaper('default');
   restoreHomeAppIcons();
   document.getElementById('wgt-avatar').textContent='✿';
+  var sideAvatar = document.getElementById('wgt-side-avatar');
+  if(sideAvatar) sideAvatar.textContent='✿';
   document.getElementById('wgt-user-avatar').textContent='你';
   document.getElementById('wgt-name').textContent='No companion yet';
+  var sideName = document.getElementById('wgt-side-name');
+  if(sideName) sideName.textContent='CHAR';
   document.getElementById('wgt-char-role').textContent='CHAR';
   document.getElementById('wgt-user-role').textContent='USER';
   document.getElementById('wgt-char-last').textContent=getDefaultWidgetCharacterQuote('char');
   document.getElementById('wgt-user-last').textContent=getDefaultWidgetCharacterQuote('user');
   applyWidgetCharacterBackground('');
-  ['top','1','2','3'].forEach((id)=>renderHomeSlot(id, null));
+  ['top','1','2','3','4'].forEach((id)=>renderHomeSlot(id, null));
   renderCharNote();
   renderClockLocation();
   renderBondDays();
@@ -7768,11 +7775,39 @@ function getEffectiveWidgetCharacterBackgroundSource(src){
   return isRenderableShellAvatarSrc(safe) ? safe : 'apps/assets/樱花在水里.jpg';
 }
 
+function getWidgetTextOverrideKey(role){
+  var base = String(role || '') === 'user' ? WIDGET_TEXT_OVERRIDE_USER_KEY : WIDGET_TEXT_OVERRIDE_CHAR_KEY;
+  return scopedKeyForAccount(base, getActiveAccountId());
+}
+
+function getWidgetTextOverride(role){
+  try{
+    var value = localStorage.getItem(getWidgetTextOverrideKey(role));
+    return value == null ? '' : String(value || '');
+  }catch(e){
+    return '';
+  }
+}
+
+function setWidgetTextOverride(role, value){
+  var key = getWidgetTextOverrideKey(role);
+  try{
+    var next = String(value || '').trim();
+    if(next){
+      localStorage.setItem(key, next);
+    }else{
+      localStorage.removeItem(key);
+    }
+  }catch(e){}
+}
+
 function applyWidgetCharacterBackground(src){
   var widgetEl = document.getElementById('widget-character');
-  if(!widgetEl) return;
   var finalSrc = getEffectiveWidgetCharacterBackgroundSource(src);
-  widgetEl.style.setProperty('--widget-char-art', 'url("' + finalSrc.replace(/"/g, '\\"') + '")');
+  [widgetEl, document.getElementById('widget-mini-air')].forEach(function(el){
+    if(!el) return;
+    el.style.setProperty('--widget-char-art', 'url("' + finalSrc.replace(/"/g, '\\"') + '")');
+  });
 }
 
 function restoreWidgetCharacterBackground(){
@@ -7833,6 +7868,10 @@ function setWidgetCharacter(c){
         userLine = getPreviewTextForWidget(userMsg);
       }
     }catch(e){}
+    var charOverride = getWidgetTextOverride('char');
+    var userOverride = getWidgetTextOverride('user');
+    if(charOverride) charLine = charOverride;
+    if(userOverride) userLine = userOverride;
     var charText = formatWidgetConversationLine(charLine || '', getDefaultWidgetCharacterQuote('char'));
     var userText = formatWidgetConversationLine(userLine, getDefaultWidgetCharacterQuote('user'));
     var charLineEl = document.getElementById('wgt-char-last');
@@ -7851,6 +7890,8 @@ function setWidgetCharacter(c){
   }
   const avEl = document.getElementById('wgt-avatar');
   const userAvEl = document.getElementById('wgt-user-avatar');
+  const sideAvEl = document.getElementById('wgt-side-avatar');
+  const sideNameEl = document.getElementById('wgt-side-name');
   var liveAvatarSrc = normalizeShellAssetSrc(c && c.imageData || '');
   if(c && c.id){
     var userLabel = getBondWidgetUserName(c, getChatUserName(c.id));
@@ -7858,6 +7899,7 @@ function setWidgetCharacter(c){
     var userRoleEl = document.getElementById('wgt-user-role');
     if(charRoleEl) charRoleEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
     if(userRoleEl) userRoleEl.textContent = String(userLabel || 'USER').trim() || 'USER';
+    if(sideNameEl) sideNameEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
     getChatUserAvatar(c.id).then(function(userSrc){
       applyWidgetUserAvatarContent(userAvEl, userSrc, String(userLabel || '你').slice(0, 2));
     });
@@ -7866,20 +7908,40 @@ function setWidgetCharacter(c){
     var emptyUserRoleEl = document.getElementById('wgt-user-role');
     if(emptyCharRoleEl) emptyCharRoleEl.textContent = 'CHAR';
     if(emptyUserRoleEl) emptyUserRoleEl.textContent = 'USER';
+    if(sideNameEl) sideNameEl.textContent = 'CHAR';
     applyWidgetUserAvatarContent(userAvEl, '', '你');
   }
   if (isRenderableShellAvatarSrc(liveAvatarSrc)) {
     avEl.innerHTML = '<img src="'+liveAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
+    if(sideAvEl) sideAvEl.innerHTML = '<img src="'+liveAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
   } else {
     avEl.textContent = c?.avatar || '✿';
+    if(sideAvEl) sideAvEl.textContent = c?.avatar || '✿';
   }
   if(c?.id){
     loadStoredAsset('char_avatar_' + c.id).then((override)=>{
       var safeOverride = normalizeShellAssetSrc(override || '');
       if(isRenderableShellAvatarSrc(safeOverride)){
         avEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
+        if(sideAvEl) sideAvEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
       }
     });
+  }
+}
+
+function beginWidgetBubbleEdit(e, role){
+  if(e && e.stopPropagation) e.stopPropagation();
+  var targetId = String(role || '') === 'user' ? 'wgt-user-last' : 'wgt-char-last';
+  var target = document.getElementById(targetId);
+  var current = target ? String(target.textContent || '').trim() : '';
+  var next = window.prompt('输入新的文案，留空会恢复联动内容', current);
+  if(next === null) return;
+  setWidgetTextOverride(role, next);
+  var active = getActiveCharacterData();
+  if(active){
+    setWidgetCharacter(active);
+  }else{
+    setWidgetCharacter({ name:'No companion yet' });
   }
 }
 
