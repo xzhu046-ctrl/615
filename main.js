@@ -10,14 +10,12 @@ const APP_MAP = {
   backend:    { title: '后台',           src: 'apps/backend.html' },
   map6:       { title: '地图',           src: 'apps/map6.html' },
   offline_archive: { title: '档案馆',    src: 'apps/offline_archive.html' },
-  offline:    { title: '约会',           src: 'apps/offline_mode.html', hideTopbar: true },
 };
 const HOME_ICON_DEFAULTS = {
   qq: 'QQ',
   settings: '设置',
   customize: '外观',
   worldbook: '档案',
-  offline: '约会',
   schedule: '日程',
   backend: '后台',
   map6: '地图',
@@ -45,7 +43,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T08:08:00Z';
+const APP_BUILD_ID = '2026-04-16T08:32:00Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -384,9 +382,8 @@ function ensureOfflineMiniLauncher(){
 }
 
 function renderOfflineMiniLauncher(){
-  var btn = ensureOfflineMiniLauncher();
-  if(!btn) return;
-  btn.style.display = getMinimizedOfflineCharId() ? 'flex' : 'none';
+  var btn = document.getElementById('offline-mini-launcher-shell');
+  if(btn) btn.remove();
 }
 
 function setMinimizedOfflineCharId(charId){
@@ -1008,10 +1005,9 @@ async function primeLatestCoreFiles(){
     'version.json',
     'apps/qq.html',
     'apps/chat.html',
-    'apps/offlineInvite.js',
     'apps/schedule.html',
     'apps/map6.html',
-    'apps/offline_mode.html'
+    'apps/offline_archive.html'
   ];
   await Promise.all(targets.map(function(path){
     var url = new URL(path || './', window.location.href);
@@ -1469,22 +1465,12 @@ function slimChar(c){
   if(!c) return null;
   var imageData = String(c.imageData || '').trim();
   if(/^data:/i.test(imageData)) imageData = '';
-  var offlineInviteStyle = String(c.offlineInviteStyle || '');
-  if(offlineInviteStyle.length > 240) offlineInviteStyle = offlineInviteStyle.slice(0, 240);
   var userPersonaProfile = String(c.userPersonaProfile || '');
   if(userPersonaProfile.length > 240) userPersonaProfile = '';
   return {
     id:c.id, name:c.name, nickname:c.nickname, avatar:c.avatar,
     imageData:imageData,
     msgMin:c.msgMin, msgMax:c.msgMax,
-    offlineInviteMin:c.offlineInviteMin,
-    offlineInviteMax:c.offlineInviteMax,
-    offlineInvitePerspective:c.offlineInvitePerspective,
-    offlineInviteStyle:offlineInviteStyle,
-    offlineSummaryEvery:c.offlineSummaryEvery,
-    offlineSummaryAuto:c.offlineSummaryAuto,
-    offlineMemoryReadCount:c.offlineMemoryReadCount,
-    offlineSideStoryType:c.offlineSideStoryType,
     chatRenderPageSize:c.chatRenderPageSize,
     contextWindow:c.contextWindow,
     summaryEvery:c.summaryEvery,
@@ -1497,9 +1483,6 @@ function slimChar(c){
     allowNarrator:c.allowNarrator !== false,
     avatarVisionEnabled:!!c.avatarVisionEnabled,
     charAvatarAutoEnabled:!!c.charAvatarAutoEnabled,
-    voiceCallInputMode:String(c.voiceCallInputMode||'text'),
-    voiceCallStarter:String(c.voiceCallStarter||'char'),
-    voiceCallTone:String(c.voiceCallTone||''),
     chatSignature:String(c.chatSignature||''),
     userNameProfile:String(c.userNameProfile||''),
     userNicknameNote:String(c.userNicknameNote||''),
@@ -2342,37 +2325,6 @@ async function appendBackgroundAiMessage(character, accountId, content){
   return true;
 }
 
-async function appendBackgroundVoiceCallRequest(character, accountId, content){
-  if(!character || !character.id) return false;
-  if(!isCharBgEnabled(character.id, accountId || getDefaultAccountId())) return false;
-  var history = await readBackgroundChatHistory(character.id, accountId);
-  var now = Date.now();
-  var entry = {
-    id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
-    role: 'assistant',
-    content: String(content || '').trim() || '忽然很想听听你的声音。',
-    type: 'voice_call_request',
-    replyToId: null,
-    sentAt: now,
-    readAt: null
-  };
-  history.push(entry);
-  await writeBackgroundChatHistory(character.id, accountId, history);
-  renderHomeDockBadges();
-  try{
-    var f = document.getElementById('app-iframe');
-    if(f && f.contentWindow){
-      f.contentWindow.postMessage({ type:'BACKGROUND_AI_MESSAGE', payload:{ charId: character.id, entry: entry } }, '*');
-    }
-  }catch(e){}
-  maybeShowShellActivityNotification({
-    kind:'chat',
-    charId: character.id,
-    text: '想和你打一通电话^^'
-  });
-  return true;
-}
-
 async function appendBackgroundMoment(character, accountId, action, content, imageText){
   if(!character || !character.id) return false;
   if(!isCharBgEnabled(character.id, accountId || getDefaultAccountId())) return false;
@@ -2573,7 +2525,7 @@ function buildScheduleWeatherPresenceContext(payload){
       lines.push('双方当前不在同一个城市。除非用户当天公开日程明确写了见面或同行，否则不要写成已经见面、同住、一起吃饭、一起散步、顺路接送、在她家、在他家这种同地实体互动。');
     }
     if(!sameCountry){
-      lines.push('双方当前甚至不在同一个国家，默认只能写远程互动、想念、语音、视频、寄东西、准备票这类跨地区互动，不要硬写现实碰面。');
+      lines.push('双方当前甚至不在同一个国家，默认只能写远程互动、想念、寄东西、准备票这类跨地区互动，不要硬写现实碰面。');
     }
   }
   return lines.join('\n');
@@ -3082,9 +3034,9 @@ async function generateScheduleDayPlan(payload){
     buildScheduleWeatherPresenceContext(payload) ? ('现实地理位置 / 距离感：\n' + buildScheduleWeatherPresenceContext(payload)) : (getSchedulePresenceContext(character) ? ('现实地理位置 / 距离感：\n' + getSchedulePresenceContext(character)) : ''),
     '务必同时认真读取角色人设和用户设定，再决定今天的安排、互动方式和对用户生活状态的理解，不要脱离双方设定乱写。',
     '先直接读懂用户完整设定里的身份、生活状态、作息、处境和日常节奏，再决定和用户有关的互动方式，不要用死板标签套人设。',
-    '角色今天的安排可以自然地和用户有关，但要服从现实距离和关系状态：异地可以是打电话、视频、语音、远程一起吃饭、寄东西、偷偷准备车票/机票；同城或住一起才可以出现接送、一起吃饭、顺手照顾之类的互动，而且要自然，不要刻意硬塞。',
+    '角色今天的安排可以自然地和用户有关，但要服从现实距离和关系状态：异地可以是远程一起吃饭、寄东西、偷偷准备车票/机票；同城或住一起才可以出现接送、一起吃饭、顺手照顾之类的互动，而且要自然，不要刻意硬塞。',
     '如果现实距离明显很远，就严格禁止写成已经见面、一起吃午饭、一起散步、在她家、送她回家、顺路接她、一起通勤、面对面说话这种同地实体互动；最多写成远程互动、准备票、惦记、寄东西、约之后再见。只有用户当天公开日程明确写了见面/出行/同城同行，才允许写实体见面。',
-    '如果双方现实位置很远，宁可写成视频、通话、互相惦记、远程一起做同一件事，也不要偷写现实碰面。',
+    '如果双方现实位置很远，宁可写成互相惦记、远程一起做同一件事，也不要偷写现实碰面。',
     '严格时间感知总开关：' + (payload.globalTimeAwareness === false ? '关闭' : '开启'),
     '这个角色的时间感知覆盖：' + (payload.charOverride && payload.charOverride.timeAwarenessEnabled === false ? '关闭' : '开启'),
     specialLines.length ? ('当天节日 / 纪念日：\n- ' + specialLines.join('\n- ')) : '当天没有额外节日或纪念日。',
@@ -3535,8 +3487,8 @@ async function runAiBackgroundActivity(){
     convoState.unreadAssistantCount > 0
       ? ('你这边已经累计有 ' + convoState.unreadAssistantCount + ' 条未读主动消息了，别一直刷屏。')
       : '目前没有你发出后还没被对方看到的主动消息。',
-    '请像真人一样在这四种动作里选一个最自然的：主动聊天 / 发说说 / 发动态 / 主动打电话。',
-    '要求：不要机械，不要复读用户原话，不要出现“我是AI/不能发朋友圈”等元话；如果选 message，要有一点“主动来找对方”的感觉；如果选 call，要像是真的想直接听听对方声音。',
+    '请像真人一样在这三种动作里选一个最自然的：主动聊天 / 发说说 / 发动态。',
+    '要求：不要机械，不要复读用户原话，不要出现“我是AI/不能发朋友圈”等元话；如果选 message，要有一点“主动来找对方”的感觉。',
     buildBackgroundReplyLanguagePrompt(character) || ''
   ].join('\n\n');
 
@@ -3547,10 +3499,9 @@ async function runAiBackgroundActivity(){
   if(parsed.action !== 'message' && parsed.action !== 'call' && loadShellCharMomentsFreq(character.id, defaultId) === 'low'){
     return false;
   }
+  if(parsed.action === 'call') parsed.action = 'message';
   if(parsed.action === 'message'){
     return await appendBackgroundAiMessage(character, defaultId, parsed.content);
-  }else if(parsed.action === 'call'){
-    return await appendBackgroundVoiceCallRequest(character, defaultId, parsed.content);
   }else{
     return await appendBackgroundMoment(character, defaultId, parsed.action, parsed.content, parsed.imageText);
   }
@@ -7126,12 +7077,6 @@ function renderApp(id){
   if(id === 'chat'){
     pendingOpenChatCharId = '';
     pendingOpenChatNonce = '';
-  }
-  if(id === 'offline'){
-    pendingOpenOfflineCharId = '';
-    pendingOpenOfflineNonce = '';
-    pendingOpenOfflineLaunchMode = '';
-    pendingOpenOfflineLaunchToken = '';
   }
   document.getElementById('app-container').classList.add('open');
   document.getElementById('home-screen').classList.add('hidden');

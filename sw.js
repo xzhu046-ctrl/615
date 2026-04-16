@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-04-16T08:08:00Z';
+const CACHE_VERSION = '2026-04-16T08:32:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -32,8 +32,7 @@ const CORE_URLS = [
   './apps/assets/屏幕放大.png',
   './apps/assets/屏幕缩小.png',
   './apps/assets/聊天按钮.png',
-  './apps/offline_archive.html',
-  './apps/offline_mode.html'
+  './apps/offline_archive.html'
 ];
 
 function isSameOrigin(requestUrl){

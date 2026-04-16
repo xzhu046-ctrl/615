@@ -57,12 +57,6 @@
       buttons: [{ label: '打开聊天', action: 'open_app', app: 'chat' }]
     },
     {
-      id: 'offline',
-      keywords: ['线下模式', '第一幕', '线下', '约会', '邀请'],
-      text: '线下模式是单独的剧情 app，老板。第一幕、后续幕、摘要、番外这些都在那边跑，汪。',
-      buttons: [{ label: '打开线下模式', action: 'open_app', app: 'offline' }]
-    },
-    {
       id: 'moments',
       keywords: ['朋友圈', '动态', '说说', 'moments'],
       text: '朋友圈在 QQ 里的小图标那边，老板。发说说、看图文、评论互动都在那里，汪。',
