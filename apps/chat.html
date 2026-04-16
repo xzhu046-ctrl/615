@@ -15298,31 +15298,6 @@ async function maybeRepairForbiddenNarratorReply(reply, provider, key, model, te
   return String(reply || '');
 }
 
-async function maybeRepairNonDisplayableReply(reply, provider, key, model, temperature, sys, msgs){
-  var issue = detectNonDisplayableReply(reply);
-  if(!issue.nonDisplayable) return String(reply || '');
-  var repairSys = [
-    sys,
-    '【返工】上一条 assistant 回复没有任何能真正显示在聊天里的内容。',
-    '隐藏动作类消息不能单独作为整轮回复；如果要换头像、改备注或做别的动作，也必须至少再带一条真正显示在聊天里的内容。',
-    '请重写上一条 assistant 回复，至少包含一条可显示的 text / voice_message / image_message / meme / money_packet / rich_html / narrator。'
-  ].join('\n\n');
-  var repairMsgs = msgs.concat([
-    { role:'assistant', content:String(reply || '') },
-    { role:'user', content:'请把上一条 assistant 回复重写成正常可显示的聊天内容。不要只给隐藏动作。' }
-  ]);
-  try{
-    var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
-    var repairedIssue = detectNonDisplayableReply(repaired);
-    if(!repairedIssue.nonDisplayable){
-      return String(repaired || '');
-    }
-  }catch(err){
-    console.warn('repair non-displayable reply failed', err);
-  }
-  return String(reply || '');
-}
-
 // ════════════════════════════════════════════
 //  AI API calls
 // ════════════════════════════════════════════
@@ -15388,7 +15363,6 @@ async function callAI(provider, key) {
   reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairNarratorReply(reply, provider, key, model, temperature, sys, msgs);
   reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, sys, msgs);
-  reply = await maybeRepairNonDisplayableReply(reply, provider, key, model, temperature, sys, msgs);
   if(shouldEnforceForeignReplyLanguage()){
     var lang = getCharacterReplyLanguage();
     var option = getReplyLanguageOption(lang);
@@ -15408,7 +15382,6 @@ async function callAI(provider, key) {
       reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
       reply = await maybeRepairNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
       reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
-      reply = await maybeRepairNonDisplayableReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
     }
   }
   return reply;
@@ -25324,7 +25297,7 @@ async function deliverAiReply(text, limitOverride){
       await sleep(320 + Math.floor(Math.random()*320));
     }
   }
-  if(visibleAssistantSent > 0 && pendingAvatarActions.length){
+  if(pendingAvatarActions.length){
     for(var ai = 0; ai < pendingAvatarActions.length; ai++){
       var action = pendingAvatarActions[ai];
       if(!action) continue;
