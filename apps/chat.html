@@ -5477,6 +5477,7 @@ async function applyRenameProfileAction(payload, actorRole){
   updateHeader();
   syncActiveCharacterToShell();
   postSettingsPreviewSync();
+  pendingModelUserCue = [pendingModelUserCue, '系统事件：' + notice + '。下一轮请把这条改名/改备注读进去，再自然回复。'].filter(Boolean).join('\n');
   return appendSystemNotice(notice);
 }
 function resolveDisplayUserName(){
@@ -7454,9 +7455,9 @@ function buildAvatarVisionFocusedCue(latestUserText){
   return [
     '【头像问答提醒】',
     '用户这轮正在直接问头像或头像细节。',
-    '你必须优先依据本轮已经给你的真实头像识图结果回答，先接住头像问题本身；看不清就直接说看不清，不准瞎猜，不准岔开话题。',
-    '先分清“你当前头像”和“用户当前头像”分别是哪一张，再回答；不要把用户头像错认成你自己的头像。',
-    '如果两张当前头像本来就在互相呼应、像一组配对或情头，就先承认这一点，不要反问用户是在和谁用。'
+    '先按本轮头像识图结果回答，先接住头像问题；看不清就直说，不准瞎猜。',
+    '先分清“你当前头像”和“用户当前头像”，不要把用户头像错认成你自己的头像。',
+    '如果两张当前头像本来就在互相呼应、像一组配对或情头，就直接承认，不要反问用户是在和谁用。'
   ].join('\n');
 }
 
@@ -13825,6 +13826,8 @@ function buildSystemPrompt() {
   if(memePrompt) parts.push(memePrompt);
   var elapsedContext = getConversationElapsedContext();
   if(elapsedContext) parts.push(elapsedContext);
+  var recentSystemEvents = buildRecentSystemEventsPrompt(2);
+  if(recentSystemEvents) parts.push(recentSystemEvents);
   if(pendingMomentsChatCue){
     parts.push(['【朋友圈新互动】', pendingMomentsChatCue].join('\n'));
   }
@@ -14100,15 +14103,32 @@ async function buildCurrentAvatarFactsBlock(){
   if(!currentCharItem && !currentUserItem && !charSummary && !userSummary) return '';
   var lines = [
     '【当前头像事实】',
-    '下面是此刻正在使用的头像信息，不是猜测。',
-    '“你当前头像”指角色自己现在正在用的头像；“用户当前头像”指对方现在正在用的头像。不要把两者搞混，更不要把用户头像说成你自己的头像。',
-    '如果这两张当前头像明显互相呼应、像一组配对或情头，就先默认你们正在配着用；不要反问用户“在和谁用情头”。'
+    '先分清“你当前头像”和“用户当前头像”，不要把用户头像说成你自己的头像。',
+    '如果这两张头像明显互相呼应、像一组配对或情头，就先默认你们正在配着用，不要反问用户是在和谁用情头。'
   ];
   if(currentCharItem) lines.push('你当前头像（库内信息）：' + formatAvatarLibraryItemForPrompt(currentCharItem));
   if(charSummary) lines.push('你当前头像（识图结果）：' + charSummary);
   if(currentUserItem) lines.push('用户当前头像（库内信息）：' + formatAvatarLibraryItemForPrompt(currentUserItem));
   if(userSummary) lines.push('用户当前头像（识图结果）：' + userSummary);
   return lines.join('\n');
+}
+
+function buildRecentSystemEventsPrompt(limit){
+  var visible = getVisibleChatForModel();
+  if(!Array.isArray(visible) || !visible.length) return '';
+  var max = Math.max(1, Number(limit) || 2);
+  var picks = [];
+  for(var i = visible.length - 1; i >= 0; i -= 1){
+    var item = visible[i];
+    if(!item || item.hidden || item.role !== 'system') continue;
+    var content = String(item.content || '').replace(/\s+/g, ' ').trim();
+    if(!content) continue;
+    picks.push(content);
+    if(picks.length >= max) break;
+  }
+  if(!picks.length) return '';
+  picks.reverse();
+  return ['【最近系统事件】'].concat(picks).join('\n');
 }
 
 function isSameAvatarLibraryItem(a, b){
@@ -15059,7 +15079,31 @@ async function requestAndDeliverAiReply(provider, key){
     var typingElapsed = Date.now() - typingStartedAt;
     if(typingElapsed < 560) await sleep(560 - typingElapsed);
     hideTyping();
-    await deliverAiReply(reply);
+    try{
+      await deliverAiReply(reply);
+    }catch(deliverErr){
+      if(String((deliverErr && deliverErr.message) || deliverErr || '').trim() !== 'AI 没有返回可显示的聊天内容'){
+        throw deliverErr;
+      }
+      var repairCue = [
+        '【返工】上一条回复没有形成任何可显示的聊天内容。',
+        '这次必须给出 1 条能直接显示在聊天里的正常消息。',
+        '如果最近一条是系统事件，先读系统事件再自然接话。',
+        '不要只改头像、只改备注、只给隐藏动作、只给空壳。'
+      ].join('\n');
+      pendingModelUserCue = [pendingModelUserCue, repairCue].filter(Boolean).join('\n');
+      var repairedReply = await callAI(provider, key);
+      var repairedStatusParsed = extractHeaderStatusDirective(repairedReply);
+      if(repairedStatusParsed.status){
+        setStoredCharHeaderStatus(character && character.id, repairedStatusParsed.status);
+        updateModelLabel();
+      }
+      repairedReply = String(repairedStatusParsed.text || repairedReply || '').trim();
+      if(!repairedReply){
+        throw deliverErr;
+      }
+      await deliverAiReply(repairedReply);
+    }
     clearPresenceNudgeState(character && character.id);
     await saveChat(true);
     pendingMomentsChatCue = '';
@@ -24464,12 +24508,16 @@ async function saveChatSettings() {
     var nextCharDisplayName = String((character.nickname || character.name || '')).trim() || oldCharDisplayName;
     var charNickChanged = (ck !== oldCharNicknameRaw);
     if(charNickChanged){
-      appendSystemNotice((String(un || oldUserDisplayName || '你').trim() || '你') + '更改' + oldCharDisplayName + '的名字为' + nextCharDisplayName);
+      var charRenameNotice = (String(un || oldUserDisplayName || '你').trim() || '你') + '更改' + oldCharDisplayName + '的名字为' + nextCharDisplayName;
+      appendSystemNotice(charRenameNotice);
+      pendingModelUserCue = [pendingModelUserCue, '系统事件：' + charRenameNotice + '。下一轮请按这个新名字自然接话。'].filter(Boolean).join('\n');
     }
     var oldUserNoteDisplay = oldUserNicknameNoteRaw || oldUserDisplayName;
     var nextUserNoteDisplay = String(unick || '').trim() || oldUserDisplayName;
     if(nextUserNoteDisplay !== oldUserNoteDisplay){
-      appendSystemNotice((String(un || oldUserDisplayName || '你').trim() || '你') + '把' + oldUserDisplayName + '的备注改成了' + nextUserNoteDisplay);
+      var userRenameNotice = (String(un || oldUserDisplayName || '你').trim() || '你') + '把' + oldUserDisplayName + '的备注改成了' + nextUserNoteDisplay;
+      appendSystemNotice(userRenameNotice);
+      pendingModelUserCue = [pendingModelUserCue, '系统事件：' + userRenameNotice + '。下一轮请按这个新备注和关系状态自然接话。'].filter(Boolean).join('\n');
     }
     try{
       var settingsPatch = buildChatSettingsPatchFromCharacter(character);
