@@ -43,7 +43,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T12:20:00Z';
+const APP_BUILD_ID = '2026-04-16T12:27:00Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -5765,6 +5765,7 @@ function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
         ['data', 'url'], ['data', 'playUrl'], ['data', 'streamUrl'], ['data', 'src'], ['data', 'music_url'], ['data', 'musicUrl']
       ]) || ''
     ).trim();
+    if(!remoteUrl) remoteUrl = String(findHomeMusicDeepAudioUrl(item) || '').trim();
     var normalizedPair = splitHomeMusicNameAndArtist(name, artist);
     if(isHomeMusicUnknownName(normalizedPair.name)){
       normalizedPair.name = fallbackBase || ('歌曲 ' + String(idx + 1));
@@ -5778,7 +5779,10 @@ function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
       cover: cover,
       remoteUrl: remoteUrl,
       lyricsText: '',
-      duration: normalizeHomeMusicDurationSeconds(getHomeMusicFirstTruthy(item, [['duration'], ['interval'], ['dt'], ['time'], ['songTime'], ['duration_ms']]) || 0)
+      duration: (function(){
+        var direct = normalizeHomeMusicDurationSeconds(getHomeMusicFirstTruthy(item, [['duration'], ['interval'], ['dt'], ['time'], ['songTime'], ['duration_ms']]) || 0);
+        return direct > 0 ? direct : findHomeMusicDeepDuration(item);
+      })()
     };
   }).filter(function(item){
     return !!String(item.name || '').trim();
@@ -5800,8 +5804,74 @@ function extractHomeMusicLyricText(payload){
   return '';
 }
 
+function findHomeMusicDeepAudioUrl(payload){
+  var queue = [payload];
+  var visited = new Set();
+  while(queue.length){
+    var node = queue.shift();
+    if(!node) continue;
+    if(typeof node === 'string'){
+      var text = String(node || '').trim();
+      if(/^https?:\/\//i.test(text) && /(?:audio|music|song|play|stream|m4a|mp3|aac|flac|wav|ogg)/i.test(text)){
+        return text;
+      }
+      continue;
+    }
+    if(typeof node !== 'object' || visited.has(node)) continue;
+    visited.add(node);
+    if(Array.isArray(node)){
+      node.forEach(function(item){ queue.push(item); });
+      continue;
+    }
+    Object.keys(node).forEach(function(key){
+      var value = node[key];
+      if(typeof value === 'string'){
+        var text = String(value || '').trim();
+        if(/^https?:\/\//i.test(text) && /(?:audio|music|song|play|stream|m4a|mp3|aac|flac|wav|ogg)/i.test(text)){
+          queue.unshift(text);
+          return;
+        }
+      }
+      queue.push(value);
+    });
+  }
+  return '';
+}
+
+function findHomeMusicDeepDuration(payload){
+  var queue = [payload];
+  var visited = new Set();
+  while(queue.length){
+    var node = queue.shift();
+    if(node === null || node === undefined) continue;
+    if(typeof node === 'number'){
+      var numeric = normalizeHomeMusicDurationSeconds(node);
+      if(numeric > 0) return numeric;
+      continue;
+    }
+    if(typeof node !== 'object' || visited.has(node)) continue;
+    visited.add(node);
+    if(Array.isArray(node)){
+      node.forEach(function(item){ queue.push(item); });
+      continue;
+    }
+    Object.keys(node).forEach(function(key){
+      var value = node[key];
+      if(/duration|interval|songtime|duration_ms|time|dt/i.test(String(key || ''))){
+        var numeric = normalizeHomeMusicDurationSeconds(value);
+        if(numeric > 0){
+          queue.unshift(numeric);
+          return;
+        }
+      }
+      queue.push(value);
+    });
+  }
+  return 0;
+}
+
 function extractHomeMusicAudioUrl(payload){
-  return String(getHomeMusicFirstTruthy(payload, [
+  var direct = String(getHomeMusicFirstTruthy(payload, [
     ['url'],
     ['playUrl'],
     ['streamUrl'],
@@ -5822,6 +5892,8 @@ function extractHomeMusicAudioUrl(payload){
     ['data', 'link'],
     ['data', 'src']
   ]) || '').trim();
+  if(direct) return direct;
+  return String(findHomeMusicDeepAudioUrl(payload) || '').trim();
 }
 
 function extractHomeMusicCoverUrl(payload){
@@ -5836,7 +5908,7 @@ function extractHomeMusicCoverUrl(payload){
 }
 
 function extractHomeMusicDuration(payload){
-  return normalizeHomeMusicDurationSeconds(getHomeMusicFirstTruthy(payload, [
+  var direct = normalizeHomeMusicDurationSeconds(getHomeMusicFirstTruthy(payload, [
     ['duration'],
     ['interval'],
     ['dt'],
@@ -5850,6 +5922,8 @@ function extractHomeMusicDuration(payload){
     ['data', 'songTime'],
     ['data', 'duration_ms']
   ]) || 0);
+  if(direct > 0) return direct;
+  return findHomeMusicDeepDuration(payload);
 }
 
 async function hydrateHomeMusicThirdPartyTrack(track){
