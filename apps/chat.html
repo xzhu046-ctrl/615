@@ -14901,7 +14901,10 @@ async function requestAndDeliverAiReply(provider, key){
     reply = headerStatusParsed.text || reply;
     reply = String(reply == null ? '' : reply).trim();
     if(!reply){
-      throw new Error('AI 返回了空回复');
+      clearPresenceNudgeState(character && character.id);
+      await saveChat(true);
+      hideError();
+      return true;
     }
     var typingElapsed = Date.now() - typingStartedAt;
     if(typingElapsed < 560) await sleep(560 - typingElapsed);
@@ -16555,7 +16558,7 @@ function bindMemeSuggestSend(node, itemId){
     e.preventDefault();
     e.stopPropagation();
     if(moved) return;
-    sendMemeById(itemId, false);
+    sendMemeById(itemId, true);
   });
 }
 
@@ -17115,21 +17118,8 @@ async function sendMemeItem(item, triggerReplyAfter){
   }
   closeMemeSuggestPanel();
   closeMemePicker();
-  if(isMemeVisionEnabled()){
-    try{
-      var latestVision = await ensureMemeVisionForItem(item, false);
-      if(latestVision){
-        item = Object.assign({}, item, {
-          visionDesc: latestVision,
-          visionSignature: computeAvatarVisionSignature(await resolveMemeThumbSource(item).catch(function(){ return ''; })),
-          visionUpdatedAt: Date.now()
-        });
-      }
-    }catch(err){
-      console.warn('sendMemeItem vision failed', err);
-    }
-  }
-  var entry = makeChatEntry('user', buildMemeEntryContent(item), 'meme');
+  var normalizedItem = normalizeMemeItem(item);
+  var entry = makeChatEntry('user', buildMemeEntryContent(normalizedItem), 'meme');
   entry.replyToId = replyTargetId;
   consumeFirstUserTurn(character && character.id);
   chatLog.push(entry);
@@ -17139,8 +17129,26 @@ async function sendMemeItem(item, triggerReplyAfter){
   clearReplyTarget();
   await saveChat(true);
   hideError();
-  captureUserMomentIntent(memeMarker(item.name), 'meme');
-  toast('已发送表情包：' + item.name);
+  captureUserMomentIntent(memeMarker(normalizedItem.name), 'meme');
+  toast('已发送表情包：' + normalizedItem.name);
+  if(isMemeVisionEnabled()){
+    Promise.resolve().then(async function(){
+      try{
+        var latestVision = await ensureMemeVisionForItem(normalizedItem, false);
+        if(!latestVision) return;
+        var signature = computeAvatarVisionSignature(await resolveMemeThumbSource(normalizedItem).catch(function(){ return ''; }));
+        var nextPayload = parseMemePayload(entry.content) || normalizedItem;
+        nextPayload.visionDesc = latestVision;
+        nextPayload.visionSignature = signature || '';
+        nextPayload.visionUpdatedAt = Date.now();
+        entry.content = buildMemeEntryContent(nextPayload);
+        markLocalChatDirty();
+        await saveChat(true);
+      }catch(err){
+        console.warn('sendMemeItem vision failed', err);
+      }
+    });
+  }
   if(triggerReplyAfter){
     await triggerReply();
   }
@@ -25277,7 +25285,7 @@ async function deliverAiReply(text, limitOverride){
       await sleep(140 + Math.floor(Math.random() * 70));
     }
   }
-  if(sentCount === 0) throw new Error('AI 没有返回可显示的聊天内容');
+  if(sentCount === 0) return sentIds;
   if(sentTexts.length){
     refreshInnerVoiceFromAi(sentTexts[sentTexts.length - 1]);
   }
