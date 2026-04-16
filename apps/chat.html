@@ -12777,6 +12777,13 @@ function getAvatarPlaceholderHtml(kind, symbol){
   return '<span class="avatar-pick-icon char" aria-hidden="true"></span><div class="avatar-pick-hint">换头像</div>';
 }
 
+function getAvatarShelfFallbackHtml(role){
+  var safeRole = role === 'user' ? 'user' : 'char';
+  return safeRole === 'user'
+    ? '<span class="avatar-pick-icon user" aria-hidden="true"></span>'
+    : '<span class="avatar-pick-icon char" aria-hidden="true"></span>';
+}
+
 function updateHeader() {
   if (!character) return;
   var headerCharId = String((character && character.id) || '').trim();
@@ -23839,7 +23846,9 @@ function handleAvatarMetaOverlayClick(event){
 }
 
 function renderAvatarLibraryPreviewNode(item){
-  var thumb = '<div class="avatar-polaroid-thumb" data-avatar-lib-thumb="' + escAttr(item.id) + '"><div class="avatar-polaroid-thumb-fallback">☺</div></div>';
+  var role = item && item.role === 'user' ? 'user' : 'char';
+  var thumb = '<div class="avatar-polaroid-thumb" data-avatar-lib-thumb="' + escAttr(item.id) + '" data-avatar-lib-role="' + escAttr(role) + '">' +
+    '<div class="avatar-polaroid-thumb-fallback">' + getAvatarShelfFallbackHtml(role) + '</div></div>';
   return '<button class="avatar-polaroid-card" type="button" data-avatar-lib-id="' + escAttr(item.id) + '">' +
     thumb +
     '<span class="avatar-polaroid-badge">' + esc(item.role === 'char' ? 'CHAR' : 'USER') + '</span>' +
@@ -23881,11 +23890,11 @@ function renderChatSettingsAvatarShelf(role){
   ];
   if(items.length){
     items.slice(0, 8).forEach(function(item){
-      var previewSrc = String(item.previewData || '').trim();
+      var previewSrc = normalizeAvatarSrc(String(item.previewData || '').trim());
       var isSelected = previewSrc && normalizeAvatarSrc(previewSrc) === currentSrc;
       html.push(
         '<button class="cs-avatar-shelf-card' + (isSelected ? ' selected' : '') + '" type="button" data-avatar-shelf-id="' + escAttr(item.id) + '" data-avatar-shelf-role="' + safeRole + '">' +
-          '<div class="cs-avatar-shelf-thumb">' + (previewSrc ? ('<img src="' + escAttr(previewSrc) + '" alt="' + escAttr(item.label || '头像') + '">') : '<div class="cs-avatar-shelf-fallback">☺</div>') + '</div>' +
+          '<div class="cs-avatar-shelf-thumb" data-avatar-shelf-thumb="' + escAttr(item.id) + '">' + (previewSrc ? ('<img src="' + escAttr(previewSrc) + '" alt="' + escAttr(item.label || '头像') + '">') : '<div class="cs-avatar-shelf-fallback">' + getAvatarShelfFallbackHtml(safeRole) + '</div>') + '</div>' +
           '<span class="cs-avatar-shelf-badge">' + esc(item.couple ? 'CP' : (item.pairTag || '头像')) + '</span>' +
           '<div class="cs-avatar-shelf-meta"><span>' + esc(safeRole === 'char' ? 'CHAR' : 'USER') + '</span><span class="name">' + esc(item.label || '未命名') + '</span></div>' +
         '</button>'
@@ -23899,6 +23908,32 @@ function renderChatSettingsAvatarShelf(role){
       var item = items.find(function(entry){ return String(entry.id || '') === String(itemId || ''); });
       openAvatarMetaEditorForItem(item, safeRole);
     });
+  });
+  items.slice(0, 8).forEach(function(item){
+    if(!item) return;
+    var thumbNode = host.querySelector('[data-avatar-shelf-thumb="' + String(item.id || '') + '"]');
+    if(!thumbNode) return;
+    var previewSrc = normalizeAvatarSrc(String(item.previewData || '').trim());
+    if(isRenderableAvatarSrc(previewSrc)){
+      var imgNode = thumbNode.querySelector('img');
+      if(imgNode){
+        imgNode.onerror = function(){
+          thumbNode.innerHTML = '<div class="cs-avatar-shelf-fallback">' + getAvatarShelfFallbackHtml(safeRole) + '</div>';
+        };
+      }
+      return;
+    }
+    loadStoredAsset(String(item.assetKey || '')).then(function(src){
+      var safeSrc = normalizeAvatarSrc(src);
+      if(!isRenderableAvatarSrc(safeSrc)) return;
+      thumbNode.innerHTML = '<img src="' + escAttr(safeSrc) + '" alt="' + escAttr(item.label || '头像') + '">';
+      var nextImg = thumbNode.querySelector('img');
+      if(nextImg){
+        nextImg.onerror = function(){
+          thumbNode.innerHTML = '<div class="cs-avatar-shelf-fallback">' + getAvatarShelfFallbackHtml(safeRole) + '</div>';
+        };
+      }
+    }).catch(function(){});
   });
   var addBtn = host.querySelector('[data-avatar-shelf-add="' + safeRole + '"]');
   if(addBtn){
@@ -23934,8 +23969,16 @@ function renderAvatarLibraryOverlay(){
     }
     loadStoredAsset(item.assetKey).then(function(src){
       var node = host.querySelector('[data-avatar-lib-thumb="' + item.id + '"]');
-      if(!node || !src) return;
-      node.innerHTML = '<img src="' + src + '" alt="' + escAttr(item.label || '头像') + '">';
+      if(!node) return;
+      var safeSrc = normalizeAvatarSrc(src);
+      if(!isRenderableAvatarSrc(safeSrc)) return;
+      node.innerHTML = '<img src="' + escAttr(safeSrc) + '" alt="' + escAttr(item.label || '头像') + '">';
+      var img = node.querySelector('img');
+      if(img){
+        img.onerror = function(){
+          node.innerHTML = '<div class="avatar-polaroid-thumb-fallback">' + getAvatarShelfFallbackHtml(role) + '</div>';
+        };
+      }
     }).catch(function(){});
   });
 }
