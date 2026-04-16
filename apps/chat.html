@@ -21056,25 +21056,10 @@ function buildInnerVoiceHistoryForPrompt(limit){
 function autoSplitLongAssistantText(text){
   var normalized = String(text || '').replace(/\s+/g, ' ').trim();
   if(!normalized) return [];
-  if(normalized.length <= 28 && !/[。！？!?；;，,、]\s*.+/.test(normalized)) return [];
-  var splitOverlongUnit = function(unit){
-    var raw = String(unit || '').trim();
-    if(!raw) return [];
-    if(raw.length <= 24) return [raw];
-    var chunks = raw.match(/[^，,、：:]{1,16}(?:[，,、：:]|$)/g) || [];
-    if(chunks.length <= 1){
-      chunks = raw.match(/.{1,14}/g) || [raw];
-    }
-    return chunks.map(function(chunk){
-      return String(chunk || '').trim();
-    }).filter(Boolean);
-  };
+  if(normalized.length <= 34 && !/[。！？!?；;]\s*.+/.test(normalized)) return [];
   var units = normalized.match(/[^。！？!?；;]+[。！？!?；;]?/g) || [];
   if(!units.length || units.length === 1){
-    units = normalized.match(/[^，,、]+[，,、]?/g) || [normalized];
-  }
-  if(!units.length || units.length === 1){
-    units = splitOverlongUnit(normalized);
+    units = normalized.match(/[^，,]+[，,]?/g) || [normalized];
   }
   if(!units.length || units.length === 1) return [];
   var out = [];
@@ -21083,15 +21068,16 @@ function autoSplitLongAssistantText(text){
   units.forEach(function(unit){
     var piece = String(unit || '').trim();
     if(!piece) return;
-    var tooLong = piece.length > 22;
-    var exceedBucket = bucket && (bucket.length + piece.length > 24 || sentenceCount >= 2);
+    var tooLong = piece.length > 24;
+    var exceedBucket = bucket && (bucket.length + piece.length > 30 || sentenceCount >= 2);
     if(exceedBucket){
       out.push(bucket.trim());
       bucket = '';
       sentenceCount = 0;
     }
     if(tooLong && !bucket){
-      splitOverlongUnit(piece).forEach(function(hard){
+      var hardParts = piece.match(/.{1,20}(?:[，,、]|$)/g) || [piece];
+      hardParts.forEach(function(hard){
         var safeHard = String(hard || '').trim();
         if(safeHard) out.push(safeHard);
       });
@@ -24264,15 +24250,6 @@ async function deliverAiReply(text, limitOverride){
     var lines = cleaned.split(/\n+/).map(function(line){ return line.trim(); }).filter(Boolean);
     if(lines.length >= 2){
       return lines.map(function(line){
-        var autoLineParts = autoSplitLongAssistantText(line);
-        if(autoLineParts.length >= 2){
-          return autoLineParts.map(function(piece){
-            var mixedPieces = splitTextAndMemeMarkers(piece);
-            if(mixedPieces.length >= 2) return mixedPieces;
-            var maybeSplitMeme = parseMemeMarker(piece);
-            return { text: maybeSplitMeme || piece, t: maybeSplitMeme ? 'meme' : 'text' };
-          }).flat();
-        }
         var mixed = splitTextAndMemeMarkers(line);
         if(mixed.length >= 2) return mixed;
         var maybeMeme = parseMemeMarker(line);
@@ -24290,6 +24267,45 @@ async function deliverAiReply(text, limitOverride){
     }
     var maybeInlineMeme = parseMemeMarker(cleaned);
     return [{ text: maybeInlineMeme || cleaned, t: maybeInlineMeme ? 'meme' : 'text' }];
+  };
+  var splitTranslationTextToParts = function(raw){
+    var cleaned = clean(raw)
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\u003c\s*br\s*\\?\/?\s*\\u003e/ig, '\n')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[\u2028\u2029]/g, '\n')
+      .replace(/<\s*br\s*\/?\s*>/ig, '\n')
+      .replace(/＜\s*br\s*\/?\s*＞/ig, '\n')
+      .replace(/&lt;\s*br\s*\/?\s*&gt;/ig, '\n')
+      .replace(/<\/p>\s*<p[^>]*>/ig, '\n')
+      .replace(/<\/div>\s*<div[^>]*>/ig, '\n');
+    if(!cleaned) return [];
+    var msgParts = cleaned
+      .replace(/<\s*\/\s*msg\s*>/ig, '<msg>')
+      .replace(/<\s*msg\s*>/ig, '<msg>')
+      .split(/<msg>/i)
+      .map(function(piece){ return String(piece || '').trim(); })
+      .filter(Boolean);
+    if(msgParts.length > 1) return msgParts;
+    var paragraphParts = cleaned.split(/\n{2,}/).map(function(piece){
+      return String(piece || '').trim();
+    }).filter(Boolean);
+    if(paragraphParts.length >= 2) return paragraphParts;
+    var lineParts = cleaned.split(/\n+/).map(function(piece){
+      return String(piece || '').trim();
+    }).filter(Boolean);
+    if(lineParts.length >= 2) return lineParts;
+    return cleaned ? [cleaned] : [];
+  };
+  var mapSplitTranslations = function(splitParts, rawTranslation){
+    var translation = String(rawTranslation || '').trim();
+    if(!Array.isArray(splitParts) || splitParts.length <= 1 || !translation) return [];
+    var translationParts = splitTranslationTextToParts(translation);
+    if(translationParts.length === splitParts.length){
+      return translationParts;
+    }
+    return splitParts.map(function(){ return ''; });
   };
   var parsed = null;
   var rawParts = [];
@@ -24467,6 +24483,7 @@ async function deliverAiReply(text, limitOverride){
     if(t === 'text'){
       var splitParts = splitPlainTextToParts(c);
       if(splitParts.length > 1){
+        var mappedTranslations = mapSplitTranslations(splitParts, translation);
         splitParts.forEach(function(part){
           if(!part || !part.text) return;
           rawParts.push({
@@ -24474,7 +24491,7 @@ async function deliverAiReply(text, limitOverride){
             t: part.t || 'text',
             replyTo: item.reply_to || item.replyTo || '',
             replyRole: item.reply_role || item.replyRole || '',
-            translationText: translation
+            translationText: mappedTranslations.length ? String(mappedTranslations.shift() || '') : translation
           });
         });
         return;
@@ -24838,6 +24855,7 @@ async function deliverAiReply(text, limitOverride){
       expandedParts.push(part);
       return;
     }
+    var mappedTranslations = mapSplitTranslations(splitParts, part.translationText || '');
     splitParts.forEach(function(seg){
       if(!seg || !seg.text) return;
       expandedParts.push({
@@ -24845,7 +24863,7 @@ async function deliverAiReply(text, limitOverride){
         t: seg.t || 'text',
         replyTo: part.replyTo || '',
         replyRole: part.replyRole || '',
-        translationText: part.translationText || ''
+        translationText: mappedTranslations.length ? String(mappedTranslations.shift() || '') : (part.translationText || '')
       });
     });
   });
