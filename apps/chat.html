@@ -12716,8 +12716,45 @@ function parseMoneyPacketPayload(raw){
     var obj = JSON.parse(String(raw));
     return obj && typeof obj === 'object' ? obj : null;
   }catch(e){
+    var text = String(raw || '').trim();
+    var bracketMatch = text.match(/^\[(?:money_packet)\s+([^\]]+)\]$/i);
+    if(bracketMatch){
+      var chunk = String(bracketMatch[1] || '');
+      var payload = {};
+      chunk.replace(/([a-z_]+)=("([^"]*)"|'([^']*)'|[^\s]+)/ig, function(_, key, whole, dq, sq){
+        payload[String(key || '').trim()] = String(dq != null ? dq : (sq != null ? sq : whole)).replace(/^['"]|['"]$/g,'').trim();
+        return _;
+      });
+      if(Object.keys(payload).length){
+        return {
+          type: 'money_packet',
+          mode: String(payload.mode || 'red_packet') === 'transfer' ? 'transfer' : 'red_packet',
+          amount: Number(payload.amount || 0) || 0,
+          note: String(payload.note || '').trim(),
+          status: String(payload.status || 'pending').trim() || 'pending',
+          summary: String(payload.summary || '').trim()
+        };
+      }
+    }
+    var simpleMatch = text.match(/^\[(转账信息|红包信息)\s*::\s*([0-9]+(?:\.[0-9]+)?)\s*::\s*([^\]]*)\]$/);
+    if(simpleMatch){
+      return {
+        type: 'money_packet',
+        mode: simpleMatch[1] === '转账信息' ? 'transfer' : 'red_packet',
+        amount: Number(simpleMatch[2] || 0) || 0,
+        note: String(simpleMatch[3] || '').trim(),
+        status: 'pending'
+      };
+    }
     return null;
   }
+}
+
+function tryPromoteTextToMoneyPacket(raw){
+  var payload = parseMoneyPacketPayload(raw);
+  if(!payload) return null;
+  if(String(payload.type || 'money_packet') !== 'money_packet') payload.type = 'money_packet';
+  return JSON.stringify(payload);
 }
 
 function getMoneyCoverById(id){
@@ -14013,13 +14050,43 @@ function resolveAutoAvatarDecisionItem(list, rawValue){
   return findAvatarLibraryItemByInstruction(items, needle);
 }
 
+async function resolveCurrentAvatarLibraryItem(role, store){
+  var safeRole = role === 'user' ? 'user' : 'char';
+  var cache = store && store[safeRole] ? store : await loadAvatarLibraryStore(character && character.id);
+  var items = Array.isArray(cache && cache[safeRole]) ? cache[safeRole] : [];
+  if(!items.length) return null;
+  var currentSrc = safeRole === 'user'
+    ? normalizeAvatarSrc(currentVisibleUserAvatarSrc())
+    : normalizeAvatarSrc(currentVisibleCharAvatarSrc());
+  if(!currentSrc) return null;
+  for(var i = 0; i < items.length; i += 1){
+    var item = items[i];
+    if(!item) continue;
+    var previewSrc = normalizeAvatarSrc(String(item.previewData || '').trim());
+    if(previewSrc && previewSrc === currentSrc) return item;
+    var assetSrc = normalizeAvatarSrc(String(await loadStoredAsset(String(item.assetKey || '')).catch(function(){ return ''; }) || '').trim());
+    if(assetSrc && assetSrc === currentSrc) return item;
+  }
+  return null;
+}
+
+function isSameAvatarLibraryItem(a, b){
+  if(!a || !b) return false;
+  var aId = String(a.id || '').trim();
+  var bId = String(b.id || '').trim();
+  if(aId && bId && aId === bId) return true;
+  var aPreview = normalizeAvatarSrc(String(a.previewData || '').trim());
+  var bPreview = normalizeAvatarSrc(String(b.previewData || '').trim());
+  if(aPreview && bPreview && aPreview === bPreview) return true;
+  return false;
+}
+
 async function maybeTriggerAutoAvatarResponse(payload){
   if(!character || !character.id) return false;
   if(!loadCharAvatarAutoEnabled(character.id)) return false;
   var now = Date.now();
   var lastAutoAt = loadCharAvatarAutoLastActionAt(character.id);
   var avatarAutoCooldownMs = 2 * 60 * 60 * 1000;
-  avatarAutoCooldownMs = 12 * 60 * 60 * 1000;
   if(lastAutoAt && now - lastAutoAt < avatarAutoCooldownMs) return false;
   var visionRequired = !!loadAvatarVisionEnabled(character.id);
   var store = avatarLibraryCache && (avatarLibraryCache.char || avatarLibraryCache.user) ? avatarLibraryCache : await loadAvatarLibraryStore(character.id);
@@ -14027,13 +14094,21 @@ async function maybeTriggerAutoAvatarResponse(payload){
   var charOptions = Array.isArray(store.char) ? store.char.slice(0, 24) : [];
   var userOptions = Array.isArray(store.user) ? store.user.slice(0, 24) : [];
   if(!charOptions.length && !userOptions.length) return false;
+  var currentCharItem = await resolveCurrentAvatarLibraryItem('char', store).catch(function(){ return null; });
+  var currentUserItem = await resolveCurrentAvatarLibraryItem('user', store).catch(function(){ return null; });
   var userItem = payload && payload.changedUserItem && typeof payload.changedUserItem === 'object' ? payload.changedUserItem : null;
   var visionSummary = '';
+  var currentCharVisionSummary = '';
   if(visionRequired){
     try{
       visionSummary = await ensureAvatarVisionSummary('user', payload && payload.changedUserSrc || '');
     }catch(err){
       console.warn('describeImageWithVision failed', err);
+    }
+    try{
+      currentCharVisionSummary = await ensureAvatarVisionSummary('char', currentVisibleCharAvatarSrc() || '');
+    }catch(err){
+      console.warn('describe current char avatar with vision failed', err);
     }
   }
   var persona = String(character.personality || character.description || '').trim().slice(0, 1200);
@@ -14049,7 +14124,7 @@ async function maybeTriggerAutoAvatarResponse(payload){
       return String(item && item.pairTag || '').trim() === String(userItem.pairTag || '').trim();
     }) || null;
   }
-  if(pairedCandidate){
+  if(pairedCandidate && !isSameAvatarLibraryItem(pairedCandidate, currentCharItem)){
     var pairedChanged = await applyAvatarLibraryItem(pairedCandidate.id, 'char', 'char').then(function(){ return true; }).catch(function(){ return false; });
     if(pairedChanged){
       saveCharAvatarAutoLastActionAt(character.id, now);
@@ -14072,6 +14147,20 @@ async function maybeTriggerAutoAvatarResponse(payload){
     '用户名：' + currentUserName,
     '角色人设：' + (persona || '无'),
     history ? ('最近聊天：\n' + history) : '最近聊天：无',
+    currentCharItem ? ('角色当前正在用的头像：' + JSON.stringify({
+      id: currentCharItem.id || '',
+      label: currentCharItem.label || '',
+      note: currentCharItem.note || '',
+      pairTag: currentCharItem.pairTag || '',
+      couple: !!currentCharItem.couple
+    })) : '角色当前正在用的头像：库内未知',
+    currentUserItem ? ('用户当前正在用的头像：' + JSON.stringify({
+      id: currentUserItem.id || '',
+      label: currentUserItem.label || '',
+      note: currentUserItem.note || '',
+      pairTag: currentUserItem.pairTag || '',
+      couple: !!currentUserItem.couple
+    })) : '用户当前正在用的头像：库内未知',
     userItem ? ('用户刚换上的头像信息：' + JSON.stringify({
       label: userItem.label || '',
       note: userItem.note || '',
@@ -14079,6 +14168,7 @@ async function maybeTriggerAutoAvatarResponse(payload){
       couple: !!userItem.couple
     })) : '用户刚换上的头像信息：无库内备注',
     visionSummary ? ('识图结果：' + visionSummary) : '识图结果：无',
+    currentCharVisionSummary ? ('你当前头像的识图结果：' + currentCharVisionSummary) : '你当前头像的识图结果：无',
     'CHAR 头像库候选：\n' + JSON.stringify(charOptions.map(function(item){
       return { id:item.id, label:item.label, note:item.note, pairTag:item.pairTag, couple:!!item.couple };
     })),
@@ -14096,14 +14186,14 @@ async function maybeTriggerAutoAvatarResponse(payload){
   if(decision && decision.changeChar){
     var charRef = decision.charAvatar || decision.charAvatarId || decision.charAvatarName || decision.name || '';
     var charItem = resolveAutoAvatarDecisionItem(charOptions, charRef);
-    if(charItem){
+    if(charItem && !isSameAvatarLibraryItem(charItem, currentCharItem)){
       changed = await applyAvatarLibraryItem(charItem.id, 'char', 'char').then(function(){ return true; }).catch(function(){ return false; }) || changed;
     }
   }
   if(decision && decision.changeUser){
     var userRef = decision.userAvatar || decision.userAvatarId || decision.userAvatarName || decision.userName || '';
     var userOption = resolveAutoAvatarDecisionItem(userOptions, userRef);
-    if(userOption){
+    if(userOption && !isSameAvatarLibraryItem(userOption, currentUserItem)){
       changed = await applyAvatarLibraryItem(userOption.id, 'user', 'char').then(function(){ return true; }).catch(function(){ return false; }) || changed;
     }
   }
@@ -14470,7 +14560,7 @@ function buildChatExtendedFormatPrompt(){
     'rename_profile 不要只在被要求时才用：当关系升温、称呼被反复使用、你觉得某个昵称更贴关系、或你想调整对方怎么叫你时，可以主动发起一次改名。',
     'rename_profile 的 target=user 表示你改“你给对方的备注”；target=char 表示你改“对方叫你的名字”。两者都可主动用，但不要一轮连发多个。',
     '主动改备注和主动换头像都要像真人：看聊天上下文、关系推进、刚发生的事与人设自行判断，不要机械刷操作，也不要完全不发生。',
-    '主动换头像必须低频，绝不要连续刷操作；除非用户正在明确聊头像、情头、配对图，否则优先正常回复内容，不要动不动就换头像。',
+    '主动换头像保持中频即可，不要太死也不要连刷；除非用户正在明确聊头像、情头、配对图，否则优先正常回复内容。',
     '改备注可以比换头像稍微自然一点，但也不要一轮接一轮连着改。',
     '你的头像库可用名字：' + (charAvatarNames.length ? charAvatarNames.join('、') : '（空）'),
     'USER 头像库可用名字：' + (userAvatarNames.length ? userAvatarNames.join('、') : '（空）'),
@@ -24705,6 +24795,13 @@ async function deliverAiReply(text, limitOverride){
         text: item.text || item.content || item.reply_content || item.description || ''
       });
     }
+    if(t === 'text'){
+      var promotedMoney = tryPromoteTextToMoneyPacket(c);
+      if(promotedMoney){
+        c = promotedMoney;
+        t = 'moneypacket';
+      }
+    }
     if(t === 'narrator' && !c){
       c = item.narrator || item.narration || '';
     }
@@ -25022,6 +25119,13 @@ async function deliverAiReply(text, limitOverride){
               summary: obj.summary || obj.text || obj.content || '',
               text: obj.text || obj.content || obj.reply_content || obj.description || ''
             });
+          }
+          if(t === 'text'){
+            var promotedObjMoney = tryPromoteTextToMoneyPacket(c);
+            if(promotedObjMoney){
+              c = promotedObjMoney;
+              t = 'moneypacket';
+            }
           }
           if(t === 'text'){
             var promotedObjRich = tryPromoteTextToRichHtml(c, {
