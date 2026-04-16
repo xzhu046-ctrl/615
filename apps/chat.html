@@ -757,14 +757,14 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
   font-weight:900;
   color:var(--b);
 }
-.money-packet{width:min(212px,58vw);border-radius:24px;overflow:hidden;border:2px solid #7f0d10;box-shadow:0 10px 22px rgba(0,0,0,.14);background:#b7181f;color:#fff;position:relative}
-.money-packet.transfer{width:min(212px,58vw);border-color:#111;background:linear-gradient(180deg,#fafafa 0%,#efefef 100%);color:#111}
-.money-packet-cover{height:92px;position:relative;background:linear-gradient(180deg,#f6d7d7 0%,#d65256 62%,#b7181f 100%)}
+.money-packet{width:min(236px,64vw);min-height:214px;border-radius:24px;overflow:hidden;border:2px solid #7f0d10;box-shadow:0 10px 22px rgba(0,0,0,.14);background:#b7181f;color:#fff;position:relative}
+.money-packet.transfer{width:min(220px,60vw);min-height:0;border-color:#111;background:linear-gradient(180deg,#fafafa 0%,#efefef 100%);color:#111}
+.money-packet-cover{height:118px;position:relative;background:linear-gradient(180deg,#f6d7d7 0%,#d65256 62%,#b7181f 100%)}
 .money-packet-cover.has-image{background-size:cover;background-position:center}
-.money-packet-cover::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:76px;background:linear-gradient(180deg,rgba(183,24,31,0) 0%,rgba(183,24,31,.38) 32%,rgba(183,24,31,.86) 68%,rgba(183,24,31,1) 100%)}
+.money-packet-cover::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:96px;background:linear-gradient(180deg,rgba(183,24,31,0) 0%,rgba(183,24,31,.26) 26%,rgba(183,24,31,.74) 62%,rgba(183,24,31,1) 100%)}
 .money-packet.transfer .money-packet-cover{height:0;background:none}
 .money-packet.transfer .money-packet-cover::after{display:none}
-.money-packet-body{position:relative;padding:50px 14px 16px;display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:-24px}
+.money-packet-body{position:relative;padding:58px 16px 18px;display:flex;flex-direction:column;align-items:center;gap:7px;margin-top:-32px}
 .money-packet.transfer .money-packet-body{margin-top:0;padding:18px 14px 16px}
 .money-packet-kind{font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.06em}
 .money-packet-note{font-size:12px;font-weight:800;text-align:center;line-height:1.3}
@@ -12764,6 +12764,36 @@ function getMoneyCoverPreviewSource(cover){
   return String(cover && cover.previewData || '').trim();
 }
 
+function findMoneyCoverByInstruction(rawValue){
+  var needle = String(rawValue || '').trim();
+  if(!needle) return null;
+  var covers = loadMoneyCovers();
+  var exactId = covers.find(function(item){
+    return String((item && item.id) || '').trim() === needle;
+  });
+  if(exactId) return exactId;
+  var exactName = covers.find(function(item){
+    return String((item && item.name) || '').trim() === needle;
+  });
+  if(exactName) return exactName;
+  var loose = covers.find(function(item){
+    return String((item && item.name) || '').trim().indexOf(needle) >= 0
+      || needle.indexOf(String((item && item.name) || '').trim()) >= 0;
+  });
+  return loose || null;
+}
+
+function hydrateMoneyCoverPayload(raw){
+  var data = parseMoneyPacketPayload(raw) || {};
+  var cover = getMoneyCoverById(data.coverId) || findMoneyCoverByInstruction(data.coverName || '');
+  if(!cover) return data;
+  if(!String(data.coverId || '').trim()) data.coverId = String(cover.id || '');
+  if(!String(data.coverName || '').trim()) data.coverName = String(cover.name || '');
+  if(!String(data.coverAssetKey || '').trim()) data.coverAssetKey = String(cover.assetKey || '');
+  if(!String(data.coverPreviewData || '').trim()) data.coverPreviewData = getMoneyCoverPreviewSource(cover);
+  return data;
+}
+
 function getMoneyCoverDisplayName(payload){
   var data = parseMoneyPacketPayload(payload) || {};
   var cover = getMoneyCoverById(data.coverId);
@@ -14604,6 +14634,7 @@ function buildChatExtendedFormatPrompt(){
     'change_avatar：用于从你的头像库里换上你自己的头像。格式：{"type":"change_avatar","name":"头像名"}。',
     'change_user_avatar：用于从 USER 头像库里换上对方头像。格式：{"type":"change_user_avatar","name":"头像名"}。',
     '换头像时必须真的从头像库里选一张存在的头像名，并且直接发动作；不要用 text 口头说“我换了”“我给你换好了”。选不到合适头像就不要假装已经换好。',
+    '如果你要发红包，可以在 money_packet 里顺手带 coverName 或 coverId，从现有红包封面库里选一个真的存在的封面；没把握就留空。',
     '备注/昵称只是称呼标签，不一定是本名。你不能因为备注名就认定那是对方的法律姓名或唯一正式名字。',
     '时间感知要自然：白天/下午一般不必反复催睡，但若对方明确说困、刚聊到作息或连续熬夜，也可以顺着关心一句。',
     '如果系统给了“时间流逝/隔了多久才回”，第一句优先接住这段现实间隔，再继续正题。',
@@ -14627,6 +14658,7 @@ function buildChatExtendedFormatPrompt(){
     'USER 头像库可用名字：' + (userAvatarNames.length ? userAvatarNames.join('、') : '（空）'),
     '你的头像库详细条目：' + (charAvatarEntries.length ? charAvatarEntries.join('；') : '（空）'),
     'USER 头像库详细条目：' + (userAvatarEntries.length ? userAvatarEntries.join('；') : '（空）'),
+    '可用红包封面：' + (loadMoneyCovers().map(function(item){ return String((item && item.name) || '').trim(); }).filter(Boolean).join('、') || '（空）'),
     '如果用户发来的是旁白、环境描述、动作说明或 html/css/js 卡片，也要按对应类型理解，不要误判成普通对白。',
     '无论你最终发 text、narrator、rich_html、recall 还是别的结构化内容，第一优先级都是读懂并回应对方刚刚那条 user 输入。别忽略最新一条用户消息，也别只顾着自说自话。'
   ];
@@ -17644,20 +17676,20 @@ function updateMoneyPacketStatus(messageId, nextStatus){
 }
 
 function resolveMoneyPacketCoverAssetKey(payload){
-  var data = parseMoneyPacketPayload(payload) || {};
+  var data = hydrateMoneyCoverPayload(payload);
   if(data.coverAssetKey) return String(data.coverAssetKey || '');
   var cover = getMoneyCoverById(data.coverId);
   return String((cover && cover.assetKey) || '').trim();
 }
 
 function resolveMoneyPacketCoverPreviewSource(payload){
-  var data = parseMoneyPacketPayload(payload) || {};
+  var data = hydrateMoneyCoverPayload(payload);
   if(data.coverPreviewData) return String(data.coverPreviewData || '').trim();
   return getMoneyCoverPreviewSource(getMoneyCoverById(data.coverId));
 }
 
 function renderMoneyPacketBubble(bubble, raw){
-  var data = parseMoneyPacketPayload(raw) || {};
+  var data = hydrateMoneyCoverPayload(raw);
   var mode = String(data.mode || 'red_packet');
   var isTransfer = mode === 'transfer';
   var status = String(data.status || 'pending');
@@ -18391,8 +18423,10 @@ function handleMoneyCoverUpload(file){
     if(!dataUrl) return;
     var id = 'money_cover_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
     var assetKey = accountScopedKey('money_cover_asset_' + id);
-    shrinkDataUrl(dataUrl, 720).then(function(compactDataUrl){
-      var finalDataUrl = compactDataUrl || dataUrl;
+    var mime = String(file.type || '').trim().toLowerCase();
+    var shouldKeepOriginal = /^image\/gif\b/.test(mime) || /^data:image\/gif\b/i.test(dataUrl);
+    Promise.resolve(shouldKeepOriginal ? dataUrl : shrinkDataUrl(dataUrl, 720)).then(function(compactDataUrl){
+      var finalDataUrl = String(compactDataUrl || dataUrl || '').trim();
       return saveStoredAsset(assetKey, finalDataUrl).then(function(saved){
         return { saved: saved, finalDataUrl: finalDataUrl };
       });
@@ -18409,6 +18443,7 @@ function handleMoneyCoverUpload(file){
       saveMoneyCovers(covers);
       pendingMoneyCoverName = '';
       selectedMoneyCoverId = id;
+      openMoneyCoverLibrary();
       renderMoneyCoverLibrary();
       updateMoneyCoverButtonLabel();
       toast('红包封面已保存');
