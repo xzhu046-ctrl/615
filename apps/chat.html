@@ -12913,6 +12913,40 @@ function getCurrentPresenceSnapshot(){
   return window.PresenceShared.getPresenceSnapshot(character, Date.now());
 }
 
+function buildPresenceHardRulePrompt(){
+  var snapshot = getCurrentPresenceSnapshot();
+  if(!(snapshot && snapshot.user && snapshot.char)) return '';
+  var userCity = null;
+  try{
+    userCity = snapshot.user.cityId && window.PresenceShared && typeof window.PresenceShared.getCity === 'function'
+      ? window.PresenceShared.getCity(snapshot.user.cityId)
+      : null;
+  }catch(err){}
+  var userLabel = String(snapshot.user.label || snapshot.user.weatherName || (userCity && userCity.name) || snapshot.user.cityId || '用户所在城市').trim();
+  var charCityName = String(snapshot.char.city && snapshot.char.city.name || '').trim();
+  var charCountry = String(snapshot.char.city && snapshot.char.city.country || '').trim();
+  var charPlace = String(snapshot.char.placeLabel || '').trim();
+  var userCityName = String(userCity && userCity.name || '').trim();
+  var userCountry = String(userCity && userCity.country || snapshot.user.country || '').trim();
+  var sameCity = !!(snapshot.user.cityId && snapshot.char.city && snapshot.char.city.id && String(snapshot.user.cityId) === String(snapshot.char.city.id));
+  var sameCountry = !!(userCountry && charCountry && userCountry === charCountry);
+  var distanceKm = Math.max(0, Number(snapshot.travel && snapshot.travel.distanceKm) || 0);
+  var lines = [
+    '【现实位置硬规则】',
+    '用户当前地理位置：' + [userCountry, userLabel || userCityName].filter(Boolean).join(' · '),
+    '你当前地理位置：' + [charCountry, charCityName, charPlace].filter(Boolean).join(' · '),
+    '双方距离：' + String(snapshot.distanceLabel || '').trim()
+  ];
+  if(sameCity || distanceKm < 35){
+    lines.push('你们现在是同城/同地范围。默认按本地活动距离来理解，不要再写买飞机票、坐飞机飞来、跨城跨国赶来、远程才见得到这种异地剧情。');
+  }else if(sameCountry){
+    lines.push('你们现在不在同一个城市，但还在同一个国家。可以写同国异地的想念、计划见面、买高铁票/车票/机票这类准备，但不要装成已经同地。');
+  }else{
+    lines.push('你们现在不在同一个国家。默认只能写跨地区互动、寄东西、准备票、远程想念，不要硬写本地见面。');
+  }
+  return lines.join('\n');
+}
+
 function charHeaderStatusKey(charId){
   return accountScopedKey('chat_header_status_' + String(charId || ''));
 }
@@ -13885,9 +13919,12 @@ function buildSystemPrompt() {
   var extendedFormatPrompt = buildChatExtendedFormatPrompt();
   if(extendedFormatPrompt) parts.push(extendedFormatPrompt);
   var presenceSnapshot = getCurrentPresenceSnapshot();
+  var presenceHardRule = buildPresenceHardRulePrompt();
+  if(presenceHardRule) parts.push(presenceHardRule);
   if(presenceSnapshot && presenceSnapshot.char && presenceSnapshot.char.shareEnabled !== false){
     parts.push([
       '【角色当前现实状态】',
+      '用户位置：' + String((presenceSnapshot.user && (presenceSnapshot.user.label || presenceSnapshot.user.weatherName || presenceSnapshot.user.cityId)) || '未知'),
       '当前位置：' + presenceSnapshot.char.placeLabel + '（' + presenceSnapshot.char.city.name + '）',
       '当前在做：' + presenceSnapshot.char.activityLabel,
       '当地时间：' + presenceSnapshot.char.localTimeLabel,

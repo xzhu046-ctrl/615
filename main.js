@@ -43,7 +43,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T12:27:00Z';
+const APP_BUILD_ID = '2026-04-16T12:36:00Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -2476,6 +2476,7 @@ function getSchedulePresenceContext(character){
     var charActivity = String(snapshot.char.activityLabel || '').trim();
     var charClock = String(snapshot.char.localTimeLabel || '').trim();
     var distanceLabel = String(snapshot.distanceLabel || '').trim();
+    var sameCity = !!(snapshot.user.cityId && snapshot.char.city && snapshot.char.city.id && String(snapshot.user.cityId) === String(snapshot.char.city.id));
     var lines = [
       '用户当前地理位置：' + userLabel,
       '角色当前地理位置：' + [charCountry, charCityName, charPlace].filter(Boolean).join(' · '),
@@ -2485,6 +2486,9 @@ function getSchedulePresenceContext(character){
     ].filter(Boolean);
     if(charCityName){
       lines.push('今天所有地点、行动距离感、移动方式，都必须锁定在这个角色当前所在城市或它合理的附近区域：' + [charCountry, charCityName].filter(Boolean).join(' · ') + '。不要无故跳到别的省市国家，更不要把东京写成江西这种完全无关的地点。');
+    }
+    if(sameCity || Number(snapshot.travel && snapshot.travel.distanceKm || 0) < 35){
+      lines.push('双方当前就在同城/同地范围。默认按本地活动距离来写，不要再写买飞机票、坐飞机飞来、跨城跨国赶来这种异地剧情。');
     }
     if(snapshot.travel && Number(snapshot.travel.distanceKm || 0) >= 8){
       lines.push('如果双方距离明显不近，就不要乱写“已经在用户家里 / 顺路到她家 / 送她回家 / 站在她楼下”这种已经同处一地的剧情，除非用户当天公开行程明确写了见面、接送、同城同行。地点、互动距离感、移动方式都必须服从这里的地理设定。');
@@ -2518,8 +2522,12 @@ function buildScheduleWeatherPresenceContext(payload){
     var userPlace = displayPlace(user, '');
     var charPlace = displayPlace(char, '');
     var sameCountry = !!String(user.country || '').trim() && String(user.country || '').trim() === String(char.country || '').trim();
+    var sameCity = !!(String(user.cityId || '').trim() && String(char.cityId || '').trim() && String(user.cityId || '').trim() === String(char.cityId || '').trim());
     if(user.aliasName || char.aliasName){
       lines.push('如果设置里同时存在真实定位城市和显示城市，所有会展示给用户看的地点名称一律使用显示城市，不要说出真实定位城市名。');
+    }
+    if(sameCity){
+      lines.push('双方当前就在同一个城市。默认按同城/本地活动来写，不要再写买机票、坐飞机、飞过来、跨城赶来这种异地剧情。');
     }
     if(userPlace && charPlace && userPlace !== charPlace){
       lines.push('双方当前不在同一个城市。除非用户当天公开日程明确写了见面或同行，否则不要写成已经见面、同住、一起吃饭、一起散步、顺路接送、在她家、在他家这种同地实体互动。');
