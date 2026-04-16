@@ -7035,6 +7035,22 @@ function loadAvatarVisionSummaryStore(charId){
   });
 }
 
+async function getCachedAvatarVisionSummary(role, charId, src){
+  var safeRole = role === 'char' ? 'char' : 'user';
+  var cleanSrc = String(src || '').trim();
+  if(!charId || !cleanSrc) return '';
+  var signature = computeAvatarVisionSignature(cleanSrc);
+  if(!signature) return '';
+  try{
+    var store = await loadAvatarVisionSummaryStore(charId);
+    var item = store && store[safeRole] ? store[safeRole] : null;
+    if(item && String(item.signature || '') === signature){
+      return String(item.summary || '').trim();
+    }
+  }catch(err){}
+  return '';
+}
+
 function saveAvatarVisionSummaryStore(charId, store){
   if(!charId) return Promise.resolve(defaultAvatarVisionSummaryStore());
   var normalized = normalizeAvatarVisionSummaryStore(store);
@@ -7155,8 +7171,8 @@ async function buildAvatarVisionPromptMessage(){
   if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return '';
   var userSrc = await resolveAvatarVisionSourceAsync('user', character.id).catch(function(){ return ''; });
   var charSrc = await resolveAvatarVisionSourceAsync('char', character.id).catch(function(){ return ''; });
-  var userSummary = await ensureAvatarVisionSummary('user', userSrc);
-  var charSummary = await ensureAvatarVisionSummary('char', charSrc);
+  var userSummary = await getCachedAvatarVisionSummary('user', character.id, userSrc);
+  var charSummary = await getCachedAvatarVisionSummary('char', character.id, charSrc);
   if(!userSummary && !charSummary) return '';
   var lines = [
     '【头像识图预处理结果】',
@@ -7172,8 +7188,8 @@ async function appendAvatarVisionContextToSystemPrompt(systemPrompt){
   if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return String(systemPrompt || '');
   var userSrc = await resolveAvatarVisionSourceAsync('user', character.id).catch(function(){ return ''; });
   var charSrc = await resolveAvatarVisionSourceAsync('char', character.id).catch(function(){ return ''; });
-  var userSummary = await ensureAvatarVisionSummary('user', userSrc);
-  var charSummary = await ensureAvatarVisionSummary('char', charSrc);
+  var userSummary = await getCachedAvatarVisionSummary('user', character.id, userSrc);
+  var charSummary = await getCachedAvatarVisionSummary('char', character.id, charSrc);
   if(!userSummary && !charSummary) return String(systemPrompt || '');
   var lines = [
     '【当前头像识图结果】',
@@ -7410,8 +7426,8 @@ async function buildAvatarVisionLatestMessage(){
   if(!character || !character.id || !loadAvatarVisionEnabled(character.id)) return '';
   var userSrc = await resolveAvatarVisionSourceAsync('user', character.id).catch(function(){ return ''; });
   var charSrc = await resolveAvatarVisionSourceAsync('char', character.id).catch(function(){ return ''; });
-  var userSummary = await ensureAvatarVisionSummary('user', userSrc);
-  var charSummary = await ensureAvatarVisionSummary('char', charSrc);
+  var userSummary = await getCachedAvatarVisionSummary('user', character.id, userSrc);
+  var charSummary = await getCachedAvatarVisionSummary('char', character.id, charSrc);
   if(!userSummary && !charSummary) return '';
   var lines = [
     '【当前可见头像识图】',
@@ -14124,10 +14140,10 @@ async function buildCurrentAvatarFactsBlock(){
   var userSummary = '';
   if(loadAvatarVisionEnabled(character.id)){
     try{
-      charSummary = await ensureAvatarVisionSummary('char', await resolveAvatarVisionSourceAsync('char', character.id).catch(function(){ return ''; }));
+      charSummary = await getCachedAvatarVisionSummary('char', character.id, await resolveAvatarVisionSourceAsync('char', character.id).catch(function(){ return ''; }));
     }catch(err){}
     try{
-      userSummary = await ensureAvatarVisionSummary('user', await resolveAvatarVisionSourceAsync('user', character.id).catch(function(){ return ''; }));
+      userSummary = await getCachedAvatarVisionSummary('user', character.id, await resolveAvatarVisionSourceAsync('user', character.id).catch(function(){ return ''; }));
     }catch(err2){}
   }
   if(!currentCharItem && !currentUserItem && !charSummary && !userSummary) return '';
@@ -15516,7 +15532,9 @@ async function callAI(provider, key) {
       console.warn('load avatar library before callAI failed', err);
     }
   }
-  await ensureMemeVisionForPrompt();
+  ensureMemeVisionForPrompt().catch(function(err){
+    console.warn('ensureMemeVisionForPrompt failed', err);
+  });
   var msgs = getVisibleChatForModel().map(function(m){
     if(!m) return null;
     if(m.hidden){
