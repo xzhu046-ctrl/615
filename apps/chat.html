@@ -5373,7 +5373,6 @@ async function applyAvatarAction(payload, actorRole, fallbackTarget){
   var changed = await applyRoleAvatarChange(role, src, {
     actorRole: actorRole || 'assistant',
     itemMeta: item,
-    forceNoticeOnSame: true,
     skipAuto: true
   }).then(function(result){
     return !!result;
@@ -14020,6 +14019,7 @@ async function maybeTriggerAutoAvatarResponse(payload){
   var now = Date.now();
   var lastAutoAt = loadCharAvatarAutoLastActionAt(character.id);
   var avatarAutoCooldownMs = 2 * 60 * 60 * 1000;
+  avatarAutoCooldownMs = 12 * 60 * 60 * 1000;
   if(lastAutoAt && now - lastAutoAt < avatarAutoCooldownMs) return false;
   var visionRequired = !!loadAvatarVisionEnabled(character.id);
   var store = avatarLibraryCache && (avatarLibraryCache.char || avatarLibraryCache.user) ? avatarLibraryCache : await loadAvatarLibraryStore(character.id);
@@ -14105,17 +14105,6 @@ async function maybeTriggerAutoAvatarResponse(payload){
     var userOption = resolveAutoAvatarDecisionItem(userOptions, userRef);
     if(userOption){
       changed = await applyAvatarLibraryItem(userOption.id, 'user', 'char').then(function(){ return true; }).catch(function(){ return false; }) || changed;
-    }
-  }
-  if(!changed && visionRequired && String(payload && payload.changedUserSrc || '').trim()){
-    var cropped = await createAutoPairedAvatarFromUser(String(payload.changedUserSrc || '').trim(), 'char').catch(function(){
-      return '';
-    });
-    if(String(cropped || '').trim()){
-      changed = await applyRoleAvatarChange('char', cropped, {
-        actorRole: 'char',
-        skipAuto: true
-      }).then(function(){ return true; }).catch(function(){ return false; }) || changed;
     }
   }
   if(changed){
@@ -14481,7 +14470,8 @@ function buildChatExtendedFormatPrompt(){
     'rename_profile 不要只在被要求时才用：当关系升温、称呼被反复使用、你觉得某个昵称更贴关系、或你想调整对方怎么叫你时，可以主动发起一次改名。',
     'rename_profile 的 target=user 表示你改“你给对方的备注”；target=char 表示你改“对方叫你的名字”。两者都可主动用，但不要一轮连发多个。',
     '主动改备注和主动换头像都要像真人：看聊天上下文、关系推进、刚发生的事与人设自行判断，不要机械刷操作，也不要完全不发生。',
-    '主动改备注和主动换头像都按中频率偶尔触发即可，改完先冷却一阵。',
+    '主动换头像必须低频，绝不要连续刷操作；除非用户正在明确聊头像、情头、配对图，否则优先正常回复内容，不要动不动就换头像。',
+    '改备注可以比换头像稍微自然一点，但也不要一轮接一轮连着改。',
     '你的头像库可用名字：' + (charAvatarNames.length ? charAvatarNames.join('、') : '（空）'),
     'USER 头像库可用名字：' + (userAvatarNames.length ? userAvatarNames.join('、') : '（空）'),
     '你的头像库详细条目：' + (charAvatarEntries.length ? charAvatarEntries.join('；') : '（空）'),
@@ -24162,8 +24152,7 @@ async function applyAvatarLibraryItem(itemId, role, actorRole){
   closeAvatarLibrary();
   var changed = await applyRoleAvatarChange(role, src, {
     actorRole: actorRole || 'user',
-    itemMeta: item,
-    forceNoticeOnSame: true
+    itemMeta: item
   });
   if(changed){
     renderChatSettingsAvatarShelves();
@@ -25365,7 +25354,9 @@ async function deliverAiReply(text, limitOverride){
       await sleep(320 + Math.floor(Math.random()*320));
     }
   }
+  var avatarActionAttempted = false;
   if(pendingAvatarActions.length){
+    avatarActionAttempted = true;
     for(var ai = 0; ai < pendingAvatarActions.length; ai++){
       var action = pendingAvatarActions[ai];
       if(!action) continue;
@@ -25379,7 +25370,10 @@ async function deliverAiReply(text, limitOverride){
       await sleep(140 + Math.floor(Math.random() * 70));
     }
   }
-  if(sentCount === 0) throw new Error('AI 没有返回可显示的聊天内容');
+  if(sentCount === 0){
+    if(avatarActionAttempted) return sentIds;
+    throw new Error('AI 没有返回可显示的聊天内容');
+  }
   if(sentTexts.length){
     refreshInnerVoiceFromAi(sentTexts[sentTexts.length - 1]);
   }
