@@ -41,7 +41,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T04:03:00Z';
+const APP_BUILD_ID = '2026-04-16T04:12:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -7815,6 +7815,10 @@ function getPreviewStampFromMessages(messages){
 }
 
 function setWidgetCharacter(c){
+  var widgetEl = document.getElementById('widget-character');
+  if(widgetEl){
+    widgetEl.dataset.charId = String((c && c.id) || '').trim();
+  }
   const displayName = c?.nickname || c?.name || 'No companion yet';
   var hiddenNameEl = document.getElementById('wgt-name');
   if(hiddenNameEl) hiddenNameEl.textContent = displayName;
@@ -7839,8 +7843,9 @@ function setWidgetCharacter(c){
   applyWidgetSub(c?.id ? getStoredChatMessages(c.id) : []);
   if(c?.id){
     getStoredChatMessagesAsync(c.id).then(function(msgs){
-      var active = getActiveCharacterData();
-      if(!active || active.id !== c.id) return;
+      var liveWidget = document.getElementById('widget-character');
+      var boundId = String((liveWidget && liveWidget.dataset && liveWidget.dataset.charId) || '').trim();
+      if(boundId !== String(c.id || '').trim()) return;
       applyWidgetSub(msgs);
     });
   }
