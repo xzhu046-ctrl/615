@@ -36,6 +36,7 @@ const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const WIDGET_TEXT_OVERRIDE_CHAR_KEY = 'widget_text_override_char';
 const WIDGET_TEXT_OVERRIDE_USER_KEY = 'widget_text_override_user';
+const WIDGET_LAST_CHAT_CHAR_KEY = 'widget_last_chat_char';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
 const WIDGET_CHARACTER_BG_KEY = 'widget_character_bg';
@@ -44,7 +45,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T05:08:00Z';
+const APP_BUILD_ID = '2026-04-16T05:16:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -7311,6 +7312,8 @@ async function formatEphone(){
   document.getElementById('wgt-user-role').textContent='USER';
   document.getElementById('wgt-char-last').textContent=getDefaultWidgetCharacterQuote('char');
   document.getElementById('wgt-user-last').textContent=getDefaultWidgetCharacterQuote('user');
+  try{ localStorage.removeItem(getWidgetLastChatCharKey()); }catch(e){}
+  try{ localStorage.removeItem(WIDGET_LAST_CHAT_CHAR_KEY); }catch(e){}
   applyWidgetCharacterBackground('');
   ['top','1','2','3','4'].forEach((id)=>renderHomeSlot(id, null));
   renderCharNote();
@@ -7484,6 +7487,9 @@ window.addEventListener('message',(e)=>{
       });
     }
     var nextChar = payload && payload.data ? payload.data : null;
+    if(nextChar && nextChar.id){
+      persistWidgetLastChatCharacter(nextChar);
+    }
     if(currentApp === 'chat' && nextChar && nextChar.id){
       persistShellActiveCharacter(nextChar);
     }
@@ -7801,10 +7807,34 @@ function setWidgetTextOverride(role, value){
   }catch(e){}
 }
 
+function getWidgetLastChatCharKey(){
+  return scopedKeyForAccount(WIDGET_LAST_CHAT_CHAR_KEY, getActiveAccountId());
+}
+
+function persistWidgetLastChatCharacter(character){
+  var slim = slimChar(character);
+  if(!slim || !slim.id) return null;
+  try{ localStorage.setItem(getWidgetLastChatCharKey(), JSON.stringify(slim)); }catch(e){}
+  return slim;
+}
+
+function getWidgetLastChatCharacter(){
+  var keys = [getWidgetLastChatCharKey(), WIDGET_LAST_CHAT_CHAR_KEY];
+  for(var i = 0; i < keys.length; i++){
+    try{
+      var raw = localStorage.getItem(keys[i]);
+      if(!raw) continue;
+      var parsed = JSON.parse(raw);
+      if(parsed && parsed.id) return parsed;
+    }catch(e){}
+  }
+  return null;
+}
+
 function applyWidgetCharacterBackground(src){
   var widgetEl = document.getElementById('widget-character');
   var finalSrc = getEffectiveWidgetCharacterBackgroundSource(src);
-  [widgetEl, document.getElementById('widget-mini-air')].forEach(function(el){
+  [widgetEl, document.getElementById('widget-mini-orb')].forEach(function(el){
     if(!el) return;
     el.style.setProperty('--widget-char-art', 'url("' + finalSrc.replace(/"/g, '\\"') + '")');
   });
@@ -7854,6 +7884,7 @@ function setWidgetCharacter(c){
   if(widgetEl){
     widgetEl.dataset.charId = String((c && c.id) || '').trim();
   }
+  var orbCharacter = getWidgetLastChatCharacter() || c || null;
   const displayName = c?.nickname || c?.name || 'No companion yet';
   var hiddenNameEl = document.getElementById('wgt-name');
   if(hiddenNameEl) hiddenNameEl.textContent = displayName;
@@ -7894,13 +7925,14 @@ function setWidgetCharacter(c){
   const sideOrbEl = document.getElementById('widget-mini-orb');
   const sideNameEl = document.getElementById('wgt-side-name');
   var liveAvatarSrc = normalizeShellAssetSrc(c && c.imageData || '');
+  var orbAvatarSrc = normalizeShellAssetSrc(orbCharacter && orbCharacter.imageData || '');
   if(c && c.id){
     var userLabel = getBondWidgetUserName(c, getChatUserName(c.id));
     var charRoleEl = document.getElementById('wgt-char-role');
     var userRoleEl = document.getElementById('wgt-user-role');
     if(charRoleEl) charRoleEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
     if(userRoleEl) userRoleEl.textContent = String(userLabel || 'USER').trim() || 'USER';
-    if(sideNameEl) sideNameEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
+    if(sideNameEl) sideNameEl.textContent = String((((orbCharacter && (orbCharacter.nickname || orbCharacter.name)) || c.nickname || c.name || 'CHAR'))).trim() || 'CHAR';
     getChatUserAvatar(c.id).then(function(userSrc){
       applyWidgetUserAvatarContent(userAvEl, userSrc, String(userLabel || '你').slice(0, 2));
     });
@@ -7909,16 +7941,19 @@ function setWidgetCharacter(c){
     var emptyUserRoleEl = document.getElementById('wgt-user-role');
     if(emptyCharRoleEl) emptyCharRoleEl.textContent = 'CHAR';
     if(emptyUserRoleEl) emptyUserRoleEl.textContent = 'USER';
-    if(sideNameEl) sideNameEl.textContent = 'CHAR';
+    if(sideNameEl) sideNameEl.textContent = String((orbCharacter && (orbCharacter.nickname || orbCharacter.name)) || 'CHAR').trim() || 'CHAR';
     applyWidgetUserAvatarContent(userAvEl, '', '你');
   }
   if (isRenderableShellAvatarSrc(liveAvatarSrc)) {
     avEl.innerHTML = '<img src="'+liveAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
-    if(sideAvEl) sideAvEl.innerHTML = '<img src="'+liveAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
-    if(sideOrbEl) sideOrbEl.classList.add('has-image');
   } else {
     avEl.textContent = c?.avatar || '✿';
-    if(sideAvEl) sideAvEl.textContent = c?.avatar || '✿';
+  }
+  if (isRenderableShellAvatarSrc(orbAvatarSrc)) {
+    if(sideAvEl) sideAvEl.innerHTML = '<img src="'+orbAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
+    if(sideOrbEl) sideOrbEl.classList.add('has-image');
+  } else {
+    if(sideAvEl) sideAvEl.textContent = (orbCharacter && orbCharacter.avatar) || c?.avatar || '✿';
     if(sideOrbEl) sideOrbEl.classList.remove('has-image');
   }
   if(c?.id){
@@ -7926,6 +7961,13 @@ function setWidgetCharacter(c){
       var safeOverride = normalizeShellAssetSrc(override || '');
       if(isRenderableShellAvatarSrc(safeOverride)){
         avEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
+      }
+    });
+  }
+  if(orbCharacter && orbCharacter.id){
+    loadStoredAsset('char_avatar_' + orbCharacter.id).then((override)=>{
+      var safeOverride = normalizeShellAssetSrc(override || '');
+      if(isRenderableShellAvatarSrc(safeOverride)){
         if(sideAvEl) sideAvEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
         if(sideOrbEl) sideOrbEl.classList.add('has-image');
       }
