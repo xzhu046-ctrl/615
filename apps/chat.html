@@ -10915,7 +10915,7 @@ function shouldHonorReplyHint(replyTo, msgType){
   if(normalizeMessageType(msgType || 'text') === 'image') return true;
   if(hint === 'last_user' || hint === 'last_ai' || hint === 'last_assistant') return true;
   if(isWeakReplyHint(hint)) return false;
-  return String(hint).trim().length >= 4;
+  return String(hint).trim().length >= 6;
 }
 function resolveReplyTargetId(replyTo, replyRole){
   var hint = normalizeReplyHint(replyTo);
@@ -11007,9 +11007,21 @@ function inferReplyTargetForPart(aiText, usedSet){
   if(!best) return null;
   var margin = best.score - ((second && second.score) || 0);
   // Only auto-attach a quote when the semantic target is clearly better than nearby alternatives.
-  if(best.score >= 0.28 && margin >= 0.08) return best.id;
-  if(hasReplyCueInText(aiText) && best.score >= 0.22 && margin >= 0.06) return best.id;
+  if(best.score >= 0.38 && margin >= 0.1) return best.id;
+  if(hasReplyCueInText(aiText) && best.score >= 0.32 && margin >= 0.08) return best.id;
   return null;
+}
+
+function shouldAcceptInlineTranslation(){
+  return isCharacterTranslationEnabled()
+    && getCharacterTranslationMode() === 'prefetch'
+    && getCharacterReplyLanguage() !== 'zh';
+}
+
+function extractInlineTranslationText(item){
+  if(!shouldAcceptInlineTranslation()) return '';
+  if(!item || typeof item !== 'object') return '';
+  return String(item.translation || item.translationText || '').trim();
 }
 function renderReplyPreview(){
   var host = document.getElementById('replyPreview');
@@ -15058,33 +15070,6 @@ function detectNarratorOnlyReply(rawReply){
 }
 
 async function maybeRepairNarratorReply(reply, provider, key, model, temperature, sys, msgs){
-  if(!narratorSettingEnabled()) return String(reply || '');
-  var onlyIssue = detectNarratorOnlyReply(reply);
-  if(!onlyIssue.narratorOnly) return String(reply || '');
-  var narratorLang = getNarratorReplyLanguage();
-  var narratorOption = getReplyLanguageOption(narratorLang);
-  var repairSys = [
-    sys,
-    '【返工】你刚才那条回复只有 narrator，没有真正发出去的消息。当前设置里 narrator 只能陪衬真实回复，不能单独成轮。',
-    '请只重写上一条 assistant 回复：保留简短 narrator，同时至少补上一条真正可见的非 narrator 消息，直接回应用户刚刚那句。'
-  ].join('\n\n');
-  var repairMsgs = msgs.concat([
-    { role:'assistant', content:String(reply || '') },
-    {
-      role:'user',
-      content: '请重写上一条 assistant 回复。保留简短 narrator，同时补上一条真正发出去的话；不要只剩旁白。'
-        + (narratorOption && narratorOption.value !== 'zh' ? (' narrator 语言继续使用' + (narratorOption.nativeLabel || narratorOption.label) + '。') : '')
-    }
-  ]);
-  try{
-    var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
-    var repairedOnly = detectNarratorOnlyReply(repaired);
-    if(!repairedOnly.narratorOnly){
-      return String(repaired || '');
-    }
-  }catch(err){
-    console.warn('repair narrator reply failed', err);
-  }
   return String(reply || '');
 }
 
@@ -24306,7 +24291,7 @@ async function deliverAiReply(text, limitOverride){
     if(isReplyMetadataOnly(item)) return;
     var c = '';
     var t = normalizeMessageType(item.type || 'text');
-    var translation = String(item.translation || item.translationText || item.translated || item.zh || item.zh_cn || '').trim();
+    var translation = extractInlineTranslationText(item);
     var hasDirectRichFields = Object.prototype.hasOwnProperty.call(item, 'html')
       || Object.prototype.hasOwnProperty.call(item, 'css')
       || Object.prototype.hasOwnProperty.call(item, 'js');
@@ -24753,7 +24738,7 @@ async function deliverAiReply(text, limitOverride){
     if(t === 'narrator' && narratorSettingEnabled() === false) return;
     if(t === 'narrator') c = sanitizeNarratorPerspectiveText(c);
     if(t === 'image' && !looksLikeVisualDescription(c)) t = 'text';
-          if(c || t === 'recall') rawParts.push({text:c || '', t:t, replyTo:obj.reply_to || obj.replyTo || '', replyRole:obj.reply_role || obj.replyRole || '', translationText:String(obj.translation || obj.translationText || obj.translated || obj.zh || obj.zh_cn || '').trim()});
+          if(c || t === 'recall') rawParts.push({text:c || '', t:t, replyTo:obj.reply_to || obj.replyTo || '', replyRole:obj.reply_role || obj.replyRole || '', translationText:extractInlineTranslationText(obj)});
         }
       }catch(e){}
     });
@@ -24855,6 +24840,8 @@ async function deliverAiReply(text, limitOverride){
   var sentIds = [];
   var usedReplyTargets = new Set();
   var lastSentKey = '';
+  var pendingAvatarActions = [];
+  var visibleAssistantSent = 0;
   for(var i = 0; i < parts.length; i++){
     var p = parts[i];
     var t = normalizeMessageType(p.t || 'text');
@@ -24879,13 +24866,8 @@ async function deliverAiReply(text, limitOverride){
     if(t === 'text'){
       p.text = sanitizeAssistantTextForChat(p.text);
       if(!p.text) continue;
-      var avatarActionFromText = await maybeApplyAvatarActionFromPlainText(p.text);
-      if(avatarActionFromText){
-        lastSentKey = 'avatartext::' + String(avatarActionFromText.id || avatarActionFromText.label || '');
-        sentTexts.push('【换了头像】');
-        sentCount++;
-        await sleep(140 + Math.floor(Math.random() * 70));
-        continue;
+      if(/头像|头图/.test(String(p.text || ''))){
+        pendingAvatarActions.push({ kind:'plain', payload:p.text });
       }
     }
     if(t === 'voice'){
@@ -24928,12 +24910,7 @@ async function deliverAiReply(text, limitOverride){
       continue;
     }
     if(t === 'changeavatar' || t === 'changeuseravatar'){
-      var avatarAction = await applyAvatarAction(p.text, 'char', t);
-      if(!avatarAction) continue;
-      lastSentKey = dedupeKey;
-      sentTexts.push(t === 'changeuseravatar' ? '【换了USER头像】' : '【换了CHAR头像】');
-      sentCount++;
-      await sleep(140 + Math.floor(Math.random() * 70));
+      pendingAvatarActions.push({ kind:'typed', payload:p.text, msgType:t, dedupeKey:dedupeKey });
       continue;
     }
     if(t === 'voicecallrequest'){
@@ -25023,6 +25000,7 @@ async function deliverAiReply(text, limitOverride){
       sentTexts.push(seedLine);
     }
     sentCount++;
+    if(t !== 'narrator') visibleAssistantSent++;
     var backgroundSeed = p.text;
     if(t === 'richhtml') backgroundSeed = getRichHtmlSummaryText(p.text);
     else if(t === 'narrator') backgroundSeed = narratorStorageText(p.text);
@@ -25036,6 +25014,20 @@ async function deliverAiReply(text, limitOverride){
     await sleep(220 + Math.floor(Math.random()*170));
     if(i < parts.length - 1){
       await sleep(320 + Math.floor(Math.random()*320));
+    }
+  }
+  if(visibleAssistantSent > 0 && pendingAvatarActions.length){
+    for(var ai = 0; ai < pendingAvatarActions.length; ai++){
+      var action = pendingAvatarActions[ai];
+      if(!action) continue;
+      var avatarResult = action.kind === 'typed'
+        ? await applyAvatarAction(action.payload, 'char', action.msgType)
+        : await maybeApplyAvatarActionFromPlainText(action.payload);
+      if(!avatarResult) continue;
+      lastSentKey = String(action.dedupeKey || ('avatartext::' + String(avatarResult.id || avatarResult.label || '')));
+      sentTexts.push(action.kind === 'typed' && action.msgType === 'changeuseravatar' ? '【换了USER头像】' : '【换了头像】');
+      sentCount++;
+      await sleep(140 + Math.floor(Math.random() * 70));
     }
   }
   if(sentCount === 0) throw new Error('AI 没有返回可显示的聊天内容');
