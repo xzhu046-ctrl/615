@@ -13018,7 +13018,7 @@ function buildSunnySystemPrompt(extraPrompt){
     '如果用户想让你帮忙生成 user 设定、人设、档案、资料，你先热情回应，并告诉老板你已经把选择卡片递过去了；不要自己直接输出最终 YAML。',
     '如果是你真的不清楚、知识库里也没有把握的事，就只回答：汪...Sunny不知道诶，去问老板吧！',
     '只输出普通聊天文本。不要 JSON，不要代码块，不要语音，不要图片，不要表情包。',
-    '如果要分成多句或多条气泡，必须由你自己主动拆开。优先自己用 <msg>...</msg> 分开，也明确允许用 <br> 来分条；自然分段换行也可以，但最稳的是 <msg>。不要把明显能分开的内容硬塞进一个大气泡，也不要把多句内容合成一整坨。',
+    '如果要分成多句或多条气泡，必须由你自己主动拆开。<msg>、<br>、自然换行都会被拆成气泡，但不要把换行后的那一条继续写得很长。每条尽量只放一个主要意思，一长就收住，换下一条。',
     String(extraPrompt || '').trim()
   ].filter(Boolean).join('\n\n');
 }
@@ -21056,10 +21056,25 @@ function buildInnerVoiceHistoryForPrompt(limit){
 function autoSplitLongAssistantText(text){
   var normalized = String(text || '').replace(/\s+/g, ' ').trim();
   if(!normalized) return [];
-  if(normalized.length <= 34 && !/[。！？!?；;]\s*.+/.test(normalized)) return [];
+  if(normalized.length <= 28 && !/[。！？!?；;，,、]\s*.+/.test(normalized)) return [];
+  var splitOverlongUnit = function(unit){
+    var raw = String(unit || '').trim();
+    if(!raw) return [];
+    if(raw.length <= 24) return [raw];
+    var chunks = raw.match(/[^，,、：:]{1,16}(?:[，,、：:]|$)/g) || [];
+    if(chunks.length <= 1){
+      chunks = raw.match(/.{1,14}/g) || [raw];
+    }
+    return chunks.map(function(chunk){
+      return String(chunk || '').trim();
+    }).filter(Boolean);
+  };
   var units = normalized.match(/[^。！？!?；;]+[。！？!?；;]?/g) || [];
   if(!units.length || units.length === 1){
-    units = normalized.match(/[^，,]+[，,]?/g) || [normalized];
+    units = normalized.match(/[^，,、]+[，,、]?/g) || [normalized];
+  }
+  if(!units.length || units.length === 1){
+    units = splitOverlongUnit(normalized);
   }
   if(!units.length || units.length === 1) return [];
   var out = [];
@@ -21068,16 +21083,15 @@ function autoSplitLongAssistantText(text){
   units.forEach(function(unit){
     var piece = String(unit || '').trim();
     if(!piece) return;
-    var tooLong = piece.length > 24;
-    var exceedBucket = bucket && (bucket.length + piece.length > 30 || sentenceCount >= 2);
+    var tooLong = piece.length > 22;
+    var exceedBucket = bucket && (bucket.length + piece.length > 24 || sentenceCount >= 2);
     if(exceedBucket){
       out.push(bucket.trim());
       bucket = '';
       sentenceCount = 0;
     }
     if(tooLong && !bucket){
-      var hardParts = piece.match(/.{1,20}(?:[，,、]|$)/g) || [piece];
-      hardParts.forEach(function(hard){
+      splitOverlongUnit(piece).forEach(function(hard){
         var safeHard = String(hard || '').trim();
         if(safeHard) out.push(safeHard);
       });
@@ -24250,6 +24264,15 @@ async function deliverAiReply(text, limitOverride){
     var lines = cleaned.split(/\n+/).map(function(line){ return line.trim(); }).filter(Boolean);
     if(lines.length >= 2){
       return lines.map(function(line){
+        var autoLineParts = autoSplitLongAssistantText(line);
+        if(autoLineParts.length >= 2){
+          return autoLineParts.map(function(piece){
+            var mixedPieces = splitTextAndMemeMarkers(piece);
+            if(mixedPieces.length >= 2) return mixedPieces;
+            var maybeSplitMeme = parseMemeMarker(piece);
+            return { text: maybeSplitMeme || piece, t: maybeSplitMeme ? 'meme' : 'text' };
+          }).flat();
+        }
         var mixed = splitTextAndMemeMarkers(line);
         if(mixed.length >= 2) return mixed;
         var maybeMeme = parseMemeMarker(line);
