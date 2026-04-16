@@ -12457,6 +12457,45 @@ function getCurrentPresenceSnapshot(){
   return window.PresenceShared.getPresenceSnapshot(character, Date.now());
 }
 
+function charHeaderStatusKey(charId){
+  return accountScopedKey('chat_header_status_' + String(charId || ''));
+}
+
+function sanitizeHeaderStatusText(text){
+  var cleaned = String(text || '')
+    .replace(/[\[\]【】()（）{}"'“”‘’]/g, '')
+    .replace(/\s+/g, '')
+    .trim();
+  if(!cleaned) return '';
+  var short = Array.from(cleaned).slice(0, 2).join('');
+  return short || '';
+}
+
+function getStoredCharHeaderStatus(charId){
+  if(!charId) return '在线';
+  try{
+    var saved = sanitizeHeaderStatusText(localStorage.getItem(charHeaderStatusKey(charId)) || '');
+    return saved || '在线';
+  }catch(e){
+    return '在线';
+  }
+}
+
+function setStoredCharHeaderStatus(charId, text){
+  if(!charId) return;
+  var next = sanitizeHeaderStatusText(text) || '在线';
+  try{ localStorage.setItem(charHeaderStatusKey(charId), next); }catch(e){}
+}
+
+function extractHeaderStatusDirective(raw){
+  var source = String(raw == null ? '' : raw);
+  var match = source.match(/\[\[\s*状态\s*[:：]\s*([^[\]]+?)\s*\]\]/i);
+  if(!match) return { text: source, status: '' };
+  var status = sanitizeHeaderStatusText(match[1] || '');
+  var stripped = source.replace(match[0], '').replace(/\n{3,}/g, '\n\n').trim();
+  return { text: stripped, status: status };
+}
+
 function updateModelLabel() {
   var charStatusNode = document.getElementById('hdrCharStatus');
   var userStatusNode = document.getElementById('hdrUserStatus');
@@ -12467,34 +12506,7 @@ function updateModelLabel() {
     if(dot) dot.className = 'hdr-person-dot ' + String(mode || 'online');
   }
   setPerson(userStatusNode, userDotNode, '在线', 'online');
-  if(isTyping){
-    setPerson(charStatusNode, charDotNode, '正在输入中', 'typing');
-    return;
-  }
-  if(isSunnyChat()){
-    setPerson(charStatusNode, charDotNode, '在线', 'online');
-    return;
-  }
-  var snapshot = getCurrentPresenceSnapshot();
-  if(!snapshot || snapshot.char.shareEnabled === false){
-    setPerson(charStatusNode, charDotNode, '在线', 'online');
-    return;
-  }
-  var prefix = snapshot.char.availability === 'sleep'
-    ? '休息中'
-    : snapshot.char.availability === 'busy'
-      ? '忙碌中'
-      : snapshot.char.availability === 'limited'
-      ? '稍忙'
-      : '在线';
-  var mode = snapshot.char.availability === 'sleep'
-    ? 'sleep'
-    : snapshot.char.availability === 'busy'
-      ? 'busy'
-      : snapshot.char.availability === 'limited'
-        ? 'limited'
-        : 'online';
-  setPerson(charStatusNode, charDotNode, prefix, mode);
+  setPerson(charStatusNode, charDotNode, getStoredCharHeaderStatus(character && character.id), 'online');
 }
 
 function getSunnySelectableCharacters(){
@@ -13247,6 +13259,14 @@ function buildSystemPrompt() {
       '请把这些现实状态融进回复里：忙的时候别装得像一直抱着手机，休息时口气可以更松一点，但仍然要符合人设、世界书和最近聊天。'
     ].join('\n'));
   }
+  parts.push([
+    '【聊天顶栏状态】',
+    '当前顶栏给你显示的状态词是：' + getStoredCharHeaderStatus(character && character.id),
+    '如果你觉得结合当前上下文需要悄悄改掉这个状态词，可以在整段回复最前或最后附上 [[状态:xx]]。',
+    'xx 必须是两个字以内，例如：想你、吃饭、犯困、开会、出门、发呆。',
+    '这只是隐藏状态指令，不是给用户看的正文；除非你真的想改状态，否则不要输出它。',
+    '不要解释这个状态指令，也不要单独提醒用户你改了状态。'
+  ].join('\n'));
 
   var wbAll = [].concat(wbBefore, wbMid, wbAfter).join('\n\n');
   var curGreeting = getPromptGreeting();
@@ -14349,6 +14369,12 @@ async function requestAndDeliverAiReply(provider, key){
       reply = decision.text || reply;
       pendingListenInviteDecision = null;
     }
+    var headerStatusParsed = extractHeaderStatusDirective(reply);
+    if(headerStatusParsed.status){
+      setStoredCharHeaderStatus(character && character.id, headerStatusParsed.status);
+      updateModelLabel();
+    }
+    reply = headerStatusParsed.text || reply;
     reply = String(reply == null ? '' : reply).trim();
     if(!reply){
       throw new Error('AI 返回了空回复');
