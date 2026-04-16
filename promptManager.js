@@ -197,25 +197,6 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
   }
 
   innerVoiceStyleGuide(style = 'newspaper') {
-    const safe = String(style || 'newspaper').trim().toLowerCase();
-    if (safe === 'detective') {
-      return {
-        label: '黑白侦探办案风',
-        prompt: '这次请生成黑白侦探办案风的角色心声：headline 写成案件标题、案情摘要或线索名；body 写成 2-4 行办案笔记、观察记录或证据旁注；strike 写成被划掉的误判、没敢承认的结论或删掉的线索。'
-      };
-    }
-    if (safe === 'persona_group') {
-      return {
-        label: '不同人格群聊',
-        prompt: '这次请生成“角色不同人格在群聊里发言”的心声：headline 写成群聊名或置顶话题；body 写成 3-5 行短群聊消息，每行像不同人格轮流开口；strike 写成被撤回、删掉或憋回去的一句。'
-      };
-    }
-    if (safe === 'organs_group') {
-      return {
-        label: '不同器官群聊',
-        prompt: '这次请生成“角色不同器官在群聊里同时发言”的心声：headline 写成群聊名或器官会议主题；body 写成 3-5 行短群聊消息，每行像不同器官在吐槽、预警或怂恿；strike 写成一条被紧急删掉或压回去的提醒。'
-      };
-    }
     return {
       label: '黑白报纸头条',
       prompt: '这次请生成黑白报纸头条风格的角色心声：headline 是短、狠、抓人的头条；body 是像报道内文又像脑内独白的正文；strike 是可选的划掉句。'
@@ -231,6 +212,7 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
       history = '',
       latestReply = '',
       innerVoiceStyle = 'newspaper',
+      customPrompt = '',
       languageMode = '',
       languageInstruction = ''
     } = ctx;
@@ -246,7 +228,7 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
       memory ? `最近记忆总结：\n${String(memory || '').slice(0, 1800)}` : '最近记忆总结：无',
       history ? `最近对话：\n${history}` : '最近对话：无',
       latestReply ? `本轮角色回复：${latestReply}` : '',
-      styleGuide.prompt
+      String(customPrompt || styleGuide.prompt).trim()
     ].join('\n\n');
   }
 }
