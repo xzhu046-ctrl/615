@@ -11285,7 +11285,11 @@ function renderChatLog(keepScroll){
   rendered.items.forEach(function(m){
     if(m && m.hidden) return;
     if(m && normalizeMessageType(m.type || 'text') === 'narrator' && !narratorSettingEnabled()) return;
-    addMessage(m.role, m.content, false, m.type, m.id);
+    try{
+      addMessage(m.role, m.content, false, m.type, m.id);
+    }catch(err){
+      console.error('render message failed', err, m);
+    }
   });
   if(keepScroll){
     msgs.scrollTop = Math.max(0, msgs.scrollHeight - prevBottom);
@@ -13600,11 +13604,35 @@ async function restoreOrStartChat() {
   var msgs = document.getElementById('messages');
   replyTargetId = null;
   renderLoadingState();
-  storageHydrationPromise = hydrateCharacterStorageState();
-  var restored = await storageHydrationPromise;
+  var restored = [];
+  try{
+    storageHydrationPromise = hydrateCharacterStorageState();
+    restored = await storageHydrationPromise;
+  }catch(err){
+    console.error('hydrateCharacterStorageState failed', err);
+    storageHydrationPromise = Promise.resolve([]);
+    restored = [];
+  }
   primeUserAvatarSourceNode().catch(function(){});
-  await restorePersistedVoiceCallSession();
-  if (!restored.length) restored = await loadPreferredStoredChatForCurrentCharacter();
+  try{
+    stopVoiceCallTicker();
+    voiceCallMinimized = false;
+    voiceCallState = defaultVoiceCallState();
+    closeVoiceCallOverlay();
+    if(character && character.id){
+      await persistVoiceCallSession().catch(function(){});
+    }
+  }catch(err){
+    console.error('reset legacy voice call state failed', err);
+  }
+  if (!restored.length){
+    try{
+      restored = await loadPreferredStoredChatForCurrentCharacter();
+    }catch(err){
+      console.error('loadPreferredStoredChatForCurrentCharacter failed', err);
+      restored = [];
+    }
+  }
   if(restored.length && !hasAnyGreetingForCharacter() && isLikelyStrayGreetingHistory(restored)){
     restored = [];
   }
@@ -13612,7 +13640,6 @@ async function restoreOrStartChat() {
     chatLog = restored;
     appendMoneyDebugLog('restore', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
     renderChatLog(false);
-    maybeResumePendingVoiceCallRequestFromChatLog();
     return;
   }
   // Fresh start — show greeting
@@ -13629,7 +13656,6 @@ async function restoreOrStartChat() {
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">' + esc(character.name) + '</div><div class="welcome-sub">发送消息开始对话，或按 ✦ 触发回复</div></div>';
   }
   renderReplyPreview();
-  maybeResumePendingVoiceCallRequestFromChatLog();
 }
 
 async function syncChatLogFromStorageForCurrentCharacter(){
@@ -13648,7 +13674,6 @@ async function syncChatLogFromStorageForCurrentCharacter(){
     chatLog = normalized;
     appendMoneyDebugLog('sync_from_storage', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
     renderChatLog(false);
-    maybeResumePendingVoiceCallRequestFromChatLog();
     return true;
   }catch(e){
     return false;
@@ -25535,6 +25560,19 @@ window.addEventListener('pagehide', restoreParentTopbarFromChat);
 syncChatViewport();
 init().catch(function(err){
   console.error('chat init failed', err);
+  try{
+    if(character && character.id){
+      restoreOrStartChat().catch(function(recoverErr){
+        console.error('chat init recovery failed', recoverErr);
+        renderEmptyState();
+      });
+    }else{
+      renderEmptyState();
+    }
+  }catch(recoverOuterErr){
+    console.error('chat init recovery outer failed', recoverOuterErr);
+    renderEmptyState();
+  }
 });
 </script>
 </body>
