@@ -1,6 +1,6 @@
 // EPHONE Main OS Logic
 const APP_MAP = {
-  qq:         { title: 'QQ',             src: 'apps/qq.html' },
+  qq:         { title: 'QQ',             src: 'apps/qq.html', hideTopbar: true },
   chat:       { title: 'Chat',           src: 'apps/chat.html', hideTopbar: true },
   characters: { title: 'Contacts',       src: 'apps/characters.html' },
   settings:   { title: '设置',           src: 'apps/settings.html' },
@@ -35,12 +35,13 @@ const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
 const MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 const MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
+const WIDGET_CHARACTER_BG_KEY = 'widget_character_bg';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T03:31:00Z';
+const APP_BUILD_ID = '2026-04-16T03:47:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -7301,8 +7302,9 @@ async function formatEphone(){
   document.getElementById('wgt-name').textContent='No companion yet';
   document.getElementById('wgt-char-role').textContent='CHAR';
   document.getElementById('wgt-user-role').textContent='USER';
-  document.getElementById('wgt-char-last').textContent='Tap to import a character card!';
-  document.getElementById('wgt-user-last').textContent='之后这里会显示你说过的最后一句话。';
+  document.getElementById('wgt-char-last').textContent=getDefaultWidgetCharacterQuote('char');
+  document.getElementById('wgt-user-last').textContent=getDefaultWidgetCharacterQuote('user');
+  applyWidgetCharacterBackground('');
   ['top','1','2','3'].forEach((id)=>renderHomeSlot(id, null));
   renderCharNote();
   renderClockLocation();
@@ -7755,6 +7757,53 @@ function applyWidgetUserAvatarContent(target, src, fallback){
   target.textContent = String(fallback || '你').trim() || '你';
 }
 
+function getDefaultWidgetCharacterQuote(role){
+  return String(role || '') === 'user'
+    ? '在时间的尽头我们终将重逢'
+    : '因为爱与希望是永恒存在的';
+}
+
+function getEffectiveWidgetCharacterBackgroundSource(src){
+  var safe = normalizeShellAssetSrc(src || '');
+  return isRenderableShellAvatarSrc(safe) ? safe : 'apps/assets/樱花在水里.jpg';
+}
+
+function applyWidgetCharacterBackground(src){
+  var widgetEl = document.getElementById('widget-character');
+  if(!widgetEl) return;
+  var finalSrc = getEffectiveWidgetCharacterBackgroundSource(src);
+  widgetEl.style.setProperty('--widget-char-art', 'url("' + finalSrc.replace(/"/g, '\\"') + '")');
+}
+
+function restoreWidgetCharacterBackground(){
+  loadStoredAsset(WIDGET_CHARACTER_BG_KEY).then(function(src){
+    applyWidgetCharacterBackground(src);
+  });
+}
+
+function bindWidgetCharacterBackgroundInput(){
+  var input = document.getElementById('widget-character-bg-input');
+  if(!input) return;
+  input.addEventListener('change', async function(e){
+    var file = e && e.target && e.target.files ? e.target.files[0] : null;
+    if(!file) return;
+    try{
+      var rawData = await fileToDataUrl(file);
+      var finalData = isGifFile(file) ? rawData : await optimizeImageDataUrl(rawData, { maxSide: 900, quality: 0.82 });
+      var ok = await saveStoredAsset(WIDGET_CHARACTER_BG_KEY, finalData);
+      if(ok){
+        applyWidgetCharacterBackground(finalData);
+        showHomeToast('小组件背景已更新');
+      }else{
+        showHomeToast('图片有点大，换一张试试');
+      }
+    }catch(err){
+      showHomeToast('图片读取失败');
+    }
+    input.value = '';
+  });
+}
+
 function getPreviewStampFromMessages(messages){
   var list = Array.isArray(messages) ? messages : [];
   var lastTs = 0;
@@ -7767,7 +7816,8 @@ function getPreviewStampFromMessages(messages){
 
 function setWidgetCharacter(c){
   const displayName = c?.nickname || c?.name || 'No companion yet';
-  document.getElementById('wgt-name').textContent = displayName;
+  var hiddenNameEl = document.getElementById('wgt-name');
+  if(hiddenNameEl) hiddenNameEl.textContent = displayName;
   function applyWidgetSub(messages){
     var charLine = '';
     var userLine = '';
@@ -7794,8 +7844,8 @@ function setWidgetCharacter(c){
         }
       }
     }catch(e){}
-    var charText = formatWidgetConversationLine(charLine || c?.description || '', 'Tap to import a character card!');
-    var userText = formatWidgetConversationLine(userLine, '之后这里会显示你说过的最后一句话。');
+    var charText = formatWidgetConversationLine(charLine || '', getDefaultWidgetCharacterQuote('char'));
+    var userText = formatWidgetConversationLine(userLine, getDefaultWidgetCharacterQuote('user'));
     var charLineEl = document.getElementById('wgt-char-last');
     var userLineEl = document.getElementById('wgt-user-last');
     if(charLineEl) charLineEl.textContent = charText;
@@ -7812,7 +7862,6 @@ function setWidgetCharacter(c){
   const avEl = document.getElementById('wgt-avatar');
   const userAvEl = document.getElementById('wgt-user-avatar');
   var liveAvatarSrc = normalizeShellAssetSrc(c && c.imageData || '');
-  var widgetEl = document.getElementById('widget-character');
   if(c && c.id){
     var userLabel = getBondWidgetUserName(c, getChatUserName(c.id));
     var charRoleEl = document.getElementById('wgt-char-role');
@@ -7829,13 +7878,6 @@ function setWidgetCharacter(c){
     if(emptyUserRoleEl) emptyUserRoleEl.textContent = 'USER';
     applyWidgetUserAvatarContent(userAvEl, '', '你');
   }
-  if(widgetEl){
-    if(isRenderableShellAvatarSrc(liveAvatarSrc)){
-      widgetEl.style.setProperty('--widget-char-art', 'url("' + liveAvatarSrc.replace(/"/g, '\\"') + '")');
-    }else{
-      widgetEl.style.setProperty('--widget-char-art', 'none');
-    }
-  }
   if (isRenderableShellAvatarSrc(liveAvatarSrc)) {
     avEl.innerHTML = '<img src="'+liveAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
   } else {
@@ -7845,9 +7887,6 @@ function setWidgetCharacter(c){
     loadStoredAsset('char_avatar_' + c.id).then((override)=>{
       var safeOverride = normalizeShellAssetSrc(override || '');
       if(isRenderableShellAvatarSrc(safeOverride)){
-        if(widgetEl){
-          widgetEl.style.setProperty('--widget-char-art', 'url("' + safeOverride.replace(/"/g, '\\"') + '")');
-        }
         avEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
       }
     });
@@ -7856,12 +7895,10 @@ function setWidgetCharacter(c){
 
 function onWidgetCharacterTap(e){
   if(e && e.stopPropagation) e.stopPropagation();
-  var active = getActiveCharacterData();
-  if(active && active.id){
-    openApp('chat');
-    return;
-  }
-  openApp('characters');
+  var input = document.getElementById('widget-character-bg-input');
+  if(!input) return;
+  input.value = '';
+  input.click();
 }
 
 function normalizeUnreadBadgeCount(n){
@@ -8190,9 +8227,11 @@ function restoreState(){
   bindBondAvatarPressBehavior();
   bindTopFrameEditor();
   bindHomeMusicSystem();
+  bindWidgetCharacterBackgroundInput();
   bindHomeAppPressState();
   applyLiveDanmakuVisibility(getLiveDanmakuEnabled());
   restoreHomeSlots();
+  restoreWidgetCharacterBackground();
   restoreHomeAppIcons();
   renderCharNote();
   renderClockLocation();
