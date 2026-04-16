@@ -40,7 +40,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T00:58:00Z';
+const APP_BUILD_ID = '2026-04-16T01:08:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -7032,6 +7032,7 @@ function buildAppFrameUrl(src){
 }
 
 var shellLoadingHideTimer = 0;
+var shellLoadingForceTimer = 0;
 function showShellLoadingOverlay(kind){
   var overlay = document.getElementById('shell-loading-overlay');
   var image = document.getElementById('shell-loading-image');
@@ -7041,8 +7042,16 @@ function showShellLoadingOverlay(kind){
     clearTimeout(shellLoadingHideTimer);
     shellLoadingHideTimer = 0;
   }
+  if(shellLoadingForceTimer){
+    clearTimeout(shellLoadingForceTimer);
+    shellLoadingForceTimer = 0;
+  }
   image.src = 'apps/assets/loading-cat.png';
   overlay.classList.add('show');
+  shellLoadingForceTimer = setTimeout(function(){
+    overlay.classList.remove('show');
+    shellLoadingForceTimer = 0;
+  }, 1800);
 }
 
 function hideShellLoadingOverlay(delay){
@@ -7051,6 +7060,10 @@ function hideShellLoadingOverlay(delay){
   if(shellLoadingHideTimer){
     clearTimeout(shellLoadingHideTimer);
     shellLoadingHideTimer = 0;
+  }
+  if(shellLoadingForceTimer){
+    clearTimeout(shellLoadingForceTimer);
+    shellLoadingForceTimer = 0;
   }
   shellLoadingHideTimer = setTimeout(function(){
     overlay.classList.remove('show');
@@ -8206,6 +8219,9 @@ window.addEventListener('load', ()=>{
       });
       setTimeout(applyIframeSafeAreaOverrides, 120);
       hideShellLoadingOverlay(currentApp ? 260 : 2000);
+    });
+    frame.addEventListener('error', function(){
+      hideShellLoadingOverlay(0);
     });
   }
   var notifyCard = document.getElementById('app-notify-card');
