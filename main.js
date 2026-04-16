@@ -41,7 +41,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T03:47:00Z';
+const APP_BUILD_ID = '2026-04-16T03:58:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -7822,26 +7822,11 @@ function setWidgetCharacter(c){
     var charLine = '';
     var userLine = '';
     try{
-      var eventPreview = c && c.id ? getWidgetPreview(c.id) : null;
-      var latestStamp = getPreviewStampFromMessages(messages);
-      if(eventPreview && eventPreview.at >= latestStamp && (eventPreview.content || normalizeChatPreviewType(eventPreview.type || 'text') !== 'text')){
-        charLine = getPreviewTextForWidget(eventPreview);
-      }
       if(Array.isArray(messages) && messages.length){
-        if(!charLine){
-          var charMsg = getLatestPreviewForRole(messages, 'assistant');
-          charLine = getPreviewTextForWidget(charMsg);
-        }
+        var charMsg = getLatestPreviewForRole(messages, 'assistant');
+        charLine = getPreviewTextForWidget(charMsg);
         var userMsg = getLatestPreviewForRole(messages, 'user');
         userLine = getPreviewTextForWidget(userMsg);
-        var lastMsg = pickLatestPreview(messages);
-        if(c && c.id && (lastMsg.content || normalizeChatPreviewType(lastMsg.type || 'text') !== 'text')){
-          storeWidgetPreview(c.id, {
-            content: lastMsg.content || '',
-            type: lastMsg.type || 'text',
-            at: latestStamp || Date.now()
-          });
-        }
       }
     }catch(e){}
     var charText = formatWidgetConversationLine(charLine || '', getDefaultWidgetCharacterQuote('char'));
