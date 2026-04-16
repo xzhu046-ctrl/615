@@ -45,7 +45,9 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T05:41:00Z';
+const APP_BUILD_ID = '2026-04-16T05:52:00Z';
+const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
+const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -7303,7 +7305,9 @@ async function formatEphone(){
   restoreHomeAppIcons();
   document.getElementById('wgt-avatar').textContent='✿';
   var sideAvatar = document.getElementById('wgt-side-avatar');
-  if(sideAvatar) sideAvatar.textContent='✿';
+  if(sideAvatar) sideAvatar.innerHTML='<span class="widget-mini-orb-plus">+</span>';
+  var sideOrb = document.getElementById('widget-mini-orb');
+  if(sideOrb) sideOrb.classList.remove('has-image');
   document.getElementById('wgt-user-avatar').textContent='你';
   document.getElementById('wgt-name').textContent='No companion yet';
   var sideName = document.getElementById('wgt-side-name');
@@ -7315,6 +7319,8 @@ async function formatEphone(){
   try{ localStorage.removeItem(getWidgetLastChatCharKey()); }catch(e){}
   try{ localStorage.removeItem(WIDGET_LAST_CHAT_CHAR_KEY); }catch(e){}
   applyWidgetCharacterBackground('');
+  applyClockWidgetArt('');
+  applyWidgetMiniOrbImage('');
   ['top','1','2','3','4'].forEach((id)=>renderHomeSlot(id, null));
   renderCharNote();
   renderClockLocation();
@@ -7834,10 +7840,9 @@ function getWidgetLastChatCharacter(){
 function applyWidgetCharacterBackground(src){
   var widgetEl = document.getElementById('widget-character');
   var finalSrc = getEffectiveWidgetCharacterBackgroundSource(src);
-  [widgetEl, document.getElementById('widget-mini-orb')].forEach(function(el){
-    if(!el) return;
-    el.style.setProperty('--widget-char-art', 'url("' + finalSrc.replace(/"/g, '\\"') + '")');
-  });
+  if(widgetEl){
+    widgetEl.style.setProperty('--widget-char-art', 'url("' + finalSrc.replace(/"/g, '\\"') + '")');
+  }
 }
 
 function restoreWidgetCharacterBackground(){
@@ -7869,6 +7874,107 @@ function bindWidgetCharacterBackgroundInput(){
   });
 }
 
+function applyWidgetMiniOrbImage(src){
+  var sideAvEl = document.getElementById('wgt-side-avatar');
+  var sideOrbEl = document.getElementById('widget-mini-orb');
+  var safeSrc = normalizeShellAssetSrc(src || '');
+  if(!sideAvEl || !sideOrbEl) return;
+  if(isRenderableShellAvatarSrc(safeSrc)){
+    sideAvEl.innerHTML = '<img src="' + safeSrc + '" alt="">';
+    sideOrbEl.classList.add('has-image');
+  }else{
+    sideAvEl.innerHTML = '<span class="widget-mini-orb-plus">+</span>';
+    sideOrbEl.classList.remove('has-image');
+  }
+}
+
+function restoreWidgetMiniOrbImage(){
+  loadStoredAsset(HOME_WIDGET_MINI_ORB_KEY).then(function(src){
+    applyWidgetMiniOrbImage(src);
+  });
+}
+
+function openWidgetMiniOrbPicker(e){
+  if(e && e.stopPropagation) e.stopPropagation();
+  var input = document.getElementById('widget-mini-orb-file');
+  if(!input) return;
+  input.value = '';
+  input.click();
+}
+
+function bindWidgetMiniOrbInput(){
+  var input = document.getElementById('widget-mini-orb-file');
+  if(!input) return;
+  input.addEventListener('change', async function(e){
+    var file = e && e.target && e.target.files ? e.target.files[0] : null;
+    if(!file) return;
+    try{
+      var rawData = await fileToDataUrl(file);
+      var finalData = isGifFile(file) ? rawData : await optimizeImageDataUrl(rawData, { maxSide: 700, quality: 0.82 });
+      var ok = await saveStoredAsset(HOME_WIDGET_MINI_ORB_KEY, finalData);
+      if(ok){
+        applyWidgetMiniOrbImage(finalData);
+        showHomeToast('头像已更新');
+      }else{
+        showHomeToast('图片有点大，换一张试试');
+      }
+    }catch(err){
+      showHomeToast('图片读取失败');
+    }
+    input.value = '';
+  });
+}
+
+function applyClockWidgetArt(src){
+  var clockEl = document.getElementById('widget-clock');
+  var safeSrc = normalizeShellAssetSrc(src || '');
+  if(!clockEl) return;
+  if(isRenderableShellAvatarSrc(safeSrc)){
+    clockEl.style.setProperty('--clock-widget-art', 'url("' + safeSrc.replace(/"/g, '\\"') + '")');
+    clockEl.classList.add('has-art');
+  }else{
+    clockEl.style.removeProperty('--clock-widget-art');
+    clockEl.classList.remove('has-art');
+  }
+}
+
+function restoreClockWidgetArt(){
+  loadStoredAsset(HOME_CLOCK_WIDGET_ART_KEY).then(function(src){
+    applyClockWidgetArt(src);
+  });
+}
+
+function openClockWidgetArtPicker(e){
+  if(e && e.stopPropagation) e.stopPropagation();
+  var input = document.getElementById('clock-widget-bg-file');
+  if(!input) return;
+  input.value = '';
+  input.click();
+}
+
+function bindClockWidgetArtInput(){
+  var input = document.getElementById('clock-widget-bg-file');
+  if(!input) return;
+  input.addEventListener('change', async function(e){
+    var file = e && e.target && e.target.files ? e.target.files[0] : null;
+    if(!file) return;
+    try{
+      var rawData = await fileToDataUrl(file);
+      var finalData = isGifFile(file) ? rawData : await optimizeImageDataUrl(rawData, { maxSide: 1200, quality: 0.8 });
+      var ok = await saveStoredAsset(HOME_CLOCK_WIDGET_ART_KEY, finalData);
+      if(ok){
+        applyClockWidgetArt(finalData);
+        showHomeToast('时间背景已更新');
+      }else{
+        showHomeToast('图片有点大，换一张试试');
+      }
+    }catch(err){
+      showHomeToast('图片读取失败');
+    }
+    input.value = '';
+  });
+}
+
 function getPreviewStampFromMessages(messages){
   var list = Array.isArray(messages) ? messages : [];
   var lastTs = 0;
@@ -7884,7 +7990,6 @@ function setWidgetCharacter(c){
   if(widgetEl){
     widgetEl.dataset.charId = String((c && c.id) || '').trim();
   }
-  var orbCharacter = getWidgetLastChatCharacter() || c || null;
   const displayName = c?.nickname || c?.name || 'No companion yet';
   var hiddenNameEl = document.getElementById('wgt-name');
   if(hiddenNameEl) hiddenNameEl.textContent = displayName;
@@ -7921,18 +8026,15 @@ function setWidgetCharacter(c){
   }
   const avEl = document.getElementById('wgt-avatar');
   const userAvEl = document.getElementById('wgt-user-avatar');
-  const sideAvEl = document.getElementById('wgt-side-avatar');
-  const sideOrbEl = document.getElementById('widget-mini-orb');
   const sideNameEl = document.getElementById('wgt-side-name');
   var liveAvatarSrc = normalizeShellAssetSrc(c && c.imageData || '');
-  var orbAvatarSrc = normalizeShellAssetSrc(orbCharacter && orbCharacter.imageData || '');
   if(c && c.id){
     var userLabel = getBondWidgetUserName(c, getChatUserName(c.id));
     var charRoleEl = document.getElementById('wgt-char-role');
     var userRoleEl = document.getElementById('wgt-user-role');
     if(charRoleEl) charRoleEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
     if(userRoleEl) userRoleEl.textContent = String(userLabel || 'USER').trim() || 'USER';
-    if(sideNameEl) sideNameEl.textContent = String((((orbCharacter && (orbCharacter.nickname || orbCharacter.name)) || c.nickname || c.name || 'CHAR'))).trim() || 'CHAR';
+    if(sideNameEl) sideNameEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
     getChatUserAvatar(c.id).then(function(userSrc){
       applyWidgetUserAvatarContent(userAvEl, userSrc, String(userLabel || '你').slice(0, 2));
     });
@@ -7941,7 +8043,7 @@ function setWidgetCharacter(c){
     var emptyUserRoleEl = document.getElementById('wgt-user-role');
     if(emptyCharRoleEl) emptyCharRoleEl.textContent = 'CHAR';
     if(emptyUserRoleEl) emptyUserRoleEl.textContent = 'USER';
-    if(sideNameEl) sideNameEl.textContent = String((orbCharacter && (orbCharacter.nickname || orbCharacter.name)) || 'CHAR').trim() || 'CHAR';
+    if(sideNameEl) sideNameEl.textContent = 'CHAR';
     applyWidgetUserAvatarContent(userAvEl, '', '你');
   }
   if (isRenderableShellAvatarSrc(liveAvatarSrc)) {
@@ -7949,27 +8051,11 @@ function setWidgetCharacter(c){
   } else {
     avEl.textContent = c?.avatar || '✿';
   }
-  if (isRenderableShellAvatarSrc(orbAvatarSrc)) {
-    if(sideAvEl) sideAvEl.innerHTML = '<img src="'+orbAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;object-position:center;display:block">';
-    if(sideOrbEl) sideOrbEl.classList.add('has-image');
-  } else {
-    if(sideAvEl) sideAvEl.textContent = (orbCharacter && orbCharacter.avatar) || c?.avatar || '✿';
-    if(sideOrbEl) sideOrbEl.classList.remove('has-image');
-  }
   if(c?.id){
     loadStoredAsset('char_avatar_' + c.id).then((override)=>{
       var safeOverride = normalizeShellAssetSrc(override || '');
       if(isRenderableShellAvatarSrc(safeOverride)){
         avEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
-      }
-    });
-  }
-  if(orbCharacter && orbCharacter.id){
-    loadStoredAsset('char_avatar_' + orbCharacter.id).then((override)=>{
-      var safeOverride = normalizeShellAssetSrc(override || '');
-      if(isRenderableShellAvatarSrc(safeOverride)){
-        if(sideAvEl) sideAvEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;object-position:center;display:block">';
-        if(sideOrbEl) sideOrbEl.classList.add('has-image');
       }
     });
   }
@@ -8400,11 +8486,15 @@ function restoreState(){
   bindTopFrameEditor();
   bindHomeMusicSystem();
   bindWidgetCharacterBackgroundInput();
+  bindWidgetMiniOrbInput();
+  bindClockWidgetArtInput();
   bindWidgetBubbleEditors();
   bindHomeAppPressState();
   applyLiveDanmakuVisibility(getLiveDanmakuEnabled());
   restoreHomeSlots();
   restoreWidgetCharacterBackground();
+  restoreWidgetMiniOrbImage();
+  restoreClockWidgetArt();
   restoreHomeAppIcons();
   renderCharNote();
   renderClockLocation();
