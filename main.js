@@ -9,13 +9,13 @@ const APP_MAP = {
   schedule:   { title: '日程',           src: 'apps/schedule.html', hideTopbar: true },
   backend:    { title: '后台',           src: 'apps/backend.html' },
   map6:       { title: '地图',           src: 'apps/map6.html' },
-  offline_archive: { title: '档案馆',    src: 'apps/offline_archive.html' },
 };
 const HOME_ICON_DEFAULTS = {
   qq: 'QQ',
   settings: '设置',
   customize: '外观',
   worldbook: '档案',
+  offline: '约会',
   schedule: '日程',
   backend: '后台',
   map6: '地图',
@@ -43,7 +43,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T08:32:00Z';
+const APP_BUILD_ID = '2026-04-16T08:47:00Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -4745,12 +4745,20 @@ function openPlaceholderMiniApp(idx){
     openApp('schedule');
     return;
   }
+  if(Number(idx) === 5){
+    showHomeToast('约会正在重新制作');
+    return;
+  }
   if(Number(idx) === 4){
     openApp('backend');
     return;
   }
   if(Number(idx) === 6){
     openApp('map6');
+    return;
+  }
+  if(Number(idx) === 7){
+    showHomeToast('档案馆正在重新制作');
     return;
   }
   showHomeToast('占位' + idx + ' 暂未设置');
