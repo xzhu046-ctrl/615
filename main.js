@@ -44,7 +44,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T04:54:00Z';
+const APP_BUILD_ID = '2026-04-16T05:02:00Z';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
@@ -7891,6 +7891,7 @@ function setWidgetCharacter(c){
   const avEl = document.getElementById('wgt-avatar');
   const userAvEl = document.getElementById('wgt-user-avatar');
   const sideAvEl = document.getElementById('wgt-side-avatar');
+  const sideOrbEl = document.getElementById('widget-mini-orb');
   const sideNameEl = document.getElementById('wgt-side-name');
   var liveAvatarSrc = normalizeShellAssetSrc(c && c.imageData || '');
   if(c && c.id){
@@ -7914,9 +7915,11 @@ function setWidgetCharacter(c){
   if (isRenderableShellAvatarSrc(liveAvatarSrc)) {
     avEl.innerHTML = '<img src="'+liveAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
     if(sideAvEl) sideAvEl.innerHTML = '<img src="'+liveAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
+    if(sideOrbEl) sideOrbEl.classList.add('has-image');
   } else {
     avEl.textContent = c?.avatar || '✿';
     if(sideAvEl) sideAvEl.textContent = c?.avatar || '✿';
+    if(sideOrbEl) sideOrbEl.classList.remove('has-image');
   }
   if(c?.id){
     loadStoredAsset('char_avatar_' + c.id).then((override)=>{
@@ -7924,6 +7927,7 @@ function setWidgetCharacter(c){
       if(isRenderableShellAvatarSrc(safeOverride)){
         avEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
         if(sideAvEl) sideAvEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
+        if(sideOrbEl) sideOrbEl.classList.add('has-image');
       }
     });
   }
