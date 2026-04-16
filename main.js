@@ -45,7 +45,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T06:03:00Z';
+const APP_BUILD_ID = '2026-04-16T06:08:00Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -7927,52 +7927,21 @@ function bindWidgetMiniOrbInput(){
 
 function applyClockWidgetArt(src){
   var clockEl = document.getElementById('widget-clock');
-  var safeSrc = normalizeShellAssetSrc(src || '');
   if(!clockEl) return;
-  if(isRenderableShellAvatarSrc(safeSrc)){
-    clockEl.style.setProperty('--clock-widget-art', 'url("' + safeSrc.replace(/"/g, '\\"') + '")');
-    clockEl.classList.add('has-art');
-  }else{
-    clockEl.style.removeProperty('--clock-widget-art');
-    clockEl.classList.remove('has-art');
-  }
+  clockEl.style.removeProperty('--clock-widget-art');
+  clockEl.classList.remove('has-art');
 }
 
 function restoreClockWidgetArt(){
-  loadStoredAsset(HOME_CLOCK_WIDGET_ART_KEY).then(function(src){
-    applyClockWidgetArt(src);
-  });
+  applyClockWidgetArt('');
 }
 
 function openClockWidgetArtPicker(e){
   if(e && e.stopPropagation) e.stopPropagation();
-  var input = document.getElementById('clock-widget-bg-file');
-  if(!input) return;
-  input.value = '';
-  input.click();
 }
 
 function bindClockWidgetArtInput(){
-  var input = document.getElementById('clock-widget-bg-file');
-  if(!input) return;
-  input.addEventListener('change', async function(e){
-    var file = e && e.target && e.target.files ? e.target.files[0] : null;
-    if(!file) return;
-    try{
-      var rawData = await fileToDataUrl(file);
-      var finalData = isGifFile(file) ? rawData : await optimizeImageDataUrl(rawData, { maxSide: 1200, quality: 0.8 });
-      var ok = await saveStoredAsset(HOME_CLOCK_WIDGET_ART_KEY, finalData);
-      if(ok){
-        applyClockWidgetArt(finalData);
-        showHomeToast('时间背景已更新');
-      }else{
-        showHomeToast('图片有点大，换一张试试');
-      }
-    }catch(err){
-      showHomeToast('图片读取失败');
-    }
-    input.value = '';
-  });
+  applyClockWidgetArt('');
 }
 
 function getPreviewStampFromMessages(messages){
