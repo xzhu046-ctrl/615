@@ -12714,18 +12714,7 @@ function parseMoneyPacketPayload(raw){
   if(typeof raw === 'object') return raw;
   try{
     var obj = JSON.parse(String(raw));
-    if(!obj || typeof obj !== 'object') return null;
-    var objType = String(obj.type || '').trim().toLowerCase();
-    var objMode = String(obj.mode || '').trim().toLowerCase();
-    var looksLikeMoney = objType === 'money_packet'
-      || objType === 'moneypacket'
-      || objMode === 'transfer'
-      || objMode === 'red_packet'
-      || objMode === 'redpacket'
-      || Object.prototype.hasOwnProperty.call(obj, 'amount')
-      || Object.prototype.hasOwnProperty.call(obj, 'coverId')
-      || Object.prototype.hasOwnProperty.call(obj, 'coverName');
-    return looksLikeMoney ? obj : null;
+    return obj && typeof obj === 'object' ? obj : null;
   }catch(e){
     var text = String(raw || '').trim();
     var bracketMatch = text.match(/^\[(?:money_packet)\s+([^\]]+)\]$/i);
@@ -12747,27 +12736,12 @@ function parseMoneyPacketPayload(raw){
         };
       }
     }
-    var simpleMatch = text.match(/^\[(转账信息|红包信息)\s*::\s*([0-9]+(?:\.[0-9]+)?)\s*::\s*([^\]]*)\]$/);
-    if(simpleMatch){
-      return {
-        type: 'money_packet',
-        mode: simpleMatch[1] === '转账信息' ? 'transfer' : 'red_packet',
-        amount: Number(simpleMatch[2] || 0) || 0,
-        note: String(simpleMatch[3] || '').trim(),
-        status: 'pending'
-      };
-    }
     return null;
   }
 }
 
 function tryPromoteTextToMoneyPacket(raw){
-  var text = String(raw || '').trim();
-  var looksLikeExplicitMoneyText =
-    /^\[(?:money_packet)\s+[^\]]+\]$/i.test(text)
-    || /^\[(转账信息|红包信息)\s*::\s*[0-9]+(?:\.[0-9]+)?\s*::\s*[^\]]*\]$/.test(text);
-  if(!looksLikeExplicitMoneyText) return null;
-  var payload = parseMoneyPacketPayload(text);
+  var payload = parseMoneyPacketPayload(raw);
   if(!payload) return null;
   if(String(payload.type || 'money_packet') !== 'money_packet') payload.type = 'money_packet';
   return JSON.stringify(payload);
@@ -16111,13 +16085,6 @@ function addMessage(role, content, doScroll, msgType, msgId) {
   // Some saved messages keep API-style role "assistant"; map to UI class
   var viewRole = role === 'system' ? 'system' : ((role === 'assistant') ? 'ai' : (role || 'ai'));
   msgType = normalizeMessageType(msgType || 'text');
-  if(msgType === 'text'){
-    var promotedRenderMoney = tryPromoteTextToMoneyPacket(text);
-    if(promotedRenderMoney){
-      text = promotedRenderMoney;
-      msgType = 'moneypacket';
-    }
-  }
 
   var div = document.createElement('div');
   var isVoice = msgType === 'voice';
