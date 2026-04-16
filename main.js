@@ -43,7 +43,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-16T11:58:00Z';
+const APP_BUILD_ID = '2026-04-16T12:12:00Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -5396,6 +5396,13 @@ function normalizeHomeMusicBubbleScale(value){
   return Math.max(0.75, Math.min(1.6, Math.round(num * 100) / 100));
 }
 
+function normalizeHomeMusicDurationSeconds(value){
+  var num = Number(value);
+  if(!isFinite(num) || num <= 0) return 0;
+  if(num > 7200) num = num / 1000;
+  return Math.max(0, Math.round(num));
+}
+
 function sanitizeHomeMusicTrackForStorage(track){
   var safe = track && typeof track === 'object' ? track : {};
   return {
@@ -5411,7 +5418,7 @@ function sanitizeHomeMusicTrackForStorage(track){
     cover: normalizeHomeMusicStorageText(safe.cover || '', 2000),
     remoteUrl: normalizeHomeMusicStorageText(safe.remoteUrl || '', 2000),
     lyricsText: normalizeHomeMusicStorageText(safe.lyricsText || '', 18000),
-    duration: Math.max(0, Number(safe.duration) || 0),
+    duration: normalizeHomeMusicDurationSeconds(safe.duration),
     mimeType: normalizeHomeMusicStorageText(safe.mimeType || '', 80),
     size: Math.max(0, Number(safe.size) || 0),
     fileName: normalizeHomeMusicStorageText(safe.fileName || '', 200)
@@ -5734,7 +5741,7 @@ function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
   return list.map(function(item, idx){
     var remoteId = String(
       getHomeMusicFirstTruthy(item, [
-        ['id'], ['songid'], ['songId'], ['mid'], ['songmid'], ['media_mid']
+        ['id'], ['songid'], ['songId'], ['mid'], ['songmid'], ['media_mid'], ['musicid'], ['musicId'], ['rid'], ['hash'], ['contentid']
       ]) || ''
     ).trim();
     var name = String(
@@ -5752,6 +5759,12 @@ function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
         ['cover'], ['pic'], ['coverUrl'], ['album', 'pic'], ['album', 'cover']
       ]) || ''
     ).trim();
+    var remoteUrl = String(
+      getHomeMusicFirstTruthy(item, [
+        ['url'], ['playUrl'], ['streamUrl'], ['src'], ['music_url'], ['musicUrl'], ['purl'], ['link'],
+        ['data', 'url'], ['data', 'playUrl'], ['data', 'streamUrl'], ['data', 'src'], ['data', 'music_url'], ['data', 'musicUrl']
+      ]) || ''
+    ).trim();
     var normalizedPair = splitHomeMusicNameAndArtist(name, artist);
     if(isHomeMusicUnknownName(normalizedPair.name)){
       normalizedPair.name = fallbackBase || ('歌曲 ' + String(idx + 1));
@@ -5763,9 +5776,9 @@ function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
       name: normalizedPair.name,
       artist: normalizedPair.artist,
       cover: cover,
-      remoteUrl: '',
+      remoteUrl: remoteUrl,
       lyricsText: '',
-      duration: Math.max(0, Number(getHomeMusicFirstTruthy(item, [['duration'], ['interval'], ['dt'], ['time']]) || 0) || 0)
+      duration: normalizeHomeMusicDurationSeconds(getHomeMusicFirstTruthy(item, [['duration'], ['interval'], ['dt'], ['time'], ['songTime'], ['duration_ms']]) || 0)
     };
   }).filter(function(item){
     return !!String(item.name || '').trim();
@@ -5792,10 +5805,21 @@ function extractHomeMusicAudioUrl(payload){
     ['url'],
     ['playUrl'],
     ['streamUrl'],
+    ['music_url'],
+    ['musicUrl'],
+    ['play_url'],
+    ['purl'],
+    ['link'],
     ['src'],
+    ['songurl'],
     ['data', 'url'],
     ['data', 'playUrl'],
     ['data', 'streamUrl'],
+    ['data', 'music_url'],
+    ['data', 'musicUrl'],
+    ['data', 'play_url'],
+    ['data', 'purl'],
+    ['data', 'link'],
     ['data', 'src']
   ]) || '').trim();
 }
@@ -5809,6 +5833,23 @@ function extractHomeMusicCoverUrl(payload){
     ['data', 'pic'],
     ['data', 'coverUrl']
   ]) || '').trim();
+}
+
+function extractHomeMusicDuration(payload){
+  return normalizeHomeMusicDurationSeconds(getHomeMusicFirstTruthy(payload, [
+    ['duration'],
+    ['interval'],
+    ['dt'],
+    ['time'],
+    ['songTime'],
+    ['duration_ms'],
+    ['data', 'duration'],
+    ['data', 'interval'],
+    ['data', 'dt'],
+    ['data', 'time'],
+    ['data', 'songTime'],
+    ['data', 'duration_ms']
+  ]) || 0);
 }
 
 async function hydrateHomeMusicThirdPartyTrack(track){
@@ -5826,6 +5867,7 @@ async function hydrateHomeMusicThirdPartyTrack(track){
     track.cover = extractHomeMusicCoverUrl(detailPayload) || track.cover || '';
     track.lyricsText = extractHomeMusicLyricText(detailPayload) || track.lyricsText || '';
     track.artist = String(track.artist || getHomeMusicFirstTruthy(detailPayload, [['artist'], ['data', 'artist']]) || '未知歌手');
+    track.duration = extractHomeMusicDuration(detailPayload) || track.duration || 0;
   }
   if(!track.lyricsText){
     try{
@@ -5841,6 +5883,7 @@ async function hydrateHomeMusicThirdPartyTrack(track){
       }
     }catch(err){}
   }
+  track.duration = normalizeHomeMusicDurationSeconds(track.duration);
   return track;
 }
 
@@ -6328,6 +6371,7 @@ async function previewHomeMusicSearchResult(index){
   try{
     var previewTrack = cloneHomeMusicTrack(candidate);
     await hydrateHomeMusicThirdPartyTrack(previewTrack);
+    if(!String(previewTrack.remoteUrl || '').trim()) throw new Error('歌曲地址获取失败');
     previewTrack.id = previewTrack.id || createTrackId('search_preview');
     homeMusicState.previewTrack = previewTrack;
     homeMusicState.currentTrackId = previewTrack.id;
@@ -6357,6 +6401,7 @@ async function addHomeMusicSearchResult(index){
     var track = sanitizeHomeMusicTrackForStorage(cloneHomeMusicTrack(candidate));
     track.id = createTrackId('search');
     await hydrateHomeMusicThirdPartyTrack(track);
+    if(!String(track.remoteUrl || '').trim()) throw new Error('歌曲地址获取失败');
     track = sanitizeHomeMusicTrackForStorage(track);
     if(isHomeMusicUnknownName(track.name)){
       track.name = String((candidate && candidate.name) || homeMusicState.searchQuery || track.remoteId || '歌曲').trim() || '歌曲';
