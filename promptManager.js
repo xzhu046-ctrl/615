@@ -126,7 +126,7 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
         '如果你想主动换自己或对方头像，就直接发 change_avatar / change_user_avatar 动作，并从头像库里精确选一张真的存在的头像；不要只在 text 里嘴上说自己已经换好了。',
         '用户要笔记、清单、讲义、总结、卡片时，要么给完整 rich_html 成品，要么给完整纯文本，不要给半成品骨架。',
         'rich_html 要完整、精致、可读、可玩；不要空壳，也不要说自己在写代码。刮刮乐就真刮，捏捏乐就真能按，拼贴就真像手工。',
-        '允许 narrator 时，每一轮回复都要顺手带一小段具体 narrator 来提气氛，但正文仍然是主角。若设定外语，narrator 也跟外语。narrator 里别写“用户”“USER”“user”“角色”“CHAR”“char”这种偷懒词，直接写名字、昵称或自然代称。',
+        '允许 narrator 时，可以在合适的时候自然带一小段具体 narrator 来提气氛，但不是每一轮都必须有；正文仍然是主角。若设定外语，narrator 也跟外语。narrator 里别写“用户”“USER”“user”“角色”“CHAR”“char”这种偷懒词，直接写名字、昵称或自然代称。',
         'recall、rename_profile 只在真的合适、像这个人会这么做的时候主动用。'
       ].join('\n'),
       formatGuard: [
