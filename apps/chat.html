@@ -11031,6 +11031,67 @@ function getPreviousVisibleChatEntry(entryId){
   return prev;
 }
 
+function getLatestVisibleUserTurnWindow(){
+  if(!Array.isArray(chatLog) || !chatLog.length) return null;
+  var latestUserIdx = -1;
+  for(var i = chatLog.length - 1; i >= 0; i--){
+    var item = chatLog[i] || {};
+    if(item.hidden) continue;
+    if(String(item.role || '') === 'user'){
+      latestUserIdx = i;
+      break;
+    }
+  }
+  if(latestUserIdx < 0) return null;
+  var latestUser = chatLog[latestUserIdx] || {};
+  var firstUserIdx = latestUserIdx;
+  for(var j = latestUserIdx - 1; j >= 0; j--){
+    var prev = chatLog[j] || {};
+    if(prev.hidden) continue;
+    if(String(prev.role || '') !== 'user') break;
+    firstUserIdx = j;
+  }
+  var firstUser = chatLog[firstUserIdx] || latestUser;
+  var previousAssistant = null;
+  var previousAssistantIdx = -1;
+  for(var k = firstUserIdx - 1; k >= 0; k--){
+    var prevVisible = chatLog[k] || {};
+    if(prevVisible.hidden) continue;
+    if(String(prevVisible.role || '') === 'assistant'){
+      previousAssistant = prevVisible;
+      previousAssistantIdx = k;
+      break;
+    }
+  }
+  var firstAssistantReply = null;
+  var firstAssistantReplyIdx = -1;
+  for(var m = latestUserIdx + 1; m < chatLog.length; m++){
+    var nextVisible = chatLog[m] || {};
+    if(nextVisible.hidden) continue;
+    var nextRole = String(nextVisible.role || '');
+    if(nextRole === 'assistant'){
+      firstAssistantReply = nextVisible;
+      firstAssistantReplyIdx = m;
+      break;
+    }
+    if(nextRole === 'user') break;
+  }
+  return {
+    firstUser: firstUser,
+    latestUser: latestUser,
+    firstUserIdx: firstUserIdx,
+    latestUserIdx: latestUserIdx,
+    previousAssistant: previousAssistant,
+    previousAssistantIdx: previousAssistantIdx,
+    firstAssistantReply: firstAssistantReply,
+    firstAssistantReplyIdx: firstAssistantReplyIdx,
+    previousAssistantTs: Number(previousAssistant && (previousAssistant.sentAt || previousAssistant.readAt) || 0) || 0,
+    latestUserSentTs: Number(latestUser.sentAt || latestUser.readAt || 0) || 0,
+    latestUserReadTs: Number(latestUser.readAt || latestUser.sentAt || 0) || 0,
+    firstAssistantReplyTs: Number(firstAssistantReply && (firstAssistantReply.sentAt || firstAssistantReply.readAt) || 0) || 0
+  };
+}
+
 function getLatestUserResumeWindow(){
   if(!Array.isArray(chatLog) || !chatLog.length) return null;
   var lastVisibleIdx = -1;
@@ -11043,33 +11104,20 @@ function getLatestUserResumeWindow(){
   if(lastVisibleIdx < 0) return null;
   var latestVisible = chatLog[lastVisibleIdx] || {};
   if(String(latestVisible.role || '') !== 'user') return null;
-  var firstUserIdx = lastVisibleIdx;
-  for(var j = lastVisibleIdx - 1; j >= 0; j--){
-    var prev = chatLog[j] || {};
-    if(prev.hidden) continue;
-    if(String(prev.role || '') !== 'user') break;
-    firstUserIdx = j;
-  }
-  var firstUser = chatLog[firstUserIdx] || latestVisible;
-  var anchor = null;
-  for(var k = firstUserIdx - 1; k >= 0; k--){
-    var prevVisible = chatLog[k] || {};
-    if(prevVisible.hidden) continue;
-    if(String(prevVisible.role || '') === 'assistant'){
-      anchor = prevVisible;
-      break;
-    }
-  }
-  if(!anchor) return null;
-  var charTs = Number(anchor.readAt || anchor.sentAt || 0) || 0;
-  var userTs = Number(firstUser.readAt || firstUser.sentAt || 0) || 0;
+  var turnWindow = getLatestVisibleUserTurnWindow();
+  if(!turnWindow) return null;
+  var charTs = Number(turnWindow.previousAssistantTs || 0) || 0;
+  var userTs = Number(turnWindow.latestUserSentTs || 0) || 0;
   if(!charTs || !userTs || userTs <= charTs) return null;
   return {
-    anchor: anchor,
-    firstUser: firstUser,
-    latestUser: latestVisible,
+    anchor: turnWindow.previousAssistant,
+    firstUser: turnWindow.firstUser,
+    latestUser: turnWindow.latestUser,
     charTs: charTs,
     userTs: userTs,
+    latestUserReadTs: Number(turnWindow.latestUserReadTs || 0) || 0,
+    firstAssistantReply: turnWindow.firstAssistantReply,
+    firstAssistantReplyTs: Number(turnWindow.firstAssistantReplyTs || 0) || 0,
     delta: userTs - charTs
   };
 }
@@ -11135,14 +11183,18 @@ function buildElapsedMessageSnippet(entry){
     return '';
   }
 }
+function getElapsedDayGap(startTs, endTs){
+  if(!startTs || !endTs) return 0;
+  var startDate = new Date(startTs);
+  var endDate = new Date(endTs);
+  return Math.floor((new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()) - new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate())) / 86400000);
+}
 function getConversationElapsedContext(){
   var resumeWindow = getLatestUserResumeWindow();
   if(!resumeWindow) return '';
   var delta = Number(resumeWindow.delta || 0) || 0;
   if(delta < 60 * 1000) return '';
-  var lastDate = new Date(resumeWindow.charTs);
-  var userDate = new Date(resumeWindow.userTs);
-  var dayGap = Math.floor((new Date(userDate.getFullYear(), userDate.getMonth(), userDate.getDate()) - new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate())) / 86400000);
+  var dayGap = getElapsedDayGap(resumeWindow.charTs, resumeWindow.userTs);
   var totalMinutes = Math.max(1, Math.floor(delta / 60000));
   var hours = Math.floor(totalMinutes / 60);
   var mins = totalMinutes % 60;
@@ -11152,9 +11204,12 @@ function getConversationElapsedContext(){
   var anchorSnippet = buildElapsedMessageSnippet(resumeWindow.anchor);
   var localClock = character ? buildScheduleLocalNowContext(character) : null;
   var lines = ['【时间流逝】'];
-  lines.push('你上一条可见消息到对方这次重新出现之间，现实里隔了' + elapsed + '，' + humanGap + '。');
+  lines.push('你上一条可见消息到对方最近一条消息之间，现实里隔了' + elapsed + '，' + humanGap + '。');
   lines.push('你的上一条时间：' + formatChatTimeDivider(resumeWindow.charTs));
-  lines.push('对方这次重新出现时间：' + formatChatTimeDivider(resumeWindow.userTs));
+  lines.push('对方最近一条发送时间：' + formatChatTimeDivider(resumeWindow.userTs));
+  if(Number(resumeWindow.latestUserReadTs || 0) > 0){
+    lines.push('你读到对方最近一条的时间：' + formatChatTimeDivider(resumeWindow.latestUserReadTs));
+  }
   if(localClock && localClock.user && localClock.char){
     lines.push('用户当地时间：' + String(localClock.user.nowTime || '未知') + '（' + String(localClock.user.dateKey || '未知日期') + '）');
     lines.push('char 当地时间：' + String(localClock.char.nowTime || '未知') + '（' + String(localClock.char.dateKey || '未知日期') + '）');
@@ -11179,27 +11234,58 @@ function getContinueReplyElapsedContext(){
     }
   }
   if(!latestAssistant) return '';
-  var lastTs = Number(latestAssistant.readAt || latestAssistant.sentAt || 0) || 0;
+  var lastTs = Number(latestAssistant.sentAt || latestAssistant.readAt || 0) || 0;
   if(!lastTs) return '';
   var nowTs = Date.now();
   var delta = nowTs - lastTs;
-  if(delta < 60 * 1000) return '';
-  var lastDate = new Date(lastTs);
-  var nowDate = new Date(nowTs);
-  var dayGap = Math.floor((new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()) - new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate())) / 86400000);
-  var totalMinutes = Math.max(1, Math.floor(delta / 60000));
-  var hours = Math.floor(totalMinutes / 60);
-  var mins = totalMinutes % 60;
-  var elapsed = hours > 0 ? (hours + '小时' + (mins ? mins + '分钟' : '')) : (totalMinutes + '分钟');
-  var humanGap = describeElapsedGap(delta, dayGap);
+  var turnWindow = getLatestVisibleUserTurnWindow();
   var lastSnippet = buildElapsedMessageSnippet(latestAssistant);
   var lines = ['【继续回复时间流逝】'];
+  var hasContext = false;
   lines.push('这次用户没有发新消息，只是过了一段现实时间后点了继续回复。');
-  lines.push('从你上一条可见消息到现在，现实里已经过了' + elapsed + '，' + humanGap + '。');
-  lines.push('你上一条时间：' + formatChatTimeDivider(lastTs));
-  lines.push('当前时间：' + formatChatTimeDivider(nowTs));
+  if(turnWindow){
+    var arrivalDelta = (Number(turnWindow.latestUserSentTs || 0) || 0) - (Number(turnWindow.previousAssistantTs || 0) || 0);
+    if(arrivalDelta >= 60 * 1000){
+      var arrivalDayGap = getElapsedDayGap(turnWindow.previousAssistantTs, turnWindow.latestUserSentTs);
+      var arrivalMinutes = Math.max(1, Math.floor(arrivalDelta / 60000));
+      var arrivalHours = Math.floor(arrivalMinutes / 60);
+      var arrivalMins = arrivalMinutes % 60;
+      var arrivalElapsed = arrivalHours > 0 ? (arrivalHours + '小时' + (arrivalMins ? arrivalMins + '分钟' : '')) : (arrivalMinutes + '分钟');
+      var arrivalHumanGap = describeElapsedGap(arrivalDelta, arrivalDayGap);
+      lines.push('你上一轮最后一条到对方最近一条之间，现实里隔了' + arrivalElapsed + '，' + arrivalHumanGap + '。');
+      lines.push('你上一轮最后一条时间：' + formatChatTimeDivider(turnWindow.previousAssistantTs));
+      lines.push('对方最近一条发送时间：' + formatChatTimeDivider(turnWindow.latestUserSentTs));
+      hasContext = true;
+    }
+    var responseDelta = (Number(turnWindow.firstAssistantReplyTs || 0) || 0) - (Number(turnWindow.latestUserReadTs || 0) || 0);
+    if(responseDelta >= 0 && turnWindow.latestUserReadTs && turnWindow.firstAssistantReplyTs){
+      var responseMinutes = Math.max(0, Math.floor(responseDelta / 60000));
+      var responseHours = Math.floor(responseMinutes / 60);
+      var responseMins = responseMinutes % 60;
+      var responseElapsed = responseDelta < 60 * 1000
+        ? '不到1分钟'
+        : (responseHours > 0 ? (responseHours + '小时' + (responseMins ? responseMins + '分钟' : '')) : (responseMinutes + '分钟'));
+      lines.push('你读到对方最近一条后，隔了' + responseElapsed + '才发出这轮第一句回复。');
+      lines.push('你读到对方最近一条的时间：' + formatChatTimeDivider(turnWindow.latestUserReadTs));
+      lines.push('你这轮第一句回复时间：' + formatChatTimeDivider(turnWindow.firstAssistantReplyTs));
+      hasContext = true;
+    }
+  }
+  if(delta >= 60 * 1000){
+    var dayGap = getElapsedDayGap(lastTs, nowTs);
+    var totalMinutes = Math.max(1, Math.floor(delta / 60000));
+    var hours = Math.floor(totalMinutes / 60);
+    var mins = totalMinutes % 60;
+    var elapsed = hours > 0 ? (hours + '小时' + (mins ? mins + '分钟' : '')) : (totalMinutes + '分钟');
+    var humanGap = describeElapsedGap(delta, dayGap);
+    lines.push('从你最近一条可见消息到现在，现实里又过了' + elapsed + '，' + humanGap + '。');
+    lines.push('你最近一条时间：' + formatChatTimeDivider(lastTs));
+    lines.push('当前时间：' + formatChatTimeDivider(nowTs));
+    hasContext = true;
+  }
+  if(!hasContext) return '';
   if(lastSnippet) lines.push('你上一段停在：' + lastSnippet);
-  if(dayGap >= 1 || delta >= 6 * 60 * 60 * 1000){
+  if(delta >= 6 * 60 * 60 * 1000 || getElapsedDayGap(lastTs, nowTs) >= 1){
     lines.push('上一轮里那种明显有时效的即时场景默认已经过期了：比如“在门外/楼下”“刚下班去吃饭”“正在路上”“马上到”“一直在等你”。除非系统或上下文明确续上同一场景，否则不要当成它们还持续到现在。');
   }
   lines.push('先根据这段时间流逝判断你现在自然会怎么继续，不要把上一条即时场景硬续到现在。');
