@@ -80,12 +80,9 @@ function formatOfflineInviteDraftDateLabel(value){
   if(!raw) return '日期待定';
   var parts = raw.split('-');
   if(parts.length < 3) return raw;
-  var year = Number(parts[0]) || 0;
   var month = Number(parts[1]) || 0;
   var day = Number(parts[2]) || 0;
-  var date = new Date(year, Math.max(0, month - 1), day);
-  var weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-  return month + '月' + day + '日 ' + weekdays[date.getDay()];
+  return month + '月' + day + '日';
 }
 
 function formatOfflineInviteDraftTimeLabel(value){
@@ -119,8 +116,18 @@ function currentDateLabels(role){
   var d = new Date();
   return {
     timeLabel: d.toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }),
-    dateLabel: d.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' })
+    dateLabel: d.toLocaleDateString([], { month:'short', day:'numeric' })
   };
+}
+
+function stripOfflineInviteWeekdayLabel(value){
+  var raw = String(value || '').trim();
+  if(!raw) return '';
+  return raw
+    .replace(/\s*周[日一二三四五六天]\s*/g, ' ')
+    .replace(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\b\.?,?/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function getOfflineInviteThreadCharId(){
@@ -1190,7 +1197,8 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var title = viewRole === 'user' ? 'SENT INVITE' : 'Incoming Invite';
   var statusLabel = status === 'accepted' ? 'Accepted' : (status === 'rejected' ? 'Rejected' : 'Pending');
   var disabled = status !== 'pending';
-  var timeText = esc([String(data.dateLabel || '').trim(), String(data.timeLabel || '').trim()].filter(Boolean).join(' · ') || '待定时间');
+  var cleanDateLabel = stripOfflineInviteWeekdayLabel(data.dateLabel || '');
+  var timeText = esc([cleanDateLabel, String(data.timeLabel || '').trim()].filter(Boolean).join(' · ') || '待定时间');
   var locationText = esc(String(data.location || '').trim() || '待定地点');
   if(viewRole === 'user'){
     bubble.innerHTML = '<div class="offline-invite-plain sent">'
