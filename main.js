@@ -43,7 +43,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-17T23:54:30Z';
+const APP_BUILD_ID = '2026-04-17T23:57:55Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -7193,6 +7193,7 @@ function renderApp(id){
   }
   if(frame){
     frame.style.marginTop = '';
+    frame.style.opacity = '0';
     if(frame.dataset){
       frame.dataset.csPrevMarginTop = '';
     }
@@ -7207,11 +7208,7 @@ function renderApp(id){
       chatReportedKeyboardShift = 0;
     }
   }
-  if(id === 'chat'){
-    hideShellLoadingOverlay(0);
-  }else{
-    showShellLoadingOverlay('app');
-  }
+  showShellLoadingOverlay('app');
   document.getElementById('app-iframe').src = buildAppFrameUrl(a.src);
   if(id === 'chat'){
     pendingOpenChatCharId = '';
@@ -8640,6 +8637,7 @@ window.addEventListener('load', ()=>{
   var frame = document.getElementById('app-iframe');
   if(frame){
     frame.addEventListener('load', function(){
+      try{ frame.style.opacity = '1'; }catch(err){}
       applyIframeSafeAreaOverrides();
       installBackendLogBridge(frame.contentWindow, currentApp || 'app');
       pushBackendLogEntry({
@@ -8649,9 +8647,10 @@ window.addEventListener('load', ()=>{
         message: '页面已加载'
       });
       setTimeout(applyIframeSafeAreaOverrides, 120);
-      hideShellLoadingOverlay(currentApp ? 260 : 2000);
+      hideShellLoadingOverlay(currentApp === 'chat' ? 360 : (currentApp ? 260 : 2000));
     });
     frame.addEventListener('error', function(){
+      try{ frame.style.opacity = '1'; }catch(err){}
       hideShellLoadingOverlay(0);
     });
   }
