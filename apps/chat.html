@@ -1209,6 +1209,15 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .header-beauty-preview::before{content:'';position:absolute;inset:0;background-image:var(--cs-header-preview-art, url('assets/%E6%A8%B1%E8%8A%B1%E5%9C%A8%E6%B0%B4%E9%87%8C.jpg'));background-position:center;background-repeat:no-repeat;background-size:cover}
 .header-beauty-preview::after{content:'顶栏照片';position:absolute;left:10px;top:10px;padding:3px 9px;border-radius:999px;border:1.5px solid rgba(10,10,10,.14);background:rgba(255,255,255,.76);font-size:10px;font-weight:900;letter-spacing:.06em}
 .header-beauty-preview-shell{display:none}
+.chat-bubble-preview{position:relative;display:flex;flex-direction:column;gap:10px;width:100%;padding:16px 14px 14px;border:var(--bd);border-radius:18px;background:linear-gradient(180deg,#f8f8f8 0%,#ededed 100%);box-shadow:var(--sh);overflow:hidden}
+.chat-bubble-preview::after{content:'气泡预览';position:absolute;left:10px;top:10px;padding:3px 9px;border-radius:999px;border:1.5px solid rgba(10,10,10,.14);background:rgba(255,255,255,.76);font-size:10px;font-weight:900;letter-spacing:.06em}
+.chat-bubble-preview-stage{position:relative;display:flex;flex-direction:column;gap:10px;padding-top:22px}
+.chat-bubble-preview .msg{margin:0}
+.chat-bubble-preview .msg-main{max-width:100%}
+.chat-bubble-preview .msg-bubble{max-width:min(230px,76vw);min-height:0}
+.chat-bubble-preview .msg-text-copy{display:block}
+.chat-bubble-preview .msg-avatar{flex:0 0 auto}
+.chat-bubble-preview-empty{font-family:var(--fontd);font-size:14px;font-weight:900;color:#555;text-align:center;padding:34px 0 12px}
 .bubble-charm-preview{position:relative;display:flex;align-items:center;justify-content:center;width:100%;min-height:120px;border:var(--bd);border-radius:16px;background:linear-gradient(180deg,#f8f8f8 0%,#ececec 100%);box-shadow:var(--sh);overflow:hidden}
 .bubble-charm-preview::after{content:'气泡挂件';position:absolute;left:10px;top:10px;padding:3px 9px;border-radius:999px;border:1.5px solid rgba(10,10,10,.14);background:rgba(255,255,255,.76);font-size:10px;font-weight:900;letter-spacing:.06em}
 .bubble-charm-preview img{display:block;width:min(190px,82%);height:68px;object-fit:contain;filter:drop-shadow(0 10px 14px rgba(0,0,0,.1))}
@@ -2501,12 +2510,18 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 
         <div class="cs-card">
           <div class="cs-card-title">聊天美化</div>
-          <div class="cs-label">自由定制 CSS</div>
-          <textarea class="cs-textarea cs-persona-textarea cs-css-editor" id="csCustomCss" rows="12" placeholder="在这里写聊天页面的自定义 CSS..."></textarea>
-          <div class="cs-inline-actions">
-            <button class="cs-plain-btn" type="button" onclick="applyDraftChatTheme()">预览应用</button>
-            <button class="cs-plain-btn" type="button" onclick="openChatThemePresetSave()">另存预设</button>
-            <button class="cs-plain-btn" type="button" onclick="resetChatThemeDraft()">重置默认</button>
+          <div class="cs-inline-grid">
+            <div class="cs-subcard-title">气泡美化</div>
+            <div class="chat-bubble-preview" id="csBubbleCssPreview"></div>
+            <div>
+              <span class="cs-label">气泡 CSS</span>
+              <textarea class="cs-textarea cs-persona-textarea cs-css-editor" id="csCustomCss" rows="12" placeholder="在这里写聊天气泡的自定义 CSS..."></textarea>
+            </div>
+            <div class="cs-inline-actions">
+              <button class="cs-plain-btn" type="button" onclick="applyDraftChatTheme()">预览应用</button>
+              <button class="cs-plain-btn" type="button" onclick="openChatThemePresetSave()">另存预设</button>
+              <button class="cs-plain-btn" type="button" onclick="resetChatThemeDraft()">重置默认</button>
+            </div>
           </div>
           <div class="cs-inline-grid">
             <div class="cs-subcard-title">气泡挂件</div>
@@ -8055,9 +8070,70 @@ function ensureChatThemeStyleNode(){
   return node;
 }
 
+function ensureChatBubblePreviewStyleNode(){
+  var node = document.getElementById('chatBubblePreviewStyle');
+  if(node) return node;
+  node = document.createElement('style');
+  node.id = 'chatBubblePreviewStyle';
+  document.head.appendChild(node);
+  return node;
+}
+
+function scopeChatThemeCssForPreview(cssText){
+  var scope = '#csBubbleCssPreview';
+  return String(cssText || '').replace(/(^|[{}])\s*([^@{}][^{}]*)\{/g, function(match, prefix, selectorText){
+    var selectors = String(selectorText || '').split(',').map(function(part){
+      var sel = String(part || '').trim();
+      if(!sel) return '';
+      if(sel === ':root' || sel === 'html' || sel === 'body') return scope;
+      if(sel.indexOf(scope) === 0) return sel;
+      return scope + ' ' + sel;
+    }).filter(Boolean).join(', ');
+    return prefix + '\n' + selectors + '{';
+  });
+}
+
+function getChatBubblePreviewAvatarHtml(role){
+  var safeRole = role === 'user' ? 'user' : 'ai';
+  var src = '';
+  if(safeRole === 'user'){
+    src = String((document.querySelector('#csUserAvatar img') || {}).src || '').trim() || String(getActiveAccountProfileAvatar() || '').trim();
+  }else{
+    src = normalizeAvatarSrc(getAvatarSrcFromSelectors(['#csCharAvatar img','#hdrAvatar img']) || currentVisibleCharAvatarSrc() || '');
+  }
+  if(src){
+    return '<img src="' + escAttr(src) + '" alt="' + (safeRole === 'user' ? 'USER' : 'CHAR') + '">';
+  }
+  return '<div class="avatar-fallback">' + (safeRole === 'user' ? 'U' : 'C') + '</div>';
+}
+
+function renderChatBubbleCssPreview(){
+  var host = document.getElementById('csBubbleCssPreview');
+  if(!host) return;
+  var aiLabel = String(((character && (character.nickname || character.name)) || 'CHAR')).trim() || 'CHAR';
+  var userLabel = String(((character && character.userNicknameNote) || getAccountProfileNickname() || getUserName() || 'USER')).trim() || 'USER';
+  host.innerHTML =
+    '<div class="chat-bubble-preview-stage">'
+      + '<div class="msg ai">'
+        + '<div class="msg-avatar">' + getChatBubblePreviewAvatarHtml('ai') + '</div>'
+        + '<div class="msg-main"><div class="msg-bubble"><div class="msg-text-copy">' + esc(aiLabel + ' 的这句会在这里预览。') + '</div></div></div>'
+      + '</div>'
+      + '<div class="msg user">'
+        + '<div class="msg-main"><div class="msg-bubble"><div class="msg-text-copy">' + esc(userLabel + ' 的这句也会一起预览。') + '</div></div></div>'
+        + '<div class="msg-avatar">' + getChatBubblePreviewAvatarHtml('user') + '</div>'
+      + '</div>'
+    + '</div>';
+}
+
+function applyChatBubblePreviewCss(cssText){
+  renderChatBubbleCssPreview();
+  ensureChatBubblePreviewStyleNode().textContent = scopeChatThemeCssForPreview(String(cssText || ''));
+}
+
 function applyChatThemeCss(cssText){
   chatThemeCssDraft = String(cssText || '').trim();
   ensureChatThemeStyleNode().textContent = chatThemeCssDraft;
+  applyChatBubblePreviewCss(chatThemeCssDraft);
 }
 
 async function loadChatThemeCss(charId){
@@ -8168,6 +8244,16 @@ function resetChatThemeDraft(){
   applyChatThemeCss(css);
   renderChatThemePresetList();
   toast('已恢复默认聊天 CSS');
+}
+
+function bindChatThemeDraftInput(){
+  var input = document.getElementById('csCustomCss');
+  if(!input || input.dataset.bound === '1') return;
+  input.dataset.bound = '1';
+  input.addEventListener('input', function(){
+    applyChatBubblePreviewCss(String(input.value || ''));
+    renderChatThemePresetList();
+  });
 }
 
 function narratorSettingEnabled(){
@@ -23543,12 +23629,13 @@ function openChatSettings() {
     bindChatBackgroundUrlInput();
     bindChatHeaderBackgroundUrlInput();
     bindBubbleCharmUrlInput();
+    bindChatThemeDraftInput();
     bindChatReplyLanguageButtons();
     bindChatTranslationModeButtons();
     bindChatMomentsFreqButtons();
     var isDefault = isDefaultAccountContext();
     if (character) {
-      syncSettingsCharAvatarPreview().then(function(){ renderChatSettingsAvatarShelves(); });
+      syncSettingsCharAvatarPreview().then(function(){ renderChatSettingsAvatarShelves(); renderChatBubbleCssPreview(); });
       document.getElementById('csCharName').value = character.name || '';
       document.getElementById('csCharNick').value = character.nickname || '';
       document.getElementById('csCharPersona').value = character.personality || character.description || character.name || '暂无人设';
@@ -23606,6 +23693,7 @@ function openChatSettings() {
       applyBubbleCharmSettings(charmSettings);
       syncChatSettingsHero();
       syncChatSettingsFieldWidths();
+      renderChatBubbleCssPreview();
     }else{
       resetChatBackgroundSelection();
       resetChatHeaderBackgroundSelection();
@@ -23633,11 +23721,13 @@ function openChatSettings() {
       if(emptyCharmAiTop) emptyCharmAiTop.value = defaultCharm.aiTop;
       applyChatHeaderCss(getDefaultHeaderThemeCss());
       applyInnerVoiceCustomCss(getDefaultInnerVoiceCss());
+      applyChatThemeCss(getDefaultChatThemeCss());
       applyBubbleCharmSettings(defaultCharm);
       loadChatThemePresets().then(function(){
         renderChatThemePresetList();
       });
       syncChatSettingsHero();
+      renderChatBubbleCssPreview();
       syncChatSettingsFieldWidths();
     }
     var uav = document.getElementById('csUserAvatar');
