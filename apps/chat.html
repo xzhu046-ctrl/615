@@ -970,7 +970,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .bubble-charm-preview-wrap{position:relative}
 .cs-charm-toggle-row{position:absolute;left:12px;bottom:10px;z-index:4;display:flex;align-items:center;justify-content:flex-start;margin:0}
 .cs-charm-controls .cs-small-input-grid{margin-top:12px}
-.cs-charm-controls.is-disabled{opacity:.42;filter:grayscale(.16);pointer-events:none}
+.cs-charm-controls.is-disabled{opacity:.42;filter:grayscale(.16)}
 .addon-item{width:56px;height:56px;padding:0;border:var(--bd);border-radius:14px;background:var(--off);font-family:var(--font);font-size:12px;font-weight:700;color:var(--b);cursor:pointer;box-shadow:1px 1px 0 var(--b);transition:transform .12s,box-shadow .12s;display:flex;align-items:center;justify-content:center}
 .addon-item:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .addon-icon{display:block;width:26px;height:26px;flex:0 0 auto;color:var(--b)}
@@ -1429,6 +1429,10 @@ padding:14px 14px 12px 18px;box-shadow:none;position:relative;font-family:'Couri
 .avatar-meta-inline-field{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;flex:0 1 auto}
 .avatar-meta-inline-row .cs-input.cs-underline{width:auto;max-width:100%;min-width:7ch}
 .avatar-meta-textarea.cs-textarea{min-height:82px}
+.avatar-meta-delete-btn{width:100%;margin-top:2px;min-height:38px;border:2px solid #7a0d12;border-radius:14px;background:linear-gradient(180deg,#ffb4b9,#e44d57);color:#fff;font-family:var(--fontd);font-size:12px;font-weight:900;display:none;align-items:center;justify-content:center;gap:8px;box-shadow:3px 3px 0 rgba(122,13,18,.28);cursor:pointer}
+.avatar-meta-delete-btn.show{display:flex}
+.avatar-meta-delete-btn img{width:15px;height:15px;display:block;object-fit:contain;filter:brightness(0) invert(1)}
+.avatar-meta-delete-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(122,13,18,.28)}
 .avatar-meta-save-floating{position:absolute;right:14px;top:56px;width:34px;height:34px;border-radius:999px;border:2px solid #111;background:#fff;color:#111;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:3px 3px 0 rgba(0,0,0,.82);z-index:4;padding:0}
 .avatar-meta-save-floating img{width:18px;height:18px;object-fit:contain;display:block}
 .avatar-meta-save-floating:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(0,0,0,.82)}
@@ -2946,6 +2950,18 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
         </div>
         <div class="toggle-switch" id="avatarMetaCoupleToggle" onclick="toggleAvatarMetaCoupleSwitch()"></div>
       </div>
+      <button class="avatar-meta-delete-btn" id="avatarMetaDeleteBtn" type="button" onclick="openAvatarMetaDeleteConfirm()"><img src="assets/Recycle-Bin-2--Streamline-Sharp.png" alt="删除"><span>删除这张头像</span></button>
+    </div>
+  </div>
+</div>
+
+<div class="confirm-overlay" id="avatarMetaDeleteConfirm">
+  <div class="cover-delete-card">
+    <div class="cover-delete-title">删除这张头像？</div>
+    <div class="avatar-library-sub">删掉后会从头像库里消失。</div>
+    <div class="cover-delete-actions">
+      <button class="cover-delete-btn" type="button" onclick="closeAvatarMetaDeleteConfirm()">取消</button>
+      <button class="cover-delete-btn" type="button" onclick="confirmAvatarMetaDelete()">确认</button>
     </div>
   </div>
 </div>
@@ -8097,9 +8113,13 @@ function applyBubbleCharmDraftFromInputs(){
 function syncBubbleCharmControlsUi(enabled){
   var toggle = document.getElementById('csBubbleCharmToggle');
   var controls = document.getElementById('csBubbleCharmControls');
+  var previewStage = document.querySelector('#csBubbleCharmPreview .bubble-charm-preview-stage');
+  var resetBtn = document.querySelector('#csBubbleCharmPreview .bubble-charm-preview-reset');
   if(toggle) toggle.classList.toggle('on', !!enabled);
   if(controls) controls.classList.toggle('is-disabled', !enabled);
-  ['csBubbleCharmUrl','csBubbleCharmUserScale','csBubbleCharmUserLeft','csBubbleCharmUserTop','csBubbleCharmAiScale','csBubbleCharmAiRight','csBubbleCharmAiTop'].forEach(function(id){
+  if(previewStage) previewStage.disabled = !enabled;
+  if(resetBtn) resetBtn.disabled = !enabled;
+  ['csBubbleCharmUserScale','csBubbleCharmUserLeft','csBubbleCharmUserTop','csBubbleCharmAiScale','csBubbleCharmAiRight','csBubbleCharmAiTop'].forEach(function(id){
     var node = document.getElementById(id);
     if(node) node.disabled = !enabled;
   });
@@ -24853,6 +24873,7 @@ function openAvatarMetaOverlay(draft){
   var preview = document.getElementById('avatarMetaPreview');
   var title = document.getElementById('avatarMetaTitle');
   var applyBtn = document.getElementById('avatarMetaApplyBtn');
+  var deleteBtn = document.getElementById('avatarMetaDeleteBtn');
   if(preview){
     preview.innerHTML = pendingAvatarMetaDraft.src ? ('<img src="' + escAttr(pendingAvatarMetaDraft.src) + '" alt="">') : '';
   }
@@ -24868,14 +24889,53 @@ function openAvatarMetaOverlay(draft){
   var toggle = document.getElementById('avatarMetaCoupleToggle');
   if(toggle) toggle.classList.toggle('on', !!pendingAvatarMetaDraft.couple);
   if(applyBtn) applyBtn.style.display = pendingAvatarMetaDraft.mode === 'edit' ? '' : 'none';
+  if(deleteBtn) deleteBtn.classList.toggle('show', pendingAvatarMetaDraft.mode === 'edit');
   syncAvatarMetaFieldWidths();
   syncAvatarMetaPreviewDetails();
   document.getElementById('avatarMetaOverlay')?.classList.add('open');
 }
 
 function closeAvatarMetaOverlay(){
+  closeAvatarMetaDeleteConfirm();
   pendingAvatarMetaDraft = null;
   document.getElementById('avatarMetaOverlay')?.classList.remove('open');
+}
+
+function openAvatarMetaDeleteConfirm(){
+  if(!pendingAvatarMetaDraft || pendingAvatarMetaDraft.mode !== 'edit') return;
+  document.getElementById('avatarMetaDeleteConfirm')?.classList.add('open');
+}
+
+function closeAvatarMetaDeleteConfirm(){
+  document.getElementById('avatarMetaDeleteConfirm')?.classList.remove('open');
+}
+
+async function confirmAvatarMetaDelete(){
+  if(!character || !character.id || !pendingAvatarMetaDraft || pendingAvatarMetaDraft.mode !== 'edit' || !pendingAvatarMetaDraft.itemId) return;
+  var role = pendingAvatarMetaDraft.role === 'user' ? 'user' : 'char';
+  var itemId = String(pendingAvatarMetaDraft.itemId || '');
+  var assetKey = String(pendingAvatarMetaDraft.assetKey || '').trim();
+  var store = await loadAvatarLibraryStore(character.id);
+  var list = Array.isArray(store[role]) ? store[role].slice() : [];
+  store[role] = list.filter(function(entry){ return String(entry && entry.id || '') !== itemId; });
+  await saveAvatarLibraryStore(character.id, store);
+  avatarLibraryCache = store;
+  if(assetKey){
+    var stillUsed = ['char','user'].some(function(group){
+      return Array.isArray(store[group]) && store[group].some(function(entry){
+        return String(entry && entry.assetKey || '').trim() === assetKey;
+      });
+    });
+    if(!stillUsed){
+      try{ await saveStoredAsset(assetKey, ''); }catch(err){}
+    }
+  }
+  closeAvatarMetaDeleteConfirm();
+  closeAvatarMetaOverlay();
+  avatarLibraryOpenRole = role;
+  renderChatSettingsAvatarShelves();
+  renderAvatarLibraryOverlay();
+  toast('头像已删除');
 }
 
 async function confirmAvatarMetaOverlay(){
