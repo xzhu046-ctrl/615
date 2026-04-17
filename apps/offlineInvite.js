@@ -1197,21 +1197,20 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     bubble.innerHTML = '<div class="offline-invite-plain sent">'
       + '<div class="offline-invite-plain-head">'
       + '<div class="offline-invite-plain-title is-sent">' + esc(title) + '</div>'
-      + '<div class="offline-invite-plain-status' + (disabled ? ' is-done' : '') + '">' + esc(statusLabel) + '</div>'
       + '</div>'
-      + '<div class="offline-invite-plain-body">' + esc(String(data.content || '').trim() || '约会邀请') + '</div>'
       + '<div class="offline-invite-plain-meta">'
       + '<div class="offline-invite-plain-row"><strong>Time</strong>' + timeText + '</div>'
       + '<div class="offline-invite-plain-row"><strong>At</strong>' + locationText + '</div>'
       + '</div>'
-      + '<div class="offline-invite-plain-avatar"><span class="offline-invite-plain-avatar-fallback">' + esc((getCurrentUserDisplayName() || 'U').charAt(0) || 'U') + '</span></div>'
+      + '<div class="offline-invite-plain-status' + (disabled ? ' is-done' : '') + '">' + esc(statusLabel) + '</div>'
+      + '<div class="offline-invite-plain-avatar"><span class="offline-invite-plain-avatar-fallback">' + esc((getCurrentUserDisplayName() || 'U').charAt(0) || 'U') + '</span><div class="offline-invite-plain-avatar-label">' + esc(getCurrentUserDisplayName() || 'USER') + '</div></div>'
       + '</div>';
     var avatar = bubble.querySelector('.offline-invite-plain-avatar');
     if(avatar){
       resolveChatUserAvatarAsync(character && character.id).then(function(src){
         var safe = String(src || '').trim();
         if(!safe) return;
-        avatar.innerHTML = '<img src="' + escAttr(safe) + '" alt="">';
+        avatar.innerHTML = '<img src="' + escAttr(safe) + '" alt=""><div class="offline-invite-plain-avatar-label">' + esc(getCurrentUserDisplayName() || 'USER') + '</div>';
       }).catch(function(){});
     }
     return;
