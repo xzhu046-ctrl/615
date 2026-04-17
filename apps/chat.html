@@ -1209,6 +1209,10 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .header-beauty-preview::before{content:'';position:absolute;inset:0;background-image:var(--cs-header-preview-art, url('assets/%E6%A8%B1%E8%8A%B1%E5%9C%A8%E6%B0%B4%E9%87%8C.jpg'));background-position:center;background-repeat:no-repeat;background-size:cover}
 .header-beauty-preview::after{content:'顶栏照片';position:absolute;left:10px;top:10px;padding:3px 9px;border-radius:999px;border:1.5px solid rgba(10,10,10,.14);background:rgba(255,255,255,.76);font-size:10px;font-weight:900;letter-spacing:.06em}
 .header-beauty-preview-shell{display:none}
+.bubble-charm-preview{position:relative;display:flex;align-items:center;justify-content:center;width:100%;min-height:120px;border:var(--bd);border-radius:16px;background:linear-gradient(180deg,#f8f8f8 0%,#ececec 100%);box-shadow:var(--sh);overflow:hidden}
+.bubble-charm-preview::after{content:'气泡挂件';position:absolute;left:10px;top:10px;padding:3px 9px;border-radius:999px;border:1.5px solid rgba(10,10,10,.14);background:rgba(255,255,255,.76);font-size:10px;font-weight:900;letter-spacing:.06em}
+.bubble-charm-preview img{display:block;width:min(190px,82%);height:68px;object-fit:contain;filter:drop-shadow(0 10px 14px rgba(0,0,0,.1))}
+.bubble-charm-preview-empty{font-family:var(--fontd);font-size:14px;font-weight:900;color:#555}
 .header-beauty-controls{width:116px;display:flex;flex-direction:column;gap:10px}
 .weather-setting-card{display:flex;flex-direction:column;gap:14px}
 .weather-setting-role{padding:4px 0 0;border:none;border-radius:0;background:transparent;box-shadow:none}
@@ -2506,6 +2510,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
           </div>
           <div class="cs-inline-grid">
             <div class="cs-subcard-title">气泡挂件</div>
+            <div class="bubble-charm-preview" id="csBubbleCharmPreview"></div>
             <div>
               <span class="cs-label">小黑猫图片 URL</span>
               <input class="cs-input cs-underline" id="csBubbleCharmUrl" type="text" placeholder="支持图片 url / data url / 本地已存资源">
@@ -2527,6 +2532,9 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
                 <span class="cs-label">CHAR 上偏移</span>
                 <input class="cs-input cs-number-underline" id="csBubbleCharmAiTop" type="text" placeholder="-34.85px" oninput="syncChatSettingsFieldWidths()">
               </div>
+            </div>
+            <div class="cs-inline-actions">
+              <button class="cs-plain-btn" type="button" onclick="resetBubbleCharmSettings()">重置挂件</button>
             </div>
           </div>
           <div class="cs-preset-wrap">
@@ -7839,12 +7847,38 @@ function normalizeCssUnit(value, fallback){
 function getBubbleCharmSettings(source){
   var base = getDefaultBubbleCharmSettings();
   var next = Object.assign({}, base, source || {});
-  next.url = String(next.url || '').trim() || base.url;
+  next.url = normalizeChatBackgroundSource(next.url || '') || base.url;
   next.userLeft = normalizeCssUnit(next.userLeft, base.userLeft);
   next.userTop = normalizeCssUnit(next.userTop, base.userTop);
   next.aiRight = normalizeCssUnit(next.aiRight, base.aiRight);
   next.aiTop = normalizeCssUnit(next.aiTop, base.aiTop);
   return next;
+}
+
+function setBubbleCharmImageSource(img, src){
+  if(!img) return;
+  var safe = normalizeChatBackgroundSource(src || '') || DEFAULT_BUBBLE_CHARM_URL;
+  img.onerror = function(){
+    if(img.dataset.bubbleCharmFallbackApplied === '1') return;
+    img.dataset.bubbleCharmFallbackApplied = '1';
+    img.src = DEFAULT_BUBBLE_CHARM_URL;
+  };
+  img.onload = function(){
+    img.dataset.bubbleCharmFallbackApplied = '';
+  };
+  img.src = safe;
+}
+
+function renderBubbleCharmPreview(src){
+  var preview = document.getElementById('csBubbleCharmPreview');
+  if(!preview) return;
+  var safe = normalizeChatBackgroundSource(src || '') || DEFAULT_BUBBLE_CHARM_URL;
+  preview.innerHTML = '<img alt="气泡挂件预览">';
+  var img = preview.querySelector('img');
+  setBubbleCharmImageSource(img, safe);
+  if(!safe){
+    preview.innerHTML = '<div class="bubble-charm-preview-empty">预览</div>';
+  }
 }
 
 function ensureHeaderThemeStyleNode(){
@@ -7886,9 +7920,42 @@ function applyBubbleCharmSettings(source){
   }catch(err){}
   try{
     document.querySelectorAll('.bubble-charm img').forEach(function(img){
-      img.src = bubbleCharmAssetUrl;
+      setBubbleCharmImageSource(img, bubbleCharmAssetUrl);
     });
   }catch(err){}
+  renderBubbleCharmPreview(bubbleCharmAssetUrl);
+}
+
+function bindBubbleCharmUrlInput(){
+  var input = document.getElementById('csBubbleCharmUrl');
+  if(!input || input.dataset.bound === '1') return;
+  input.dataset.bound = '1';
+  input.addEventListener('input', function(){
+    var settings = getBubbleCharmSettings({
+      url: String(input.value || '').trim(),
+      userLeft: String((document.getElementById('csBubbleCharmUserLeft') || {}).value || ''),
+      userTop: String((document.getElementById('csBubbleCharmUserTop') || {}).value || ''),
+      aiRight: String((document.getElementById('csBubbleCharmAiRight') || {}).value || ''),
+      aiTop: String((document.getElementById('csBubbleCharmAiTop') || {}).value || '')
+    });
+    applyBubbleCharmSettings(settings);
+  });
+}
+
+function resetBubbleCharmSettings(){
+  var defaults = getDefaultBubbleCharmSettings();
+  var charmUrlInput = document.getElementById('csBubbleCharmUrl');
+  var charmUserLeft = document.getElementById('csBubbleCharmUserLeft');
+  var charmUserTop = document.getElementById('csBubbleCharmUserTop');
+  var charmAiRight = document.getElementById('csBubbleCharmAiRight');
+  var charmAiTop = document.getElementById('csBubbleCharmAiTop');
+  if(charmUrlInput) charmUrlInput.value = '';
+  if(charmUserLeft) charmUserLeft.value = defaults.userLeft;
+  if(charmUserTop) charmUserTop.value = defaults.userTop;
+  if(charmAiRight) charmAiRight.value = defaults.aiRight;
+  if(charmAiTop) charmAiTop.value = defaults.aiTop;
+  syncChatSettingsFieldWidths();
+  applyBubbleCharmSettings(defaults);
 }
 
 function getCurrentInnerVoiceCss(){
@@ -23475,6 +23542,7 @@ function openChatSettings() {
     }
     bindChatBackgroundUrlInput();
     bindChatHeaderBackgroundUrlInput();
+    bindBubbleCharmUrlInput();
     bindChatReplyLanguageButtons();
     bindChatTranslationModeButtons();
     bindChatMomentsFreqButtons();
