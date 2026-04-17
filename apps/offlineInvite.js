@@ -829,8 +829,7 @@ function hydrateOfflineInviteComposerAvatar(){
   resolveChatUserAvatarAsync(character && character.id).then(function(src){
     var safe = String(src || '').trim();
     if(!safe) return;
-    photo.style.backgroundImage = 'url(' + JSON.stringify(safe) + ')';
-    photo.innerHTML = '<img src="' + escAttr(safe) + '" alt="">';
+    photo.innerHTML = '<img class="invite-compose-polaroid-bg" src="' + escAttr(safe) + '" alt=""><img class="invite-compose-polaroid-fg" src="' + escAttr(safe) + '" alt="">';
   }).catch(function(){});
 }
 
@@ -1210,10 +1209,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
       resolveChatUserAvatarAsync(character && character.id).then(function(src){
         var safe = String(src || '').trim();
         if(!safe) return;
-        seal.innerHTML = '<img src="' + escAttr(safe) + '" alt="">';
-        seal.style.backgroundImage = 'url(' + JSON.stringify(safe) + ')';
-        seal.style.backgroundSize = 'cover';
-        seal.style.backgroundPosition = 'center';
+        seal.innerHTML = '<img class="offline-invite-sent-seal-bg" src="' + escAttr(safe) + '" alt=""><img class="offline-invite-sent-seal-fg" src="' + escAttr(safe) + '" alt="">';
       }).catch(function(){});
     }
     return;
