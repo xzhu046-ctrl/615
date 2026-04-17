@@ -658,6 +658,42 @@ function formatOfflineInviteComposerDate(value){
   return names[Math.max(0, Math.min(11, month - 1))] + ' ' + day + ', ' + year;
 }
 
+function formatOfflineInviteDatePickerMonth(value){
+  var raw = String(value || '').trim();
+  if(!raw) return '';
+  var parts = raw.split('-');
+  if(parts.length < 2) return raw;
+  var month = Number(parts[1]) || 1;
+  var year = Number(parts[0]) || 0;
+  var names = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return names[Math.max(0, Math.min(11, month - 1))] + ' ' + year;
+}
+
+function getOfflineInviteDatePageStart(){
+  var dateField = document.getElementById('offlineInviteDateField');
+  var raw = String(dateField && dateField.dataset.pageStart || '').trim();
+  if(raw) return raw;
+  return String(dateField && dateField.value || '').trim();
+}
+
+function setOfflineInviteDatePageStart(value){
+  var dateField = document.getElementById('offlineInviteDateField');
+  if(dateField) dateField.dataset.pageStart = String(value || '').trim();
+}
+
+function shiftOfflineInviteDateByDays(value, days){
+  var raw = String(value || '').trim();
+  if(!raw) return raw;
+  var parts = raw.split('-');
+  if(parts.length < 3) return raw;
+  var date = new Date(Number(parts[0]) || 0, Math.max(0, (Number(parts[1]) || 1) - 1), Number(parts[2]) || 1);
+  date.setDate(date.getDate() + Number(days || 0));
+  var year = date.getFullYear();
+  var month = String(date.getMonth() + 1).padStart(2, '0');
+  var day = String(date.getDate()).padStart(2, '0');
+  return year + '-' + month + '-' + day;
+}
+
 function syncOfflineInviteInlineWidth(node, fallback){
   if(!node) return;
   var text = String(node.value != null ? node.value : node.textContent || '').trim();
@@ -711,18 +747,53 @@ function syncOfflineInviteComposerVisuals(){
   syncOfflineInviteInlineWidth(locationField, 9);
   syncOfflineInviteInlineWidth(dateDisplay, 11);
   if(hourWheel && minuteWheel) renderOfflineInviteTimeWheels(hourValue, minuteValue);
+  renderOfflineInviteDatePicker();
 }
 
-function openOfflineInviteDatePicker(){
-  var input = document.getElementById('offlineInviteDateField');
-  if(!input) return;
-  if(typeof input.showPicker === 'function'){
-    try{
-      input.showPicker();
-      return;
-    }catch(e){}
+function renderOfflineInviteDatePicker(){
+  var dateField = document.getElementById('offlineInviteDateField');
+  var list = document.getElementById('offlineInviteDateList');
+  var month = document.getElementById('offlineInviteDateMonth');
+  if(!dateField || !list) return;
+  var base = getOfflineInviteDatePageStart() || String(dateField.value || '').trim();
+  if(!base) return;
+  if(month) month.textContent = formatOfflineInviteDatePickerMonth(base);
+  var html = [];
+  var i = 0;
+  for(i = 0; i < 7; i++){
+    var value = shiftOfflineInviteDateByDays(base, i);
+    var dateLabel = formatOfflineInviteComposerDate(value);
+    var active = String(dateField.value || '').trim() === value ? ' active' : '';
+    html.push('<button class="invite-compose-date-chip' + active + '" type="button" onclick="selectOfflineInviteDate(\'' + esc(value) + '\')">' + esc(dateLabel) + '</button>');
   }
-  input.click();
+  list.innerHTML = html.join('');
+}
+
+function toggleOfflineInviteDatePicker(){
+  var pop = document.getElementById('offlineInviteDatePop');
+  if(!pop) return;
+  pop.classList.toggle('open');
+}
+
+function closeOfflineInviteDatePicker(){
+  var pop = document.getElementById('offlineInviteDatePop');
+  if(pop) pop.classList.remove('open');
+}
+
+function shiftOfflineInviteDatePage(days){
+  var base = getOfflineInviteDatePageStart();
+  if(!base) return;
+  setOfflineInviteDatePageStart(shiftOfflineInviteDateByDays(base, days));
+  renderOfflineInviteDatePicker();
+}
+
+function selectOfflineInviteDate(value){
+  var dateField = document.getElementById('offlineInviteDateField');
+  if(!dateField) return;
+  dateField.value = String(value || '').trim();
+  setOfflineInviteDatePageStart(String(value || '').trim());
+  syncOfflineInviteComposerVisuals();
+  closeOfflineInviteDatePicker();
 }
 
 function selectOfflineInviteTimePart(type, value){
@@ -741,6 +812,7 @@ function selectOfflineInviteTimePart(type, value){
 function handleOfflineInviteComposerMask(evt){
   var card = evt && evt.target && evt.target.closest ? evt.target.closest('.invite-compose-card') : null;
   if(card) return;
+  closeOfflineInviteDatePicker();
   closeOfflineInviteComposer();
 }
 
@@ -783,18 +855,18 @@ function openOfflineInviteComposer(){
   var modal = document.getElementById('offlineInviteModal');
   var locationField = document.getElementById('offlineInviteLocationField');
   var dateField = document.getElementById('offlineInviteDateField');
-  var sub = document.getElementById('offlineInviteModalSub');
   var toLine = document.getElementById('offlineInviteToLine');
   var stamp = document.getElementById('offlineInviteStampImage');
   var schedule = buildOfflineInviteDefaultSchedule();
-  if(sub) sub.textContent = '发给 ' + getOfflineInviteDisplayName('assistant') + ' 的线下邀请。';
-  if(toLine) toLine.textContent = 'To....<' + getOfflineInviteDisplayName('assistant') + '>';
+  if(toLine) toLine.textContent = 'To ' + getOfflineInviteDisplayName('assistant');
   if(locationField) locationField.value = '';
   if(dateField) dateField.value = schedule.date;
   if(dateField) dateField.dataset.time = schedule.time;
+  setOfflineInviteDatePageStart(schedule.date);
   if(stamp) stamp.src = randomPick(OFFLINE_INVITE_STAMP_ASSETS, 'assets/邮票1.jpg');
   hydrateOfflineInviteComposerAvatar();
   syncOfflineInviteComposerVisuals();
+  closeOfflineInviteDatePicker();
   if(modal) modal.classList.add('open');
   if(locationField){
     setTimeout(function(){ locationField.focus(); }, 40);
