@@ -2619,6 +2619,14 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
                   </div>
                 </div>
               </div>
+              <div class="cs-inline-actions">
+                <button class="cs-plain-btn" type="button" onclick="openThemePresetSave('charm')">另存预设</button>
+                <button class="cs-plain-btn" type="button" onclick="resetBubbleCharmSettings()">重置默认</button>
+              </div>
+              <div class="cs-preset-wrap">
+                <div class="cs-label">挂件预设</div>
+                <div class="cs-preset-list" id="bubbleCharmPresetList"></div>
+              </div>
               </div>
             </div>
           </div>
@@ -3290,6 +3298,7 @@ var chatVisibleCharId = '';
 var composerMode = 'text';
 var globalThemePresetsCache = [];
 var bubbleThemePresetsCache = [];
+var bubbleCharmPresetsCache = [];
 var chatThemePresetMode = 'global';
 var pendingNarratorEnabled = null;
 var avatarLibraryCache = { char: [], user: [] };
@@ -7899,6 +7908,10 @@ function chatBubbleThemePresetStorageId(){
   return accountScopedKey('chat_bubble_theme_presets');
 }
 
+function chatBubbleCharmPresetStorageId(){
+  return accountScopedKey('chat_bubble_charm_presets');
+}
+
 function getDefaultInnerVoicePrompt(){
   return [
     '这次请生成黑白报纸头条风格的角色心声。',
@@ -8062,6 +8075,7 @@ function applyBubbleCharmSettings(source){
   }catch(err){}
   syncBubbleCharmControlsUi(settings.enabled !== false);
   renderBubbleCharmPreview(settings);
+  renderBubbleCharmPresetList();
 }
 
 function applyBubbleCharmDraftFromInputs(){
@@ -8378,6 +8392,25 @@ async function saveBubbleThemePresets(list){
   return saveJsonToLargeStore(chatBubbleThemePresetStorageId(), { items: bubbleThemePresetsCache });
 }
 
+async function loadBubbleCharmPresets(){
+  var stored = await loadJsonFromLargeStore(chatBubbleCharmPresetStorageId());
+  var list = Array.isArray(stored) ? stored : (stored && Array.isArray(stored.items) ? stored.items : []);
+  bubbleCharmPresetsCache = list.map(function(item, idx){
+    var settings = getBubbleCharmSettings(item && item.settings || item || {});
+    return {
+      id: String((item && item.id) || ('bubble_charm_' + idx)),
+      name: String((item && item.name) || '未命名预设').trim() || '未命名预设',
+      settings: settings
+    };
+  });
+  return bubbleCharmPresetsCache.slice();
+}
+
+async function saveBubbleCharmPresets(list){
+  bubbleCharmPresetsCache = Array.isArray(list) ? list.slice() : [];
+  return saveJsonToLargeStore(chatBubbleCharmPresetStorageId(), { items: bubbleCharmPresetsCache });
+}
+
 function renderGlobalThemePresetList(){
   var host = document.getElementById('globalThemePresetList');
   if(!host) return;
@@ -8412,12 +8445,55 @@ function renderBubbleThemePresetList(){
   }).join('');
 }
 
+function isSameBubbleCharmSettings(a, b){
+  var left = getBubbleCharmSettings(a || {});
+  var right = getBubbleCharmSettings(b || {});
+  return !!left.enabled === !!right.enabled
+    && String(left.url || '') === String(right.url || '')
+    && String(left.userScale || '') === String(right.userScale || '')
+    && String(left.aiScale || '') === String(right.aiScale || '')
+    && String(left.userLeft || '') === String(right.userLeft || '')
+    && String(left.userTop || '') === String(right.userTop || '')
+    && String(left.aiRight || '') === String(right.aiRight || '')
+    && String(left.aiTop || '') === String(right.aiTop || '');
+}
+
+function getBubbleCharmDraftSettings(){
+  return getBubbleCharmSettings({
+    enabled: !!((document.getElementById('csBubbleCharmToggle') || {}).classList && (document.getElementById('csBubbleCharmToggle') || {}).classList.contains('on')),
+    url: String((document.getElementById('csBubbleCharmUrl') || {}).value || '').trim(),
+    userScale: String((document.getElementById('csBubbleCharmUserScale') || {}).value || ''),
+    aiScale: String((document.getElementById('csBubbleCharmAiScale') || {}).value || ''),
+    userLeft: String((document.getElementById('csBubbleCharmUserLeft') || {}).value || ''),
+    userTop: String((document.getElementById('csBubbleCharmUserTop') || {}).value || ''),
+    aiRight: String((document.getElementById('csBubbleCharmAiRight') || {}).value || ''),
+    aiTop: String((document.getElementById('csBubbleCharmAiTop') || {}).value || '')
+  });
+}
+
+function renderBubbleCharmPresetList(){
+  var host = document.getElementById('bubbleCharmPresetList');
+  if(!host) return;
+  var current = getBubbleCharmDraftSettings();
+  if(!bubbleCharmPresetsCache.length){
+    host.innerHTML = '<div class="chat-bg-hint">还没有保存过预设。</div>';
+    return;
+  }
+  host.innerHTML = bubbleCharmPresetsCache.map(function(item){
+    var active = isSameBubbleCharmSettings(item.settings, current) ? ' active' : '';
+    return '<div class="cs-preset-chip' + active + '">' +
+      '<button class="cs-preset-chip-btn" type="button" onclick="applyThemePreset(\'charm\',\'' + escJs(item.id) + '\')">' + esc(item.name) + '</button>' +
+      '<button class="cs-preset-chip-del" type="button" onclick="deleteThemePreset(\'charm\',\'' + escJs(item.id) + '\')">×</button>' +
+      '</div>';
+  }).join('');
+}
+
 function openThemePresetSave(mode){
-  chatThemePresetMode = mode === 'bubble' ? 'bubble' : 'global';
+  chatThemePresetMode = mode === 'bubble' ? 'bubble' : (mode === 'charm' ? 'charm' : 'global');
   var input = document.getElementById('chatThemePresetName');
   if(input) input.value = '';
   var title = document.getElementById('chatThemePresetTitle');
-  if(title) title.textContent = chatThemePresetMode === 'bubble' ? '保存气泡预设' : '保存全局预设';
+  if(title) title.textContent = chatThemePresetMode === 'bubble' ? '保存气泡预设' : (chatThemePresetMode === 'charm' ? '保存挂件预设' : '保存全局预设');
   document.getElementById('chatThemePresetOverlay')?.classList.add('open');
 }
 
@@ -8428,13 +8504,19 @@ function closeChatThemePresetSave(){
 async function saveChatThemePreset(){
   var input = document.getElementById('chatThemePresetName');
   var isBubble = chatThemePresetMode === 'bubble';
+  var isCharm = chatThemePresetMode === 'charm';
   var cssInput = document.getElementById(isBubble ? 'csBubbleCss' : 'csGlobalCss');
   var name = String((input && input.value) || '').trim();
   var css = String((cssInput && cssInput.value) || '').trim();
+  var charmSettings = isCharm ? getBubbleCharmDraftSettings() : null;
   if(!name){ toast('先给预设起个名字'); return; }
-  if(!css){ toast('这份 CSS 还是空的'); return; }
-  var next = (isBubble ? bubbleThemePresetsCache : globalThemePresetsCache).slice();
-  next.unshift({
+  if(!isCharm && !css){ toast('这份 CSS 还是空的'); return; }
+  var next = (isBubble ? bubbleThemePresetsCache : (isCharm ? bubbleCharmPresetsCache : globalThemePresetsCache)).slice();
+  next.unshift(isCharm ? {
+    id: 'bubble_charm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+    name: name,
+    settings: charmSettings
+  } : {
     id: (isBubble ? 'bubble_theme_' : 'global_theme_') + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
     name: name,
     css: css
@@ -8442,12 +8524,15 @@ async function saveChatThemePreset(){
   if(isBubble){
     await saveBubbleThemePresets(next.slice(0, 24));
     renderBubbleThemePresetList();
+  }else if(isCharm){
+    await saveBubbleCharmPresets(next.slice(0, 24));
+    renderBubbleCharmPresetList();
   }else{
     await saveGlobalThemePresets(next.slice(0, 24));
     renderGlobalThemePresetList();
   }
   closeChatThemePresetSave();
-  toast(isBubble ? '气泡预设已保存' : '全局预设已保存');
+  toast(isBubble ? '气泡预设已保存' : (isCharm ? '挂件预设已保存' : '全局预设已保存'));
 }
 
 async function deleteThemePreset(mode, id){
@@ -8456,6 +8541,9 @@ async function deleteThemePreset(mode, id){
   if(mode === 'bubble'){
     await saveBubbleThemePresets(bubbleThemePresetsCache.filter(function(item){ return item.id !== safeId; }));
     renderBubbleThemePresetList();
+  }else if(mode === 'charm'){
+    await saveBubbleCharmPresets(bubbleCharmPresetsCache.filter(function(item){ return item.id !== safeId; }));
+    renderBubbleCharmPresetList();
   }else{
     await saveGlobalThemePresets(globalThemePresetsCache.filter(function(item){ return item.id !== safeId; }));
     renderGlobalThemePresetList();
@@ -8477,13 +8565,31 @@ function applyDraftBubbleTheme(){
 
 async function applyThemePreset(mode, id){
   var isBubble = mode === 'bubble';
-  var hit = (isBubble ? bubbleThemePresetsCache : globalThemePresetsCache).find(function(item){ return item.id === String(id || ''); });
+  var isCharm = mode === 'charm';
+  var hit = (isBubble ? bubbleThemePresetsCache : (isCharm ? bubbleCharmPresetsCache : globalThemePresetsCache)).find(function(item){ return item.id === String(id || ''); });
   if(!hit) return;
   var input = document.getElementById(isBubble ? 'csBubbleCss' : 'csGlobalCss');
   if(input) input.value = hit.css || '';
   if(isBubble){
     applyBubbleChatThemeCss(hit.css || '');
     renderBubbleThemePresetList();
+  }else if(isCharm){
+    var settings = getBubbleCharmSettings(hit.settings || {});
+    syncBubbleCharmControlsUi(settings.enabled !== false);
+    var charmUserScale = document.getElementById('csBubbleCharmUserScale');
+    var charmAiScale = document.getElementById('csBubbleCharmAiScale');
+    var charmUserLeft = document.getElementById('csBubbleCharmUserLeft');
+    var charmUserTop = document.getElementById('csBubbleCharmUserTop');
+    var charmAiRight = document.getElementById('csBubbleCharmAiRight');
+    var charmAiTop = document.getElementById('csBubbleCharmAiTop');
+    if(charmUserScale) charmUserScale.value = settings.userScale;
+    if(charmAiScale) charmAiScale.value = settings.aiScale;
+    if(charmUserLeft) charmUserLeft.value = settings.userLeft;
+    if(charmUserTop) charmUserTop.value = settings.userTop;
+    if(charmAiRight) charmAiRight.value = settings.aiRight;
+    if(charmAiTop) charmAiTop.value = settings.aiTop;
+    applyBubbleCharmSettings(settings);
+    renderBubbleCharmPresetList();
   }else{
     applyGlobalChatThemeCss(hit.css || '');
     renderGlobalThemePresetList();
@@ -23974,6 +24080,9 @@ function openChatSettings() {
       loadBubbleThemePresets().then(function(){
         renderBubbleThemePresetList();
       });
+      loadBubbleCharmPresets().then(function(){
+        renderBubbleCharmPresetList();
+      });
       loadChatBackgroundForCharacter(character.id).then(function(src){
         stagedChatBackground = src || '';
         var bgUrl = document.getElementById('csChatBgUrl');
@@ -24049,6 +24158,9 @@ function openChatSettings() {
       });
       loadBubbleThemePresets().then(function(){
         renderBubbleThemePresetList();
+      });
+      loadBubbleCharmPresets().then(function(){
+        renderBubbleCharmPresetList();
       });
       syncChatSettingsHero();
       renderChatBubbleCssPreview();
