@@ -5264,6 +5264,7 @@ function buildContinueReplyCue(){
   var visible = getVisibleChatForModel();
   var latest = null;
   var latestSystem = null;
+  var elapsedContext = getContinueReplyElapsedContext();
   for(var i = visible.length - 1; i >= 0; i -= 1){
     var item = visible[i];
     if(!item) continue;
@@ -5286,6 +5287,9 @@ function buildContinueReplyCue(){
   }
   if(latestSystem){
     lines.push('最近如果有系统提示，也要把它当成当前上下文的一部分，但不要逐字复述“系统提示”。');
+  }
+  if(elapsedContext){
+    lines.push(elapsedContext);
   }
   lines.push('如果此刻没有自然可接的内容，可以少说，甚至沉默；但只要有明显能续的话题，就继续。');
   return lines.join('\n');
@@ -10999,6 +11003,44 @@ function getConversationElapsedContext(){
     lines.push('上一轮里那种明显有时效的即时场景默认已经过期了：比如“在门外/楼下”“刚下班去吃饭”“正在路上”“马上到”“一直在等你”。除非对方这次明确续上同一场景，否则不要当成它们还持续到现在。');
   }
   lines.push('只需要知道这中间已经隔开了一段现实时间。第一句先自然接住这段间隔，再接对方刚发来的内容；不要写成上一秒无缝续聊，也不要像系统一样生硬报时。');
+  return lines.join('\n');
+}
+function getContinueReplyElapsedContext(){
+  if(!Array.isArray(chatLog) || !chatLog.length) return '';
+  var latestAssistant = null;
+  for(var i = chatLog.length - 1; i >= 0; i -= 1){
+    var item = chatLog[i] || {};
+    if(item.hidden) continue;
+    if(String(item.role || '') === 'assistant'){
+      latestAssistant = item;
+      break;
+    }
+  }
+  if(!latestAssistant) return '';
+  var lastTs = Number(latestAssistant.readAt || latestAssistant.sentAt || 0) || 0;
+  if(!lastTs) return '';
+  var nowTs = Date.now();
+  var delta = nowTs - lastTs;
+  if(delta < 60 * 1000) return '';
+  var lastDate = new Date(lastTs);
+  var nowDate = new Date(nowTs);
+  var dayGap = Math.floor((new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()) - new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate())) / 86400000);
+  var totalMinutes = Math.max(1, Math.floor(delta / 60000));
+  var hours = Math.floor(totalMinutes / 60);
+  var mins = totalMinutes % 60;
+  var elapsed = hours > 0 ? (hours + '小时' + (mins ? mins + '分钟' : '')) : (totalMinutes + '分钟');
+  var humanGap = describeElapsedGap(delta, dayGap);
+  var lastSnippet = buildElapsedMessageSnippet(latestAssistant);
+  var lines = ['【继续回复时间流逝】'];
+  lines.push('这次用户没有发新消息，只是过了一段现实时间后点了继续回复。');
+  lines.push('从你上一条可见消息到现在，现实里已经过了' + elapsed + '，' + humanGap + '。');
+  lines.push('你上一条时间：' + formatChatTimeDivider(lastTs));
+  lines.push('当前时间：' + formatChatTimeDivider(nowTs));
+  if(lastSnippet) lines.push('你上一段停在：' + lastSnippet);
+  if(dayGap >= 1 || delta >= 6 * 60 * 60 * 1000){
+    lines.push('上一轮里那种明显有时效的即时场景默认已经过期了：比如“在门外/楼下”“刚下班去吃饭”“正在路上”“马上到”“一直在等你”。除非系统或上下文明确续上同一场景，否则不要当成它们还持续到现在。');
+  }
+  lines.push('先根据这段时间流逝判断你现在自然会怎么继续，不要把上一条即时场景硬续到现在。');
   return lines.join('\n');
 }
 function makeChatEntry(role, content, type, id){
