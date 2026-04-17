@@ -764,12 +764,13 @@ function renderOfflineInviteDatePicker(){
     var value = shiftOfflineInviteDateByDays(base, i);
     var dateLabel = formatOfflineInviteComposerDate(value);
     var active = String(dateField.value || '').trim() === value ? ' active' : '';
-    html.push('<button class="invite-compose-date-chip' + active + '" type="button" onclick="selectOfflineInviteDate(\'' + esc(value) + '\')">' + esc(dateLabel) + '</button>');
+    html.push('<button class="invite-compose-date-chip' + active + '" type="button" onclick="selectOfflineInviteDate(event,\'' + esc(value) + '\')">' + esc(dateLabel) + '</button>');
   }
   list.innerHTML = html.join('');
 }
 
-function toggleOfflineInviteDatePicker(){
+function toggleOfflineInviteDatePicker(evt){
+  if(evt && evt.stopPropagation) evt.stopPropagation();
   var pop = document.getElementById('offlineInviteDatePop');
   if(!pop) return;
   pop.classList.toggle('open');
@@ -780,20 +781,21 @@ function closeOfflineInviteDatePicker(){
   if(pop) pop.classList.remove('open');
 }
 
-function shiftOfflineInviteDatePage(days){
+function shiftOfflineInviteDatePage(evt, days){
+  if(evt && evt.stopPropagation) evt.stopPropagation();
   var base = getOfflineInviteDatePageStart();
   if(!base) return;
   setOfflineInviteDatePageStart(shiftOfflineInviteDateByDays(base, days));
   renderOfflineInviteDatePicker();
 }
 
-function selectOfflineInviteDate(value){
+function selectOfflineInviteDate(evt, value){
+  if(evt && evt.stopPropagation) evt.stopPropagation();
   var dateField = document.getElementById('offlineInviteDateField');
   if(!dateField) return;
   dateField.value = String(value || '').trim();
   setOfflineInviteDatePageStart(String(value || '').trim());
   syncOfflineInviteComposerVisuals();
-  closeOfflineInviteDatePicker();
 }
 
 function selectOfflineInviteTimePart(type, value){
@@ -855,10 +857,8 @@ function openOfflineInviteComposer(){
   var modal = document.getElementById('offlineInviteModal');
   var locationField = document.getElementById('offlineInviteLocationField');
   var dateField = document.getElementById('offlineInviteDateField');
-  var toLine = document.getElementById('offlineInviteToLine');
   var stamp = document.getElementById('offlineInviteStampImage');
   var schedule = buildOfflineInviteDefaultSchedule();
-  if(toLine) toLine.textContent = 'To ' + getOfflineInviteDisplayName('assistant');
   if(locationField) locationField.value = '';
   if(dateField) dateField.value = schedule.date;
   if(dateField) dateField.dataset.time = schedule.time;
