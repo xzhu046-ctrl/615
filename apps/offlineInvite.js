@@ -1188,7 +1188,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var data = buildOfflineInvitePayload(viewRole === 'user' ? 'user' : 'assistant', '', coerceOfflineInvitePayloadToThread(parseOfflineInvitePayload(raw) || {}, viewRole === 'user' ? 'user' : 'assistant'));
   var canRespond = viewRole !== 'user';
   var status = String(data.status || 'pending');
-  var title = viewRole === 'user' ? 'Sent Invite' : 'Incoming Invite';
+  var title = viewRole === 'user' ? '【约会邀请】' : 'Incoming Invite';
   var statusLabel = status === 'accepted' ? 'Accepted' : (status === 'rejected' ? 'Rejected' : 'Pending');
   var disabled = status !== 'pending';
   var timeText = esc([String(data.dateLabel || '').trim(), String(data.timeLabel || '').trim()].filter(Boolean).join(' · ') || '待定时间');
