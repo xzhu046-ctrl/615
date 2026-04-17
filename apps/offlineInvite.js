@@ -238,8 +238,7 @@ function sanitizeOfflineInvitePayloadForModel(payload){
 }
 
 function offlineInviteSummaryText(content){
-  var data = parseOfflineInvitePayload(content) || buildOfflineInvitePayload('assistant', '');
-  return OFFLINE_INVITE_SNIPPET + (data.location ? (' ' + data.location) : '');
+  return OFFLINE_INVITE_SNIPPET;
 }
 
 function normalizeOfflineInviteDecisionText(text, fallback){
@@ -1188,7 +1187,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var data = buildOfflineInvitePayload(viewRole === 'user' ? 'user' : 'assistant', '', coerceOfflineInvitePayloadToThread(parseOfflineInvitePayload(raw) || {}, viewRole === 'user' ? 'user' : 'assistant'));
   var canRespond = viewRole !== 'user';
   var status = String(data.status || 'pending');
-  var title = viewRole === 'user' ? '【约会邀请】' : 'Incoming Invite';
+  var title = viewRole === 'user' ? 'SENT INVITE' : 'Incoming Invite';
   var statusLabel = status === 'accepted' ? 'Accepted' : (status === 'rejected' ? 'Rejected' : 'Pending');
   var disabled = status !== 'pending';
   var timeText = esc([String(data.dateLabel || '').trim(), String(data.timeLabel || '').trim()].filter(Boolean).join(' · ') || '待定时间');
@@ -1197,12 +1196,12 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     bubble.innerHTML = '<div class="offline-invite-plain sent">'
       + '<div class="offline-invite-plain-head">'
       + '<div class="offline-invite-plain-title is-sent">' + esc(title) + '</div>'
+      + '<div class="offline-invite-plain-status' + (disabled ? ' is-done' : '') + '">' + esc(statusLabel) + '</div>'
       + '</div>'
       + '<div class="offline-invite-plain-meta">'
       + '<div class="offline-invite-plain-row"><strong>Time</strong>' + timeText + '</div>'
       + '<div class="offline-invite-plain-row"><strong>At</strong>' + locationText + '</div>'
       + '</div>'
-      + '<div class="offline-invite-plain-status' + (disabled ? ' is-done' : '') + '">' + esc(statusLabel) + '</div>'
       + '<div class="offline-invite-plain-avatar"><span class="offline-invite-plain-avatar-fallback">' + esc((getCurrentUserDisplayName() || 'U').charAt(0) || 'U') + '</span><div class="offline-invite-plain-avatar-label">' + esc(getCurrentUserDisplayName() || 'USER') + '</div></div>'
       + '</div>';
     var avatar = bubble.querySelector('.offline-invite-plain-avatar');
