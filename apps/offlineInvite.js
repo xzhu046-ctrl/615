@@ -1194,27 +1194,29 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var timeText = esc([String(data.dateLabel || '').trim(), String(data.timeLabel || '').trim()].filter(Boolean).join(' · ') || '待定时间');
   var locationText = esc(String(data.location || '').trim() || '待定地点');
   if(viewRole === 'user'){
-    bubble.innerHTML = '<div class="offline-invite-sent">'
-      + '<div class="offline-invite-sent-card">'
-      + '<div class="offline-invite-sent-kicker">' + esc(title) + '</div>'
-      + '<div class="offline-invite-sent-meta">'
-      + '<div class="offline-invite-sent-line">' + timeText + '</div>'
-      + '<div class="offline-invite-sent-line">' + locationText + '</div>'
+    bubble.innerHTML = '<div class="offline-invite-plain sent">'
+      + '<div class="offline-invite-plain-head">'
+      + '<div class="offline-invite-plain-title is-sent">' + esc(title) + '</div>'
+      + '<div class="offline-invite-plain-status' + (disabled ? ' is-done' : '') + '">' + esc(statusLabel) + '</div>'
       + '</div>'
+      + '<div class="offline-invite-plain-body">' + esc(String(data.content || '').trim() || '约会邀请') + '</div>'
+      + '<div class="offline-invite-plain-meta">'
+      + '<div class="offline-invite-plain-row"><strong>Time</strong>' + timeText + '</div>'
+      + '<div class="offline-invite-plain-row"><strong>At</strong>' + locationText + '</div>'
       + '</div>'
-      + '<div class="offline-invite-sent-seal"><span class="offline-invite-sent-seal-fallback">' + esc((getCurrentUserDisplayName() || 'U').charAt(0) || 'U') + '</span></div>'
+      + '<div class="offline-invite-plain-avatar"><span class="offline-invite-plain-avatar-fallback">' + esc((getCurrentUserDisplayName() || 'U').charAt(0) || 'U') + '</span></div>'
       + '</div>';
-    var seal = bubble.querySelector('.offline-invite-sent-seal');
-    if(seal){
+    var avatar = bubble.querySelector('.offline-invite-plain-avatar');
+    if(avatar){
       resolveChatUserAvatarAsync(character && character.id).then(function(src){
         var safe = String(src || '').trim();
         if(!safe) return;
-        seal.innerHTML = '<img class="offline-invite-sent-seal-bg" src="' + escAttr(safe) + '" alt=""><img class="offline-invite-sent-seal-fg" src="' + escAttr(safe) + '" alt="">';
+        avatar.innerHTML = '<img src="' + escAttr(safe) + '" alt="">';
       }).catch(function(){});
     }
     return;
   }
-  bubble.innerHTML = '<div class="offline-invite-incoming">'
+  bubble.innerHTML = '<div class="offline-invite-plain">'
     + '<div class="offline-invite-plain-head">'
     + '<div class="offline-invite-plain-title">' + esc(title) + '</div>'
     + '<div class="offline-invite-plain-status' + (disabled ? ' is-done' : '') + '">' + esc(statusLabel) + '</div>'
