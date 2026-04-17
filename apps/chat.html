@@ -25465,21 +25465,35 @@ async function deliverAiReply(text, limitOverride){
       .replace(/<\/p>\s*<p[^>]*>/ig, '\n')
       .replace(/<\/div>\s*<div[^>]*>/ig, '\n');
     if(!cleaned) return [];
-    var inlineMixedParts = splitTextAndMemeMarkers(cleaned);
-    if(inlineMixedParts.length >= 2) return inlineMixedParts;
+    var buildTextOrMemeParts = function(piece){
+      var text = String(piece || '').trim();
+      if(!text) return [];
+      var mixed = splitTextAndMemeMarkers(text);
+      if(mixed.length >= 2) return mixed;
+      var maybeMeme = parseMemeMarker(text);
+      return [{ text: maybeMeme || text, t: maybeMeme ? 'meme' : 'text' }];
+    };
     var msgParts = cleaned
       .replace(/<\s*\/\s*msg\s*>/ig, '<msg>')
-      .replace(/<\s*msg\s*>/ig, '<msg>')
-      .split(/<msg>/i).map(function(p){
+      .replace(/<\s*msg\s*>/ig, '<msg>');
+    if(/<msg>/i.test(msgParts)){
+      var explicitMsgParts = msgParts.split(/<msg>/i).map(buildTextOrMemeParts).flat();
+      if(explicitMsgParts.length >= 2) return explicitMsgParts;
+    }
+    var paragraphParts = cleaned.split(/\n{2,}/).map(buildTextOrMemeParts).flat();
+    if(paragraphParts.length >= 2) return paragraphParts;
+    var lines = cleaned.split(/\n+/).map(buildTextOrMemeParts).flat();
+    if(lines.length >= 2) return lines;
+    var inlineMixedParts = splitTextAndMemeMarkers(cleaned);
+    if(inlineMixedParts.length >= 2) return inlineMixedParts;
+    msgParts = msgParts.split(/<msg>/i).map(function(p){
       var piece = p.trim();
       if(!piece) return null;
-      var mixed = splitTextAndMemeMarkers(piece);
-      if(mixed.length >= 2) return mixed;
       var maybeMeme = parseMemeMarker(piece);
       return { text: maybeMeme || piece, t: maybeMeme ? 'meme' : 'text' };
     }).filter(Boolean).flat();
     if(msgParts.length > 1) return msgParts;
-    var paragraphParts = cleaned.split(/\n{2,}/).map(function(p){
+    paragraphParts = cleaned.split(/\n{2,}/).map(function(p){
       var piece = p.trim();
       if(!piece) return null;
       var mixed = splitTextAndMemeMarkers(piece);
@@ -25488,7 +25502,7 @@ async function deliverAiReply(text, limitOverride){
       return { text: maybeMeme || piece, t: maybeMeme ? 'meme' : 'text' };
     }).filter(Boolean).flat();
     if(paragraphParts.length >= 2) return paragraphParts;
-    var lines = cleaned.split(/\n+/).map(function(line){ return line.trim(); }).filter(Boolean);
+    lines = cleaned.split(/\n+/).map(function(line){ return line.trim(); }).filter(Boolean);
     if(lines.length >= 2){
       return lines.map(function(line){
         var mixed = splitTextAndMemeMarkers(line);
