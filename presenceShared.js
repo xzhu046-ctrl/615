@@ -368,17 +368,17 @@
   function getCharPresence(character, now){
     const settings = getCharSettings(character);
     const charWeatherLoc = getWeatherConfiguredLocation('char', character && character.id);
-    const city = charWeatherLoc ? findNearestCatalogCity(charWeatherLoc.lat, charWeatherLoc.lng) : getCity(settings.cityId || DEFAULT_CHAR_CITY);
-    const parts = getLocalParts(city.tz, now);
+    const displayCity = getCity(settings.cityId || DEFAULT_CHAR_CITY);
+    const weatherCity = charWeatherLoc ? findNearestCatalogCity(charWeatherLoc.lat, charWeatherLoc.lng) : displayCity;
+    const parts = getLocalParts(weatherCity.tz, now);
     const profile = settings.schedule === 'auto' ? inferProfile(character) : String(settings.schedule || 'office');
     const segment = segmentForProfile(profile, parts);
-    const point = charWeatherLoc
-      ? { lat:Number(charWeatherLoc.lat), lng:Number(charWeatherLoc.lng) }
-      : pointForSegment(city, segment, [character && character.id || '', parts.daySeed, segment.key].join(':'));
+    const point = pointForSegment(displayCity, segment, [character && character.id || '', parts.daySeed, segment.key].join(':'));
     return {
       settings,
-      city,
-      timezoneOffset: Number(city.tz),
+      city: displayCity,
+      weatherCity,
+      timezoneOffset: Number(weatherCity.tz),
       timezoneName: String((charWeatherLoc && charWeatherLoc.timezone) || '').trim(),
       profile,
       availability: segment.availability,
@@ -468,9 +468,16 @@
     const charId = character && character.id ? String(character.id) : '';
     const storedUser = getUserLocation();
     const weatherUserLoc = getWeatherConfiguredLocation('user', charId);
-    const user = storedUser.mode === 'device'
-      ? storedUser
-      : Object.assign({}, storedUser, weatherUserLoc || {});
+    const userCity = getCity(storedUser.cityId || DEFAULT_USER_CITY);
+    const user = Object.assign({}, storedUser, {
+      cityId: userCity.id,
+      label: String(storedUser.label || userCity.name).trim() || userCity.name,
+      lat: Number.isFinite(Number(storedUser.lat)) ? Number(storedUser.lat) : userCity.lat,
+      lng: Number.isFinite(Number(storedUser.lng)) ? Number(storedUser.lng) : userCity.lng,
+      weatherName: String(weatherUserLoc && weatherUserLoc.weatherName || storedUser.weatherName || '').trim(),
+      weatherTimezone: String(weatherUserLoc && weatherUserLoc.timezone || storedUser.timezone || '').trim(),
+      weatherTimezoneOffset: Number(weatherUserLoc && getCity(weatherUserLoc.cityId).tz || userCity.tz) || 0
+    });
     const charPresence = getCharPresence(character, now);
     const userPoint = { lat:Number(user.lat), lng:Number(user.lng) };
     const charPoint = charPresence.point;

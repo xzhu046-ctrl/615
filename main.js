@@ -43,7 +43,7 @@ const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-17T04:01:00Z';
+const APP_BUILD_ID = '2026-04-17T04:10:00Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -2469,7 +2469,7 @@ function getSchedulePresenceContext(character){
   try{
     var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
     if(!(snapshot && snapshot.char && snapshot.user)) return '';
-    var userLabel = String(snapshot.user.label || snapshot.user.weatherName || '').trim() || String(snapshot.user.cityId || '').trim() || '用户所在城市';
+    var userLabel = String(snapshot.user.label || '').trim() || String(snapshot.user.cityId || '').trim() || '用户所在城市';
     var charCityName = snapshot.char.city && snapshot.char.city.name ? String(snapshot.char.city.name).trim() : '';
     var charCountry = snapshot.char.city && snapshot.char.city.country ? String(snapshot.char.city.country).trim() : '';
     var charPlace = String(snapshot.char.placeLabel || '').trim();
