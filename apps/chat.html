@@ -6351,6 +6351,9 @@ async function requestChatMessageTranslation(msgId, options){
               html: rebuiltHtml,
               css: String(originalRichSource.css || '').trim(),
               js: String(originalRichSource.js || '').trim(),
+              url: String(originalRichSource.url || '').trim(),
+              title: String(originalRichSource.title || '').trim(),
+              cover: String(originalRichSource.cover || '').trim(),
               summary: '简体中文',
               text: String(parsedRichTranslation.text || '').trim()
             });
@@ -6359,6 +6362,9 @@ async function requestChatMessageTranslation(msgId, options){
               html: String(parsedRichTranslation.html || '').trim(),
               css: String(parsedRichTranslation.css || '').trim(),
               js: String(parsedRichTranslation.js || '').trim(),
+              url: String(parsedRichTranslation.url || originalRichSource.url || '').trim(),
+              title: String(parsedRichTranslation.title || originalRichSource.title || '').trim(),
+              cover: String(parsedRichTranslation.cover || originalRichSource.cover || '').trim(),
               summary: '简体中文',
               text: String(parsedRichTranslation.text || '').trim()
             });
@@ -6381,6 +6387,9 @@ async function requestChatMessageTranslation(msgId, options){
             html: String(translatedRich.html || '').trim(),
             css: String(translatedRich.css || '').trim(),
             js: String(translatedRich.js || '').trim(),
+            url: String(translatedRich.url || '').trim(),
+            title: String(translatedRich.title || '').trim(),
+            cover: String(translatedRich.cover || '').trim(),
             summary: '简体中文',
             text: translatedPlain
           });
@@ -8824,12 +8833,19 @@ function buildRichHtmlPayload(parts){
   var js = String(data.js || '').trim();
   var summary = String(data.summary || '').trim();
   var plain = String(data.text || data.translationSource || '').trim();
+  var url = normalizeStandaloneWebUrl(data.url || '');
+  var title = String(data.title || '').trim();
+  var cover = String(data.cover || data.coverUrl || '').trim();
   if(!plain && html) plain = extractPlainTextFromHtmlMarkup(html);
+  if(!summary && (title || url)) summary = title || prettyWebUrlLabel(url);
   if(!summary) summary = plain || '小惊喜';
   return JSON.stringify({
     html: html,
     css: css,
     js: js,
+    url: url,
+    title: title,
+    cover: cover,
     summary: summary.slice(0, 180),
     text: plain
   });
@@ -8843,6 +8859,9 @@ function coerceRichHtmlPayload(value, meta){
       html: String(info.html || '').trim(),
       css: String(info.css || '').trim(),
       js: String(info.js || '').trim(),
+      url: String(info.url || '').trim(),
+      title: String(info.title || '').trim(),
+      cover: String(info.cover || info.coverUrl || '').trim(),
       summary: String(info.summary || '').trim(),
       text: String(info.text || '').trim()
     });
@@ -8859,6 +8878,9 @@ function coerceRichHtmlPayload(value, meta){
       html: directRich.html || String(info.html || '').trim(),
       css: [String(info.css || '').trim(), directRich.css || ''].filter(Boolean).join(''),
       js: [String(info.js || '').trim(), directRich.js || ''].filter(Boolean).join(''),
+      url: String(info.url || '').trim(),
+      title: String(info.title || '').trim(),
+      cover: String(info.cover || info.coverUrl || '').trim(),
       summary: directRich.summary || String(info.summary || '').trim() || extractPlainTextFromHtmlMarkup(directRich.html || '').slice(0, 48),
       text: String(info.text || '').trim() || directRich.summary || extractPlainTextFromHtmlMarkup(directRich.html || '')
     });
@@ -8868,6 +8890,9 @@ function coerceRichHtmlPayload(value, meta){
       html: raw,
       css: String(info.css || '').trim(),
       js: String(info.js || '').trim(),
+      url: String(info.url || '').trim(),
+      title: String(info.title || '').trim(),
+      cover: String(info.cover || info.coverUrl || '').trim(),
       summary: String(info.summary || '').trim() || extractPlainTextFromHtmlMarkup(raw).slice(0, 48),
       text: String(info.text || '').trim() || extractPlainTextFromHtmlMarkup(raw)
     });
@@ -8876,6 +8901,9 @@ function coerceRichHtmlPayload(value, meta){
     html: String(info.html || '').trim(),
     css: String(info.css || '').trim(),
     js: String(info.js || '').trim(),
+    url: String(info.url || raw).trim(),
+    title: String(info.title || '').trim(),
+    cover: String(info.cover || info.coverUrl || '').trim(),
     summary: String(info.summary || raw).trim(),
     text: String(info.text || raw).trim()
   });
@@ -8907,7 +8935,73 @@ function parseRichHtmlPayload(raw){
     var normalizedObj = JSON.parse(normalized || '{}');
     if(normalizedObj && typeof normalizedObj === 'object') return normalizedObj;
   }catch(err){}
-  return { html:'', css:'', js:'', summary:'' };
+  return { html:'', css:'', js:'', url:'', title:'', cover:'', summary:'' };
+}
+
+function normalizeStandaloneWebUrl(value){
+  var raw = String(value || '').trim();
+  if(!raw) return '';
+  raw = raw.replace(/^<|>$/g, '');
+  if(/^www\./i.test(raw)) raw = 'https://' + raw;
+  try{
+    var url = new URL(raw);
+    if(!/^https?:$/i.test(url.protocol || '')) return '';
+    return url.toString();
+  }catch(err){
+    return '';
+  }
+}
+
+function extractStandaloneWebUrl(text){
+  var raw = String(text || '').trim();
+  if(!raw) return '';
+  var match = raw.match(/^(https?:\/\/[^\s]+|www\.[^\s]+)$/i);
+  if(!match) return '';
+  var normalized = String(match[1] || '').replace(/[，。！？!?,]+$/g, '');
+  return normalizeStandaloneWebUrl(normalized);
+}
+
+function prettyWebUrlLabel(url){
+  var safe = normalizeStandaloneWebUrl(url);
+  if(!safe) return '';
+  try{
+    var parsed = new URL(safe);
+    var host = String(parsed.hostname || '').replace(/^www\./i, '');
+    var path = String(parsed.pathname || '/').replace(/\/+$/, '') || '/';
+    return host + (path && path !== '/' ? path : '');
+  }catch(err){
+    return safe;
+  }
+}
+
+function buildWebPreviewTitle(data){
+  var title = String(data && data.title || '').trim();
+  if(title) return title;
+  var summary = String(data && data.summary || '').trim();
+  if(summary && summary !== 'SURPRISE') return summary;
+  return prettyWebUrlLabel(data && data.url || '') || '网页卡片';
+}
+
+function buildRichWebPreviewMarkup(data){
+  var safeUrl = normalizeStandaloneWebUrl(data && data.url || '');
+  var title = buildWebPreviewTitle(data);
+  var label = prettyWebUrlLabel(safeUrl);
+  var plain = String(data && data.text || '').trim() || '轻轻点开，就是一张真的网页。';
+  var favicon = safeUrl ? ('https://www.google.com/s2/favicons?sz=128&domain_url=' + encodeURIComponent(safeUrl)) : '';
+  var cover = String(data && data.cover || '').trim();
+  var heroStyle = cover ? (' style="background-image:url(' + escAttr(cover) + ')"') : '';
+  return ''
+    + '<article class="web-preview-card">'
+    +   '<div class="web-preview-hero"' + heroStyle + '>'
+    +     '<div class="web-preview-overlay"></div>'
+    +     '<div class="web-preview-favicon">' + (favicon ? ('<img src="' + escAttr(favicon) + '" alt="">') : '<span>↗</span>') + '</div>'
+    +     '<div class="web-preview-meta">'
+    +       '<div class="web-preview-title">' + esc(title) + '</div>'
+    +       (label ? ('<div class="web-preview-url">' + esc(label) + '</div>') : '')
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="web-preview-copy">' + esc(plain) + '</div>'
+    + '</article>';
 }
 
 function buildAutoSurpriseTemplate(data){
@@ -8935,6 +9029,7 @@ function buildRichHtmlContextText(raw){
   var plain = String(data.text || '').trim();
   var summary = String(data.summary || '').trim() || 'SURPRISE';
   var parts = ['【SURPRISE卡片】', '你眼前是一张已经被真实展示出来的小页面。你只会把它当成真的页面、小物件、票据、帖子、卡片或签文来理解，不会意识到它和代码有关。', '卡片主题：' + summary];
+  if(data.url) parts.push('卡片里的真实链接：' + data.url);
   if(plain) parts.push('卡片里的可见文字：' + plain.slice(0, 520));
   if(html) parts.push('你看到的页面内容与结构：' + extractPlainTextFromHtmlMarkup(html).slice(0, 900));
   return parts.join('\n');
@@ -8945,11 +9040,15 @@ function normalizeRichHtmlRenderableData(raw){
   var html = String(data.html || '').trim();
   var css = String(data.css || '').trim();
   var js = String(data.js || '').trim();
+  var url = normalizeStandaloneWebUrl(data.url || '');
+  var title = String(data.title || '').trim();
+  var cover = String(data.cover || data.coverUrl || '').trim();
   var summary = String(data.summary || '').trim();
   var plain = String(data.text || data.translationSource || '').trim();
   if(!plain && html) plain = extractPlainTextFromHtmlMarkup(html);
+  if(url && !summary) summary = title || prettyWebUrlLabel(url) || '网页卡片';
   var looksRenderable = !!html && /<[a-z][\s\S]*>/i.test(html);
-  if(!looksRenderable){
+  if(!looksRenderable && !url){
     var autoTemplate = buildAutoSurpriseTemplate({ summary: summary, text: plain });
     html = autoTemplate.html;
     css = [autoTemplate.css, css].filter(Boolean).join('');
@@ -8958,9 +9057,62 @@ function normalizeRichHtmlRenderableData(raw){
     html: html,
     css: css,
     js: js,
+    url: url,
+    title: title,
+    cover: cover,
     summary: summary || 'SURPRISE',
     text: plain
   };
+}
+
+function buildRichWebVisibleDoc(data){
+  var safe = normalizeRichHtmlRenderableData(data);
+  var url = normalizeStandaloneWebUrl(safe.url || '');
+  if(!url) return '';
+  var previewMarkup = buildRichWebPreviewMarkup(safe);
+  return buildRichHtmlSrcdoc({
+    html: ''
+      + '<article class="web-card-shell" id="webCardShell">'
+      +   '<div class="web-preview-wrap" id="webPreviewWrap">' + previewMarkup + '</div>'
+      +   '<iframe class="web-live-frame" id="webLiveFrame" referrerpolicy="no-referrer" loading="lazy"></iframe>'
+      + '</article>',
+    css: [
+      'body{padding:0;margin:0;background:#fff;color:#111;overflow:hidden}',
+      '.web-card-shell{position:relative;min-height:220px;background:#fff;border-radius:12px;overflow:hidden}',
+      '.web-preview-wrap{position:absolute;inset:0;display:block;background:#fff;z-index:2}',
+      '.web-live-frame{position:relative;z-index:1;display:block;width:100%;height:100%;min-height:220px;border:none;background:#fff;opacity:0;transition:opacity .22s ease}',
+      '.web-card-shell.is-live .web-live-frame{opacity:1}',
+      '.web-card-shell.is-live .web-preview-wrap{display:none}',
+      '.web-preview-card{position:relative;display:flex;flex-direction:column;min-height:220px;background:linear-gradient(180deg,#fff 0%,#f6f6f6 100%)}',
+      '.web-preview-hero{position:relative;min-height:128px;padding:18px 18px 16px;background:linear-gradient(135deg,#111 0%,#2d2d2d 36%,#6c6c6c 100%);background-size:cover;background-position:center center;display:flex;align-items:flex-end;gap:12px;overflow:hidden}',
+      '.web-preview-overlay{position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(0,0,0,.28))}',
+      '.web-preview-favicon,.web-preview-meta{position:relative;z-index:1}',
+      '.web-preview-favicon{width:42px;height:42px;border-radius:14px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 18px rgba(0,0,0,.16);overflow:hidden;flex:0 0 auto}',
+      '.web-preview-favicon img{width:24px;height:24px;display:block;object-fit:contain}',
+      '.web-preview-favicon span{font-size:19px;font-weight:900;color:#111;line-height:1}',
+      '.web-preview-meta{display:flex;flex-direction:column;gap:4px;min-width:0;color:#fff}',
+      '.web-preview-title{font-size:18px;font-weight:900;line-height:1.28;word-break:break-word}',
+      '.web-preview-url{font-size:11px;font-weight:800;opacity:.88;letter-spacing:.03em;word-break:break-all}',
+      '.web-preview-copy{padding:16px 18px 18px;font-size:13px;line-height:1.72;font-weight:700;color:#1a1a1a;white-space:pre-wrap;word-break:break-word}',
+      String(safe.css || '').trim()
+    ].join(''),
+    js: [
+      '(function(){',
+      'var url=' + JSON.stringify(url) + ';',
+      'var shell=document.getElementById("webCardShell");',
+      'var frame=document.getElementById("webLiveFrame");',
+      'if(!shell||!frame||!url) return;',
+      'var loaded=false;',
+      'var promote=function(){ loaded=true; shell.classList.add("is-live"); };',
+      'frame.addEventListener("load", function(){ setTimeout(promote, 120); }, { once:true });',
+      'setTimeout(function(){ if(!loaded) shell.classList.remove("is-live"); }, 1700);',
+      'try{ frame.src=url; }catch(err){ shell.classList.remove("is-live"); }',
+      '})();',
+      String(safe.js || '').trim()
+    ].filter(Boolean).join(''),
+    summary: String(safe.summary || '').trim(),
+    text: String(safe.text || safe.url || '').trim()
+  });
 }
 
 function buildRichHtmlSrcdoc(payload){
@@ -9052,6 +9204,7 @@ function buildAutoNarratorForReply(parts){
 
 function buildRichHtmlVisibleDoc(data){
   var safe = normalizeRichHtmlRenderableData(data);
+  if(safe.url) return buildRichWebVisibleDoc(safe);
   var html = String(safe.html || '').trim();
   var css = String(safe.css || '').trim();
   var js = String(safe.js || '').trim();
@@ -15328,7 +15481,7 @@ function buildChatExtendedFormatPrompt(){
     '你除了普通 text / voice_message / image_message / money_packet，还可以在合适时使用 narrator / rich_html / recall / rename_profile / change_avatar / change_user_avatar。',
     'narrator：用于动作、环境、声音、镜头感、心理余波，是旁白，不是说出口的话。格式：{"type":"narrator","content":"..."}',
     'narrator 里禁止写“用户”“USER”“user”“角色”“CHAR”“char”这种偷懒指代。涉及双方时，只能直接写名字、昵称，或者自然的第三人称代称。',
-    'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件，也包括聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、邮箱主页、邮箱收件箱、邮件线程、邮件草稿、银行账户总览、银行账户余额、银行账户明细、影评、药品单、医院开的单子、知乎帖子、小说简介、伪小红书帖子、直播间、抖音样式页、社交媒体主页、社交媒体帖子、社交媒体评论、测评、repo、银行账单、银行流水、法院传票、学签、旅游签、工签、银行卡、PPT页、文档页、名片、便签、周易/八卦、中式算卦、抽签、月老签、简历、说明书、调查问卷、MBTI 测试、测试结果、quiz/test/exam 这类页面或卡片。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}',
+    'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件，也包括聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、邮箱主页、邮箱收件箱、邮件线程、邮件草稿、银行账户总览、银行账户余额、银行账户明细、影评、药品单、医院开的单子、知乎帖子、小说简介、伪小红书帖子、直播间、抖音样式页、社交媒体主页、社交媒体帖子、社交媒体评论、测评、repo、银行账单、银行流水、法院传票、学签、旅游签、工签、银行卡、PPT页、文档页、名片、便签、周易/八卦、中式算卦、抽签、月老签、简历、说明书、调查问卷、MBTI 测试、测试结果、quiz/test/exam 这类页面或卡片。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}；如果是发一个真的网页链接，也可以用 {"type":"rich_html","summary":"一句概括","url":"https://...","title":"网页标题","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}',
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
     'rename_profile：用于改昵称。target 只能是 char 或 user；name 是你要改成的新名字。target=char 表示改你在对方这里的名字，target=user 表示改你给对方存的备注/昵称。格式：{"type":"rename_profile","target":"char","name":"新昵称"} 或 {"type":"rename_profile","target":"user","name":"新备注"}。',
     'change_avatar：用于从你的头像库里换上你自己的头像。格式：{"type":"change_avatar","name":"头像名"}。',
@@ -15341,7 +15494,7 @@ function buildChatExtendedFormatPrompt(){
     '如果系统给了“时间流逝/隔了多久才回”，第一句优先接住这段现实间隔，再继续正题；隔了很久时，上一轮那些“在门外/刚下班/正在路上/马上到”之类的即时场景默认已经过期，别硬续。',
     '聊天感要像真人：默认两三条短消息，短句、停顿、补充自然发生；别整坨发，也别像被尺子量过一样机械切碎。不要一条塞进又长又绕、读起来喘不过气的大复句；一个意思说完就收住，下一点另起一句或另起一条，分开要自然。',
     'rich_html 不是半成品代码，而是一张真的东西。你不会提“代码/html/css/js”；对你来说那就是卡片、页面、票据、帖子、小物件本体。',
-    'rich_html 要完整、精致、可读、可玩：层级清楚、细节到位、文字和按钮都是真的内容，别给空盒子、假按钮、占位符、乱码。',
+    'rich_html 要完整、精致、可读、可玩：层级清楚、细节到位、文字和按钮都是真的内容，别给空盒子、假按钮、占位符、乱码。发真实网页时直接给 url/title/text，不要再硬包一层假 html。',
     '不要返回 {"html":"","css":"","js":""} 这种空壳卡片。做不到完整卡片就改回完整 text/narrator。',
     'rich_html 不只用于情书。只要上下文适合，你可以偶尔主动发一个 SURPRISE 小卡片：聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、邮箱主页、邮箱收件箱、邮件线程、邮件草稿、银行账户总览、银行账户余额、银行账户明细、小费条、电影票、飞机票、火车票、塔罗牌、签文、百度搜索结果、论坛帖子、伪小红书帖子、便签、清单、聊天截图、网页、小票据、明信片、随手写的页面、PPT、文档、名片、周易/八卦、中式抽签、月老签、简历、说明书、调查问卷、MBTI 测试、测试结果、quiz/test/exam、套圈小游戏都可以。',
     '用户明确要整理成笔记/清单/讲义/卡片/票据/页面/帖子/签文等时，优先 rich_html；而且必须一次给成品，不准只给框架。',
@@ -15880,7 +16033,8 @@ function looksLikeRichHtmlContainer(value){
 function isRenderableRichHtmlPayload(raw){
   var data = parseRichHtmlPayload(raw);
   var html = String(data && data.html || '').trim();
-  return !!html && looksLikeRichHtmlContainer(html);
+  var url = normalizeStandaloneWebUrl(data && data.url || '');
+  return (!!html && looksLikeRichHtmlContainer(html)) || !!url;
 }
 
 function extractRichHtmlPayloadText(raw){
@@ -15901,13 +16055,18 @@ function isLikelyRichHtmlObject(obj){
   if(type === 'richhtml') return true;
   var hasCardField = Object.prototype.hasOwnProperty.call(obj, 'html')
     || Object.prototype.hasOwnProperty.call(obj, 'css')
-    || Object.prototype.hasOwnProperty.call(obj, 'js');
+    || Object.prototype.hasOwnProperty.call(obj, 'js')
+    || Object.prototype.hasOwnProperty.call(obj, 'url')
+    || Object.prototype.hasOwnProperty.call(obj, 'title')
+    || Object.prototype.hasOwnProperty.call(obj, 'cover')
+    || Object.prototype.hasOwnProperty.call(obj, 'coverUrl');
   if(!hasCardField) return false;
   var summary = String(obj.summary || obj.text || obj.content || '').trim();
   var html = String(obj.html || '').trim();
   var css = String(obj.css || '').trim();
   var js = String(obj.js || '').trim();
-  return !!(summary || html || css || js);
+  var url = normalizeStandaloneWebUrl(obj.url || '');
+  return !!(summary || html || css || js || url);
 }
 
 function collectRichHtmlCandidatesFromReplyNode(node, bucket){
@@ -15923,6 +16082,9 @@ function collectRichHtmlCandidatesFromReplyNode(node, bucket){
       html: String(node.rich_html.html || '').trim(),
       css: String(node.rich_html.css || '').trim(),
       js: String(node.rich_html.js || '').trim(),
+      url: String(node.rich_html.url || '').trim(),
+      title: String(node.rich_html.title || '').trim(),
+      cover: String(node.rich_html.cover || node.rich_html.coverUrl || '').trim(),
       summary: String(node.rich_html.summary || node.summary || node.text || node.content || '').trim(),
       text: String(node.rich_html.text || node.text || node.content || '').trim()
     });
@@ -15932,6 +16094,9 @@ function collectRichHtmlCandidatesFromReplyNode(node, bucket){
       html: String(node.html_card.html || '').trim(),
       css: String(node.html_card.css || '').trim(),
       js: String(node.html_card.js || '').trim(),
+      url: String(node.html_card.url || '').trim(),
+      title: String(node.html_card.title || '').trim(),
+      cover: String(node.html_card.cover || node.html_card.coverUrl || '').trim(),
       summary: String(node.html_card.summary || node.summary || node.text || node.content || '').trim(),
       text: String(node.html_card.text || node.text || node.content || '').trim()
     });
@@ -15941,6 +16106,9 @@ function collectRichHtmlCandidatesFromReplyNode(node, bucket){
       html: String(node.html || '').trim(),
       css: String(node.css || '').trim(),
       js: String(node.js || '').trim(),
+      url: String(node.url || '').trim(),
+      title: String(node.title || '').trim(),
+      cover: String(node.cover || node.coverUrl || '').trim(),
       summary: String(node.summary || node.text || node.content || '').trim(),
       text: String(node.text || node.content || '').trim()
     });
@@ -15998,6 +16166,9 @@ function collectVisibleMessageCandidatesFromReplyNode(node, bucket){
       html: node.html || (node.rich_html && node.rich_html.html) || (node.html_card && node.html_card.html) || '',
       css: node.css || (node.rich_html && node.rich_html.css) || (node.html_card && node.html_card.css) || '',
       js: node.js || (node.rich_html && node.rich_html.js) || (node.html_card && node.html_card.js) || '',
+      url: node.url || (node.rich_html && node.rich_html.url) || (node.html_card && node.html_card.url) || '',
+      title: node.title || (node.rich_html && node.rich_html.title) || (node.html_card && node.html_card.title) || '',
+      cover: node.cover || node.coverUrl || (node.rich_html && (node.rich_html.cover || node.rich_html.coverUrl)) || (node.html_card && (node.html_card.cover || node.html_card.coverUrl)) || '',
       summary: node.summary || node.text || node.content || '',
       text: node.text || node.content || ''
     });
@@ -16071,9 +16242,11 @@ function detectBrokenRichHtmlReply(rawReply){
     var html = String(item.html || '').trim();
     var css = String(item.css || '').trim();
     var js = String(item.js || '').trim();
+    var url = normalizeStandaloneWebUrl(item.url || '');
     var summary = String(item.summary || item.text || '').trim();
-    var hasSignal = !!(summary || html || css || js);
+    var hasSignal = !!(summary || html || css || js || url);
     if(!hasSignal) continue;
+    if(url) continue;
     if(!looksLikeRichHtmlContainer(html)){
       return {
         broken: true,
@@ -16988,6 +17161,21 @@ function addMessage(role, content, doScroll, msgType, msgId) {
         safeText = JSON.stringify(o);
       }
     }catch(e){}
+  }
+  if(msgType === 'text'){
+    var standaloneUrl = extractStandaloneWebUrl(safeText);
+    if(standaloneUrl){
+      msgType = 'richhtml';
+      safeText = buildRichHtmlPayload({
+        url: standaloneUrl,
+        title: prettyWebUrlLabel(standaloneUrl),
+        summary: prettyWebUrlLabel(standaloneUrl) || '网页卡片',
+        text: standaloneUrl
+      });
+      isRichHtml = true;
+      div.classList.add('richhtml-msg');
+      bubble.classList.add('richhtml-shell');
+    }
   }
 
   if(editingMessageId === msgId){
@@ -25637,7 +25825,11 @@ async function deliverAiReply(text, limitOverride){
     var translation = extractInlineTranslationText(item);
     var hasDirectRichFields = Object.prototype.hasOwnProperty.call(item, 'html')
       || Object.prototype.hasOwnProperty.call(item, 'css')
-      || Object.prototype.hasOwnProperty.call(item, 'js');
+      || Object.prototype.hasOwnProperty.call(item, 'js')
+      || Object.prototype.hasOwnProperty.call(item, 'url')
+      || Object.prototype.hasOwnProperty.call(item, 'title')
+      || Object.prototype.hasOwnProperty.call(item, 'cover')
+      || Object.prototype.hasOwnProperty.call(item, 'coverUrl');
     if(typeof item.content === 'string') c = item.content;
     else if(typeof item.reply_content === 'string') c = item.reply_content;
     else if(typeof item.description === 'string') c = item.description;
@@ -25654,6 +25846,9 @@ async function deliverAiReply(text, limitOverride){
           html: item.rich_html.html || '',
           css: item.rich_html.css || '',
           js: item.rich_html.js || '',
+          url: item.rich_html.url || '',
+          title: item.rich_html.title || '',
+          cover: item.rich_html.cover || item.rich_html.coverUrl || '',
           summary: item.rich_html.summary || item.summary || item.text || item.content || '',
           text: item.rich_html.text || item.content || item.translationSource || ''
         });
@@ -25663,6 +25858,9 @@ async function deliverAiReply(text, limitOverride){
           html: item.html_card.html || '',
           css: item.html_card.css || '',
           js: item.html_card.js || '',
+          url: item.html_card.url || '',
+          title: item.html_card.title || '',
+          cover: item.html_card.cover || item.html_card.coverUrl || '',
           summary: item.html_card.summary || item.summary || item.text || item.content || '',
           text: item.html_card.text || item.content || item.translationSource || ''
         });
@@ -25696,11 +25894,14 @@ async function deliverAiReply(text, limitOverride){
         name: item.name || item.avatar_name || item.avatarName || item.label || item.id || item.pairTag || ''
       });
     }
-    if(t === 'richhtml' && !c && (item.html || item.css || item.js)){
+    if(t === 'richhtml' && !c && (item.html || item.css || item.js || item.url || item.title || item.cover || item.coverUrl)){
       c = buildRichHtmlPayload({
         html: item.html || '',
         css: item.css || '',
         js: item.js || '',
+        url: item.url || '',
+        title: item.title || '',
+        cover: item.cover || item.coverUrl || '',
         summary: item.summary || item.text || item.content || '',
         text: item.translationSource || item.text || item.content || ''
       });
@@ -25710,6 +25911,9 @@ async function deliverAiReply(text, limitOverride){
         html: item.html || '',
         css: item.css || '',
         js: item.js || '',
+        url: item.url || '',
+        title: item.title || '',
+        cover: item.cover || item.coverUrl || '',
         summary: item.summary || item.text || item.content || '',
         text: item.text || item.content || item.reply_content || item.description || ''
       });
@@ -25764,17 +25968,23 @@ async function deliverAiReply(text, limitOverride){
         html: item.html || '',
         css: item.css || '',
         js: item.js || '',
+        url: item.url || '',
+        title: item.title || '',
+        cover: item.cover || item.coverUrl || '',
         summary: item.summary || item.text || item.content || item.reply_content || item.description || '',
         text: item.text || item.content || item.reply_content || item.description || ''
       });
       t = 'richhtml';
     }
     if(!c && t !== 'recall') return;
-    if(t === 'text' && (item.html || item.css || item.js)){
+    if(t === 'text' && (item.html || item.css || item.js || item.url || item.title || item.cover || item.coverUrl)){
       c = buildRichHtmlPayload({
         html: item.html || '',
         css: item.css || '',
         js: item.js || '',
+        url: item.url || '',
+        title: item.title || '',
+        cover: item.cover || item.coverUrl || '',
         summary: item.summary || item.text || item.content || item.reply_content || item.description || '',
         text: item.text || item.content || item.reply_content || item.description || ''
       });
@@ -25882,7 +26092,10 @@ async function deliverAiReply(text, limitOverride){
     var js = readField('js');
     var replyTo = readField(['reply_to', 'replyTo']);
     var replyRole = readField(['reply_role', 'replyRole']);
-    var hasLooseRichFields = !!(html || css || js || summary);
+    var url = readField('url');
+    var title = readField('title');
+    var cover = readField(['cover', 'coverUrl']);
+    var hasLooseRichFields = !!(html || css || js || summary || url || title || cover);
     if(!type && !content && !hasLooseRichFields) return null;
     if((!type || normalizeMessageType(type) === 'text') && hasLooseRichFields){
       return {
@@ -25890,6 +26103,9 @@ async function deliverAiReply(text, limitOverride){
         html: html,
         css: css,
         js: js,
+        url: url,
+        title: title,
+        cover: cover,
         summary: summary || content || '',
         text: content || summary || '',
         reply_to: replyTo,
@@ -25946,7 +26162,11 @@ async function deliverAiReply(text, limitOverride){
           var t = normalizeMessageType(obj.type || 'text');
           var hasDirectRichFields = Object.prototype.hasOwnProperty.call(obj, 'html')
             || Object.prototype.hasOwnProperty.call(obj, 'css')
-            || Object.prototype.hasOwnProperty.call(obj, 'js');
+            || Object.prototype.hasOwnProperty.call(obj, 'js')
+            || Object.prototype.hasOwnProperty.call(obj, 'url')
+            || Object.prototype.hasOwnProperty.call(obj, 'title')
+            || Object.prototype.hasOwnProperty.call(obj, 'cover')
+            || Object.prototype.hasOwnProperty.call(obj, 'coverUrl');
           if(!c){
             if(obj.voice_message && typeof obj.voice_message === 'object'){
               c = obj.voice_message.content || obj.voice_message.text || '';
@@ -25959,6 +26179,9 @@ async function deliverAiReply(text, limitOverride){
                 html: obj.rich_html.html || '',
                 css: obj.rich_html.css || '',
                 js: obj.rich_html.js || '',
+                url: obj.rich_html.url || '',
+                title: obj.rich_html.title || '',
+                cover: obj.rich_html.cover || obj.rich_html.coverUrl || '',
                 summary: obj.rich_html.summary || obj.summary || obj.text || obj.content || '',
                 text: obj.rich_html.text || obj.content || obj.translationSource || ''
               });
@@ -25968,6 +26191,9 @@ async function deliverAiReply(text, limitOverride){
                 html: obj.html_card.html || '',
                 css: obj.html_card.css || '',
                 js: obj.html_card.js || '',
+                url: obj.html_card.url || '',
+                title: obj.html_card.title || '',
+                cover: obj.html_card.cover || obj.html_card.coverUrl || '',
                 summary: obj.html_card.summary || obj.summary || obj.text || obj.content || '',
                 text: obj.html_card.text || obj.content || obj.translationSource || ''
               });
@@ -26006,26 +26232,35 @@ async function deliverAiReply(text, limitOverride){
               html: obj.html || '',
               css: obj.css || '',
               js: obj.js || '',
+              url: obj.url || '',
+              title: obj.title || '',
+              cover: obj.cover || obj.coverUrl || '',
               summary: obj.summary || obj.text || obj.content || obj.reply_content || obj.description || '',
               text: obj.text || obj.content || obj.reply_content || obj.description || ''
             });
             t = 'richhtml';
           }
-          if(t === 'text' && (obj.html || obj.css || obj.js)){
+          if(t === 'text' && (obj.html || obj.css || obj.js || obj.url || obj.title || obj.cover || obj.coverUrl)){
             c = buildRichHtmlPayload({
               html: obj.html || '',
               css: obj.css || '',
               js: obj.js || '',
+              url: obj.url || '',
+              title: obj.title || '',
+              cover: obj.cover || obj.coverUrl || '',
               summary: obj.summary || obj.text || obj.content || '',
               text: obj.translationSource || obj.text || obj.content || ''
             });
             t = 'richhtml';
           }
-          if(t === 'richhtml' && !c && (obj.html || obj.css || obj.js)){
+          if(t === 'richhtml' && !c && (obj.html || obj.css || obj.js || obj.url || obj.title || obj.cover || obj.coverUrl)){
             c = buildRichHtmlPayload({
               html: obj.html || '',
               css: obj.css || '',
               js: obj.js || '',
+              url: obj.url || '',
+              title: obj.title || '',
+              cover: obj.cover || obj.coverUrl || '',
               summary: obj.summary || obj.text || obj.content || '',
               text: obj.translationSource || obj.text || obj.content || ''
             });
@@ -26035,6 +26270,9 @@ async function deliverAiReply(text, limitOverride){
               html: obj.html || '',
               css: obj.css || '',
               js: obj.js || '',
+              url: obj.url || '',
+              title: obj.title || '',
+              cover: obj.cover || obj.coverUrl || '',
               summary: obj.summary || obj.text || obj.content || '',
               text: obj.text || obj.content || obj.reply_content || obj.description || ''
             });
@@ -26127,6 +26365,21 @@ async function deliverAiReply(text, limitOverride){
         });
         rawParts = keptNarrator.concat([{ text: forcedRich, t: 'richhtml', replyTo: '', replyRole: '', translationText: '' }]);
       }
+    }
+  }
+
+  if(!rawParts.length && text){
+    var standaloneUrl = extractStandaloneWebUrl(text);
+    if(standaloneUrl){
+      rawParts = [{
+        text: buildRichHtmlPayload({
+          url: standaloneUrl,
+          title: prettyWebUrlLabel(standaloneUrl),
+          summary: prettyWebUrlLabel(standaloneUrl) || '网页卡片',
+          text: standaloneUrl
+        }),
+        t: 'richhtml'
+      }];
     }
   }
 

@@ -137,8 +137,8 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
         '只用 text / voice_message / image_message / money_packet / narrator / rich_html / recall / rename_profile / change_avatar / change_user_avatar，必要时可带 reply_to / reply_role / translation。',
         '同一轮多条纯文本请用 <msg>...</msg>、<br> 或自然换行分隔；默认一气泡一句话。别整坨发，也别把几个意思串成长句。只有极少数情绪爆发场景，才允许一整段小作文。',
         'image_message 只写画面；money_packet 只用于真钱；narrator 不是对白。',
-        'rich_html 格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"...","text":"可提取正文","translation":"整张卡片所有可见文字的完整简中译文，可选"}。',
-        'rich_html 的 html/css/js 要完整可渲染；别给空壳、空字符串、占位框、半成品，也别只写“已生成”。做不到就改回完整 text/narrator。只要输出卡片，就必须是能直接展示的完整成品。',
+        'rich_html 格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"...","text":"可提取正文","translation":"整张卡片所有可见文字的完整简中译文，可选"}；如果你想发一个真的网页链接，也可以改成 {"type":"rich_html","summary":"一句概括","url":"https://...","title":"网页标题","text":"可提取正文","translation":"整张卡片所有可见文字的完整简中译文，可选"}。',
+        'rich_html 的 html/css/js 或 url 必须能真的展示；别给空壳、空字符串、占位框、半成品，也别只写“已生成”。做不到就改回完整 text/narrator。只要输出卡片，就必须是能直接展示的完整成品。',
         '整理类卡片尽量一次到位；translation 需要翻译整张卡片所有可见文字，不要只概括。',
         '用了语音、图片、引用或特殊类型就走 JSON；世界书里的外部格式只学语义，不原样照抄。'
       ].join('\n'),
