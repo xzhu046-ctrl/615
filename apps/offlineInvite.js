@@ -99,29 +99,127 @@ function getOfflineInviteComposerPostmark(){
   return String(charName.slice(0, 8) || 'CHAR').toUpperCase() + ' / 0615';
 }
 
+function getOfflineInviteEditableRawText(node){
+  if(!node) return '';
+  return String(node.textContent || node.innerText || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function getOfflineInviteEditableText(node){
+  if(!node) return '';
+  var placeholder = String(node.getAttribute('data-placeholder') || '').trim();
+  var text = getOfflineInviteEditableRawText(node);
+  return text && text !== placeholder ? text : '';
+}
+
+function setOfflineInviteEditableText(node, value){
+  if(!node) return;
+  node.textContent = String(value || '').trim();
+  syncOfflineInviteEditableState(node);
+}
+
+function syncOfflineInviteEditableState(node){
+  if(!node) return '';
+  var placeholder = String(node.getAttribute('data-placeholder') || '').trim();
+  var rawText = getOfflineInviteEditableRawText(node);
+  var text = rawText && rawText !== placeholder ? rawText : '';
+  var isEmpty = !text;
+  node.setAttribute('data-empty', isEmpty ? 'true' : 'false');
+  if(isEmpty){
+    if(document.activeElement !== node) node.textContent = placeholder;
+  }
+  return text;
+}
+
+function handleOfflineInviteEditableFocus(evt){
+  var node = evt && evt.currentTarget ? evt.currentTarget : null;
+  if(!node) return;
+  if(String(node.getAttribute('data-empty') || '') === 'true'){
+    node.textContent = '';
+  }
+}
+
+function handleOfflineInviteEditableBlur(evt){
+  var node = evt && evt.currentTarget ? evt.currentTarget : null;
+  syncOfflineInviteEditableState(node);
+  syncOfflineInviteComposerPreview();
+}
+
+function bindOfflineInviteEditable(node){
+  if(!node || node._offlineInviteBound) return;
+  node._offlineInviteBound = true;
+  node.addEventListener('focus', handleOfflineInviteEditableFocus);
+  node.addEventListener('blur', handleOfflineInviteEditableBlur);
+  syncOfflineInviteEditableState(node);
+}
+
+function formatOfflineInviteDateTimeButtonLabel(dateValue, timeValue){
+  var dateLabel = formatOfflineInviteDraftDateLabel(dateValue);
+  var timeLabel = formatOfflineInviteDraftTimeLabel(timeValue);
+  if(!dateValue && !timeValue) return '点击填写时间';
+  if(!dateValue) return timeLabel;
+  if(!timeValue) return dateLabel + ' 选择时间';
+  return dateLabel + ' ' + timeLabel;
+}
+
+function openOfflineInviteDateTimePicker(kind){
+  var input = document.getElementById(kind === 'date' ? 'offlineInviteDateInput' : 'offlineInviteTimeInput');
+  if(!input) return;
+  if(typeof input.showPicker === 'function'){
+    try{
+      input.showPicker();
+      return;
+    }catch(e){}
+  }
+  input.click();
+}
+
+function handleOfflineInviteDateInput(){
+  syncOfflineInviteComposerPreview();
+  var timeInput = document.getElementById('offlineInviteTimeInput');
+  if(!timeInput) return;
+  setTimeout(function(){
+    openOfflineInviteDateTimePicker('time');
+  }, 36);
+}
+
+function hydrateOfflineInviteComposeAvatar(){
+  var photo = document.getElementById('offlineInviteAvatarPreview');
+  var caption = document.getElementById('offlineInvitePolaroidCaption');
+  if(caption) caption.textContent = (getCurrentUserDisplayName() || 'user') + '\n头像\n拍立得';
+  if(!photo) return;
+  photo.innerHTML = '<span class="offline-invite-compose-polaroid-fallback">' + esc(getCurrentUserDisplayName().charAt(0) || 'U') + '</span>';
+  resolveChatUserAvatarAsync(character && character.id).then(function(src){
+    var safe = String(src || '').trim();
+    if(!safe) return;
+    photo.innerHTML = '<img src="' + escAttr(safe) + '" alt="">';
+  }).catch(function(){});
+}
+
 function syncOfflineInviteComposerPreview(){
   var locationInput = document.getElementById('offlineInviteLocationInput');
   var dateInput = document.getElementById('offlineInviteDateInput');
   var timeInput = document.getElementById('offlineInviteTimeInput');
   var textInput = document.getElementById('offlineInviteInput');
-  var locationPreview = document.getElementById('offlineInviteLocationPreview');
   var datePreview = document.getElementById('offlineInviteDatePreview');
-  var timePreview = document.getElementById('offlineInviteTimePreview');
-  var messagePreview = document.getElementById('offlineInviteMessagePreview');
   var signaturePreview = document.getElementById('offlineInviteSignaturePreview');
   var formSignature = document.getElementById('offlineInviteFormSignature');
   var recipientPreview = document.getElementById('offlineInviteRecipientPreview');
   var postmarkPreview = document.getElementById('offlineInvitePostmarkPreview');
+  var timeDisplay = document.getElementById('offlineInviteTimeDisplay');
   var signatureName = getCurrentUserDisplayName();
   var charName = String((character && (character.nickname || character.name)) || 'CHAR').trim() || 'CHAR';
-  var location = String(locationInput && locationInput.value || '').trim();
+  var location = syncOfflineInviteEditableState(locationInput);
   var dateValue = String(dateInput && dateInput.value || '').trim();
   var timeValue = String(timeInput && timeInput.value || '').trim();
-  var message = String(textInput && textInput.value || '').trim();
-  if(locationPreview) locationPreview.textContent = location || '把地点写在这里';
+  var message = syncOfflineInviteEditableState(textInput);
   if(datePreview) datePreview.textContent = formatOfflineInviteDraftDateLabel(dateValue);
-  if(timePreview) timePreview.textContent = formatOfflineInviteDraftTimeLabel(timeValue);
-  if(messagePreview) messagePreview.textContent = message || '想和你一起把今天过得慢一点。你愿不愿意出来见我？';
+  if(timeDisplay) timeDisplay.textContent = formatOfflineInviteDateTimeButtonLabel(dateValue, timeValue);
+  if(!message && textInput && document.activeElement !== textInput) textInput.textContent = String(textInput.getAttribute('data-placeholder') || '点击这里写给 char 的一句话');
+  if(!location && locationInput && document.activeElement !== locationInput) locationInput.textContent = String(locationInput.getAttribute('data-placeholder') || '点击这里写地点');
   if(signaturePreview) signaturePreview.textContent = signatureName || 'USER';
   if(formSignature) formSignature.textContent = signatureName || 'USER';
   if(recipientPreview) recipientPreview.textContent = charName;
@@ -881,13 +979,18 @@ function openOfflineInviteComposer(){
   if(overlay) overlay.classList.add('open');
   if(overlay) overlay.setAttribute('data-stamp-asset', stampAsset);
   if(input){
-    input.value = '';
-    setTimeout(function(){ input.focus(); }, 40);
+    input.textContent = '';
   }
-  if(locInput) locInput.value = '';
+  if(locInput) locInput.textContent = '';
   if(dateInput) dateInput.value = schedule.date;
   if(timeInput) timeInput.value = schedule.time;
+  bindOfflineInviteEditable(input);
+  bindOfflineInviteEditable(locInput);
+  hydrateOfflineInviteComposeAvatar();
   syncOfflineInviteComposerPreview();
+  if(input){
+    setTimeout(function(){ input.focus(); }, 40);
+  }
 }
 
 function appendOfflineInviteNoticeText(role){
@@ -1129,8 +1232,8 @@ async function sendOfflineInviteFromUser(){
   var dateInput = document.getElementById('offlineInviteDateInput');
   var timeInput = document.getElementById('offlineInviteTimeInput');
   var overlay = document.getElementById('offlineInviteOverlay');
-  var text = String((input && input.value) || '').trim();
-  var location = String((locInput && locInput.value) || '').trim();
+  var text = getOfflineInviteEditableText(input);
+  var location = getOfflineInviteEditableText(locInput);
   var dateValue = String((dateInput && dateInput.value) || '').trim();
   var timeValue = String((timeInput && timeInput.value) || '').trim();
   if(!text){
