@@ -642,7 +642,30 @@ function getOfflineInviteDisplayName(role){
 }
 
 function closeOfflineInviteComposer(){
-  return;
+  var modal = document.getElementById('offlineInviteModal');
+  if(modal) modal.classList.remove('open');
+}
+
+function handleOfflineInviteComposerMask(evt){
+  var card = evt && evt.target && evt.target.closest ? evt.target.closest('.invite-compose-card') : null;
+  if(card) return;
+  closeOfflineInviteComposer();
+}
+
+function hydrateOfflineInviteComposerAvatar(){
+  var photo = document.getElementById('offlineInviteUserPhoto');
+  var label = document.getElementById('offlineInviteUserLabel');
+  var signature = document.getElementById('offlineInviteSignatureName');
+  var displayName = getCurrentUserDisplayName() || 'USER';
+  if(label) label.textContent = displayName;
+  if(signature) signature.textContent = displayName;
+  if(!photo) return;
+  photo.innerHTML = '<span class="invite-compose-polaroid-fallback">' + esc(displayName.charAt(0) || 'U') + '</span>';
+  resolveChatUserAvatarAsync(character && character.id).then(function(src){
+    var safe = String(src || '').trim();
+    if(!safe) return;
+    photo.innerHTML = '<img src="' + escAttr(safe) + '" alt="">';
+  }).catch(function(){});
 }
 
 function runOfflineInviteAction(action, msgId){
@@ -662,9 +685,27 @@ function runOfflineInviteAction(action, msgId){
 }
 
 function openOfflineInviteComposer(){
+  if(!character){
+    if(typeof toast === 'function') toast('请先选择角色');
+    return;
+  }
   closeAddonPanel();
-  if(typeof toast === 'function'){
-    toast('旧版约会邀请样式已删除，等我们重做新版');
+  var modal = document.getElementById('offlineInviteModal');
+  var locationField = document.getElementById('offlineInviteLocationField');
+  var dateField = document.getElementById('offlineInviteDateField');
+  var timeField = document.getElementById('offlineInviteTimeField');
+  var messageField = document.getElementById('offlineInviteMessageField');
+  var sub = document.getElementById('offlineInviteModalSub');
+  var schedule = buildOfflineInviteDefaultSchedule();
+  if(sub) sub.textContent = '发给 ' + getOfflineInviteDisplayName('assistant') + ' 的线下邀请。';
+  if(locationField) locationField.value = '';
+  if(dateField) dateField.value = schedule.date;
+  if(timeField) timeField.value = schedule.time;
+  if(messageField) messageField.value = '';
+  hydrateOfflineInviteComposerAvatar();
+  if(modal) modal.classList.add('open');
+  if(locationField){
+    setTimeout(function(){ locationField.focus(); }, 40);
   }
 }
 
@@ -895,6 +936,50 @@ async function handlePendingOfflineInviteReply(){
     if(genBtn) genBtn.disabled = false;
     if(sendBtn) sendBtn.disabled = false;
   }
+}
+
+async function sendOfflineInviteFromUser(){
+  if(!character){
+    if(typeof toast === 'function') toast('请先选择角色');
+    return;
+  }
+  var locationField = document.getElementById('offlineInviteLocationField');
+  var dateField = document.getElementById('offlineInviteDateField');
+  var timeField = document.getElementById('offlineInviteTimeField');
+  var messageField = document.getElementById('offlineInviteMessageField');
+  var location = String(locationField && locationField.value || '').trim();
+  var dateValue = String(dateField && dateField.value || '').trim();
+  var timeValue = String(timeField && timeField.value || '').trim();
+  var text = String(messageField && messageField.value || '').trim();
+  if(!location){
+    if(typeof toast === 'function') toast('地点也要写上呀');
+    return;
+  }
+  if(!dateValue || !timeValue){
+    if(typeof toast === 'function') toast('把时间定下来再发吧');
+    return;
+  }
+  if(!text){
+    if(typeof toast === 'function') toast('写一句邀约再发出去吧');
+    return;
+  }
+  closeOfflineInviteComposer();
+  var userWeather = await resolveOfflineInviteWeather('user', '☀︎');
+  var payload = buildOfflineInvitePayload('user', text, {
+    charId: String((character && character.id) || '').trim(),
+    charName: String((character && (character.nickname || character.name)) || '').trim(),
+    weather: userWeather.icon,
+    location: location,
+    dateLabel: formatOfflineInviteDraftDateLabel(dateValue),
+    timeLabel: formatOfflineInviteDraftTimeLabel(timeValue),
+    signatureName: getCurrentUserDisplayName(),
+    stampAsset: randomPick(OFFLINE_INVITE_STAMP_ASSETS, 'assets/邮票1.jpg'),
+    scheduledDate: dateValue,
+    scheduledTime: timeValue
+  });
+  payload.aside = '';
+  payload.mood = '';
+  await appendOfflineInviteToChat('user', payload, true);
 }
 
 function importPendingOfflineArtifacts(){
