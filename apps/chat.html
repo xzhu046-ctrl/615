@@ -2570,6 +2570,12 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 
             <div class="cs-beauty-section">
               <div class="cs-dashed-subtitle">气泡美化</div>
+              <div class="toggle-row" style="padding-top:0;margin-bottom:10px">
+                <div class="toggle-left">
+                  <div class="toggle-label">已读是否显示时间</div>
+                </div>
+                <div class="toggle-switch on" id="csReadTimeToggle" onclick="toggleReadTimeSwitch()"></div>
+              </div>
               <div>
                 <span class="cs-label">气泡 CSS</span>
                 <textarea class="cs-textarea cs-persona-textarea cs-css-editor" id="csBubbleCss" rows="10" placeholder="这里只写普通文本聊天气泡的 CSS..."></textarea>
@@ -3303,6 +3309,7 @@ var pendingPresenceShareEnabled = null;
 var pendingPresenceAutoReplyEnabled = null;
 var pendingAvatarVisionEnabled = null;
 var pendingCharAvatarAutoEnabled = null;
+var pendingReadTimeVisible = null;
 var chatExportState = null;
 var memoryEditingId = '';
 var memoryEditingType = 'diary';
@@ -7641,6 +7648,7 @@ function buildChatSettingsPatchFromCharacter(c){
     allowNarrator: c.allowNarrator !== false,
     avatarVisionEnabled: !!c.avatarVisionEnabled,
     charAvatarAutoEnabled: !!c.charAvatarAutoEnabled,
+    readTimeVisible: c.readTimeVisible !== false,
     userNameProfile: String(c.userNameProfile || ''),
     userNicknameNote: String(c.userNicknameNote || ''),
     userPersonaProfile: String(c.userPersonaProfile || ''),
@@ -7691,6 +7699,7 @@ function applyChatSettingsPatch(target, patch){
     'allowNarrator',
     'avatarVisionEnabled',
     'charAvatarAutoEnabled',
+    'readTimeVisible',
     'userNameProfile',
     'userNicknameNote',
     'userPersonaProfile',
@@ -8657,6 +8666,22 @@ function bindThemeDraftInputs(){
 
 function narratorSettingEnabled(){
   return pendingNarratorEnabled === null ? !!(character && character.allowNarrator !== false) : !!pendingNarratorEnabled;
+}
+
+function readTimeVisibilityEnabled(){
+  if(pendingReadTimeVisible !== null) return !!pendingReadTimeVisible;
+  return !character || character.readTimeVisible !== false;
+}
+
+function renderReadTimeToggle(){
+  var toggle = document.getElementById('csReadTimeToggle');
+  if(!toggle) return;
+  toggle.classList.toggle('on', readTimeVisibilityEnabled());
+}
+
+function toggleReadTimeSwitch(){
+  pendingReadTimeVisible = !readTimeVisibilityEnabled();
+  renderReadTimeToggle();
 }
 
 function toggleNarratorSwitch(){
@@ -10836,6 +10861,50 @@ function getPreviousVisibleChatEntry(entryId){
   }
   return prev;
 }
+
+function getLatestUserResumeWindow(){
+  if(!Array.isArray(chatLog) || !chatLog.length) return null;
+  var lastVisibleIdx = -1;
+  for(var i = chatLog.length - 1; i >= 0; i--){
+    var item = chatLog[i] || {};
+    if(item.hidden) continue;
+    lastVisibleIdx = i;
+    break;
+  }
+  if(lastVisibleIdx < 0) return null;
+  var latestVisible = chatLog[lastVisibleIdx] || {};
+  if(String(latestVisible.role || '') !== 'user') return null;
+  var firstUserIdx = lastVisibleIdx;
+  for(var j = lastVisibleIdx - 1; j >= 0; j--){
+    var prev = chatLog[j] || {};
+    if(prev.hidden) continue;
+    if(String(prev.role || '') !== 'user') break;
+    firstUserIdx = j;
+  }
+  var firstUser = chatLog[firstUserIdx] || latestVisible;
+  var anchor = null;
+  for(var k = firstUserIdx - 1; k >= 0; k--){
+    var prevVisible = chatLog[k] || {};
+    if(prevVisible.hidden) continue;
+    if(String(prevVisible.role || '') === 'assistant'){
+      anchor = prevVisible;
+      break;
+    }
+  }
+  if(!anchor) return null;
+  var charTs = Number(anchor.readAt || anchor.sentAt || 0) || 0;
+  var userTs = Number(firstUser.readAt || firstUser.sentAt || 0) || 0;
+  if(!charTs || !userTs || userTs <= charTs) return null;
+  return {
+    anchor: anchor,
+    firstUser: firstUser,
+    latestUser: latestVisible,
+    charTs: charTs,
+    userTs: userTs,
+    delta: userTs - charTs
+  };
+}
+
 function shouldShowTimeDivider(prevEntry, nextEntry){
   if(!nextEntry) return false;
   if(!prevEntry) return true;
@@ -10898,86 +10967,32 @@ function buildElapsedMessageSnippet(entry){
   }
 }
 function getConversationElapsedContext(){
-  var nowTs = getNowTs();
-  var latestVisible = getLastVisibleChatEntry();
-  if(!latestVisible) return '';
-  var latestTs = Number(latestVisible.sentAt || latestVisible.readAt || 0) || 0;
-  var latestIsFreshUser = !!(latestVisible && latestVisible.role === 'user' && latestTs && Math.abs(nowTs - latestTs) <= 2 * 60 * 1000);
-  var anchor = latestIsFreshUser ? getPreviousVisibleChatEntry(latestVisible.id) : latestVisible;
-  if(!anchor && latestIsFreshUser) anchor = getLastVisibleChatEntry(latestVisible.id);
-  if(!anchor) return '';
-  var lastTs = Number(anchor.sentAt || anchor.readAt || 0) || 0;
-  if(!lastTs) return '';
-  var delta = nowTs - lastTs;
+  var resumeWindow = getLatestUserResumeWindow();
+  if(!resumeWindow) return '';
+  var delta = Number(resumeWindow.delta || 0) || 0;
   if(delta < 60 * 1000) return '';
-  var lastDate = new Date(lastTs);
-  var nowDate = new Date(nowTs);
-  var dayGap = Math.floor((new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate()) - new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate())) / 86400000);
+  var lastDate = new Date(resumeWindow.charTs);
+  var userDate = new Date(resumeWindow.userTs);
+  var dayGap = Math.floor((new Date(userDate.getFullYear(), userDate.getMonth(), userDate.getDate()) - new Date(lastDate.getFullYear(), lastDate.getMonth(), lastDate.getDate())) / 86400000);
   var totalMinutes = Math.max(1, Math.floor(delta / 60000));
   var hours = Math.floor(totalMinutes / 60);
   var mins = totalMinutes % 60;
   var elapsed = hours > 0 ? (hours + '小时' + (mins ? mins + '分钟' : '')) : (totalMinutes + '分钟');
   var humanGap = describeElapsedGap(delta, dayGap);
-  var awarenessTier = dayGap >= 2
-    ? 'days'
-    : (dayGap >= 1
-      ? 'day'
-      : (hours >= 6
-        ? 'halfday'
-        : (hours >= 1
-          ? 'hours'
-          : 'minutes')));
-  var resumedAfterAssistant = !!(latestIsFreshUser && anchor.role === 'assistant');
-  var resumedAfterSystem = !!(latestIsFreshUser && anchor.role === 'system');
-  var latestSnippet = latestIsFreshUser ? buildElapsedMessageSnippet(latestVisible) : '';
-  var anchorSnippet = buildElapsedMessageSnippet(anchor);
+  var latestSnippet = buildElapsedMessageSnippet(resumeWindow.latestUser);
+  var anchorSnippet = buildElapsedMessageSnippet(resumeWindow.anchor);
   var localClock = character ? buildScheduleLocalNowContext(character) : null;
   var lines = ['【时间流逝】'];
-  if(resumedAfterAssistant){
-    lines.push('你发完上一条后，对方隔了一段现实时间才重新回到聊天。' + humanGap + '。');
-  }else if(resumedAfterSystem){
-    lines.push('上一段互动结束后，对方隔了一段现实时间才重新出现。' + humanGap + '。');
-  }else if(dayGap >= 1){
-    lines.push('距离上一轮聊天已经过去了 ' + dayGap + ' 天，' + humanGap + '，不是还停留在同一天。');
-  }else{
-    lines.push('距离上一轮聊天已经过去了 ' + elapsed + '，' + humanGap + '。');
-  }
-  lines.push('上一段参考消息时间：' + formatChatTimeDivider(lastTs));
-  lines.push('现在时间：' + formatChatTimeDivider(nowTs));
+  lines.push('你上一条可见消息到对方这次重新出现之间，现实里隔了' + elapsed + '，' + humanGap + '。');
+  lines.push('你的上一条时间：' + formatChatTimeDivider(resumeWindow.charTs));
+  lines.push('对方这次重新出现时间：' + formatChatTimeDivider(resumeWindow.userTs));
   if(localClock && localClock.user && localClock.char){
     lines.push('用户当地时间：' + String(localClock.user.nowTime || '未知') + '（' + String(localClock.user.dateKey || '未知日期') + '）');
     lines.push('char 当地时间：' + String(localClock.char.nowTime || '未知') + '（' + String(localClock.char.dateKey || '未知日期') + '）');
   }
-  lines.push('建议优先先接住“隔了多久才回”这件事，再聊新内容；别写成上一秒无缝续聊。');
-  lines.push('先根据“现在的当地时间”判断上一轮话题是不是早就过去了：早餐/早饭/上午/午饭/中午/下午茶/晚饭/晚上/睡前这种时段性内容，绝不能在时间已经过去后还当成正在发生。');
-  lines.push('如果对方隔了一小时、半天、一天、两天才回，第一句最好先接住“为什么这么久才回、现在已经几点了、上一轮那件事早就过了”这种现实时间差，再继续聊正题。');
-  lines.push('严禁把这次回复写成上一轮的无缝下一秒。你必须明确知道：现实世界里时间已经继续往前走了。');
-  if(anchorSnippet){
-    lines.push('上一段你需要接住的话题是：' + anchorSnippet);
-  }
-  if(latestSnippet){
-    lines.push('对方这次刚发来的新内容是：' + latestSnippet);
-  }
-  if(resumedAfterAssistant){
-    lines.push('这意味着你刚刚是在等对方的回音。请像活人一样感知这种“隔了很久才回”的感觉：可以有等到了、松口气、轻微在意、调侃、怨念、关心、顺着间隔补一句近况，但都要贴人设，不要 OOC。');
-  }else{
-    lines.push('请把这种时间流逝自然地体现在回应里：隔天了就要有隔天感，隔了几小时也要有“重新续上”的感觉，别把关系状态和语境当成还停在上一秒。');
-  }
-  lines.push('这不是上一秒的无缝续聊。回复时先接住这段现实时间差，再接住对方刚发来的内容；不要像双方一直停在原地只等这句回复。');
-  lines.push('只要中间已经隔开了一段现实时间，哪怕只有一两分钟，也不能把这次回复当成上一秒的无缝续聊。你的语气、情绪和接话方式里必须轻微体现你意识到了这段间隔。');
-  if(awarenessTier === 'days'){
-    lines.push('这次已经隔了至少两天。建议第一条回复先接住“这么久才回”这件事，再进入正题；尽量不要第一句完全无视这段消失时间。');
-  }else if(awarenessTier === 'day'){
-    lines.push('这次已经隔天了。建议第一条回复带出“隔了一天才续上”的感觉，不要像还停在同一天。');
-  }else if(awarenessTier === 'halfday'){
-    lines.push('这次隔了大半天。建议第一条回复自然表现出“隔了挺久才续上”，不要像秒回。');
-  }else if(awarenessTier === 'hours'){
-    lines.push('这次隔了几个小时。建议第一条回复轻微体现你知道中间过去了几个小时。');
-  }else{
-    lines.push('哪怕只隔了几分钟，也建议像真人一样先轻轻接住这段停顿，再继续聊。');
-  }
-  lines.push('不要直接忽略时间差，更不要第一句就像中间什么都没发生一样无缝往下接。');
-  lines.push('不要生硬报时，不要像系统播报；只在合适时轻轻带出这段间隔带来的情绪和语气变化。');
+  if(anchorSnippet) lines.push('你上一段停在：' + anchorSnippet);
+  if(latestSnippet) lines.push('对方这次发来：' + latestSnippet);
+  lines.push('只需要知道这中间已经隔开了一段现实时间。第一句先自然接住这段间隔，再接对方刚发来的内容；不要写成上一秒无缝续聊，也不要像系统一样生硬报时。');
   return lines.join('\n');
 }
 function makeChatEntry(role, content, type, id){
@@ -17051,7 +17066,7 @@ function addMessage(role, content, doScroll, msgType, msgId) {
     }
     main.appendChild(translateWrap);
   }
-  if(entry && entry.readAt && !isNarrator && viewRole !== 'system'){
+  if(entry && entry.readAt && !isNarrator && viewRole !== 'system' && (!character || character.readTimeVisible !== false)){
     var read = document.createElement('div');
     read.className = 'msg-read';
     read.textContent = '已读 ' + fmtReadTime(entry.readAt);
@@ -24050,6 +24065,7 @@ function openChatSettings() {
   pendingAutoSummaryEnabled = null;
   pendingAvatarVisionEnabled = null;
   pendingCharAvatarAutoEnabled = null;
+  pendingReadTimeVisible = null;
   hideParentTopbarForSettings();
   document.getElementById('chatSettings').classList.add('open');
   try{
@@ -24080,6 +24096,7 @@ function openChatSettings() {
       var innerVoicePromptInput = document.getElementById('csInnerVoicePrompt');
       if(innerVoicePromptInput) innerVoicePromptInput.value = getCurrentInnerVoicePrompt();
       document.getElementById('csNarratorToggle').classList.toggle('on', character.allowNarrator !== false);
+      pendingReadTimeVisible = character.readTimeVisible !== false;
       syncReplyLanguageButtons('csReplyLanguageGrid', character.replyLanguage || 'zh', !!character.translationEnabled);
       syncTranslationModeButtons('csTranslationModeGrid', character.translationMode || 'ondemand', !!character.translationEnabled);
       var globalThemeInput = document.getElementById('csGlobalCss');
@@ -24244,6 +24261,7 @@ function openChatSettings() {
     renderAutoSummaryToggle();
     renderAvatarVisionToggle();
     renderCharAvatarAutoToggle();
+    renderReadTimeToggle();
     loadAvatarLibraryStore(character && character.id).then(function(store){
       avatarLibraryCache = store;
       renderChatSettingsAvatarShelves();
@@ -24284,6 +24302,7 @@ function closeChatSettings() {
       pendingAutoSummaryEnabled = null;
       pendingAvatarVisionEnabled = null;
       pendingCharAvatarAutoEnabled = null;
+      pendingReadTimeVisible = null;
       pendingPresenceShareEnabled = null;
       pendingPresenceAutoReplyEnabled = null;
       loadWorldBook();
@@ -25095,6 +25114,7 @@ async function saveChatSettings() {
   var narratorEnabled = !!(document.getElementById('csNarratorToggle') && document.getElementById('csNarratorToggle').classList.contains('on'));
   var avatarVisionEnabled = pendingAvatarVisionEnabled === null ? loadAvatarVisionEnabled(character && character.id) : !!pendingAvatarVisionEnabled;
   var charAvatarAutoEnabled = pendingCharAvatarAutoEnabled === null ? loadCharAvatarAutoEnabled(character && character.id) : !!pendingCharAvatarAutoEnabled;
+  var readTimeVisible = pendingReadTimeVisible === null ? (!character || character.readTimeVisible !== false) : !!pendingReadTimeVisible;
   var globalCss = String((document.getElementById('csGlobalCss') || {}).value || '');
   var bubbleCss = String((document.getElementById('csBubbleCss') || {}).value || '');
   var headerCustomCss = String(((character && character.chatHeaderCss) || getDefaultHeaderThemeCss()) || '');
@@ -25191,6 +25211,7 @@ async function saveChatSettings() {
     }
     character.avatarVisionEnabled = !!avatarVisionEnabled;
     character.charAvatarAutoEnabled = !!charAvatarAutoEnabled;
+    character.readTimeVisible = !!readTimeVisible;
     saveAvatarVisionEnabled(character.id, !!avatarVisionEnabled);
     saveCharAvatarAutoEnabled(character.id, !!charAvatarAutoEnabled);
     character.userNameProfile = isDefault ? un : '';
@@ -25312,6 +25333,7 @@ async function saveChatSettings() {
     pendingAutoSummaryEnabled = null;
     pendingAvatarVisionEnabled = null;
     pendingCharAvatarAutoEnabled = null;
+    pendingReadTimeVisible = null;
     pendingPresenceShareEnabled = null;
     pendingPresenceAutoReplyEnabled = null;
   }
