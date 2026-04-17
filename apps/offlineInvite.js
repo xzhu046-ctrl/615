@@ -1,6 +1,14 @@
 var OFFLINE_INVITE_SNIPPET = '【约会邀请】';
 var OFFLINE_WEATHERS = ['☀︎','☁︎','⛅︎','☂︎','☃︎'];
 var OFFLINE_MOODS = ['(///v///)','(,,> <,,)','(๑´ㅂ`๑)','(｡･ω･｡)','(っ˘ڡ˘ς)','( ´ ▽ ` )'];
+var OFFLINE_INVITE_STAMP_ASSETS = [
+  'assets/邮票1.jpg',
+  'assets/邮票2.jpg',
+  'assets/邮票3.jpg',
+  'assets/邮票4.jpg',
+  'assets/邮票5.jpg',
+  'assets/邮票6.jpg'
+];
 
 function normalizeOfflineWeatherIcon(value){
   var raw = String(value || '').trim();
@@ -36,6 +44,94 @@ async function resolveOfflineInviteWeather(role, fallbackIcon){
 
 function randomPick(list, fallback){
   return Array.isArray(list) && list.length ? list[Math.floor(Math.random() * list.length)] : fallback;
+}
+
+function getOfflineInviteStampAsset(payload){
+  var raw = String(payload && payload.stampAsset || '').trim();
+  return raw || 'assets/邮票1.jpg';
+}
+
+function getOfflineInviteSignatureName(payload, role){
+  var direct = String(payload && payload.signatureName || '').trim();
+  if(direct) return direct;
+  return getOfflineInviteDisplayName(role === 'user' ? 'user' : 'assistant');
+}
+
+function buildOfflineInviteDefaultSchedule(){
+  var now = new Date();
+  var next = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  next.setMinutes(Math.ceil(next.getMinutes() / 15) * 15, 0, 0);
+  if(next.getMinutes() === 60){
+    next.setHours(next.getHours() + 1, 0, 0, 0);
+  }
+  var year = next.getFullYear();
+  var month = String(next.getMonth() + 1).padStart(2, '0');
+  var day = String(next.getDate()).padStart(2, '0');
+  var hour = String(next.getHours()).padStart(2, '0');
+  var minute = String(next.getMinutes()).padStart(2, '0');
+  return {
+    date: year + '-' + month + '-' + day,
+    time: hour + ':' + minute
+  };
+}
+
+function formatOfflineInviteDraftDateLabel(value){
+  var raw = String(value || '').trim();
+  if(!raw) return '日期待定';
+  var parts = raw.split('-');
+  if(parts.length < 3) return raw;
+  var year = Number(parts[0]) || 0;
+  var month = Number(parts[1]) || 0;
+  var day = Number(parts[2]) || 0;
+  var date = new Date(year, Math.max(0, month - 1), day);
+  var weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  return month + '月' + day + '日 ' + weekdays[date.getDay()];
+}
+
+function formatOfflineInviteDraftTimeLabel(value){
+  var raw = String(value || '').trim();
+  if(!raw) return '时间待定';
+  return raw;
+}
+
+function getOfflineInviteComposerPostmark(){
+  var charName = String((character && (character.nickname || character.name)) || 'CHAR').trim() || 'CHAR';
+  return String(charName.slice(0, 8) || 'CHAR').toUpperCase() + ' / 0615';
+}
+
+function syncOfflineInviteComposerPreview(){
+  var locationInput = document.getElementById('offlineInviteLocationInput');
+  var dateInput = document.getElementById('offlineInviteDateInput');
+  var timeInput = document.getElementById('offlineInviteTimeInput');
+  var textInput = document.getElementById('offlineInviteInput');
+  var locationPreview = document.getElementById('offlineInviteLocationPreview');
+  var datePreview = document.getElementById('offlineInviteDatePreview');
+  var timePreview = document.getElementById('offlineInviteTimePreview');
+  var messagePreview = document.getElementById('offlineInviteMessagePreview');
+  var signaturePreview = document.getElementById('offlineInviteSignaturePreview');
+  var formSignature = document.getElementById('offlineInviteFormSignature');
+  var recipientPreview = document.getElementById('offlineInviteRecipientPreview');
+  var postmarkPreview = document.getElementById('offlineInvitePostmarkPreview');
+  var signatureName = getCurrentUserDisplayName();
+  var charName = String((character && (character.nickname || character.name)) || 'CHAR').trim() || 'CHAR';
+  var location = String(locationInput && locationInput.value || '').trim();
+  var dateValue = String(dateInput && dateInput.value || '').trim();
+  var timeValue = String(timeInput && timeInput.value || '').trim();
+  var message = String(textInput && textInput.value || '').trim();
+  if(locationPreview) locationPreview.textContent = location || '把地点写在这里';
+  if(datePreview) datePreview.textContent = formatOfflineInviteDraftDateLabel(dateValue);
+  if(timePreview) timePreview.textContent = formatOfflineInviteDraftTimeLabel(timeValue);
+  if(messagePreview) messagePreview.textContent = message || '想和你一起把今天过得慢一点。你愿不愿意出来见我？';
+  if(signaturePreview) signaturePreview.textContent = signatureName || 'USER';
+  if(formSignature) formSignature.textContent = signatureName || 'USER';
+  if(recipientPreview) recipientPreview.textContent = charName;
+  if(postmarkPreview) postmarkPreview.textContent = getOfflineInviteComposerPostmark();
+}
+
+function handleOfflineInviteOverlayClick(evt){
+  var shell = evt && evt.target && evt.target.closest ? evt.target.closest('.offline-invite-compose-shell') : null;
+  if(shell) return;
+  closeOfflineInviteComposer();
 }
 
 function parseOfflineInvitePayload(content){
@@ -662,17 +758,14 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
   if(!letter) return;
   var status = String((payload && payload.status) || 'pending');
   var aside = String((payload && payload.aside) || '').trim() || '想见你';
-  var displayName = getOfflineInviteDisplayName(viewRole === 'user' ? 'user' : 'assistant');
+  var displayName = getOfflineInviteSignatureName(payload, viewRole === 'user' ? 'user' : 'assistant');
   var mood = String((payload && payload.mood) || '').trim() || '想你';
   var location = String((payload && payload.location) || '').trim() || '待定地点';
   var showActions = canRespond && viewRole !== 'user';
-  var showMood = viewRole === 'user';
-  var openingText = viewRole === 'user'
-    ? '给你偷偷塞来一张小小邀约单，如果你也想见我，就和我一起去赴约吧，想和你一起过一个开心的下午'
-    : String((payload && payload.content) || '').trim() || '想和你认真见一面';
-  var popupText = viewRole === 'user'
-    ? String((payload && payload.content) || '').trim()
-    : aside;
+  var showMood = false;
+  var openingText = String((payload && payload.content) || '').trim() || '想和你认真见一面';
+  var popupText = viewRole === 'user' ? '' : aside;
+  var stampAsset = getOfflineInviteStampAsset(payload);
   letter.innerHTML = ''
     + '<div class="offline-invite-modal-weather">' + esc(payload && payload.weather || '☀︎') + '</div>'
     + '<button class="offline-invite-modal-heart" type="button" data-offline-modal-close="1" aria-label="关闭邀请"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"></path></svg></button>'
@@ -685,6 +778,7 @@ function openOfflineInviteModal(msgId, payload, viewRole, canRespond){
     + (popupText ? '<div class="offline-invite-modal-aside-pop"></div>' : '')
     + '<div class="offline-invite-modal-signoff">With love,</div>'
     + '<div class="offline-invite-modal-signature">' + esc(displayName) + '</div>'
+    + '<div class="offline-invite-modal-stamp' + (stampAsset ? ' show' : '') + '">' + (stampAsset ? ('<img src="' + escAttr(stampAsset) + '" alt="">') : '') + '</div>'
     + '<div class="offline-invite-modal-letter-flower"><img src="assets/floral-border-2.png" alt=""></div>'
     + (showActions ? '<div class="offline-invite-modal-actions">'
     + '<button class="offline-action-btn' + (status !== 'pending' ? ' disabled' : '') + '" type="button" data-offline-action="reject">×</button>'
@@ -776,14 +870,24 @@ function openOfflineInviteComposer(){
   }
   closeAddonPanel();
   var overlay = document.getElementById('offlineInviteOverlay');
-  if(overlay) overlay.classList.add('open');
   var input = document.getElementById('offlineInviteInput');
   var locInput = document.getElementById('offlineInviteLocationInput');
+  var dateInput = document.getElementById('offlineInviteDateInput');
+  var timeInput = document.getElementById('offlineInviteTimeInput');
+  var stampPreview = document.getElementById('offlineInviteStampPreview');
+  var schedule = buildOfflineInviteDefaultSchedule();
+  var stampAsset = randomPick(OFFLINE_INVITE_STAMP_ASSETS, 'assets/邮票1.jpg');
+  if(stampPreview) stampPreview.src = stampAsset;
+  if(overlay) overlay.classList.add('open');
+  if(overlay) overlay.setAttribute('data-stamp-asset', stampAsset);
   if(input){
     input.value = '';
     setTimeout(function(){ input.focus(); }, 40);
   }
   if(locInput) locInput.value = '';
+  if(dateInput) dateInput.value = schedule.date;
+  if(timeInput) timeInput.value = schedule.time;
+  syncOfflineInviteComposerPreview();
 }
 
 function appendOfflineInviteNoticeText(role){
@@ -1022,10 +1126,23 @@ async function sendOfflineInviteFromUser(){
   }
   var input = document.getElementById('offlineInviteInput');
   var locInput = document.getElementById('offlineInviteLocationInput');
+  var dateInput = document.getElementById('offlineInviteDateInput');
+  var timeInput = document.getElementById('offlineInviteTimeInput');
+  var overlay = document.getElementById('offlineInviteOverlay');
   var text = String((input && input.value) || '').trim();
   var location = String((locInput && locInput.value) || '').trim();
+  var dateValue = String((dateInput && dateInput.value) || '').trim();
+  var timeValue = String((timeInput && timeInput.value) || '').trim();
   if(!text){
     toast('写一句邀约再发出去吧');
+    return;
+  }
+  if(!location){
+    toast('地点也要写上呀');
+    return;
+  }
+  if(!dateValue || !timeValue){
+    toast('把时间也定下来再发吧');
     return;
   }
   closeOfflineInviteComposer();
@@ -1034,9 +1151,16 @@ async function sendOfflineInviteFromUser(){
     charId: String((character && character.id) || '').trim(),
     charName: String((character && (character.nickname || character.name)) || '').trim(),
     weather: userWeather.icon,
-    location: location || (((character && (character.nickname || character.name)) || '对方') + '方便出现的地方')
+    location: location,
+    dateLabel: formatOfflineInviteDraftDateLabel(dateValue),
+    timeLabel: formatOfflineInviteDraftTimeLabel(timeValue),
+    signatureName: getCurrentUserDisplayName(),
+    stampAsset: String(overlay && overlay.getAttribute('data-stamp-asset') || '').trim() || randomPick(OFFLINE_INVITE_STAMP_ASSETS, 'assets/邮票1.jpg'),
+    scheduledDate: dateValue,
+    scheduledTime: timeValue
   });
   payload.aside = '';
+  payload.mood = '';
   await appendOfflineInviteToChat('user', payload, true);
 }
 
@@ -1089,7 +1213,8 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var sideClass = viewRole === 'user' ? ' from-user' : ' from-ai';
   var badgeClass = viewRole === 'user' ? ' right' : ' left';
   var clipId = 'offlineEnvelopeClip' + String(msgId || 'default').replace(/[^a-zA-Z0-9_-]/g, '');
-  var displayName = getOfflineInviteDisplayName(viewRole === 'user' ? 'user' : 'assistant');
+  var displayName = getOfflineInviteSignatureName(data, viewRole === 'user' ? 'user' : 'assistant');
+  var stampAsset = getOfflineInviteStampAsset(data);
   bubble.innerHTML = '<div class="offline-bubble-shell' + sideClass + '">'
     + '<div class="offline-bubble-flower"><img src="assets/floral-border-1.png" alt=""></div>'
     + '<div class="offline-bubble-paper back"></div>'
@@ -1098,6 +1223,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     + '<div class="offline-envelope">'
     + buildOfflineInviteEnvelopeSvg(clipId)
     + '<div class="offline-envelope-name">' + esc(displayName) + '</div>'
+    + '<div class="offline-envelope-stamp' + (stampAsset ? ' show' : '') + '">' + (stampAsset ? ('<img src="' + escAttr(stampAsset) + '" alt="">') : '') + '</div>'
     + '<div class="offline-envelope-avatar' + badgeClass + '">' + esc(getOfflineInviteAvatarFallback(viewRole === 'user' ? 'user' : 'assistant')) + '</div>'
     + '</div>'
     + '</div>'
