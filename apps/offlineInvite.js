@@ -824,10 +824,12 @@ function hydrateOfflineInviteComposerAvatar(){
   var displayName = getCurrentUserDisplayName() || 'USER';
   if(label) label.textContent = displayName;
   if(!photo) return;
+  photo.style.backgroundImage = '';
   photo.innerHTML = '<span class="invite-compose-polaroid-fallback">' + esc(displayName.charAt(0) || 'U') + '</span>';
   resolveChatUserAvatarAsync(character && character.id).then(function(src){
     var safe = String(src || '').trim();
     if(!safe) return;
+    photo.style.backgroundImage = 'url(' + JSON.stringify(safe) + ')';
     photo.innerHTML = '<img src="' + escAttr(safe) + '" alt="">';
   }).catch(function(){});
 }
@@ -1190,15 +1192,41 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var title = viewRole === 'user' ? 'Sent Invite' : 'Incoming Invite';
   var statusLabel = status === 'accepted' ? 'Accepted' : (status === 'rejected' ? 'Rejected' : 'Pending');
   var disabled = status !== 'pending';
-  bubble.innerHTML = '<div class="offline-invite-plain">'
+  var timeText = esc([String(data.dateLabel || '').trim(), String(data.timeLabel || '').trim()].filter(Boolean).join(' · ') || '待定时间');
+  var locationText = esc(String(data.location || '').trim() || '待定地点');
+  if(viewRole === 'user'){
+    bubble.innerHTML = '<div class="offline-invite-sent">'
+      + '<div class="offline-invite-sent-card">'
+      + '<div class="offline-invite-sent-kicker">' + esc(title) + '</div>'
+      + '<div class="offline-invite-sent-meta">'
+      + '<div class="offline-invite-sent-line">' + timeText + '</div>'
+      + '<div class="offline-invite-sent-line">' + locationText + '</div>'
+      + '</div>'
+      + '</div>'
+      + '<div class="offline-invite-sent-seal"><span class="offline-invite-sent-seal-fallback">' + esc((getCurrentUserDisplayName() || 'U').charAt(0) || 'U') + '</span></div>'
+      + '</div>';
+    var seal = bubble.querySelector('.offline-invite-sent-seal');
+    if(seal){
+      resolveChatUserAvatarAsync(character && character.id).then(function(src){
+        var safe = String(src || '').trim();
+        if(!safe) return;
+        seal.innerHTML = '<img src="' + escAttr(safe) + '" alt="">';
+        seal.style.backgroundImage = 'url(' + JSON.stringify(safe) + ')';
+        seal.style.backgroundSize = 'cover';
+        seal.style.backgroundPosition = 'center';
+      }).catch(function(){});
+    }
+    return;
+  }
+  bubble.innerHTML = '<div class="offline-invite-incoming">'
     + '<div class="offline-invite-plain-head">'
     + '<div class="offline-invite-plain-title">' + esc(title) + '</div>'
     + '<div class="offline-invite-plain-status' + (disabled ? ' is-done' : '') + '">' + esc(statusLabel) + '</div>'
     + '</div>'
     + '<div class="offline-invite-plain-body">' + esc(String(data.content || '').trim() || '约会邀请') + '</div>'
     + '<div class="offline-invite-plain-meta">'
-    + '<div class="offline-invite-plain-row"><strong>Time</strong>' + esc([String(data.dateLabel || '').trim(), String(data.timeLabel || '').trim()].filter(Boolean).join(' ' ) || '待定') + '</div>'
-    + '<div class="offline-invite-plain-row"><strong>At</strong>' + esc(String(data.location || '').trim() || '待定地点') + '</div>'
+    + '<div class="offline-invite-plain-row"><strong>Time</strong>' + timeText + '</div>'
+    + '<div class="offline-invite-plain-row"><strong>At</strong>' + locationText + '</div>'
     + '</div>'
     + (canRespond ? '<div class="offline-invite-plain-actions">'
       + '<button class="offline-invite-plain-btn" type="button" data-offline-action="reject"' + (disabled ? ' disabled' : '') + '>Pass</button>'
