@@ -1197,6 +1197,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var title = viewRole === 'user' ? 'SENT INVITE' : 'Incoming Invite';
   var statusLabel = status === 'accepted' ? 'Accepted' : (status === 'rejected' ? 'Rejected' : 'Pending');
   var disabled = status !== 'pending';
+  var statusTone = status === 'accepted' ? ' is-accepted' : (status === 'rejected' ? ' is-rejected' : ' is-pending');
   var cleanDateLabel = stripOfflineInviteWeekdayLabel(data.dateLabel || '');
   var timeText = esc([cleanDateLabel, String(data.timeLabel || '').trim()].filter(Boolean).join(' · ') || '待定时间');
   var locationText = esc(String(data.location || '').trim() || '待定地点');
@@ -1204,11 +1205,11 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     bubble.innerHTML = '<div class="offline-invite-plain sent">'
       + '<div class="offline-invite-plain-head">'
       + '<div class="offline-invite-plain-title is-sent">' + esc(title) + '</div>'
-      + '<div class="offline-invite-plain-status' + (disabled ? ' is-done' : '') + '">' + esc(statusLabel) + '</div>'
+      + '<div class="offline-invite-plain-status is-dot' + statusTone + '" title="' + escAttr(statusLabel) + '" aria-label="' + escAttr(statusLabel) + '"></div>'
       + '</div>'
       + '<div class="offline-invite-plain-meta">'
-      + '<div class="offline-invite-plain-row"><strong>Time</strong>' + timeText + '</div>'
-      + '<div class="offline-invite-plain-row"><strong>At</strong>' + locationText + '</div>'
+      + '<div class="offline-invite-plain-row is-plain">' + timeText + '</div>'
+      + '<div class="offline-invite-plain-row is-plain">' + locationText + '</div>'
       + '</div>'
       + '<div class="offline-invite-plain-avatar"><span class="offline-invite-plain-avatar-fallback">' + esc((getCurrentUserDisplayName() || 'U').charAt(0) || 'U') + '</span><div class="offline-invite-plain-avatar-label">' + esc(getCurrentUserDisplayName() || 'USER') + '</div></div>'
       + '</div>';
