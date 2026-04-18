@@ -2206,13 +2206,19 @@ function normalizeImportedRegexScript(raw, fallbackName) {
     } : null;
   }
   if (typeof raw === 'object') {
-    var name = normalizeImportedLabel(raw.scriptName || raw.name || raw.label || raw.id, fallbackName || '导入脚本');
-    var scriptName = normalizeImportedLabel(raw.scriptName || raw.name || raw.label || raw.id, name);
-    var richText = raw.text || raw.content || raw.script || raw.pattern || '';
-    var findRegex = String(raw.findRegex || raw.find_regex || '').trim();
-    var replaceString = String(raw.replaceString || raw.replace_string || '').trim();
-    var placement = Array.isArray(raw.placement) ? raw.placement.slice(0, 12) : [];
-    var trimStrings = Array.isArray(raw.trimStrings) ? raw.trimStrings.slice(0, 12) : [];
+    var embedded = null;
+    var embeddedText = String(raw.text || raw.content || raw.script || raw.pattern || '').trim();
+    if (embeddedText && embeddedText.charAt(0) === '{') {
+      try { embedded = JSON.parse(embeddedText); } catch (err) {}
+    }
+    var source = embedded && typeof embedded === 'object' ? Object.assign({}, embedded, raw || {}) : raw;
+    var name = normalizeImportedLabel(source.scriptName || source.name || source.label || source.id, fallbackName || '导入脚本');
+    var scriptName = normalizeImportedLabel(source.scriptName || source.name || source.label || source.id, name);
+    var richText = source.text || source.content || source.script || source.pattern || '';
+    var findRegex = String(source.findRegex || source.find_regex || '').trim();
+    var replaceString = String(source.replaceString || source.replace_string || '').trim();
+    var placement = Array.isArray(source.placement) ? source.placement.slice(0, 12) : [];
+    var trimStrings = Array.isArray(source.trimStrings) ? source.trimStrings.slice(0, 12) : [];
     if (!richText && (raw.findRegex || raw.replaceString || raw.scriptName || raw.placement)) {
       richText = JSON.stringify({
         scriptName: scriptName,
@@ -2220,32 +2226,32 @@ function normalizeImportedRegexScript(raw, fallbackName) {
         replaceString: replaceString,
         trimStrings: trimStrings,
         placement: placement,
-        disabled: !!raw.disabled,
-        markdownOnly: !!raw.markdownOnly,
-        promptOnly: !!raw.promptOnly,
-        runOnEdit: !!raw.runOnEdit,
-        substituteRegex: raw.substituteRegex,
-        minDepth: raw.minDepth,
-        maxDepth: raw.maxDepth
+        disabled: !!source.disabled,
+        markdownOnly: !!source.markdownOnly,
+        promptOnly: !!source.promptOnly,
+        runOnEdit: !!source.runOnEdit,
+        substituteRegex: source.substituteRegex,
+        minDepth: source.minDepth,
+        maxDepth: source.maxDepth
       }, null, 2);
     }
-    if (!richText) richText = JSON.stringify(raw, null, 2);
+    if (!richText) richText = JSON.stringify(source, null, 2);
     richText = clampImportedText(richText, 8000);
     return richText ? {
-      id: String(raw.id || '').trim(),
+      id: String(source.id || '').trim(),
       name: name,
       scriptName: scriptName,
       findRegex: findRegex,
       replaceString: replaceString,
       trimStrings: trimStrings,
       placement: placement,
-      disabled: !!raw.disabled,
-      markdownOnly: !!raw.markdownOnly,
-      promptOnly: !!raw.promptOnly,
-      runOnEdit: !!raw.runOnEdit,
-      substituteRegex: Number(raw.substituteRegex || 0) || 0,
-      minDepth: Number(raw.minDepth || 0) || 0,
-      maxDepth: Number(raw.maxDepth || 0) || 0,
+      disabled: !!source.disabled,
+      markdownOnly: !!source.markdownOnly,
+      promptOnly: !!source.promptOnly,
+      runOnEdit: !!source.runOnEdit,
+      substituteRegex: Number(source.substituteRegex || 0) || 0,
+      minDepth: Number(source.minDepth || 0) || 0,
+      maxDepth: Number(source.maxDepth || 0) || 0,
       text: richText
     } : null;
   }
@@ -2522,9 +2528,14 @@ function extractImportedAssetEntriesFromText(text, path) {
 function collectImportedMetadataFromNode(node, path, bucket, depth) {
   if (depth > 6 || node == null) return;
   if (typeof node === 'string') {
-    extractImportedAssetEntriesFromText(node, path).forEach(function(entry) {
-      bucket.images.push(entry);
-    });
+    var pathHint = importPathHint(path);
+    var allowAssetScan = /character_book|world_info|entries\[\d+\]\.(content|comment|title)|extensions|avatar|meme|sticker|emoji/.test(pathHint)
+      || guessImportedResourceKind(path, node) !== 'unknown';
+    if (allowAssetScan) {
+      extractImportedAssetEntriesFromText(node, path).forEach(function(entry) {
+        bucket.images.push(entry);
+      });
+    }
     splitRuleBlocksFromText(node).forEach(function(block) {
       bucket.rules.push(block);
     });

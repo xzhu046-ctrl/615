@@ -1386,7 +1386,7 @@ padding:14px 14px 12px 18px;box-shadow:none;position:relative;font-family:'Couri
 .imported-regex-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .imported-regex-btn{width:28px;height:28px;border:2px solid #111;border-radius:10px;background:#fff;color:#111;font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:2px 2px 0 rgba(17,17,17,.14)}
 .imported-regex-btn.delete{background:#111;color:#fff}
-.imported-regex-editor{position:fixed;inset:0;z-index:420;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(255,255,255,.28)}
+.imported-regex-editor{position:fixed;inset:0;z-index:420;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(255,255,255,.28);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
 .imported-regex-editor.open{display:flex}
 .imported-regex-editor-card{width:min(430px,94vw);max-height:min(82vh,760px);overflow:auto;border:2px solid #111;border-radius:0;background:#fff;box-shadow:10px 10px 0 #111;padding:18px 16px 16px}
 .imported-regex-editor-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
@@ -7510,13 +7510,19 @@ function normalizeImportedRuleBlockMeta(raw){
 
 function normalizeImportedRegexScriptMeta(raw){
   if(!raw) return null;
+  var embedded = null;
+  var embeddedText = String(raw && (raw.text || raw.content || raw.script || raw.pattern) || '').trim();
+  if(embeddedText && embeddedText.charAt(0) === '{'){
+    try{ embedded = JSON.parse(embeddedText); }catch(err){}
+  }
+  var source = embedded && typeof embedded === 'object' ? Object.assign({}, embedded, raw || {}) : raw;
   var name = String((raw && (raw.name || raw.scriptName || raw.label || raw.id)) || '').replace(/\s+/g, ' ').trim() || '导入脚本';
-  var scriptName = String((raw && (raw.scriptName || raw.name || raw.label || raw.id)) || name).replace(/\s+/g, ' ').trim() || name;
-  var findRegex = String(raw && (raw.findRegex || raw.find_regex) || '').trim();
-  var replaceString = String(raw && (raw.replaceString || raw.replace_string) || '').trim();
-  var trimStrings = Array.isArray(raw && raw.trimStrings) ? raw.trimStrings.map(function(v){ return String(v || '').trim(); }).filter(Boolean).slice(0, 12) : [];
-  var placement = Array.isArray(raw && raw.placement) ? raw.placement.map(function(v){ return Number(v) || 0; }).slice(0, 12) : [];
-  var regexText = raw && raw.text;
+  var scriptName = String((source && (source.scriptName || source.name || source.label || source.id)) || name).replace(/\s+/g, ' ').trim() || name;
+  var findRegex = String(source && (source.findRegex || source.find_regex) || '').trim();
+  var replaceString = String(source && (source.replaceString || source.replace_string) || '').trim();
+  var trimStrings = Array.isArray(source && source.trimStrings) ? source.trimStrings.map(function(v){ return String(v || '').trim(); }).filter(Boolean).slice(0, 12) : [];
+  var placement = Array.isArray(source && source.placement) ? source.placement.map(function(v){ return Number(v) || 0; }).slice(0, 12) : [];
+  var regexText = source && source.text;
   if(!regexText && raw && typeof raw === 'object' && (findRegex || replaceString || scriptName || placement.length)){
     regexText = JSON.stringify({
       scriptName: scriptName,
@@ -7524,32 +7530,32 @@ function normalizeImportedRegexScriptMeta(raw){
       replaceString: replaceString,
       trimStrings: trimStrings,
       placement: placement,
-      disabled: !!raw.disabled,
-      markdownOnly: !!raw.markdownOnly,
-      promptOnly: !!raw.promptOnly,
-      runOnEdit: !!raw.runOnEdit,
-      substituteRegex: raw.substituteRegex,
-      minDepth: raw.minDepth,
-      maxDepth: raw.maxDepth
+      disabled: !!source.disabled,
+      markdownOnly: !!source.markdownOnly,
+      promptOnly: !!source.promptOnly,
+      runOnEdit: !!source.runOnEdit,
+      substituteRegex: source.substituteRegex,
+      minDepth: source.minDepth,
+      maxDepth: source.maxDepth
     }, null, 2);
   }
-  var text = sanitizeImportedMetaText(raw && (regexText || raw.content || raw.script || raw.pattern) || raw, 8000);
+  var text = sanitizeImportedMetaText(source && (regexText || source.content || source.script || source.pattern) || source, 8000);
   if(!text && !findRegex && !replaceString) return null;
   return {
-    id: String(raw && raw.id || '').trim(),
+    id: String(source && source.id || '').trim(),
     name: name,
     scriptName: scriptName,
     findRegex: findRegex,
     replaceString: replaceString,
     trimStrings: trimStrings,
     placement: placement,
-    disabled: !!(raw && raw.disabled),
-    markdownOnly: !!(raw && raw.markdownOnly),
-    promptOnly: !!(raw && raw.promptOnly),
-    runOnEdit: !!(raw && raw.runOnEdit),
-    substituteRegex: Number(raw && raw.substituteRegex || 0) || 0,
-    minDepth: Number(raw && raw.minDepth || 0) || 0,
-    maxDepth: Number(raw && raw.maxDepth || 0) || 0,
+    disabled: !!(source && source.disabled),
+    markdownOnly: !!(source && source.markdownOnly),
+    promptOnly: !!(source && source.promptOnly),
+    runOnEdit: !!(source && source.runOnEdit),
+    substituteRegex: Number(source && source.substituteRegex || 0) || 0,
+    minDepth: Number(source && source.minDepth || 0) || 0,
+    maxDepth: Number(source && source.maxDepth || 0) || 0,
     text: text
   };
 }
