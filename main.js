@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-18T11:11:24Z';
+const APP_BUILD_ID = '2026-04-18T11:16:11Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -4779,8 +4779,7 @@ function buildAvatarFrameImg(className, url, styleText){
   classes.push('avatar-frame-inline');
   return ''
     + '<span class="avatar-frame-stack" aria-hidden="true"' + (styleText ? ' style="' + escapeHtmlAttr(styleText) + '"' : '') + '>'
-    + '<span class="avatar-frame-fallback-wrap">' + buildAvatarFrameFallbackMarkup(safeUrl, '', '') + '</span>'
-    + '<img class="' + escapeHtmlAttr(classes.join(' ').trim()) + '" src="' + escapeHtmlAttr(renderSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.display=\'none\'">'
+    + '<img class="' + escapeHtmlAttr(classes.join(' ').trim()) + '" src="' + escapeHtmlAttr(renderSrc) + '" alt="" loading="lazy" decoding="async" draggable="false" referrerpolicy="no-referrer" onerror="this.remove()">'
     + '</span>';
 }
 
@@ -5369,9 +5368,13 @@ function renderTopFrameChoices(){
       + '</button>';
   }).join('');
   host.querySelectorAll('.frame-chip').forEach((button)=>{
-    button.addEventListener('click', ()=>{
+    var pick = function(evt){
+      if(evt && evt.preventDefault) evt.preventDefault();
+      if(evt && evt.stopPropagation) evt.stopPropagation();
       pickTopFrame(button.getAttribute('data-frame-url') || '');
-    });
+    };
+    button.addEventListener('click', pick);
+    button.addEventListener('pointerup', pick);
   });
 }
 
@@ -5422,6 +5425,7 @@ function saveTopFrame(){
       else localStorage.removeItem(key);
     }catch(e){}
   }
+  showHomeToast(nextUrl ? '头像框已保存' : '头像框已取消');
   closeTopFrameEditor();
 }
 
