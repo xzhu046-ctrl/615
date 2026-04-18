@@ -12683,35 +12683,68 @@ function buildImportedAuthorRulesPrompt(){
   return lines.join('\n');
 }
 
-function buildImportedRegexPrompt(){
-  if(!(character && character.importedRegexScripts && character.importedRegexScripts.length && character.regexRulesEnabled)) return '';
-  var enabledScripts = character.importedRegexScripts.map(normalizeImportedRegexScriptMeta).filter(function(entry){
-    return entry && !entry.disabled;
-  });
-  if(!enabledScripts.length) return '';
-  var lines = [
-    '【正则 / 脚本参考】',
-    '下面这些是角色卡里带来的正则、脚本或格式约束，只当成补充风格线索。',
-    '不要输出代码，不要逐字复述这些脚本，也不要把它们当成要发给用户看的正文。'
-  ];
-  enabledScripts.slice(0, 8).forEach(function(entry, idx){
-    var title = String(entry.scriptName || entry.name || ('导入脚本 ' + (idx + 1))).trim();
-    var bits = [];
-    if(String(entry.findRegex || '').trim()) bits.push('查找：' + String(entry.findRegex || '').trim());
-    if(String(entry.replaceString || '').trim()) bits.push('替换：' + String(entry.replaceString || '').trim());
-    if(Array.isArray(entry.trimStrings) && entry.trimStrings.length) bits.push('裁剪：' + entry.trimStrings.join(' / '));
-    if(Array.isArray(entry.placement) && entry.placement.length) bits.push('位置：' + entry.placement.join(','));
-    if(entry.markdownOnly) bits.push('仅 Markdown');
-    if(entry.promptOnly) bits.push('仅 Prompt');
-    if(entry.runOnEdit) bits.push('编辑时运行');
-    if(!bits.length){
-      var text = sanitizeImportedMetaText(entry.text || '', 1000);
-      if(text) bits.push(text);
+function parseImportedGreetingRegex(entry){
+  var pattern = String(entry && entry.findRegex || '').trim();
+  if(!pattern) return null;
+  var source = pattern;
+  var flags = 'g';
+  var slashMatch = pattern.match(/^\/([\s\S]*)\/([a-z]*)$/i);
+  if(slashMatch){
+    source = String(slashMatch[1] || '');
+    flags = String(slashMatch[2] || '').replace(/[^dgimsuvy]/g, '');
+    if(flags.indexOf('g') === -1) flags += 'g';
+  }
+  try{
+    return new RegExp(source, flags || 'g');
+  }catch(err){
+    try{
+      return new RegExp(pattern, 'g');
+    }catch(innerErr){
+      return null;
     }
-    if(!bits.length) return;
-    lines.push('【' + title + '】\n' + bits.join('\n'));
+  }
+}
+
+function getEnabledImportedGreetingRegexScripts(){
+  if(!(character && character.importedRegexScripts && character.importedRegexScripts.length && character.regexRulesEnabled)) return [];
+  return character.importedRegexScripts
+    .map(normalizeImportedRegexScriptMeta)
+    .filter(function(entry){ return entry && !entry.disabled && String(entry.findRegex || '').trim(); });
+}
+
+function applyImportedRegexToGreetingText(text){
+  var content = String(text || '');
+  if(!content) return '';
+  var scripts = getEnabledImportedGreetingRegexScripts();
+  if(!scripts.length) return content;
+  var next = content;
+  scripts.forEach(function(entry){
+    var regex = parseImportedGreetingRegex(entry);
+    if(!regex) return;
+    try{
+      next = String(next).replace(regex, String(entry.replaceString || ''));
+      if(Array.isArray(entry.trimStrings) && entry.trimStrings.length){
+        entry.trimStrings.forEach(function(token){
+          var safe = String(token || '');
+          if(!safe) return;
+          next = next.split(safe).join('');
+        });
+      }
+    }catch(err){}
   });
-  return lines.join('\n');
+  return String(next || '').trim();
+}
+
+function getGreetingVariants(applyRegex){
+  if(!character) return [];
+  var all = [];
+  if (character.first_mes) all.push(character.first_mes);
+  if (Array.isArray(character.alternate_greetings)) all = all.concat(character.alternate_greetings);
+  all = all.map(function(item){ return String(item || '').trim(); }).filter(Boolean);
+  if(applyRegex !== false){
+    all = all.map(applyImportedRegexToGreetingText).filter(Boolean);
+  }
+  return all;
 }
 
 function normalizeReplyHint(hint){
@@ -15719,9 +15752,7 @@ function getGreeting() {
     var discovered = String(localStorage.getItem(discoveredKey(character.id)) || '') === '1';
     if(!discovered) return '';
   }
-  var all = [];
-  if (character.first_mes) all.push(character.first_mes);
-  if (Array.isArray(character.alternate_greetings)) all = all.concat(character.alternate_greetings);
+  var all = getGreetingVariants(true);
   if (!all.length) return '';
   var idx = curGreetingIdx;
   return all[Math.min(idx, all.length - 1)] || '';
@@ -15746,9 +15777,7 @@ function isLikelyStrayGreetingHistory(history){
 
 function getPromptGreeting(){
   if(!character) return '';
-  var all = [];
-  if (character.first_mes) all.push(character.first_mes);
-  if (Array.isArray(character.alternate_greetings)) all = all.concat(character.alternate_greetings);
+  var all = getGreetingVariants(true);
   if (!all.length) return '';
   var idx = curGreetingIdx;
   return all[Math.min(idx, all.length - 1)] || '';
@@ -15819,8 +15848,6 @@ function buildSystemPrompt() {
   if(memePrompt) parts.push(memePrompt);
   var importedAuthorRulesPrompt = buildImportedAuthorRulesPrompt();
   if(importedAuthorRulesPrompt) parts.push(importedAuthorRulesPrompt);
-  var importedRegexPrompt = buildImportedRegexPrompt();
-  if(importedRegexPrompt) parts.push(importedRegexPrompt);
   var elapsedContext = getConversationElapsedContext();
   if(elapsedContext) parts.push(elapsedContext);
   var recentSystemEvents = buildRecentSystemEventsPrompt(2);
@@ -25772,9 +25799,7 @@ function closeChatSettings() {
 function populateGreetings() {
   var list = document.getElementById('csGreetingList');
   if (!character) { list.innerHTML = '<div style="font-size:12px;color:var(--g)">未加载角色</div>'; return; }
-  var all = [];
-  if (character.first_mes) all.push(character.first_mes);
-  if (Array.isArray(character.alternate_greetings)) all = all.concat(character.alternate_greetings);
+  var all = getGreetingVariants(true);
   if (!all.length) { list.innerHTML = '<div style="font-size:12px;color:var(--g)">卡里没有开场白</div>'; return; }
   list.innerHTML = all.map(function(g, i) {
     return '<div class="g-item' + (i === curGreetingIdx ? ' active-g' : '') + '" onclick="pickGreeting(' + i + ')" data-gi="' + i + '">' +
