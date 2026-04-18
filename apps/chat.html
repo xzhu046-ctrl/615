@@ -12,9 +12,9 @@
 <script src="../metadataStore.js?v=2026-04-08T03:43:00Z"></script>
 <script src="../scheduleShared.js?v=2026-04-08T03:43:00Z"></script>
 <script src="../presenceShared.js?v=2026-04-08T03:43:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-18T02:30:36Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-18T11:02:31Z"></script>
 <script src="../sunnySupport.js?v=2026-04-16T08:32:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-18T02:30:36Z"></script>
+<script src="offlineInvite.js?v=2026-04-18T11:02:31Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -14056,11 +14056,12 @@ function findPendingCharReactionTarget(){
   return null;
 }
 
-async function attachCharReactionToLatestUserMessage(replySeed){
+async function attachCharReactionToLatestUserMessage(replySeed, preferredEmoji){
   var target = findPendingCharReactionTarget();
   if(!target) return false;
-  if(Math.random() >= 0.26) return false;
-  target.charReactionEmoji = chooseCharReactionEmojiForReply(replySeed || target.content || '');
+  var chosen = normalizeCharReactionDirectiveEmoji(preferredEmoji || '');
+  if(!chosen) return false;
+  target.charReactionEmoji = chosen;
   rerenderChatLogPreserveViewport();
   await saveChat(true);
   return true;
@@ -14073,6 +14074,24 @@ function extractHeaderStatusDirective(raw){
   var status = sanitizeHeaderStatusText(match[1] || '');
   var stripped = source.replace(match[0], '').replace(/\n{3,}/g, '\n\n').trim();
   return { text: stripped, status: status };
+}
+
+function normalizeCharReactionDirectiveEmoji(value){
+  var txt = String(value || '').trim();
+  if(!txt) return '';
+  var found = Array.from(txt).filter(function(ch){
+    return /\p{Extended_Pictographic}/u.test(ch) || /\p{Emoji_Presentation}/u.test(ch);
+  });
+  return found.length ? found.slice(0, 2).join('') : '';
+}
+
+function extractCharReactionDirective(raw){
+  var source = String(raw == null ? '' : raw);
+  var match = source.match(/\[\[\s*(?:表情|反应|reaction)\s*[:：]\s*([^[\]]+?)\s*\]\]/i);
+  if(!match) return { text: source, emoji: '' };
+  var emoji = normalizeCharReactionDirectiveEmoji(match[1] || '');
+  var stripped = source.replace(match[0], '').replace(/\n{3,}/g, '\n\n').trim();
+  return { text: stripped, emoji: emoji };
 }
 
 function updateModelLabel() {
@@ -15032,6 +15051,13 @@ function buildSystemPrompt() {
     'xx 必须是两个字以内，例如：想你、吃饭、犯困、开会、出门、发呆。',
     '这只是隐藏状态指令，不是给用户看的正文；除非你真的想改状态，否则不要输出它。',
     '不要解释这个状态指令，也不要单独提醒用户你改了状态。'
+  ].join('\n'));
+  parts.push([
+    '【聊天小表情】',
+    '如果你觉得刚刚这轮回复后，自己会像 iMessage 那样偷偷给用户上一条普通文本点一个小表情，就在整段回复最前或最后附上 [[表情:emoji]]。',
+    '这个表情必须是你自己根据当下语气和心情选的，不是系统随机。没有感觉就不要输出。',
+    '不要每次都给；只在你真的会想点一下的时候才给。',
+    '这也是隐藏指令，不是给用户看的正文。不要解释它。'
   ].join('\n'));
 
   var wbAll = [].concat(wbBefore, wbMid, wbAfter).join('\n\n');
@@ -16247,6 +16273,9 @@ async function requestAndDeliverAiReply(provider, key){
       updateModelLabel();
     }
     reply = headerStatusParsed.text || reply;
+    var reactionParsed = extractCharReactionDirective(reply);
+    var chosenReactionEmoji = reactionParsed.emoji || '';
+    reply = reactionParsed.text || reply;
     reply = String(reply == null ? '' : reply).trim();
     if(!reply){
       throw new Error('AI 返回了空回复');
@@ -16254,7 +16283,7 @@ async function requestAndDeliverAiReply(provider, key){
     var typingElapsed = Date.now() - typingStartedAt;
     if(typingElapsed < 560) await sleep(560 - typingElapsed);
     hideTyping();
-    await deliverAiReply(reply);
+    await deliverAiReply(reply, undefined, { reactionEmoji: chosenReactionEmoji });
     clearPresenceNudgeState(character && character.id);
     await saveChat(true);
     pendingMomentsChatCue = '';
@@ -25963,7 +25992,8 @@ function sleep(ms){
   return new Promise(function(resolve){ setTimeout(resolve, ms); });
 }
 
-async function deliverAiReply(text, limitOverride){
+async function deliverAiReply(text, limitOverride, options){
+  options = options && typeof options === 'object' ? options : {};
   var hardMax = Number(limitOverride);
   var maxN = Number.isFinite(hardMax) ? Math.max(0, Math.floor(hardMax)) : (character && character.msgMax ? character.msgMax : 3);
   var softMaxN = Math.max(maxN, 6);
@@ -26947,9 +26977,25 @@ async function deliverAiReply(text, limitOverride){
   }
   if(visibleAssistantSent > 0){
     try{
-      await attachCharReactionToLatestUserMessage(sentTexts[sentTexts.length - 1] || '');
+      await attachCharReactionToLatestUserMessage(sentTexts[sentTexts.length - 1] || '', options.reactionEmoji || '');
     }catch(reactionErr){
       console.warn('attach char reaction failed', reactionErr);
+    }
+    try{
+      var notifyText = String(sentTexts[sentTexts.length - 1] || '').trim();
+      if(notifyText){
+        postToShell({
+          type: 'CHAT_ACTIVITY_NOTIFY',
+          payload: {
+            kind: 'chat',
+            charId: String((character && character.id) || '').trim(),
+            name: String((character && (character.nickname || character.name)) || '角色').trim() || '角色',
+            text: notifyText
+          }
+        });
+      }
+    }catch(notifyErr){
+      console.warn('notify shell from active chat failed', notifyErr);
     }
   }
   if(sentTexts.length){
@@ -26981,8 +27027,20 @@ window.addEventListener('message', async function(e) {
     }
     if(incoming.role === 'assistant' && isBlockedMemePayload(incoming.content || '')) return;
     if(incoming.role === 'assistant' && normalizeMessageType(incoming.type || 'text') === 'text'){
+      var incomingStatusParsed = extractHeaderStatusDirective(incoming.content || '');
+      if(incomingStatusParsed.status){
+        setStoredCharHeaderStatus(character && character.id, incomingStatusParsed.status);
+        updateModelLabel();
+      }
+      incoming.content = incomingStatusParsed.text || incoming.content;
+      var incomingReactionParsed = extractCharReactionDirective(incoming.content || '');
+      var incomingReactionEmoji = incomingReactionParsed.emoji || '';
+      incoming.content = incomingReactionParsed.text || incoming.content;
       incoming.content = sanitizeAssistantTextForChat(incoming.content || '');
       if(!incoming.content) return;
+      if(incomingReactionEmoji){
+        try{ await attachCharReactionToLatestUserMessage(incoming.content || '', incomingReactionEmoji); }catch(err){}
+      }
     }
     if(normalizeMessageType(incoming.type || 'text') === 'offlineinvite'){
       var incomingWeather = window.getInviteWeatherSnapshot ? window.getInviteWeatherSnapshot('char') : null;

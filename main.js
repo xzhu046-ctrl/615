@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-18T02:30:36Z';
+const APP_BUILD_ID = '2026-04-18T11:02:31Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -7618,6 +7618,15 @@ window.addEventListener('message',(e)=>{
   if(type==='OPEN_APP_REPLACE'){ replaceApp(payload); }
   if(type==='BACKEND_LOG_PUSH'){
     pushBackendLogEntry(payload || {});
+  }
+  if(type==='CHAT_ACTIVITY_NOTIFY'){
+    maybeShowShellActivityNotification({
+      kind: String(payload.kind || 'chat').trim() || 'chat',
+      charId: String(payload.charId || '').trim(),
+      name: String(payload.name || '').trim(),
+      text: String(payload.text || '').trim(),
+      avatar: String(payload.avatar || '').trim()
+    });
   }
   if(type==='SET_CHAT_SHELL_BACKGROUND'){
     setChatShellBackground(payload);

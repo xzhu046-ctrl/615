@@ -1130,6 +1130,22 @@ function appendOfflineInviteAcceptedNoticeText(payload){
   return '系统提示：' + charName + '答应了这次约会邀请';
 }
 
+function notifyShellAboutOfflineInvite(text){
+  var safeText = String(text || '').trim();
+  if(!safeText) return;
+  try{
+    postToShell({
+      type: 'CHAT_ACTIVITY_NOTIFY',
+      payload: {
+        kind: 'chat',
+        charId: String((character && character.id) || '').trim(),
+        name: String((character && (character.nickname || character.name)) || '角色').trim() || '角色',
+        text: safeText
+      }
+    });
+  }catch(err){}
+}
+
 async function appendOfflineInviteToChat(role, payload, doScroll, options){
   var safeOptions = options && typeof options === 'object' ? options : {};
   var noticeText = '';
@@ -1378,6 +1394,7 @@ async function handlePendingOfflineInviteReply(){
         remindedAt: 0,
         openedAt: 0
       });
+      notifyShellAboutOfflineInvite(String(replyPayload.content || '我答应了这次约会。').trim() || '我答应了这次约会。');
       await saveChat(true);
       rerenderChat();
       return true;
@@ -1458,6 +1475,7 @@ async function sendOfflineInviteFromUser(){
     status: 'pending',
     reminderState: 'pending'
   });
+  await handlePendingOfflineInviteReply();
 }
 
 function importPendingOfflineArtifacts(){
