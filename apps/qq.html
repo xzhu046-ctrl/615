@@ -1119,7 +1119,7 @@ body{
 .delete-confirm-mask{
   position:fixed;
   inset:0;
-  z-index:92;
+  z-index:9999;
   display:none;
   align-items:center;
   justify-content:center;
@@ -1427,7 +1427,7 @@ body{
       <div class="delete-confirm-badge">删除联系人</div>
       <div class="delete-confirm-title">确认把这个联系人删掉吗？</div>
       <div class="delete-confirm-name" id="deleteConfirmName">这个联系人</div>
-      <div class="delete-confirm-sub">会一起删掉这个联系人下面的全部世界书，这一步不能撤回。</div>
+      <div class="delete-confirm-sub">会一起删掉这个联系人的世界书、聊天记录和导入表情包，这一步不能撤回。</div>
       <div class="delete-confirm-actions">
         <button class="delete-confirm-btn" type="button" onclick="closeDeleteConfirm()">取消</button>
         <button class="delete-confirm-btn danger" type="button" onclick="confirmDeleteContact()">删除</button>
@@ -1941,6 +1941,9 @@ async function loadChars(){
 function pinnedChatIdsKey(){
   return accountScopedKey('qq_pinned_chat_ids');
 }
+function memeLibraryStorageKey(){
+  return accountScopedKey('chat_meme_library_v1');
+}
 function getPinnedChatIds(){
   try{
     var ids = JSON.parse(localStorage.getItem(pinnedChatIdsKey()) || '[]');
@@ -1965,6 +1968,88 @@ function pinChat(id){
 function unpinChat(id){
   var ids = getPinnedChatIds().filter(function(item){ return item !== id; });
   setPinnedChatIds(ids);
+}
+function normalizeDeleteMemeCategory(value){
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+async function loadStoredMemeLibrary(){
+  var raw = null;
+  var key = memeLibraryStorageKey();
+  if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
+    try{ raw = await window.PhoneStorage.getJson(key); }catch(err){ raw = null; }
+  }
+  if(!raw){
+    try{ raw = JSON.parse(localStorage.getItem(key) || 'null'); }catch(err){ raw = null; }
+  }
+  raw = raw && typeof raw === 'object' ? raw : {};
+  raw.items = Array.isArray(raw.items) ? raw.items : [];
+  raw.categories = Array.isArray(raw.categories) ? raw.categories : [];
+  return raw;
+}
+async function saveStoredMemeLibrary(data){
+  var key = memeLibraryStorageKey();
+  var payload = data && typeof data === 'object' ? data : { items:[], categories:[] };
+  if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
+    try{ await window.PhoneStorage.putJson(key, payload); }catch(err){}
+  }
+  try{ localStorage.setItem(key, JSON.stringify(payload)); }catch(err){}
+  return payload;
+}
+async function removeImportedMemesForCharacter(target){
+  if(!target) return 0;
+  var category = normalizeDeleteMemeCategory(target.importedMemeCategory || '');
+  if(!category) return 0;
+  var library = await loadStoredMemeLibrary();
+  var before = Array.isArray(library.items) ? library.items.slice() : [];
+  var next = before.filter(function(item){
+    return normalizeDeleteMemeCategory(item && item.category) !== category;
+  });
+  if(next.length === before.length) return 0;
+  library.items = next;
+  library.categories = Array.from(new Set(next.map(function(item){
+    return normalizeDeleteMemeCategory(item && item.category);
+  }).filter(Boolean)));
+  await saveStoredMemeLibrary(library);
+  return before.length - next.length;
+}
+function getDeleteChatStorageKeys(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return [];
+  var keys = [accountScopedKey('chat_' + safeId), 'chat_' + safeId];
+  try{
+    for(var i = 0; i < localStorage.length; i++){
+      var key = localStorage.key(i) || '';
+      if(key.indexOf('chat_' + safeId + '__acct_') === 0) keys.push(key);
+    }
+  }catch(err){}
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+async function removeChatRecordsForCharacter(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return 0;
+  var removed = 0;
+  var keys = getDeleteChatStorageKeys(safeId);
+  keys.forEach(function(key){
+    try{
+      if(localStorage.getItem(key) != null) removed += 1;
+      localStorage.removeItem(key);
+    }catch(err){}
+  });
+  if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function' && typeof window.PhoneStorage.remove === 'function'){
+    try{
+      var records = await window.PhoneStorage.list('chats');
+      for(var i = 0; i < (Array.isArray(records) ? records.length : 0); i++){
+        var record = records[i];
+        var recordId = String(record && record.id || '');
+        if(keys.indexOf(recordId) === -1 && recordId.indexOf('chat_' + safeId + '__acct_') !== 0) continue;
+        try{
+          await window.PhoneStorage.remove('chats', recordId);
+          removed += 1;
+        }catch(err){}
+      }
+    }catch(err){}
+  }
+  return removed;
 }
 function lastMsgOf(c){
   if(c && c.isSunnySupport){
@@ -2792,6 +2877,7 @@ async function confirmDeleteContact(){
     if(window.MetadataStore && typeof window.MetadataStore.loadWorldbooks === 'function'){
       await window.MetadataStore.loadWorldbooks(true);
     }
+    var target = await resolveLatestChar(targetId, chars.find(function(item){ return item && String(item.id || '') === targetId; }));
     var allChars = getStoredCharactersSnapshot().filter(function(item){
       return !(item && String(item.id || '') === targetId);
     });
@@ -2799,6 +2885,9 @@ async function confirmDeleteContact(){
     if(allWorldbooks && typeof allWorldbooks === 'object' && Object.prototype.hasOwnProperty.call(allWorldbooks, targetId)){
       delete allWorldbooks[targetId];
     }
+    await removeChatRecordsForCharacter(targetId);
+    await removeImportedMemesForCharacter(target);
+    unpinChat(targetId);
     if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
       await window.MetadataStore.saveCharacters(allChars);
     }else{
