@@ -7790,15 +7790,16 @@ function parseImportedEditorBlocks(text, kind){
 async function syncImportedAvatarResources(target){
   if(!target || !target.id) return;
   normalizeImportedCharacterMeta(target);
-  if(!target.importedAvatarResources.length) return;
   var store = await loadAvatarLibraryStore(target.id);
   var nextStore = normalizeAvatarLibraryStore(store);
   var changed = false;
+  var liveIds = [];
   target.importedAvatarResources.forEach(function(entry, idx){
     var normalized = normalizeImportedAvatarResource(entry);
     if(!normalized) return;
     if(!isRenderableAvatarSrc(normalized.previewData || '')) return;
     var stableId = normalized.id || stableImportedResourceId('import_avatar', target.id, normalized.previewData || ('avatar_' + idx));
+    liveIds.push(String(stableId || ''));
     var nextItem = normalizeAvatarLibraryItem({
       id: stableId,
       role: 'char',
@@ -7823,6 +7824,16 @@ async function syncImportedAvatarResources(target){
       changed = true;
     }
   });
+  var avatarPrefix = 'import_avatar_' + String(target.id || '').trim() + '_';
+  var prunedChar = (nextStore.char || []).filter(function(item){
+    var itemId = String(item && item.id || '').trim();
+    if(itemId.indexOf(avatarPrefix) !== 0) return true;
+    return liveIds.indexOf(itemId) !== -1;
+  });
+  if(prunedChar.length !== (nextStore.char || []).length){
+    nextStore.char = prunedChar;
+    changed = true;
+  }
   if(changed){
     avatarLibraryCache = await saveAvatarLibraryStore(target.id, nextStore);
   }else{
@@ -7854,15 +7865,16 @@ function pruneImportedAvatarResourcesByItem(item){
 async function syncImportedMemeResources(target){
   if(!target) return;
   normalizeImportedCharacterMeta(target);
-  if(!target.importedMemeResources.length) return;
   if(!memeLibraryCache || !Array.isArray(memeLibraryCache.items)) await loadMemeLibrary();
   var category = normalizeImportedMemeCategoryName(target.importedMemeCategory, (target.nickname || target.name || '角色') + ' · 导入表情');
   var changed = false;
   var items = getAllMemeItems();
+  var liveIds = [];
   target.importedMemeResources.forEach(function(entry, idx){
     var normalized = normalizeImportedMemeResource(entry);
     if(!normalized) return;
     var stableId = normalized.id || stableImportedResourceId('import_meme', target.id, normalized.src || normalized.fileName || (normalized.name + '_' + idx));
+    liveIds.push(String(stableId || ''));
     var nextItem = normalizeMemeItem({
       id: stableId,
       name: normalized.name,
@@ -7887,6 +7899,16 @@ async function syncImportedMemeResources(target){
       changed = true;
     }
   });
+  var memePrefix = 'import_meme_' + String(target.id || '').trim() + '_';
+  var prunedItems = items.filter(function(item){
+    var itemId = String(item && item.id || '').trim();
+    if(itemId.indexOf(memePrefix) !== 0) return true;
+    return liveIds.indexOf(itemId) !== -1;
+  });
+  if(prunedItems.length !== items.length){
+    items = prunedItems;
+    changed = true;
+  }
   if(changed){
     memeLibraryCache.items = items;
     await saveMemeLibrary();
@@ -12779,6 +12801,11 @@ function sanitizeGreetingDisplayText(text){
   return clean.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function isGenericGreetingMetaTitle(title, index){
+  var clean = String(title || '').trim();
+  return !clean || clean === ('开场白 ' + (Number(index) + 1));
+}
+
 function normalizeGreetingCandidates(firstMes, alternateGreetings){
   var list = [];
   if(String(firstMes || '').trim()) list.push(firstMes);
@@ -12821,19 +12848,32 @@ function applyImportedRegexToGreetingText(text){
   return String(next || '').trim();
 }
 
-function getGreetingVariants(applyRegex){
+function getGreetingVariantRecords(applyRegex){
   if(!character) return [];
-  var all = normalizeGreetingCandidates(character.first_mes, character.alternate_greetings);
-  if(applyRegex !== false){
-    all = all.map(applyImportedRegexToGreetingText).map(function(item){
-      return sanitizeGreetingDisplayText(item);
-    }).filter(function(item){
-      return item && !isGreetingPlaceholderText(item);
-    });
-  } else {
-    all = all.map(sanitizeGreetingDisplayText).filter(Boolean);
-  }
-  return all;
+  var rawList = normalizeGreetingCandidates(character.first_mes, character.alternate_greetings);
+  return rawList.map(function(raw, index){
+    var rendered = applyRegex !== false ? sanitizeGreetingDisplayText(applyImportedRegexToGreetingText(raw)) : sanitizeGreetingDisplayText(raw);
+    if(!rendered || isGreetingPlaceholderText(rendered)) return null;
+    var rawMeta = extractGreetingSelectorMeta(raw, index);
+    var renderedMeta = extractGreetingSelectorMeta(rendered, index);
+    var title = isGenericGreetingMetaTitle(rawMeta.title, index) ? renderedMeta.title : rawMeta.title;
+    if(isGenericGreetingMetaTitle(title, index)) title = renderedMeta.title || rawMeta.title;
+    return {
+      raw: String(raw || ''),
+      text: rendered,
+      meta: {
+        title: title || ('开场白 ' + (index + 1)),
+        desc: rawMeta.desc || renderedMeta.desc || '',
+        preview: rawMeta.preview || renderedMeta.preview || ''
+      }
+    };
+  }).filter(Boolean);
+}
+
+function getGreetingVariants(applyRegex){
+  return getGreetingVariantRecords(applyRegex).map(function(entry){
+    return entry.text;
+  });
 }
 
 function getGreetingMessageType(text){
@@ -25889,10 +25929,10 @@ function closeChatSettings() {
 function populateGreetings() {
   var list = document.getElementById('csGreetingList');
   if (!character) { list.innerHTML = '<div style="font-size:12px;color:var(--g)">未加载角色</div>'; return; }
-  var all = getGreetingVariants(true);
+  var all = getGreetingVariantRecords(true);
   if (!all.length) { list.innerHTML = '<div style="font-size:12px;color:var(--g)">卡里没有开场白</div>'; return; }
-  list.innerHTML = all.map(function(g, i) {
-    var meta = extractGreetingSelectorMeta(g, i);
+  list.innerHTML = all.map(function(item, i) {
+    var meta = item.meta || extractGreetingSelectorMeta(item.text || '', i);
     return '<div class="g-item' + (i === curGreetingIdx ? ' active-g' : '') + '" onclick="pickGreeting(' + i + ')" data-gi="' + i + '">' +
       '<div class="g-num">#' + (i + 1) + '</div>' +
       '<div class="g-preview"><strong>' + esc(meta.title) + '</strong>' + (meta.desc ? ('<br><span class="toggle-sub">' + esc(meta.desc) + '</span>') : '') + (meta.preview ? ('<br>' + esc(meta.preview)) : '') + '</div>' +
@@ -25958,9 +25998,10 @@ async function confirmGreetingChange(){
     if(msgs) msgs.innerHTML = '';
     var g = getGreeting();
     if (g) {
-      var first = makeChatEntry('assistant', g, 'text');
+      var greetingType = getGreetingMessageType(g);
+      var first = makeChatEntry('assistant', g, greetingType);
       chatLog = [first];
-      addMessage('ai', g, false, 'text', first.id);
+      addMessage('ai', g, false, greetingType, first.id);
     }
     try{
       await persistChatSnapshotDirect(chatLog);

@@ -586,6 +586,50 @@ async function saveCharsWithFallback(lastCard) {
 }
 function save() { return saveCharsWithFallback(null); }
 
+async function removeImportedCharacterArtifacts(ids){
+  var list = Array.isArray(ids) ? ids.map(function(id){ return String(id || '').trim(); }).filter(Boolean) : [];
+  if(!list.length) return;
+  var unique = [];
+  list.forEach(function(id){ if(unique.indexOf(id) === -1) unique.push(id); });
+  var worldbooks = getStoredWorldbooksSnapshot();
+  var wbChanged = false;
+  unique.forEach(function(id){
+    if(worldbooks && typeof worldbooks === 'object' && Object.prototype.hasOwnProperty.call(worldbooks, id)){
+      delete worldbooks[id];
+      wbChanged = true;
+    }
+  });
+  if(wbChanged){
+    if(window.MetadataStore && typeof window.MetadataStore.saveWorldbooks === 'function'){
+      try{ await window.MetadataStore.saveWorldbooks(worldbooks); }catch(err){}
+    }else{
+      try{ localStorage.setItem('worldbooks', JSON.stringify(worldbooks)); }catch(err){}
+    }
+  }
+  await Promise.all(unique.map(async function(id){
+    try{
+      if(window.PhoneStorage && typeof window.PhoneStorage.remove === 'function'){
+        await window.PhoneStorage.remove('chats', chatStorageKeyForChar(id));
+        await window.PhoneStorage.remove('chats', 'chat_' + id);
+      }
+    }catch(err){}
+    try{
+      if(window.assetStore && typeof window.assetStore.remove === 'function'){
+        await window.assetStore.remove('char_avatar_' + id);
+      }else{
+        localStorage.removeItem('char_avatar_' + id);
+      }
+    }catch(err){}
+    try{
+      localStorage.removeItem(chatStorageKeyForChar(id));
+      localStorage.removeItem('chat_' + id);
+      localStorage.removeItem(getGreetingStorageKey(id));
+      localStorage.removeItem(pendingFirstUserTurnKey(id));
+      localStorage.removeItem('pending_friend_req_intro_' + id);
+    }catch(err){}
+  }));
+}
+
 function makeStoredCharacterCard(card) {
   var stored = Object.assign({}, card || {});
   if (stored.imageData) stored.imageData = '';
@@ -2627,6 +2671,21 @@ function extractImportedAssetEntriesFromText(text, path, options) {
     var entry = buildImportedImageEntry(kindHint, token, label, path, isAvatar ? '世界书头像列表' : '世界书表情包列表');
     if (entry) entries.push(entry);
   });
+  var pairContextIsMeme = currentKind === 'meme'
+    || fallbackKind === 'meme'
+    || hasExplicitSection
+    || /(表情包|表情列表|<meme>|meme|sticker|emoji|reaction|贴图)/i.test(raw);
+  if (pairContextIsMeme) {
+    var pairRe = /(?:^|[,\n，])\s*([^,\n，]+?)\s+(https?:\/\/[^\s,，]+?\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)(?:\?[^\s,，]*)?)/ig;
+    var match;
+    while ((match = pairRe.exec(raw))) {
+      var pairLabel = normalizeImportedLabel(String(match[1] || '').trim().replace(/[：:]\s*$/, ''), '');
+      var pairToken = String(match[2] || '').trim();
+      if (!pairLabel || !pairToken) continue;
+      var pairEntry = buildImportedImageEntry('meme', pairToken, pairLabel, path, '世界书表情包列表');
+      if (pairEntry) entries.push(pairEntry);
+    }
+  }
   return entries;
 }
 
@@ -2824,20 +2883,38 @@ function parseCard(jsonStr, imageData, filename) {
     async function doImportNow(){
       var storedCard = makeStoredCharacterCard(card);
       var incomingName = normalizeImportName(storedCard.nickname || storedCard.name || '');
-      var existIdx = chars.findIndex(function(c){
+      var matchingIdxs = [];
+      chars.forEach(function(c, idx){
         if(!(c && c.ownerAccountId === storedCard.ownerAccountId)) return false;
-        if(c.id === storedCard.id) return true;
-        return incomingName && normalizeImportName(c.nickname || c.name || '') === incomingName;
+        if(c.id === storedCard.id){
+          matchingIdxs.push(idx);
+          return;
+        }
+        if(incomingName && normalizeImportName(c.nickname || c.name || '') === incomingName){
+          matchingIdxs.push(idx);
+        }
       });
-      if (existIdx >= 0) {
+      if (matchingIdxs.length) {
+        var existIdx = matchingIdxs[0];
         var existingCard = chars[existIdx];
         if(shouldReuseImportedId(existingCard, storedCard)){
           var oldId = existingCard.id;
+          await removeImportedCharacterArtifacts([oldId]);
           card.id = oldId;
           storedCard.id = oldId;
           chars[existIdx] = Object.assign({}, existingCard || {}, card);
           card = chars[existIdx];
           storedCard = makeStoredCharacterCard(card);
+          var removedIds = matchingIdxs.slice(1).map(function(idx){
+            var item = chars[idx];
+            return item && item.id ? String(item.id || '').trim() : '';
+          }).filter(Boolean);
+          if(removedIds.length){
+            chars = chars.filter(function(item, idx){
+              return matchingIdxs.indexOf(idx) === -1 || idx === existIdx;
+            });
+            await removeImportedCharacterArtifacts(removedIds);
+          }
         }else{
           card.id = mintImportedCharacterId(card.id || card.name || 'c');
           storedCard.id = card.id;
