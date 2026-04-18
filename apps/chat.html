@@ -2354,6 +2354,13 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
               </div>
               <div style="margin-top:10px">
                 <span class="imported-regex-label-chip">正则</span>
+                <div class="toggle-row" style="margin-top:8px;padding-top:0">
+                  <div class="toggle-left">
+                    <div class="toggle-label">开场白渲染</div>
+                    <div class="toggle-sub">开启时按作者 regex 渲染和互动；关闭时只显示纯文字。</div>
+                  </div>
+                  <div class="toggle-switch" id="csRegexRulesToggle" onclick="toggleRegexRulesSwitch()"></div>
+                </div>
                 <div class="imported-regex-list" id="csImportedRegexList"></div>
                 <textarea class="cs-textarea cs-code-editor" id="csImportedRegex" rows="6" placeholder="导入到的正则、脚本或额外格式提示会显示在这里。" style="display:none"></textarea>
               </div>
@@ -7687,7 +7694,10 @@ function normalizeImportedCharacterMeta(target){
   });
   target.importedMemeCategory = normalizeImportedMemeCategoryName(target.importedMemeCategory, ((target.nickname || target.name || '角色') + ' · 导入表情'));
   target.authorRulesEnabled = target.authorRulesEnabled !== false && !!target.importedRuleBlocks.length;
-  target.regexRulesEnabled = !!target.importedRegexScripts.length;
+  target.regexRulesUserTouched = !!target.regexRulesUserTouched;
+  target.regexRulesEnabled = target.regexRulesUserTouched
+    ? (target.regexRulesEnabled !== false && !!target.importedRegexScripts.length)
+    : !!target.importedRegexScripts.length;
   if(!target.avatarUrl && target.importedAvatarResources.length){
     target.avatarUrl = String(target.importedAvatarResources[0].previewData || '').trim();
   }
@@ -7729,6 +7739,11 @@ function renderImportedRegexList(){
       +   '</div>'
       + '</div>';
   }).filter(Boolean).join('');
+}
+
+function toggleRegexRulesSwitch(){
+  var toggle = document.getElementById('csRegexRulesToggle');
+  if(toggle) toggle.classList.toggle('on');
 }
 
 function toggleImportedRegexItem(index){
@@ -8616,7 +8631,8 @@ function buildChatSettingsPatchFromCharacter(c){
     importedRegexScripts: cloneJsonSafe(c.importedRegexScripts || [], []),
     importedMemeCategory: String(c.importedMemeCategory || ''),
     authorRulesEnabled: c.authorRulesEnabled !== false,
-    regexRulesEnabled: !!c.regexRulesEnabled
+    regexRulesEnabled: !!c.regexRulesEnabled,
+    regexRulesUserTouched: !!c.regexRulesUserTouched
   };
   return patch;
 }
@@ -8671,7 +8687,8 @@ function applyChatSettingsPatch(target, patch){
     'importedRegexScripts',
     'importedMemeCategory',
     'authorRulesEnabled',
-    'regexRulesEnabled'
+    'regexRulesEnabled',
+    'regexRulesUserTouched'
   ].forEach(function(key){
     if(Object.prototype.hasOwnProperty.call(patch, key)){
       target[key] = cloneJsonSafe(patch[key], patch[key]);
@@ -12954,12 +12971,13 @@ function parseImportedGreetingRegex(entry){
 
 function getEnabledImportedGreetingRegexScripts(){
   if(!(character && character.importedRegexScripts && character.importedRegexScripts.length)) return [];
+  if(character.regexRulesEnabled === false) return [];
   return character.importedRegexScripts
     .map(normalizeImportedRegexScriptMeta)
     .filter(function(entry){
       if(!(entry && !entry.disabled && String(entry.findRegex || '').trim())) return false;
       var placements = Array.isArray(entry.placement) ? entry.placement : [];
-      if(placements.length && placements.indexOf(2) === -1) return false;
+      if(placements.length && placements.indexOf(2) === -1 && placements.indexOf(1) === -1) return false;
       return !entry.promptOnly;
     });
 }
@@ -13071,17 +13089,70 @@ function applyImportedRegexToGreetingText(text){
   return String(next || '').trim();
 }
 
+function shouldRenderGreetingWithRegex(){
+  return !!(character && character.importedRegexScripts && character.importedRegexScripts.length && character.regexRulesEnabled !== false);
+}
+
+function getGreetingUserDisplayName(){
+  var name = '';
+  try{
+    name = String(getChatUserName(character && character.id) || '').trim();
+  }catch(err){}
+  if(!name){
+    try{ name = String(resolveDisplayUserName() || '').trim(); }catch(err){}
+  }
+  return name || '你';
+}
+
+function substituteGreetingTemplateParams(text){
+  var source = String(text || '');
+  if(!source) return '';
+  var userName = String(getGreetingUserDisplayName() || '你').trim() || '你';
+  var charName = String((character && (character.nickname || character.name)) || '对方').trim() || '对方';
+  return source
+    .replace(/\{\{\s*user\s*\}\}/gi, userName)
+    .replace(/\{\{\s*char\s*\}\}/gi, charName)
+    .replace(/<\s*user\s*>/gi, userName)
+    .replace(/<\s*char\s*>/gi, charName);
+}
+
+function transformGreetingSource(raw, applyRegex){
+  var source = String(raw || '');
+  if(!source.trim()) return '';
+  var next = applyRegex !== false ? applyImportedRegexToGreetingText(source) : source;
+  return substituteGreetingTemplateParams(next);
+}
+
+function renderGreetingSourceText(raw, applyRegex){
+  var next = transformGreetingSource(raw, applyRegex);
+  if(!next) return '';
+  if(applyRegex === false) return sanitizeGreetingDisplayText(next);
+  var rich = parseRichHtmlPayload(next) || {};
+  if(String(rich.html || '').trim() || String(rich.url || '').trim() || String(rich.css || '').trim() || String(rich.js || '').trim()){
+    return String(next || '').trim();
+  }
+  return sanitizeGreetingDisplayText(next);
+}
+
+function normalizeGreetingMatchText(text){
+  return String(text || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<title>[\s\S]*?<\/title>/gi, ' ')
+    .replace(/<url>[\s\S]*?<\/url>/gi, ' ')
+    .replace(/<lyrics>[\s\S]*?<\/lyrics>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 function getGreetingVariantRecords(applyRegex){
   if(!character) return [];
   var rawList = normalizeGreetingCandidates(character.first_mes, character.alternate_greetings);
   return rawList.map(function(raw, index){
-    var source = applyRegex !== false ? applyImportedRegexToGreetingText(raw) : String(raw || '');
-    var rich = parseRichHtmlPayload(source) || {};
-    var rendered = (String(rich.html || '').trim() || String(rich.url || '').trim() || String(rich.css || '').trim() || String(rich.js || '').trim())
-      ? String(source || '').trim()
-      : sanitizeGreetingDisplayText(source);
+    var rendered = renderGreetingSourceText(raw, applyRegex);
     if(!rendered || isGreetingPlaceholderText(rendered)) return null;
-    var rawMeta = extractGreetingSelectorMeta(raw, index);
+    var rawMeta = extractGreetingSelectorMeta(substituteGreetingTemplateParams(raw), index);
     var renderedMeta = extractGreetingSelectorMeta(rendered, index);
     var title = isGenericGreetingMetaTitle(rawMeta.title, index) ? renderedMeta.title : rawMeta.title;
     if(isGenericGreetingMetaTitle(title, index)) title = renderedMeta.title || rawMeta.title;
@@ -13106,13 +13177,10 @@ function getGreetingVariants(applyRegex){
 function getGreetingSwipeContents(applyRegex){
   if(!character) return [];
   return normalizeGreetingCandidates(character.first_mes, character.alternate_greetings).map(function(raw){
-    var source = applyRegex !== false ? applyImportedRegexToGreetingText(raw) : String(raw || '');
-    var rich = parseRichHtmlPayload(source) || {};
-    var rendered = (String(rich.html || '').trim() || String(rich.url || '').trim() || String(rich.css || '').trim() || String(rich.js || '').trim())
-      ? String(source || '').trim()
-      : sanitizeGreetingDisplayText(source);
+    var source = transformGreetingSource(raw, applyRegex);
+    var rendered = applyRegex === false ? sanitizeGreetingDisplayText(source) : String(source || '').trim();
     if(!rendered || isGreetingPlaceholderText(rendered)) return '';
-    return String(source || '').trim();
+    return String(rendered || '').trim();
   }).filter(Boolean);
 }
 
@@ -16132,7 +16200,7 @@ function getGreeting() {
     var discovered = String(localStorage.getItem(discoveredKey(character.id)) || '') === '1';
     if(!discovered) return '';
   }
-  var all = getGreetingVariants(true);
+  var all = getGreetingVariants(shouldRenderGreetingWithRegex());
   if (!all.length) return '';
   var idx = curGreetingIdx;
   return all[Math.min(idx, all.length - 1)] || '';
@@ -16157,7 +16225,7 @@ function isLikelyStrayGreetingHistory(history){
 
 function getPromptGreeting(){
   if(!character) return '';
-  var all = getGreetingVariants(true);
+  var all = getGreetingVariants(shouldRenderGreetingWithRegex());
   if (!all.length) return '';
   var idx = curGreetingIdx;
   return all[Math.min(idx, all.length - 1)] || '';
@@ -25884,6 +25952,7 @@ function renderImportedResourceSettings(){
   var regex = document.getElementById('csImportedRegex');
   var categoryInput = document.getElementById('csImportedMemeCategory');
   var authorToggle = document.getElementById('csAuthorRulesToggle');
+  var regexToggle = document.getElementById('csRegexRulesToggle');
   if(!character){
     if(summary) summary.textContent = '这张卡还没有导入扩展资源。';
     if(rules) rules.value = '';
@@ -25891,6 +25960,7 @@ function renderImportedResourceSettings(){
     renderImportedRegexList();
     if(categoryInput) categoryInput.value = '';
     if(authorToggle) authorToggle.classList.remove('on');
+    if(regexToggle) regexToggle.classList.remove('on');
     return;
   }
   normalizeImportedCharacterMeta(character);
@@ -25905,6 +25975,7 @@ function renderImportedResourceSettings(){
   renderImportedRegexList();
   if(categoryInput) categoryInput.value = normalizeImportedMemeCategoryName(character.importedMemeCategory, (character.nickname || character.name || '角色') + ' · 导入表情');
   if(authorToggle) authorToggle.classList.toggle('on', character.authorRulesEnabled !== false && !!character.importedRuleBlocks.length);
+  if(regexToggle) regexToggle.classList.toggle('on', character.regexRulesEnabled !== false && !!character.importedRegexScripts.length);
 }
 
 function openChatSettings() {
@@ -26171,7 +26242,7 @@ function closeChatSettings() {
 function populateGreetings() {
   var list = document.getElementById('csGreetingList');
   if (!character) { list.innerHTML = '<div style="font-size:12px;color:var(--g)">未加载角色</div>'; return; }
-  var all = getGreetingVariantRecords(true);
+  var all = getGreetingVariantRecords(shouldRenderGreetingWithRegex());
   if (!all.length) { list.innerHTML = '<div style="font-size:12px;color:var(--g)">卡里没有开场白</div>'; return; }
   list.innerHTML = all.map(function(item, i) {
     var meta = item.meta || extractGreetingSelectorMeta(item.text || '', i);
@@ -26205,7 +26276,7 @@ function cancelGreetingChange(){
 async function applyGreetingSelectionByIndex(nextIndex, options){
   if(applyGreetingSelectionByIndex.__busy) return false;
   if(!(character && character.id)) return false;
-  var greetings = getGreetingVariants(true);
+  var greetings = getGreetingVariants(shouldRenderGreetingWithRegex());
   var safeIdx = Number(nextIndex);
   if(!(safeIdx >= 0) || safeIdx >= greetings.length) return false;
   applyGreetingSelectionByIndex.__busy = true;
@@ -26994,6 +27065,7 @@ async function saveChatSettings() {
   var importedRuleBlocks = parseImportedEditorBlocks((document.getElementById('csImportedRules') || {}).value || '', 'rule');
   var importedRegexScripts = (Array.isArray(character && character.importedRegexScripts) ? character.importedRegexScripts : []).map(normalizeImportedRegexScriptMeta).filter(Boolean);
   var authorRulesEnabled = !!(document.getElementById('csAuthorRulesToggle') && document.getElementById('csAuthorRulesToggle').classList.contains('on'));
+  var regexRulesEnabled = !!(document.getElementById('csRegexRulesToggle') && document.getElementById('csRegexRulesToggle').classList.contains('on'));
   var narratorEnabled = !!(document.getElementById('csNarratorToggle') && document.getElementById('csNarratorToggle').classList.contains('on'));
   var avatarVisionEnabled = pendingAvatarVisionEnabled === null ? loadAvatarVisionEnabled(character && character.id) : !!pendingAvatarVisionEnabled;
   var charAvatarAutoEnabled = pendingCharAvatarAutoEnabled === null ? loadCharAvatarAutoEnabled(character && character.id) : !!pendingCharAvatarAutoEnabled;
@@ -27092,7 +27164,8 @@ async function saveChatSettings() {
     character.importedRuleBlocks = importedRuleBlocks;
     character.importedRegexScripts = importedRegexScripts;
     character.authorRulesEnabled = authorRulesEnabled && !!importedRuleBlocks.length;
-    character.regexRulesEnabled = !!importedRegexScripts.length;
+    character.regexRulesEnabled = regexRulesEnabled && !!importedRegexScripts.length;
+    character.regexRulesUserTouched = true;
     character.allowNarrator = narratorEnabled;
     if(!narratorEnabled){
       clearComposerMode();
@@ -28353,7 +28426,7 @@ window.addEventListener('message', async function(e) {
         return;
       }
       if(d.action === 'getChatMessages'){
-        var swipes = getGreetingSwipeContents(true);
+        var swipes = getGreetingSwipeContents(shouldRenderGreetingWithRegex());
         var currentSwipe = swipes[curGreetingIdx] || swipes[0] || '';
         reply(true, [{
           mes: currentSwipe,
@@ -28364,11 +28437,22 @@ window.addEventListener('message', async function(e) {
       if(d.action === 'setChatMessage'){
         var payload = d.payload || {};
         var options = payload.options || {};
-        var swipes = getGreetingSwipeContents(true);
+        var swipes = getGreetingSwipeContents(shouldRenderGreetingWithRegex());
         var targetIndex = Number(options.swipe_id);
         if(!(targetIndex >= 0) || targetIndex >= swipes.length){
           var content = String(payload.content || '').trim();
-          targetIndex = swipes.findIndex(function(item){ return String(item || '').trim() === content; });
+          var normalizedContent = normalizeGreetingMatchText(content);
+          targetIndex = swipes.findIndex(function(item){
+            return normalizeGreetingMatchText(item) === normalizedContent;
+          });
+        }
+        if(!(targetIndex >= 0) || targetIndex >= swipes.length){
+          var fallbackRecords = getGreetingVariantRecords(shouldRenderGreetingWithRegex());
+          var payloadContent = normalizeGreetingMatchText(String(payload.content || '').trim());
+          targetIndex = fallbackRecords.findIndex(function(item){
+            return normalizeGreetingMatchText(item && item.text || '') === payloadContent
+              || normalizeGreetingMatchText(item && item.raw || '') === payloadContent;
+          });
         }
         if(!(targetIndex >= 0) || targetIndex >= swipes.length){
           reply(false, null, 'swipe_not_found');
