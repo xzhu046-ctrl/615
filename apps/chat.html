@@ -7334,6 +7334,26 @@ function parseImportedMemeCatboxSource(value, label){
   return null;
 }
 
+function parseImportedAvatarCatboxSource(value, label){
+  var raw = String(value || '').trim();
+  if(!raw) return null;
+  if(/^(data:|blob:|https?:|\/|\.\/|\.\.\/)/i.test(raw)){
+    var remoteFile = importedAssetFileNameFromValue(raw);
+    return {
+      src: raw,
+      fileName: remoteFile,
+      label: String(label || remoteFile || '').trim()
+    };
+  }
+  var stripped = raw.replace(/^(?:embeded|embedded):\/\//i, '').replace(/^__asset:/i, '').trim();
+  if(!stripped || !isImportedAssetFileName(stripped)) return null;
+  return {
+    src: 'https://files.catbox.moe/' + stripped,
+    fileName: stripped,
+    label: String(label || stripped || '').trim()
+  };
+}
+
 function stripImportedMemeFileNameSuffix(name, fileName){
   var text = String(name || '').trim();
   var tail = String(fileName || '').trim();
@@ -7350,6 +7370,11 @@ function normalizeImportedAvatarResource(raw){
   if(!raw || typeof raw !== 'object') return null;
   var src = normalizeAvatarSrc(raw.previewData || raw.src || raw.url || '');
   var fileName = importedAssetFileNameFromValue(raw.fileName || raw.filename || raw.previewData || raw.src || raw.url || '');
+  var catboxMeta = parseImportedAvatarCatboxSource(raw.fileName || raw.filename || raw.previewData || raw.src || raw.url || '', raw.label || raw.name || '');
+  if(catboxMeta){
+    src = normalizeAvatarSrc(catboxMeta.src || src);
+    fileName = String(catboxMeta.fileName || fileName).trim();
+  }
   if(!isRenderableAvatarSrc(src) && !fileName) return null;
   var label = String(raw.label || raw.name || '').replace(/\s+/g, ' ').trim() || '导入头像';
   return {

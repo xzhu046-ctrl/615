@@ -2239,6 +2239,27 @@ function parseImportedMemeCatboxToken(token, label) {
   };
 }
 
+function parseImportedAvatarCatboxToken(token, label) {
+  var clean = stripImportedImageDecorations(token);
+  if (!clean) return null;
+  if (isImportedImageUrl(clean)) {
+    var remoteName = basenameFromImportUrl(clean);
+    return {
+      src: clean,
+      fileName: remoteName,
+      label: normalizeImportedLabel(label, remoteName)
+    };
+  }
+  var normalized = clean.replace(/^(?:embeded|embedded):\/\//i, '').replace(/^__asset:/i, '').trim();
+  if (!normalized) return null;
+  if (!isImportedImageFileName(normalized)) return null;
+  return {
+    src: 'https://files.catbox.moe/' + normalized,
+    fileName: normalized,
+    label: normalizeImportedLabel(label, normalized)
+  };
+}
+
 function stripImportedMemeFileNameSuffix(name, fileName) {
   var text = String(name || '').trim();
   var tail = String(fileName || '').trim();
@@ -2258,7 +2279,14 @@ function buildImportedImageEntry(kind, token, label, path, note) {
   var src = isImportedImageUrl(clean) ? clean : '';
   var fileName = importedFileNameFromUri(clean);
   var parsedLabel = normalizeImportedLabel(label, '');
-  if (safeKind === 'meme') {
+  if (safeKind === 'avatar') {
+    var avatarMeta = parseImportedAvatarCatboxToken(clean, parsedLabel);
+    if (avatarMeta) {
+      src = avatarMeta.src || src;
+      fileName = avatarMeta.fileName || fileName;
+      parsedLabel = avatarMeta.label || parsedLabel;
+    }
+  } else if (safeKind === 'meme') {
     var memeMeta = parseImportedMemeCatboxToken(clean, parsedLabel);
     if (memeMeta) {
       src = memeMeta.src || src;
