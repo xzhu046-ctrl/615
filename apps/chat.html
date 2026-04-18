@@ -7263,6 +7263,20 @@ function normalizeAvatarLibraryStore(raw){
   return base;
 }
 
+function getAvatarLibraryItemPreviewSrc(item){
+  return normalizeAvatarSrc(String(item && item.previewData || '').trim());
+}
+
+async function resolveAvatarLibraryItemSrc(item){
+  var previewSrc = getAvatarLibraryItemPreviewSrc(item);
+  if(isRenderableAvatarSrc(previewSrc)) return previewSrc;
+  var assetKey = String(item && item.assetKey || '').trim();
+  if(!assetKey) return '';
+  var stored = await loadStoredAsset(assetKey).catch(function(){ return ''; });
+  var storedSrc = normalizeAvatarSrc(stored);
+  return isRenderableAvatarSrc(storedSrc) ? storedSrc : '';
+}
+
 function loadAvatarLibraryStore(charId){
   if(!charId) return Promise.resolve(defaultAvatarLibraryStore());
   return loadJsonFromLargeStore(avatarLibraryStorageId(charId)).then(function(stored){
@@ -25807,8 +25821,10 @@ function handleAvatarMetaOverlayClick(event){
 
 function renderAvatarLibraryPreviewNode(item){
   var role = item && item.role === 'user' ? 'user' : 'char';
+  var previewSrc = getAvatarLibraryItemPreviewSrc(item);
   var thumb = '<div class="avatar-polaroid-thumb" data-avatar-lib-thumb="' + escAttr(item.id) + '" data-avatar-lib-role="' + escAttr(role) + '">' +
-    '<div class="avatar-polaroid-thumb-fallback">' + getAvatarShelfFallbackHtml(role) + '</div></div>';
+    (previewSrc ? ('<img src="' + escAttr(previewSrc) + '" alt="' + escAttr(item && item.label || '头像') + '">') : ('<div class="avatar-polaroid-thumb-fallback">' + getAvatarShelfFallbackHtml(role) + '</div>')) +
+    '</div>';
   return '<button class="avatar-polaroid-card" type="button" data-avatar-lib-id="' + escAttr(item.id) + '">' +
     thumb +
     '<span class="avatar-polaroid-badge">' + esc(item.role === 'char' ? 'CHAR' : 'USER') + '</span>' +
@@ -25927,7 +25943,7 @@ function renderAvatarLibraryOverlay(){
         openAvatarMetaEditorForItem(item, role);
       });
     }
-    loadStoredAsset(item.assetKey).then(function(src){
+    resolveAvatarLibraryItemSrc(item).then(function(src){
       var node = host.querySelector('[data-avatar-lib-thumb="' + item.id + '"]');
       if(!node) return;
       var safeSrc = normalizeAvatarSrc(src);
@@ -26154,7 +26170,7 @@ async function applyAvatarLibraryItem(itemId, role, actorRole){
     toast('这张头像不见了');
     return;
   }
-  var src = String(await loadStoredAsset(item.assetKey).catch(function(){ return item.previewData || ''; }) || '').trim();
+  var src = String(await resolveAvatarLibraryItemSrc(item).catch(function(){ return ''; }) || '').trim();
   if(!src){
     toast('头像图片丢失了');
     return;
