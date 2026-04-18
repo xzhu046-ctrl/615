@@ -1739,6 +1739,7 @@ function getAvatarSrc(c){
   if(!c) return '';
   var ovr = avatarAssetCache[c.id];
   if(isRenderableAssetSource(ovr)) return ovr;
+  if(isRenderableAssetSource(c.avatarUrl)) return c.avatarUrl;
   if(isRenderableAssetSource(c.imageData)) return c.imageData;
   return '';
 }
@@ -1749,6 +1750,7 @@ function slimChar(c){
   return {
     id:c.id, name:c.name, nickname:c.nickname, description:c.description, avatar:c.avatar,
     imageData:imageData,
+    avatarUrl:String(c.avatarUrl || '').trim(),
     personality:c.personality, scenario:c.scenario, system_prompt:c.system_prompt,
     first_mes:c.first_mes, alternate_greetings:c.alternate_greetings,
     tags:c.tags, character_version:c.character_version, spec:c.spec, creator:c.creator,
@@ -1862,13 +1864,24 @@ async function refreshChatCaches(){
 function isPreviewGreetingPlaceholder(text){
   var clean = String(text || '').replace(/\r\n/g, '\n').trim();
   if(!clean) return true;
-  return /^(?:【\s*开场\s*】|\[\s*开场\s*\]|开场白?)$/i.test(clean);
+  return /^(?:【\s*开场(?:白)?\s*】|\[\s*开场(?:白)?\s*\]|开场白?|【\s*开场白(?:跳转|预览)\s*】|【\s*user信息填写\s*】)$/i.test(clean)
+    || /【\s*开场白(?:跳转|预览)\s*】|【\s*user信息填写\s*】/i.test(clean);
 }
 
 function looksLikePreviewHtmlTemplate(text){
   var clean = String(text || '').trim();
   if(!clean) return false;
   return /<!DOCTYPE html>|<html\b|<head\b|<style\b|<script\b|emoji-picker-element|phone-container/i.test(clean);
+}
+
+function looksLikePreviewMetaNote(text){
+  var clean = String(text || '').replace(/\r\n/g, '\n').trim();
+  if(!clean) return false;
+  if(/^>\s*原作者/i.test(clean)) return true;
+  if(/请务必留意|游玩相关|免费发布|dc社区|discord|手机格式适配|状态栏二选一|世界书|正则|快捷|快捷指令|作者说明/i.test(clean)){
+    if(/^>/.test(clean) || /(?:^|\n)\s*#{1,4}\s*/.test(clean) || /(?:^|\n)\s*\d+\./.test(clean)) return true;
+  }
+  return false;
 }
 
 function sanitizeCharacterPreviewSeed(text){
@@ -1878,11 +1891,15 @@ function sanitizeCharacterPreviewSeed(text){
     .replace(/<\/?info>/gi, ' ')
     .replace(/<\/?character>/gi, ' ')
     .replace(/<\/?writing_rule>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<title>[\s\S]*?<\/title>/gi, ' ')
+    .replace(/<url>[\s\S]*?<\/url>/gi, ' ')
+    .replace(/<lyrics>[\s\S]*?<\/lyrics>/gi, ' ')
     .replace(/```(?:yaml|html|json)?/gi, ' ')
     .replace(/\[OOC：[^\]]+\]/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if(looksLikePreviewHtmlTemplate(clean)) return '';
+  if(looksLikePreviewHtmlTemplate(clean) || looksLikePreviewMetaNote(clean)) return '';
   if(clean.length > 120) clean = clean.slice(0, 120).trim();
   return clean;
 }

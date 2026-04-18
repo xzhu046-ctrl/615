@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-18T19:56:42Z';
+const APP_BUILD_ID = '2026-04-18T20:28:53Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -1878,16 +1878,20 @@ function coerceBgAction(parsed, convoState){
 }
 
 function getCharacterAvatarForBg(character){
-  if(character && character.imageData){
-    var current = normalizeShellAssetSrc(character.imageData);
-    if(isRenderableShellAvatarSrc(current)) return current;
-  }
   var id = character && character.id ? character.id : '';
   if(id){
     try{
       var saved = normalizeShellAssetSrc(localStorage.getItem('char_avatar_' + id) || '');
       if(isRenderableShellAvatarSrc(saved)) return saved;
     }catch(e){}
+  }
+  if(character && character.avatarUrl){
+    var remoteAvatar = normalizeShellAssetSrc(character.avatarUrl);
+    if(isRenderableShellAvatarSrc(remoteAvatar)) return remoteAvatar;
+  }
+  if(character && character.imageData){
+    var current = normalizeShellAssetSrc(character.imageData);
+    if(isRenderableShellAvatarSrc(current)) return current;
   }
   if(character && character.avatar){
     var av = normalizeShellAssetSrc(character.avatar);

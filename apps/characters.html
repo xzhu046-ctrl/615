@@ -2033,6 +2033,10 @@ function normalizeImportedLabel(value, fallback) {
   return text || String(fallback || '').trim();
 }
 
+function normalizeImportedNameToken(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+}
+
 function basenameFromImportUrl(url) {
   var safe = String(url || '').trim();
   if (!safe) return '';
@@ -2114,6 +2118,32 @@ function detectImportedLineKind(line, currentKind, path) {
   if (currentKind === 'avatar' || currentKind === 'meme') return currentKind;
   if (pathKind === 'avatar' || pathKind === 'meme') return pathKind;
   return 'unknown';
+}
+
+function buildImportedCharacterAliases(options) {
+  var aliases = [];
+  (Array.isArray(options && options.charAliases) ? options.charAliases : []).forEach(function(item) {
+    var clean = normalizeImportedNameToken(item);
+    if (clean && aliases.indexOf(clean) === -1) aliases.push(clean);
+  });
+  if (aliases.indexOf('{{char}}') === -1) aliases.push('{{char}}');
+  return aliases;
+}
+
+function getImportedAvatarSectionOwner(line, options) {
+  var text = String(line || '').trim();
+  if (!text) return 'generic';
+  var aliases = buildImportedCharacterAliases(options);
+  if (/\{\{\s*char\s*\}\}/i.test(text)) return 'main';
+  var normalized = normalizeImportedNameToken(text);
+  if (aliases.some(function(alias) { return alias && alias !== '{{char}}' && normalized.indexOf(alias) !== -1; })) return 'main';
+  var prefix = String(text)
+    .replace(/[：:]\s*$/, '')
+    .replace(/(?:的)?(?:头像列表|头像管理|初始头像|平时的头像|崩溃时(?:时)?头像|极度兴奋.*头像|可用头像(?:列表)?|以下头像|头像如下|avatar(?:\s+list|\s+library)?).*$/i, '')
+    .replace(/^[#*\-•·▪◦\s]+/g, '')
+    .trim();
+  if (prefix) return 'other';
+  return 'generic';
 }
 
 function splitRuleBlocksFromText(text) {
@@ -2317,6 +2347,7 @@ function isExplicitImportedResourceEntryLine(line, token, kind) {
   if (kind === 'avatar') {
     if (!tokenTailRe.test(text)) return false;
     if (/<[^>]+>/.test(text) || /\{\{|\}\}|<!DOCTYPE html>|<StatusBlock>|\[对方消息|\[我方消息/i.test(text)) return false;
+    if (/(字段|固定为|仅需|无需|替换到消息格式|例如|比如|如\s*[`"'“”‘’(（])/i.test(text)) return false;
     if (!/[：:]/.test(text)) return false;
     var avatarLabel = stripped.replace(/[：:=]/g, ' ').trim();
     return !!avatarLabel && avatarLabel.length <= 32;
@@ -2335,13 +2366,24 @@ function isExplicitImportedResourceEntryLine(line, token, kind) {
 function isImportedGreetingPlaceholder(text) {
   var clean = String(text || '').replace(/\r\n/g, '\n').trim();
   if (!clean) return true;
-  return /^(?:【\s*开场\s*】|\[\s*开场\s*\]|开场白?)$/i.test(clean);
+  return /^(?:【\s*开场(?:白)?\s*】|\[\s*开场(?:白)?\s*\]|开场白?|【\s*开场白(?:跳转|预览)\s*】|【\s*user信息填写\s*】)$/i.test(clean)
+    || /【\s*开场白(?:跳转|预览)\s*】|【\s*user信息填写\s*】/i.test(clean);
 }
 
 function looksLikeImportedGreetingHtml(text) {
   var clean = String(text || '').trim();
   if (!clean) return false;
   return /<!DOCTYPE html>|<html\b|<head\b|<style\b|<script\b|emoji-picker-element|phone-container/i.test(clean);
+}
+
+function looksLikeImportedGreetingMetaNote(text) {
+  var clean = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!clean) return false;
+  if (/^>\s*原作者/i.test(clean)) return true;
+  if (/请务必留意|游玩相关|免费发布|dc社区|discord|手机格式适配|状态栏二选一|世界书|正则|快捷|快捷指令|作者说明/i.test(clean)) {
+    if (/^>/.test(clean) || /(?:^|\n)\s*#{1,4}\s*/.test(clean) || /(?:^|\n)\s*\d+\./.test(clean)) return true;
+  }
+  return false;
 }
 
 function normalizeImportedGreetingPool(firstMes, alternateGreetings) {
@@ -2352,15 +2394,15 @@ function normalizeImportedGreetingPool(firstMes, alternateGreetings) {
     return String(entry || '').replace(/\r\n/g, '\n').trim();
   }).filter(Boolean);
   var hasRealGreeting = rawList.some(function(entry) {
-    return !isImportedGreetingPlaceholder(entry) && !looksLikeImportedGreetingHtml(entry);
+    return !isImportedGreetingPlaceholder(entry) && !looksLikeImportedGreetingHtml(entry) && !looksLikeImportedGreetingMetaNote(entry);
   });
   if (hasRealGreeting) {
     rawList = rawList.filter(function(entry) {
-      return !isImportedGreetingPlaceholder(entry) && !looksLikeImportedGreetingHtml(entry);
+      return !isImportedGreetingPlaceholder(entry) && !looksLikeImportedGreetingHtml(entry) && !looksLikeImportedGreetingMetaNote(entry);
     });
   } else {
     rawList = rawList.filter(function(entry) {
-      return !looksLikeImportedGreetingHtml(entry);
+      return !looksLikeImportedGreetingHtml(entry) && !looksLikeImportedGreetingMetaNote(entry);
     });
   }
   return dedupeImportedEntries(rawList, function(entry) {
@@ -2523,11 +2565,12 @@ function collectStructuredRegexScripts(source, path, bucket) {
   });
 }
 
-function extractImportedAssetEntriesFromText(text, path) {
+function extractImportedAssetEntriesFromText(text, path, options) {
   var raw = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (!raw.trim()) return [];
   var fallbackKind = guessImportedResourceKind(path, '');
   var currentKind = fallbackKind === 'unknown' ? '' : fallbackKind;
+  var avatarSectionAllowed = currentKind === 'avatar';
   var lines = raw.split('\n').map(function(line){ return String(line || '').trim(); }).filter(Boolean);
   var hasExplicitSection = lines.some(function(line){
     return isImportedAvatarSectionLine(line) || isImportedMemeSectionLine(line);
@@ -2536,7 +2579,10 @@ function extractImportedAssetEntriesFromText(text, path) {
   var entries = [];
   lines.forEach(function(line) {
     if (isImportedAvatarSectionLine(line)) {
+      var owner = getImportedAvatarSectionOwner(line, options);
       currentKind = 'avatar';
+      if (owner === 'main') avatarSectionAllowed = true;
+      else if (owner === 'other') avatarSectionAllowed = false;
     } else if (isImportedMemeSectionLine(line)) {
       currentKind = 'meme';
     }
@@ -2544,6 +2590,7 @@ function extractImportedAssetEntriesFromText(text, path) {
     if (!token) return;
     var kindHint = detectImportedLineKind(line, currentKind, path);
     if (kindHint !== 'avatar' && kindHint !== 'meme') return;
+    if (kindHint === 'avatar' && !avatarSectionAllowed) return;
     if (!isExplicitImportedResourceEntryLine(line, token, kindHint)) return;
     var isAvatar = kindHint === 'avatar';
     var label = '';
@@ -2572,14 +2619,14 @@ function extractImportedAssetEntriesFromText(text, path) {
   return entries;
 }
 
-function collectImportedMetadataFromNode(node, path, bucket, depth) {
+function collectImportedMetadataFromNode(node, path, bucket, depth, options) {
   if (depth > 6 || node == null) return;
   if (typeof node === 'string') {
     var pathHint = importPathHint(path);
     var allowAssetScan = /character_book|world_info|entries\[\d+\]\.(content|comment|title)|extensions|avatar|meme|sticker|emoji/.test(pathHint)
       || guessImportedResourceKind(path, node) !== 'unknown';
     if (allowAssetScan) {
-      extractImportedAssetEntriesFromText(node, path).forEach(function(entry) {
+      extractImportedAssetEntriesFromText(node, path, options).forEach(function(entry) {
         bucket.images.push(entry);
       });
     }
@@ -2590,7 +2637,7 @@ function collectImportedMetadataFromNode(node, path, bucket, depth) {
   }
   if (Array.isArray(node)) {
     node.slice(0, 120).forEach(function(item, idx) {
-      collectImportedMetadataFromNode(item, String(path || '') + '[' + idx + ']', bucket, depth + 1);
+      collectImportedMetadataFromNode(item, String(path || '') + '[' + idx + ']', bucket, depth + 1, options);
     });
     return;
   }
@@ -2598,14 +2645,17 @@ function collectImportedMetadataFromNode(node, path, bucket, depth) {
   collectStructuredImportedAssets(node, path, bucket);
   collectStructuredRegexScripts(node, path, bucket);
   Object.keys(node).slice(0, 120).forEach(function(key) {
-    collectImportedMetadataFromNode(node[key], path ? (path + '.' + key) : key, bucket, depth + 1);
+    collectImportedMetadataFromNode(node[key], path ? (path + '.' + key) : key, bucket, depth + 1, options);
   });
 }
 
 function extractImportedCardMetadata(raw, d, charBook, jsonStr, filename) {
   var bucket = { images: [], rules: [], regex: [] };
-  collectImportedMetadataFromNode(raw, 'raw', bucket, 0);
-  if (charBook) collectImportedMetadataFromNode(charBook, 'character_book', bucket, 0);
+  var importOptions = {
+    charAliases: [d && d.name, d && d.char_name, d && d.nick, d && d.nickname, filename && String(filename || '').replace(/\.(png|json)$/i, '')]
+  };
+  collectImportedMetadataFromNode(raw, 'raw', bucket, 0, importOptions);
+  if (charBook) collectImportedMetadataFromNode(charBook, 'character_book', bucket, 0, importOptions);
   splitRuleBlocksFromText(jsonStr).forEach(function(block) { bucket.rules.push(block); });
   var directAvatarCandidates = [
     d && d.avatar_url,
@@ -2762,8 +2812,11 @@ function parseCard(jsonStr, imageData, filename) {
 
     async function doImportNow(){
       var storedCard = makeStoredCharacterCard(card);
+      var incomingName = normalizeImportName(storedCard.nickname || storedCard.name || '');
       var existIdx = chars.findIndex(function(c){
-        return c && c.id === storedCard.id && c.ownerAccountId === storedCard.ownerAccountId;
+        if(!(c && c.ownerAccountId === storedCard.ownerAccountId)) return false;
+        if(c.id === storedCard.id) return true;
+        return incomingName && normalizeImportName(c.nickname || c.name || '') === incomingName;
       });
       if (existIdx >= 0) {
         var existingCard = chars[existIdx];
@@ -2781,7 +2834,10 @@ function parseCard(jsonStr, imageData, filename) {
       } else {
         chars.push(card);
       }
-      if(card.imageData){
+      if(card.avatarUrl){
+        saveStoredAsset('char_avatar_' + card.id, '');
+        avatarAssetCache[card.id] = '';
+      }else if(card.imageData){
         saveStoredAsset('char_avatar_' + card.id, card.imageData);
         avatarAssetCache[card.id] = card.imageData;
       }

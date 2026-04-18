@@ -11317,13 +11317,21 @@ function getMomentsAiName(){
 }
 
 function getMomentsAiAvatar(){
-  if(character && character.imageData && String(character.imageData).startsWith('data:')) return String(character.imageData);
   var id = character && character.id ? character.id : '';
   if(id){
     try{
       var localAvatar = localStorage.getItem('char_avatar_' + id) || '';
       if(localAvatar && (localAvatar.startsWith('data:') || localAvatar.startsWith('http') || localAvatar.startsWith('blob:') || localAvatar.startsWith('/'))) return localAvatar;
     }catch(e){}
+  }
+  if(character && character.avatarUrl){
+    var avatarUrl = String(character.avatarUrl || '');
+    if(avatarUrl && (avatarUrl.startsWith('http') || avatarUrl.startsWith('blob:') || avatarUrl.startsWith('/'))) return avatarUrl;
+  }
+  if(character && character.imageData){
+    var imageData = String(character.imageData || '');
+    if(imageData && (imageData.startsWith('http') || imageData.startsWith('blob:') || imageData.startsWith('/'))) return imageData;
+    if(imageData && imageData.startsWith('data:')) return imageData;
   }
   if(character && character.avatar){
     var av = String(character.avatar);
@@ -12703,19 +12711,57 @@ function getEnabledImportedGreetingRegexScripts(){
   if(!(character && character.importedRegexScripts && character.importedRegexScripts.length)) return [];
   return character.importedRegexScripts
     .map(normalizeImportedRegexScriptMeta)
-    .filter(function(entry){ return entry && !entry.disabled && String(entry.findRegex || '').trim(); });
+    .filter(function(entry){
+      if(!(entry && !entry.disabled && String(entry.findRegex || '').trim())) return false;
+      var placements = Array.isArray(entry.placement) ? entry.placement : [];
+      if(placements.length && placements.indexOf(2) === -1) return false;
+      return !entry.promptOnly;
+    });
 }
 
 function isGreetingPlaceholderText(text){
   var clean = String(text || '').replace(/\r\n/g, '\n').trim();
   if(!clean) return true;
-  return /^(?:【\s*开场\s*】|\[\s*开场\s*\]|开场白?)$/i.test(clean);
+  return /^(?:【\s*开场(?:白)?\s*】|\[\s*开场(?:白)?\s*\]|开场白?|【\s*开场白(?:跳转|预览)\s*】|【\s*user信息填写\s*】)$/i.test(clean)
+    || /【\s*开场白(?:跳转|预览)\s*】|【\s*user信息填写\s*】/i.test(clean);
 }
 
 function looksLikeGreetingHtmlTemplate(text){
   var clean = String(text || '').trim();
   if(!clean) return false;
   return /<!DOCTYPE html>|<html\b|<head\b|<style\b|<script\b|emoji-picker-element|phone-container/i.test(clean);
+}
+
+function looksLikeGreetingMetaNote(text){
+  var clean = String(text || '').replace(/\r\n/g, '\n').trim();
+  if(!clean) return false;
+  if(/^>\s*原作者/i.test(clean)) return true;
+  if(/请务必留意|游玩相关|免费发布|dc社区|discord|手机格式适配|状态栏二选一|世界书|正则|快捷|快捷指令|作者说明/i.test(clean)){
+    if(/^>/.test(clean) || /(?:^|\n)\s*#{1,4}\s*/.test(clean) || /(?:^|\n)\s*\d+\./.test(clean)) return true;
+  }
+  return false;
+}
+
+function extractGreetingSelectorMeta(text, index){
+  var raw = String(text || '').replace(/\r\n/g, '\n').trim();
+  var title = '';
+  var desc = '';
+  var commentTitle = raw.match(/<!--\s*title\s*:\s*([\s\S]*?)\s*-->/i);
+  var commentDesc = raw.match(/<!--\s*desc\s*:\s*([\s\S]*?)\s*-->/i);
+  var tagTitle = raw.match(/<title>([\s\S]*?)<\/title>/i);
+  if(commentTitle && commentTitle[1]) title = String(commentTitle[1] || '').trim();
+  else if(tagTitle && tagTitle[1]) title = String(tagTitle[1] || '').trim();
+  if(commentDesc && commentDesc[1]) desc = String(commentDesc[1] || '').trim();
+  var preview = raw
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<title>[\s\S]*?<\/title>/gi, ' ')
+    .replace(/<url>[\s\S]*?<\/url>/gi, ' ')
+    .replace(/<lyrics>[\s\S]*?<\/lyrics>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if(preview.length > 120) preview = preview.slice(0, 120).trim() + '…';
+  if(!title) title = '开场白 ' + (Number(index) + 1);
+  return { title:title, desc:desc, preview:preview };
 }
 
 function normalizeGreetingCandidates(firstMes, alternateGreetings){
@@ -12726,15 +12772,15 @@ function normalizeGreetingCandidates(firstMes, alternateGreetings){
     return String(entry || '').replace(/\r\n/g, '\n').trim();
   }).filter(Boolean);
   var hasRealGreeting = list.some(function(entry){
-    return !isGreetingPlaceholderText(entry) && !looksLikeGreetingHtmlTemplate(entry);
+    return !isGreetingPlaceholderText(entry) && !looksLikeGreetingHtmlTemplate(entry) && !looksLikeGreetingMetaNote(entry);
   });
   if(hasRealGreeting){
     list = list.filter(function(entry){
-      return !isGreetingPlaceholderText(entry) && !looksLikeGreetingHtmlTemplate(entry);
+      return !isGreetingPlaceholderText(entry) && !looksLikeGreetingHtmlTemplate(entry) && !looksLikeGreetingMetaNote(entry);
     });
   }else{
     list = list.filter(function(entry){
-      return !looksLikeGreetingHtmlTemplate(entry);
+      return !looksLikeGreetingHtmlTemplate(entry) && !looksLikeGreetingMetaNote(entry);
     });
   }
   var seen = {};
@@ -14765,8 +14811,8 @@ function updateHeader() {
     avHit.onclick = openIdentityCard;
     avHit.ontouchend = function(e){ if(e) e.preventDefault(); openIdentityCard(); };
   }
-  if (character.imageData) { av.innerHTML = '<img src="' + character.imageData + '">'; }
-  else av.textContent = character.avatar || '🌸';
+  setAvatarNodeFromSource(av, character.avatarUrl || character.imageData || '', displayName, false);
+  if(!String(av.innerHTML || '').trim()) av.textContent = character.avatar || '🌸';
   loadStoredAsset('char_avatar_' + headerCharId).then(function(ovr){
     if(String((character && character.id) || '').trim() !== headerCharId) return;
     if (isRenderableAvatarSrc(ovr)) { av.innerHTML = '<img src="' + ovr + '">'; }
@@ -25829,9 +25875,10 @@ function populateGreetings() {
   var all = getGreetingVariants(true);
   if (!all.length) { list.innerHTML = '<div style="font-size:12px;color:var(--g)">卡里没有开场白</div>'; return; }
   list.innerHTML = all.map(function(g, i) {
+    var meta = extractGreetingSelectorMeta(g, i);
     return '<div class="g-item' + (i === curGreetingIdx ? ' active-g' : '') + '" onclick="pickGreeting(' + i + ')" data-gi="' + i + '">' +
       '<div class="g-num">#' + (i + 1) + '</div>' +
-      '<div class="g-preview">' + esc(g) + '</div>' +
+      '<div class="g-preview"><strong>' + esc(meta.title) + '</strong>' + (meta.desc ? ('<br><span class="toggle-sub">' + esc(meta.desc) + '</span>') : '') + (meta.preview ? ('<br>' + esc(meta.preview)) : '') + '</div>' +
       '<button class="g-expand" onclick="toggleGreeting(event,this)">▾</button></div>';
   }).join('');
 }
