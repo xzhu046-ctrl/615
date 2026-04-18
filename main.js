@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-18T22:31:12Z';
+const APP_BUILD_ID = '2026-04-18T22:45:54Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -7937,6 +7937,23 @@ function summarizeMemePreview(content){
   return name ? ('【表情包】' + name) : '【表情包】';
 }
 
+function summarizeRichPreview(content){
+  var raw = String(content || '').trim();
+  if(!raw) return '【SURPRISE】';
+  try{
+    var parsed = JSON.parse(raw);
+    var direct = String((parsed && (parsed.summary || parsed.title || parsed.text)) || '').trim();
+    if(direct) return direct;
+  }catch(err){}
+  var fencedHtml = raw.match(/```html\s*([\s\S]*?)```/i);
+  var html = fencedHtml ? String(fencedHtml[1] || '').trim() : raw;
+  var titleMatch = html.match(/<title>([\s\S]*?)<\/title>/i);
+  if(titleMatch && titleMatch[1]) return String(titleMatch[1] || '').trim();
+  var commentTitle = raw.match(/<!--\s*title\s*:\s*([\s\S]*?)\s*-->/i);
+  if(commentTitle && commentTitle[1]) return String(commentTitle[1] || '').trim();
+  return '【SURPRISE】';
+}
+
 function normalizePreviewMessage(msg){
   var next = msg && typeof msg === 'object' ? msg : { content:'', type:'text' };
   var kind = normalizeChatPreviewType(next.type || 'text');
@@ -7955,7 +7972,7 @@ function normalizePreviewMessage(msg){
     return { content: '【亲属卡】', type: 'text' };
   }
   if(kind === 'richhtml'){
-    return { content: '【SURPRISE】', type: 'text' };
+    return { content: summarizeRichPreview(next.content), type: 'text' };
   }
   if(kind === 'moneypacket'){
     try{
@@ -7993,12 +8010,12 @@ function normalizePreviewMessage(msg){
       var parsed = JSON.parse(next.content);
       if(parsed && typeof parsed === 'object'){
         if((parsed.html || parsed.css || parsed.js) && !parsed.type){
-          return { content: '【SURPRISE】', type: 'text' };
+          return { content: summarizeRichPreview(next.content), type: 'text' };
         }
         if(parsed.content){
           var parsedType = normalizeChatPreviewType(parsed.type || 'text');
           if(parsedType === 'meme') return { content: summarizeMemePreview(parsed.content), type: 'text' };
-          if(parsedType === 'richhtml') return { content: '【SURPRISE】', type: 'text' };
+          if(parsedType === 'richhtml') return { content: summarizeRichPreview(parsed.content), type: 'text' };
           if(parsedType === 'recallnotice'){
             var parsedRecallPayload = typeof parsed.content === 'string' ? JSON.parse(parsed.content) : parsed.content;
             var parsedActorName = '';

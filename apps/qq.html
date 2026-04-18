@@ -2364,6 +2364,23 @@ function summarizeMemePreview(content){
   return name ? ('【表情包】' + name) : '【表情包】';
 }
 
+function summarizeRichPreview(content){
+  var raw = String(content || '').trim();
+  if(!raw) return '【SURPRISE】';
+  try{
+    var parsed = JSON.parse(raw);
+    var direct = String((parsed && (parsed.summary || parsed.title || parsed.text)) || '').trim();
+    if(direct) return direct;
+  }catch(err){}
+  var fencedHtml = raw.match(/```html\s*([\s\S]*?)```/i);
+  var html = fencedHtml ? String(fencedHtml[1] || '').trim() : raw;
+  var titleMatch = html.match(/<title>([\s\S]*?)<\/title>/i);
+  if(titleMatch && titleMatch[1]) return String(titleMatch[1] || '').trim();
+  var commentTitle = raw.match(/<!--\s*title\s*:\s*([\s\S]*?)\s*-->/i);
+  if(commentTitle && commentTitle[1]) return String(commentTitle[1] || '').trim();
+  return '【SURPRISE】';
+}
+
 function normalizePreviewMessage(msg){
   var next = msg && typeof msg === 'object' ? msg : { content:'', type:'text' };
   var kind = normalizeChatPreviewType(next.type || 'text');
@@ -2382,7 +2399,7 @@ function normalizePreviewMessage(msg){
     return { content: '【亲属卡】', type: 'text' };
   }
   if(kind === 'richhtml'){
-    return { content: '【SURPRISE】', type: 'text' };
+    return { content: summarizeRichPreview(next.content), type: 'text' };
   }
   if(kind === 'moneypacket'){
     return { content: moneyPreviewText(next.content), type: 'text' };
@@ -2420,12 +2437,12 @@ function normalizePreviewMessage(msg){
       var parsed = JSON.parse(next.content);
       if(parsed && typeof parsed === 'object'){
         if((parsed.html || parsed.css || parsed.js) && !parsed.type){
-          return { content: '【SURPRISE】', type: 'text' };
+          return { content: summarizeRichPreview(next.content), type: 'text' };
         }
         if(parsed.content){
           var parsedType = normalizeChatPreviewType(parsed.type || 'text');
         if(parsedType === 'meme') return { content: summarizeMemePreview(parsed.content), type: 'text' };
-        if(parsedType === 'richhtml') return { content: '【SURPRISE】', type: 'text' };
+        if(parsedType === 'richhtml') return { content: summarizeRichPreview(parsed.content), type: 'text' };
         if(parsedType === 'offlineinvite') return { content: '【约会邀请】', type: 'text' };
         if(parsedType === 'recallnotice'){
             var parsedRecallPayload = typeof parsed.content === 'string' ? JSON.parse(parsed.content) : parsed.content;

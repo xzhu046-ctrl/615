@@ -7990,7 +7990,7 @@ async function syncImportedMemeResources(target){
     items = prunedItems;
     changed = true;
   }
-  if(category && Array.isArray(target.importedMemeResources) && target.importedMemeResources.length){
+  if(category){
     var categoryList = Array.isArray(memeLibraryCache.categories) ? memeLibraryCache.categories.slice() : [];
     var hasCategory = categoryList.some(function(entry){
       return String(entry || '').trim().toLowerCase() === String(category || '').trim().toLowerCase();
@@ -9671,20 +9671,27 @@ function parseRichHtmlBlocks(text){
   var cssMatch = raw.match(/```css\s*([\s\S]*?)```/i);
   var jsMatch = raw.match(/```(?:js|javascript)\s*([\s\S]*?)```/i);
   if(htmlMatch || cssMatch || jsMatch){
+    var htmlBlock = String(htmlMatch && htmlMatch[1] || '').trim();
+    var htmlTitle = '';
+    var titleMatch = htmlBlock.match(/<title>([\s\S]*?)<\/title>/i);
+    if(titleMatch && titleMatch[1]) htmlTitle = String(titleMatch[1] || '').trim();
     var summary = raw.replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim();
+    if(!summary) summary = htmlTitle;
     return {
-      html: String(htmlMatch && htmlMatch[1] || '').trim(),
+      html: htmlBlock,
       css: String(cssMatch && cssMatch[1] || '').trim(),
       js: String(jsMatch && jsMatch[1] || '').trim(),
-      summary: summary.slice(0, 160)
+      summary: String(summary || '').slice(0, 160)
     };
   }
   if(/<(div|section|article|main|style|script|table|html|body)\b/i.test(raw) && /<\/(div|section|article|main|style|script|table|html|body)>/i.test(raw)){
+    var rawTitleMatch = raw.match(/<title>([\s\S]*?)<\/title>/i);
+    var rawTitle = String(rawTitleMatch && rawTitleMatch[1] || '').trim();
     return {
       html: raw,
       css: '',
       js: '',
-      summary: extractPlainTextFromHtmlMarkup(raw).slice(0, 40) || '小惊喜'
+      summary: rawTitle || extractPlainTextFromHtmlMarkup(raw).slice(0, 40) || '小惊喜'
     };
   }
   return null;
@@ -10107,6 +10114,35 @@ function buildRichWebVisibleDoc(data){
 
 function buildRichHtmlSrcdoc(payload){
   var data = normalizeRichHtmlRenderableData(payload);
+  function injectIntoFullDocument(source, bridgeJs, inlineCss, inlineJs){
+    var doc = String(source || '').trim();
+    if(!doc) return '';
+    var baseCss = 'html,body{margin:0;padding:0;background:#fff;color:#111;overflow:auto}*,*:before,*:after{box-sizing:border-box}';
+    var headBits = [
+      /<meta[^>]+name=["']viewport["']/i.test(doc) ? '' : '<meta name="viewport" content="width=device-width,initial-scale=1">',
+      '<script>' + bridgeJs + '<\/script>',
+      '<style>' + baseCss + String(inlineCss || '') + '</style>'
+    ].filter(Boolean).join('');
+    if(/<head\b[^>]*>/i.test(doc)){
+      doc = doc.replace(/<head\b[^>]*>/i, function(match){
+        return match + headBits;
+      });
+    }else if(/<html\b[^>]*>/i.test(doc)){
+      doc = doc.replace(/<html\b[^>]*>/i, function(match){
+        return match + '<head>' + headBits + '</head>';
+      });
+    }else{
+      doc = '<!doctype html><html><head>' + headBits + '</head><body>' + doc + '</body></html>';
+    }
+    if(String(inlineJs || '').trim()){
+      if(/<\/body>/i.test(doc)){
+        doc = doc.replace(/<\/body>/i, '<script>' + String(inlineJs || '') + '<\/script></body>');
+      }else{
+        doc += '<script>' + String(inlineJs || '') + '<\/script>';
+      }
+    }
+    return doc;
+  }
   var bridgeJs = [
     '(function(){',
     'if(window.__PHONE_RICH_BRIDGE_READY__) return;',
@@ -10143,15 +10179,21 @@ function buildRichHtmlSrcdoc(payload){
     'window.setChatMessage = function(content, index, options){ return rpc("setChatMessage", { content: content, index: index, options: options || {} }); };',
     'window.__PHONE_GREETING_BRIDGE__ = { rpc: rpc };',
     '})();'
-  ].join(''),
+  ].join('');
+  var inlineCss = String(data.css || '');
+  var inlineJs = String(data.js || '').trim();
+  var htmlSource = String(data.html || '').trim();
+  if(/<!doctype html>|<html\b/i.test(htmlSource)){
+    return injectIntoFullDocument(htmlSource, bridgeJs, inlineCss, inlineJs);
+  }
   return [
     '<!doctype html><html><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
-    '<style>html,body{margin:0;padding:0;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"PingFang SC\",sans-serif;overflow:auto}*,*:before,*:after{box-sizing:border-box}' + String(data.css || '') + '</style>',
+    '<style>html,body{margin:0;padding:0;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"PingFang SC\",sans-serif;overflow:auto}*,*:before,*:after{box-sizing:border-box}' + inlineCss + '</style>',
     '</head><body>',
     '<script>' + bridgeJs + '<\/script>',
-    String(data.html || ''),
-    String(data.js || '').trim() ? ('<script>' + String(data.js || '') + '<\/script>') : '',
+    htmlSource,
+    inlineJs ? ('<script>' + inlineJs + '<\/script>') : '',
     '</body></html>'
   ].join('');
 }
