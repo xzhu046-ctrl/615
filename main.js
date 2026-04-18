@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-18T11:16:11Z';
+const APP_BUILD_ID = '2026-04-18T11:24:20Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -59,8 +59,9 @@ const HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY = 'hosted_update_last_seen_remote_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
 const GITHUB_UPDATE_REPO = '615';
-
 const GITHUB_UPDATE_BRANCH = 'main';
+const BOND_FRAME_SHIFT_X = 30;
+const BOND_FRAME_SHIFT_Y = 50;
 const SERVICE_WORKER_PATH = 'sw.js';
 const HOME_MUSIC_STATE_KEY = 'home_music_state_v1';
 const HOME_MUSIC_TRACK_PREFIX = 'home_music_track_';
@@ -4641,14 +4642,19 @@ function getTopFrameVisual(url){
     if(typeof avatarFrames !== 'undefined' && Array.isArray(avatarFrames)){
       const found = avatarFrames.find((f)=>f && f.url === url);
       if(found){
+        const nextScale = Number(found.scale);
+        const nextOffsetX = Number(found.offsetX);
+        const nextOffsetY = Number(found.offsetY);
         cfg = {
-          scale: Number(found.scale) || cfg.scale,
-          offsetX: Number(found.offsetX) || 0,
-          offsetY: Number(found.offsetY) || cfg.offsetY,
+          scale: Number.isFinite(nextScale) ? nextScale : cfg.scale,
+          offsetX: Number.isFinite(nextOffsetX) ? nextOffsetX : cfg.offsetX,
+          offsetY: Number.isFinite(nextOffsetY) ? nextOffsetY : cfg.offsetY,
         };
       }
     }
   }catch(e){}
+  cfg.offsetX += BOND_FRAME_SHIFT_X;
+  cfg.offsetY += BOND_FRAME_SHIFT_Y;
   return cfg;
 }
 
@@ -5029,7 +5035,7 @@ function getChatUserAvatar(charId){
       return Promise.resolve('');
     }
     return loadStoredAsset(keys[idx]).then(function(src){
-      if(src && src.startsWith('data:')) return src;
+      if(isRenderableShellAvatarSrc(src)) return src;
       return loadAt(idx + 1);
     });
   }
@@ -5225,8 +5231,8 @@ function applyBondWidgetPreview(payload){
   if(typeof preview.userAvatar === 'string'){
     var userAvatarEl = document.getElementById('bond-user-avatar');
     if(userAvatarEl){
-      var src = preview.userAvatar.trim();
-      var baseHtml = src && src.startsWith('data:')
+      var src = normalizeShellAssetSrc(preview.userAvatar.trim());
+      var baseHtml = isRenderableShellAvatarSrc(src)
         ? '<span class="bond-avatar-base"><img src="' + src + '" alt=""></span>'
         : '<span class="bond-avatar-base">你</span>';
       var frameUrl = getActiveBondAvatarFrameUrl('user');
