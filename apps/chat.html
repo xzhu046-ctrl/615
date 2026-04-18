@@ -7308,6 +7308,32 @@ function importedAssetFileNameFromValue(value){
   return isImportedAssetFileName(stripped) ? stripped : '';
 }
 
+function parseImportedMemeCatboxSource(value, label){
+  var raw = String(value || '').trim();
+  if(!raw) return null;
+  if(/^(data:|blob:|https?:|\/|\.\/|\.\.\/)/i.test(raw)){
+    var remoteFile = importedAssetFileNameFromValue(raw);
+    return {
+      src: raw,
+      fileName: remoteFile,
+      name: normalizeMemeName(label || remoteFile || '')
+    };
+  }
+  var stripped = raw.replace(/^(?:embeded|embedded):\/\//i, '').replace(/^__asset:/i, '').trim();
+  if(!stripped) return null;
+  var tail = stripped.match(/([a-z0-9]{6}\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif))$/i);
+  if(tail && tail[1]){
+    var fileName = String(tail[1] || '').trim();
+    var prefixName = normalizeMemeName(stripped.slice(0, stripped.length - fileName.length));
+    return {
+      src: 'https://files.catbox.moe/' + fileName,
+      fileName: fileName,
+      name: normalizeMemeName(label || prefixName || fileName)
+    };
+  }
+  return null;
+}
+
 function normalizeImportedAvatarResource(raw){
   if(!raw || typeof raw !== 'object') return null;
   var src = normalizeAvatarSrc(raw.previewData || raw.src || raw.url || '');
@@ -7327,12 +7353,17 @@ function normalizeImportedMemeResource(raw){
   if(!raw || typeof raw !== 'object') return null;
   var src = String(raw.src || raw.url || '').trim();
   var fileName = importedAssetFileNameFromValue(raw.fileName || raw.filename || src || '');
+  var catboxMeta = parseImportedMemeCatboxSource(raw.fileName || raw.filename || src || '', raw.name || raw.label || '');
+  if(catboxMeta){
+    src = String(catboxMeta.src || src).trim();
+    fileName = String(catboxMeta.fileName || fileName).trim();
+  }
   if(src && !/^(data:|blob:|https?:|\/|\.\/|\.\.\/)/i.test(src)){
     if(!fileName) fileName = importedAssetFileNameFromValue(src);
     src = '';
   }
   if(!src && !fileName) return null;
-  var name = normalizeMemeName(raw.name || raw.label || fileName || '');
+  var name = normalizeMemeName((catboxMeta && catboxMeta.name) || raw.name || raw.label || fileName || '');
   if(!name) return null;
   return {
     id: String(raw.id || '').trim(),

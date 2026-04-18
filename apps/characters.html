@@ -2208,12 +2208,52 @@ function importedFileNameFromUri(uri) {
   return isImportedImageFileName(normalized) ? normalized : '';
 }
 
+function parseImportedMemeCatboxToken(token, label) {
+  var clean = stripImportedImageDecorations(token);
+  if (!clean) return null;
+  if (isImportedImageUrl(clean)) {
+    var remoteName = basenameFromImportUrl(clean);
+    return {
+      src: clean,
+      fileName: remoteName,
+      label: normalizeImportedLabel(label, remoteName)
+    };
+  }
+  var normalized = clean.replace(/^(?:embeded|embedded):\/\//i, '').replace(/^__asset:/i, '').trim();
+  if (!normalized) return null;
+  var fileName = '';
+  var parsedLabel = '';
+  var catboxTail = normalized.match(/([a-z0-9]{6}\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif))$/i);
+  if (catboxTail && catboxTail[1]) {
+    fileName = String(catboxTail[1] || '').trim();
+    parsedLabel = normalizeImportedLabel(normalized.slice(0, normalized.length - fileName.length), '');
+  } else if (isImportedImageFileName(normalized)) {
+    fileName = normalized;
+  } else {
+    return null;
+  }
+  return {
+    src: fileName ? ('https://files.catbox.moe/' + fileName) : '',
+    fileName: fileName,
+    label: normalizeImportedLabel(label, parsedLabel || fileName)
+  };
+}
+
 function buildImportedImageEntry(kind, token, label, path, note) {
   var safeKind = kind === 'avatar' ? 'avatar' : 'meme';
   var clean = stripImportedImageDecorations(token);
   if (!clean) return null;
   var src = isImportedImageUrl(clean) ? clean : '';
   var fileName = importedFileNameFromUri(clean);
+  var parsedLabel = normalizeImportedLabel(label, '');
+  if (safeKind === 'meme') {
+    var memeMeta = parseImportedMemeCatboxToken(clean, parsedLabel);
+    if (memeMeta) {
+      src = memeMeta.src || src;
+      fileName = memeMeta.fileName || fileName;
+      parsedLabel = memeMeta.label || parsedLabel;
+    }
+  }
   if (!src && !fileName && isImportedImageFileName(clean)) fileName = clean;
   if (!src && !fileName) return null;
   var fallback = src ? importedResourceLabelFromUrl(src, safeKind === 'avatar' ? '头像' : '表情包') : (fileName || (safeKind === 'avatar' ? '头像' : '表情包'));
@@ -2221,7 +2261,7 @@ function buildImportedImageEntry(kind, token, label, path, note) {
     kind: safeKind,
     url: src,
     fileName: fileName,
-    label: normalizeImportedLabel(label, fallback),
+    label: normalizeImportedLabel(parsedLabel, fallback),
     path: String(path || ''),
     note: normalizeImportedLabel(note, '')
   };
