@@ -7,6 +7,8 @@ const APP_MAP = {
   customize:  { title: '外观',           src: 'apps/customize.html' },
   worldbook:  { title: '档案',           src: 'apps/worldbook.html' },
   schedule:   { title: '日程',           src: 'apps/schedule.html', hideTopbar: true },
+  offline:    { title: '约会',           src: 'apps/offline.html', hideTopbar: true },
+  offline_mode:{ title: '赴约中',        src: 'apps/offline_mode.html', hideTopbar: true },
   backend:    { title: '后台',           src: 'apps/backend.html' },
   map6:       { title: '地图',           src: 'apps/map6.html' },
 };
@@ -41,9 +43,11 @@ const WIDGET_CHARACTER_BG_KEY = 'widget_character_bg';
 const DEFAULT_MOMENTS_FREQ = 'medium';
 const OFFLINE_MINIMIZED_CHAR_KEY = 'offline_minimized_char';
 const OFFLINE_LAUNCH_LATEST_KEY = 'offline_launch_latest';
+const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
+const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-18T01:30:35Z';
+const APP_BUILD_ID = '2026-04-18T02:30:36Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -375,7 +379,7 @@ function ensureOfflineMiniLauncher(){
     pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
     pendingOpenOfflineLaunchMode = 'resume';
     pendingOpenOfflineLaunchToken = '';
-    replaceApp('offline');
+    replaceApp('offline_mode');
   });
   document.body.appendChild(btn);
   return btn;
@@ -2053,6 +2057,8 @@ async function showSystemShellNotification(payload){
       name: senderName,
       text: text
     };
+    if(payload && payload.inviteId) notifyData.inviteId = String(payload.inviteId || '').trim();
+    if(payload && payload.launchMode) notifyData.launchMode = String(payload.launchMode || '').trim();
     var options = {
       body: text,
       icon: getShellNotificationIcon(),
@@ -2469,26 +2475,33 @@ function getSchedulePresenceContext(character){
   try{
     var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now());
     if(!(snapshot && snapshot.char && snapshot.user)) return '';
-    var userLabel = String(snapshot.user.label || '').trim() || String(snapshot.user.cityId || '').trim() || '用户所在城市';
-    var charCityName = snapshot.char.city && snapshot.char.city.name ? String(snapshot.char.city.name).trim() : '';
-    var charCountry = snapshot.char.city && snapshot.char.city.country ? String(snapshot.char.city.country).trim() : '';
+    var userWeather = loadScheduleWeatherSettingByCharId('user', character.id) || {};
+    var charWeather = loadScheduleWeatherSettingByCharId('char', character.id) || {};
+    function displayPlace(setting, fallback){
+      if(!(setting && typeof setting === 'object')) return String(fallback || '').trim();
+      return String(setting.aliasName || '').trim() || String(setting.realName || '').trim() || String(setting.resolvedName || '').trim() || String(fallback || '').trim();
+    }
+    var userLabel = displayPlace(userWeather, String(snapshot.user.label || '').trim() || String(snapshot.user.cityId || '').trim() || '用户所在城市');
+    var charCityName = displayPlace(charWeather, snapshot.char.city && snapshot.char.city.name ? String(snapshot.char.city.name).trim() : '');
     var charPlace = String(snapshot.char.placeLabel || '').trim();
     var charActivity = String(snapshot.char.activityLabel || '').trim();
     var charClock = String(snapshot.char.localTimeLabel || '').trim();
     var distanceLabel = String(snapshot.distanceLabel || '').trim();
-    var sameCity = !!(snapshot.user.cityId && snapshot.char.city && snapshot.char.city.id && String(snapshot.user.cityId) === String(snapshot.char.city.id));
+    var sameCity = !!(userLabel && charCityName && userLabel === charCityName);
     var lines = [
-      '用户当前地理位置：' + userLabel,
-      '角色当前地理位置：' + [charCountry, charCityName, charPlace].filter(Boolean).join(' · '),
+      '用户当前显示地理位置：' + userLabel,
+      '角色当前显示地理位置：' + [charCityName, charPlace].filter(Boolean).join(' · '),
       charClock ? ('角色当前当地时间：' + charClock) : '',
       charActivity ? ('角色当前状态：' + charActivity) : '',
       distanceLabel ? ('双方距离：' + distanceLabel) : ''
     ].filter(Boolean);
     if(charCityName){
-      lines.push('今天所有地点、行动距离感、移动方式，都必须锁定在这个角色当前所在城市或它合理的附近区域：' + [charCountry, charCityName].filter(Boolean).join(' · ') + '。不要无故跳到别的省市国家，更不要把东京写成江西这种完全无关的地点。');
+      lines.push('今天所有展示给用户看的地点、行动距离感、移动方式，都必须锁定在这个角色当前显示城市或它合理的附近区域：' + charCityName + '。不要无故跳到别的省市国家，更不要把真实定位城市直接写出来。');
     }
     if(sameCity || Number(snapshot.travel && snapshot.travel.distanceKm || 0) < 35){
       lines.push('双方当前就在同城/同地范围。默认按本地活动距离来写，不要再写买飞机票、坐飞机飞来、跨城跨国赶来这种异地剧情。');
+    }else{
+      lines.push('如果显示城市不同，就按跨城相处来理解。只有真的约好了见面、已经在赶路或已经进入线下场景时，才能写现实碰面。');
     }
     if(snapshot.travel && Number(snapshot.travel.distanceKm || 0) >= 8){
       lines.push('如果双方距离明显不近，就不要乱写“已经在用户家里 / 顺路到她家 / 送她回家 / 站在她楼下”这种已经同处一地的剧情，除非用户当天公开行程明确写了见面、接送、同城同行。地点、互动距离感、移动方式都必须服从这里的地理设定。');
@@ -2521,8 +2534,7 @@ function buildScheduleWeatherPresenceContext(payload){
   if(user && char){
     var userPlace = displayPlace(user, '');
     var charPlace = displayPlace(char, '');
-    var sameCountry = !!String(user.country || '').trim() && String(user.country || '').trim() === String(char.country || '').trim();
-    var sameCity = !!(String(user.cityId || '').trim() && String(char.cityId || '').trim() && String(user.cityId || '').trim() === String(char.cityId || '').trim());
+    var sameCity = !!(userPlace && charPlace && userPlace === charPlace);
     if(user.aliasName || char.aliasName){
       lines.push('如果设置里同时存在真实定位城市和显示城市，所有会展示给用户看的地点名称一律使用显示城市，不要说出真实定位城市名。');
     }
@@ -2532,9 +2544,7 @@ function buildScheduleWeatherPresenceContext(payload){
     if(userPlace && charPlace && userPlace !== charPlace){
       lines.push('双方当前不在同一个城市。除非用户当天公开日程明确写了见面或同行，否则不要写成已经见面、同住、一起吃饭、一起散步、顺路接送、在她家、在他家这种同地实体互动。');
     }
-    if(!sameCountry){
-      lines.push('双方当前甚至不在同一个国家，默认只能写远程互动、想念、寄东西、准备票这类跨地区互动，不要硬写现实碰面。');
-    }
+    lines.push('真实定位城市只负责天气和时间，不负责决定关系远近；不要因为真实天气城市不同就硬写成异地恋。');
   }
   return lines.join('\n');
 }
@@ -4152,6 +4162,9 @@ let appNotifyPayload = null;
 let appNotifyQueue = [];
 let appNotifyPointerStartY = 0;
 let appNotifyPointerDragging = false;
+let offlineInviteReminderVisibleId = '';
+let offlineInviteReminderPayload = null;
+let offlineInviteReminderRunning = false;
 
 function dismissAppNotification(){
   var shell = document.getElementById('app-notify-shell');
@@ -4179,12 +4192,27 @@ function openAppNotificationTarget(){
 function openShellNotificationPayload(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   dismissAppNotification();
+  if(payload.inviteId){
+    try{ localStorage.setItem(scopedKeyForAccount(OFFLINE_INVITE_FOCUS_KEY, getActiveAccountId()), String(payload.inviteId || '').trim()); }catch(err){}
+    try{ localStorage.setItem(OFFLINE_INVITE_FOCUS_KEY, String(payload.inviteId || '').trim()); }catch(err){}
+  }
   if(payload.app === 'schedule'){
     openApp('schedule');
     return;
   }
+  if(payload.app === 'offline'){
+    openApp('offline');
+    return;
+  }
   if(payload.app === 'moments'){
     openApp('qq');
+    return;
+  }
+  if(payload.app === 'offline_mode' && payload.charId){
+    pendingOpenOfflineCharId = String(payload.charId || '').trim();
+    pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+    pendingOpenOfflineLaunchMode = String(payload.launchMode || '').trim();
+    replaceApp('offline_mode');
     return;
   }
   if(payload.app === 'chat' && payload.charId){
@@ -4223,6 +4251,87 @@ function showAppNotificationCard(payload){
   requestAnimationFrame(function(){ shell.classList.add('show'); });
   if(appNotifyTimer) clearTimeout(appNotifyTimer);
   appNotifyTimer = setTimeout(dismissAppNotification, 5200);
+}
+
+function getOfflineInviteStoreApiShell(){
+  return window.OfflineInviteStore && typeof window.OfflineInviteStore.loadState === 'function'
+    ? window.OfflineInviteStore
+    : null;
+}
+
+function setOfflineInviteFocusRecordId(recordId){
+  var safeId = String(recordId || '').trim();
+  if(!safeId) return;
+  try{ localStorage.setItem(scopedKeyForAccount(OFFLINE_INVITE_FOCUS_KEY, getActiveAccountId()), safeId); }catch(err){}
+  try{ localStorage.setItem(OFFLINE_INVITE_FOCUS_KEY, safeId); }catch(err){}
+}
+
+function clearOfflineInviteFocusRecordId(){
+  try{ localStorage.removeItem(scopedKeyForAccount(OFFLINE_INVITE_FOCUS_KEY, getActiveAccountId())); }catch(err){}
+  try{ localStorage.removeItem(OFFLINE_INVITE_FOCUS_KEY); }catch(err){}
+}
+
+function getOfflineInviteReminderBodyText(record){
+  if(!(record && typeof record === 'object')) return '到了赴约时间啦。';
+  var when = [String(record.dateLabel || '').trim(), String(record.timeLabel || '').trim()].filter(Boolean).join(' · ');
+  var where = String(record.location || '').trim();
+  var copy = String(record.content || '').trim() || '到了赴约时间啦。';
+  return [copy, when, where].filter(Boolean).join('\n');
+}
+
+function dismissOfflineInviteReminder(){
+  var shell = document.getElementById('offline-reminder-shell');
+  if(!shell) return;
+  shell.classList.remove('show');
+  setTimeout(function(){
+    if(!shell.classList.contains('show')) shell.hidden = true;
+  }, 220);
+  offlineInviteReminderVisibleId = '';
+  offlineInviteReminderPayload = null;
+}
+
+async function snoozeOfflineInviteReminder(){
+  var payload = offlineInviteReminderPayload || null;
+  var store = getOfflineInviteStoreApiShell();
+  if(store && payload && payload.id){
+    await Promise.resolve(store.patchRecord(payload.id, {
+      reminderState: 'snoozed',
+      snoozeUntil: Date.now() + OFFLINE_INVITE_REMINDER_SNOOZE_MS,
+      remindedAt: Date.now()
+    }));
+  }
+  dismissOfflineInviteReminder();
+}
+
+async function openOfflineInviteReminderTarget(){
+  var payload = offlineInviteReminderPayload || null;
+  var store = getOfflineInviteStoreApiShell();
+  if(store && payload && payload.id){
+    await Promise.resolve(store.patchRecord(payload.id, {
+      reminderState: 'opened',
+      openedAt: Date.now(),
+      remindedAt: Date.now(),
+      snoozeUntil: 0
+    }));
+    setOfflineInviteFocusRecordId(payload.id);
+  }
+  dismissOfflineInviteReminder();
+  openApp('offline');
+}
+
+function showOfflineInviteReminderCard(record){
+  record = record && typeof record === 'object' ? record : null;
+  if(!record) return;
+  var shell = document.getElementById('offline-reminder-shell');
+  var name = document.getElementById('offline-reminder-name');
+  var body = document.getElementById('offline-reminder-body');
+  if(!shell || !name || !body) return;
+  offlineInviteReminderVisibleId = String(record.id || '').trim();
+  offlineInviteReminderPayload = record;
+  name.textContent = String(record.charName || '角色').trim() || '角色';
+  body.textContent = getOfflineInviteReminderBodyText(record);
+  shell.hidden = false;
+  requestAnimationFrame(function(){ shell.classList.add('show'); });
 }
 
 function getCharNoteText(){
@@ -4754,7 +4863,7 @@ function openPlaceholderMiniApp(idx){
     return;
   }
   if(Number(idx) === 5){
-    showHomeToast('约会正在重新制作');
+    openApp('offline');
     return;
   }
   if(Number(idx) === 4){
@@ -7476,7 +7585,7 @@ window.addEventListener('message',(e)=>{
     if(appId === 'schedule' && payload.charId){
       try{ localStorage.setItem('scheduleCharId', payload.charId); }catch(err){}
     }
-    if(appId === 'offline' && payload.charId){
+    if(appId === 'offline_mode' && payload.charId){
       pendingOpenOfflineCharId = String(payload.charId || '').trim();
       pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
       pendingOpenOfflineLaunchMode = String(payload.launchMode || '').trim();
@@ -7495,7 +7604,7 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='OFFLINE_EXITED'){
     setMinimizedOfflineCharId('');
-    removeAppFromStack('offline');
+    removeAppFromStack('offline_mode');
   }
   if(type==='QQ_BADGE_SYNC'){
     var activeAcctId = getActiveAccountId();
@@ -8401,6 +8510,85 @@ function scheduleTimeToMinutes(value){
   return (parseInt(match[1], 10) || 0) * 60 + (parseInt(match[2], 10) || 0);
 }
 
+function isOfflineInviteRecordDue(record, nowMs){
+  record = record && typeof record === 'object' ? record : {};
+  if(String(record.status || '').trim() !== 'accepted') return false;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(record.scheduledDate || ''))) return false;
+  if(!/^\d{2}:\d{2}$/.test(String(record.scheduledTime || ''))) return false;
+  if(String(record.reminderState || '').trim() === 'opened') return false;
+  var snoozeUntil = Number(record.snoozeUntil || 0) || 0;
+  if(snoozeUntil && Number(nowMs || Date.now()) < snoozeUntil) return false;
+  var chars = getStoredCharactersSnapshot();
+  var character = chars.find(function(item){ return item && String(item.id || '') === String(record.charId || ''); }) || null;
+  var clock = buildScheduleLocalNowContextForCharacter(character, nowMs);
+  var nowDateKey = String(clock && clock.user && clock.user.dateKey || '').trim();
+  var nowMinutes = scheduleTimeToMinutes(clock && clock.user && clock.user.nowTime);
+  if(!nowDateKey || nowMinutes < 0) return false;
+  if(String(record.scheduledDate || '').trim() < nowDateKey) return true;
+  if(String(record.scheduledDate || '').trim() > nowDateKey) return false;
+  return nowMinutes >= scheduleTimeToMinutes(record.scheduledTime);
+}
+
+async function maybeRunOfflineInviteReminders(){
+  if(offlineInviteReminderRunning) return;
+  var store = getOfflineInviteStoreApiShell();
+  if(!store) return;
+  offlineInviteReminderRunning = true;
+  try{
+    var state = await store.loadState();
+    var records = Array.isArray(store.listRecords(state)) ? store.listRecords(state) : [];
+    var now = Date.now();
+    var due = records.filter(function(record){
+      return isOfflineInviteRecordDue(record, now);
+    }).sort(function(a, b){
+      var aa = String(a.scheduledDate || '') + ' ' + String(a.scheduledTime || '');
+      var bb = String(b.scheduledDate || '') + ' ' + String(b.scheduledTime || '');
+      return aa.localeCompare(bb);
+    });
+    var active = due[0] || null;
+    if(!active){
+      if(offlineInviteReminderVisibleId) dismissOfflineInviteReminder();
+      return;
+    }
+    var appVisible = typeof document !== 'undefined'
+      && document.visibilityState === 'visible'
+      && (!document.hasFocus || document.hasFocus());
+    if(appVisible){
+      if(offlineInviteReminderVisibleId !== String(active.id || '').trim()){
+        showOfflineInviteReminderCard(active);
+      }
+      if(String(active.reminderState || '').trim() !== 'showing'){
+        await Promise.resolve(store.patchRecord(active.id, {
+          reminderState: 'showing',
+          remindedAt: now,
+          snoozeUntil: 0
+        }));
+      }
+      return;
+    }
+    if(Number(active.remindedAt || 0) && now - Number(active.remindedAt || 0) < 4 * 60 * 1000) return;
+    var avatar = await resolveShellNotificationAvatar(String(active.charId || '').trim(), '').catch(function(){ return ''; });
+    await showSystemShellNotification({
+      title: (getShellNotificationSettings().appName || '0615') + ' - 约会提醒',
+      app: 'offline',
+      charId: String(active.charId || '').trim(),
+      inviteId: String(active.id || '').trim(),
+      name: String(active.charName || '角色').trim() || '角色',
+      avatar: avatar,
+      text: getOfflineInviteReminderBodyText(active)
+    });
+    await Promise.resolve(store.patchRecord(active.id, {
+      reminderState: 'notified',
+      remindedAt: now,
+      snoozeUntil: 0
+    }));
+  }catch(err){
+    console.error('[offline-invite-reminder] failed:', err);
+  }finally{
+    offlineInviteReminderRunning = false;
+  }
+}
+
 async function maybeRunScheduleTodoReminders(){
   if(scheduleReminderRunning) return;
   var shared = getScheduleSharedApi();
@@ -8510,9 +8698,11 @@ function setupAiBgScheduler(){
   aiBgTickTimer = setInterval(function(){
     maybeRunAiBgTick(false);
     maybeRunScheduleTodoReminders();
+    maybeRunOfflineInviteReminders();
   }, 20000);
   setTimeout(function(){ maybeRunAiBgTick(false); }, 1200);
   setTimeout(function(){ maybeRunScheduleTodoReminders(); }, 1600);
+  setTimeout(function(){ maybeRunOfflineInviteReminders(); }, 1900);
 }
 
 function restoreState(){
@@ -8619,15 +8809,18 @@ window.addEventListener('load', ()=>{
     var launchUrl = new URL(window.location.href);
     var notifyApp = String(launchUrl.searchParams.get('openApp') || '').trim();
     var notifyCharId = String(launchUrl.searchParams.get('notifyCharId') || '').trim();
+    var notifyInviteId = String(launchUrl.searchParams.get('notifyInviteId') || '').trim();
     if(notifyApp){
       setTimeout(function(){
         openShellNotificationPayload({
           app: notifyApp,
-          charId: notifyCharId
+          charId: notifyCharId,
+          inviteId: notifyInviteId
         });
       }, 120);
       launchUrl.searchParams.delete('openApp');
       launchUrl.searchParams.delete('notifyCharId');
+      launchUrl.searchParams.delete('notifyInviteId');
       history.replaceState({}, document.title, launchUrl.toString());
     }
   }catch(err){}
@@ -8711,11 +8904,15 @@ window.addEventListener('online', function(){
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible'){
     scheduleHostedUpdateCheck(true);
+    maybeRunOfflineInviteReminders();
+  }else{
+    dismissOfflineInviteReminder();
   }
 });
 
 window.addEventListener('pageshow', function(){
   scheduleHostedUpdateCheck(true);
+  maybeRunOfflineInviteReminders();
 });
 
 window.addEventListener('pageshow', ()=>{

@@ -230,6 +230,238 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   return data;
 }
 
+function getOfflineInviteStoreApi(){
+  return window.OfflineInviteStore && typeof window.OfflineInviteStore.upsertRecord === 'function'
+    ? window.OfflineInviteStore
+    : null;
+}
+
+function getOfflineInviteScheduleApi(){
+  return window.ScheduleShared && typeof window.ScheduleShared.loadState === 'function'
+    ? window.ScheduleShared
+    : null;
+}
+
+function getOfflineInviteRecordId(payload){
+  return String(payload && (payload.recordId || payload.inviteRecordId) || '').trim();
+}
+
+function ensureOfflineInviteRecordId(payload){
+  if(!(payload && typeof payload === 'object')) return '';
+  var existing = getOfflineInviteRecordId(payload);
+  if(existing) return existing;
+  var created = getOfflineInviteStoreApi() && typeof getOfflineInviteStoreApi().createId === 'function'
+    ? getOfflineInviteStoreApi().createId('invite')
+    : ('invite_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8));
+  payload.recordId = created;
+  return created;
+}
+
+function isOfflineInviteValidDateKey(value){
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
+}
+
+function isOfflineInviteValidTimeValue(value){
+  return /^\d{2}:\d{2}$/.test(String(value || '').trim());
+}
+
+function offlineInviteDateKeyToParts(value){
+  var raw = String(value || '').trim();
+  if(!isOfflineInviteValidDateKey(raw)) return null;
+  var parts = raw.split('-');
+  return {
+    year: Number(parts[0]) || 0,
+    month: Number(parts[1]) || 0,
+    day: Number(parts[2]) || 0
+  };
+}
+
+function compareOfflineInviteDateKeys(a, b){
+  var aa = String(a || '').trim();
+  var bb = String(b || '').trim();
+  if(aa === bb) return 0;
+  return aa < bb ? -1 : 1;
+}
+
+function shiftOfflineInviteDateKeyByDays(value, days){
+  var parts = offlineInviteDateKeyToParts(value);
+  if(!parts) return String(value || '').trim();
+  var date = new Date(parts.year, Math.max(0, parts.month - 1), parts.day);
+  date.setDate(date.getDate() + Number(days || 0));
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-');
+}
+
+function offlineInviteTimeToMinutes(value){
+  var raw = String(value || '').trim();
+  if(!isOfflineInviteValidTimeValue(raw)) return -1;
+  var parts = raw.split(':');
+  return (Number(parts[0]) || 0) * 60 + (Number(parts[1]) || 0);
+}
+
+function offlineInviteMinutesToTime(value){
+  var safe = Math.max(0, Number(value) || 0);
+  var hours = Math.floor(safe / 60);
+  var mins = safe % 60;
+  return String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0');
+}
+
+function roundOfflineInviteMinutesToQuarter(value){
+  var safe = Math.max(0, Number(value) || 0);
+  return Math.ceil(safe / 15) * 15;
+}
+
+function getOfflineInviteLocalClockNow(){
+  try{
+    if(typeof buildScheduleLocalNowContextForCharacter === 'function'){
+      var clock = buildScheduleLocalNowContextForCharacter(character, Date.now());
+      if(clock && clock.user){
+        return {
+          dateKey: String(clock.user.dateKey || '').trim(),
+          nowTime: String(clock.user.nowTime || '').trim()
+        };
+      }
+    }
+  }catch(err){}
+  var now = new Date();
+  return {
+    dateKey: [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0')
+    ].join('-'),
+    nowTime: String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0')
+  };
+}
+
+function deriveOfflineInviteAcceptedSchedule(userPayload, decision){
+  var chosenDate = '';
+  var chosenTime = '';
+  var safeDecision = decision && typeof decision === 'object' ? decision : {};
+  var decisionDate = String(safeDecision.scheduledDate || safeDecision.date || '').trim();
+  var decisionTime = String(safeDecision.scheduledTime || safeDecision.time || safeDecision.availableTime || '').trim();
+  if(isOfflineInviteValidDateKey(decisionDate)) chosenDate = decisionDate;
+  if(isOfflineInviteValidTimeValue(decisionTime)) chosenTime = decisionTime;
+  if(!chosenDate && isOfflineInviteValidDateKey(userPayload && userPayload.scheduledDate)) chosenDate = String(userPayload.scheduledDate).trim();
+  if(!chosenTime && isOfflineInviteValidTimeValue(userPayload && userPayload.scheduledTime)) chosenTime = String(userPayload.scheduledTime).trim();
+  var localNow = getOfflineInviteLocalClockNow();
+  var todayKey = String(localNow.dateKey || buildOfflineInviteDefaultSchedule().date || '').trim();
+  var nowMinutes = offlineInviteTimeToMinutes(localNow.nowTime);
+  if(nowMinutes < 0) nowMinutes = offlineInviteTimeToMinutes(buildOfflineInviteDefaultSchedule().time);
+  if(!chosenDate) chosenDate = todayKey;
+  if(!chosenTime) chosenTime = buildOfflineInviteDefaultSchedule().time;
+  var minutes = offlineInviteTimeToMinutes(chosenTime);
+  if(minutes < 0) minutes = offlineInviteTimeToMinutes(buildOfflineInviteDefaultSchedule().time);
+  var earliest = roundOfflineInviteMinutesToQuarter(nowMinutes + 60);
+  if(compareOfflineInviteDateKeys(chosenDate, todayKey) < 0){
+    chosenDate = todayKey;
+    minutes = Math.max(earliest, 10 * 60);
+  }else if(compareOfflineInviteDateKeys(chosenDate, todayKey) === 0 && minutes < earliest){
+    minutes = earliest;
+  }
+  if(minutes < 9 * 60 + 30) minutes = 10 * 60;
+  if(minutes > 22 * 60 + 30){
+    chosenDate = shiftOfflineInviteDateKeyByDays(chosenDate, 1);
+    minutes = 10 * 60 + 30;
+  }
+  var finalTime = offlineInviteMinutesToTime(minutes);
+  return {
+    scheduledDate: chosenDate,
+    scheduledTime: finalTime,
+    dateLabel: formatOfflineInviteDraftDateLabel(chosenDate),
+    timeLabel: formatOfflineInviteDraftTimeLabel(finalTime)
+  };
+}
+
+async function syncOfflineInviteRecord(payload, patch){
+  var store = getOfflineInviteStoreApi();
+  if(!store || !(payload && typeof payload === 'object')) return '';
+  var recordId = ensureOfflineInviteRecordId(payload);
+  if(!recordId) return '';
+  var next = Object.assign({
+    id: recordId,
+    threadId: String(payload.threadId || recordId).trim() || recordId,
+    charId: String(payload.charId || '').trim(),
+    charName: String(payload.charName || '').trim(),
+    sourceRole: String(payload.sourceRole || 'user').trim() || 'user',
+    content: String(payload.content || '').trim(),
+    location: String(payload.location || '').trim(),
+    scheduledDate: isOfflineInviteValidDateKey(payload.scheduledDate) ? String(payload.scheduledDate).trim() : '',
+    scheduledTime: isOfflineInviteValidTimeValue(payload.scheduledTime) ? String(payload.scheduledTime).trim() : '',
+    dateLabel: String(payload.dateLabel || '').trim(),
+    timeLabel: String(payload.timeLabel || '').trim(),
+    status: String(payload.status || 'pending').trim() || 'pending',
+    inviteMessageId: String(payload.inviteMessageId || '').trim(),
+    replyMessageId: String(payload.replyMessageId || '').trim(),
+    scheduleEntryId: String(payload.scheduleEntryId || '').trim(),
+    updatedAt: Date.now()
+  }, patch || {});
+  await Promise.resolve(store.upsertRecord(next));
+  return recordId;
+}
+
+async function removeOfflineInviteScheduleEntry(charId, dateKey, entryId){
+  var shared = getOfflineInviteScheduleApi();
+  var safeCharId = String(charId || '').trim();
+  var safeDateKey = String(dateKey || '').trim();
+  var safeEntryId = String(entryId || '').trim();
+  if(!shared || !safeCharId || !safeDateKey || !safeEntryId) return false;
+  var state = shared.normalizeState(await shared.loadState());
+  var charState = shared.getCharState(state, safeCharId);
+  charState.charDays = charState.charDays || {};
+  var day = shared.normalizeCharDay(charState.charDays[safeDateKey] || { date: safeDateKey }, safeDateKey);
+  var before = Array.isArray(day.timeline) ? day.timeline.length : 0;
+  day.timeline = (Array.isArray(day.timeline) ? day.timeline : []).filter(function(item){
+    return String(item && item.id || '') !== safeEntryId;
+  });
+  if(day.timeline.length === before) return false;
+  charState.charDays[safeDateKey] = shared.normalizeCharDay(day, safeDateKey);
+  state = shared.setCharState(state, safeCharId, charState);
+  await shared.saveState(state);
+  return true;
+}
+
+async function syncAcceptedOfflineInviteToSchedule(payload, acceptedPayload){
+  var shared = getOfflineInviteScheduleApi();
+  var safeCharId = String((acceptedPayload && acceptedPayload.charId) || (payload && payload.charId) || (character && character.id) || '').trim();
+  var safeDateKey = String((acceptedPayload && acceptedPayload.scheduledDate) || (payload && payload.scheduledDate) || '').trim();
+  if(!shared || !safeCharId || !safeDateKey) return '';
+  var state = shared.normalizeState(await shared.loadState());
+  var charState = shared.getCharState(state, safeCharId);
+  charState.charDays = charState.charDays || {};
+  var day = shared.normalizeCharDay(charState.charDays[safeDateKey] || { date: safeDateKey }, safeDateKey);
+  var recordId = getOfflineInviteRecordId(acceptedPayload || payload);
+  var scheduleEntryId = String(acceptedPayload && acceptedPayload.scheduleEntryId || '').trim()
+    || (recordId ? ('timeline_invite_' + recordId) : shared.createId('timeline'));
+  var userName = getCurrentUserDisplayName();
+  day.timeline = Array.isArray(day.timeline) ? day.timeline.slice() : [];
+  day.timeline = day.timeline.filter(function(item){
+    return String(item && item.id || '') !== scheduleEntryId;
+  });
+  day.timeline.push({
+    id: scheduleEntryId,
+    start: String(acceptedPayload && acceptedPayload.scheduledTime || '').trim(),
+    end: '',
+    title: '和' + userName + '赴约',
+    note: String((acceptedPayload && acceptedPayload.content) || (payload && payload.content) || '记得去见她。').trim(),
+    location: String((acceptedPayload && acceptedPayload.location) || (payload && payload.location) || '').trim(),
+    done: false,
+    kind: 'char',
+    secret: false,
+    secretPassword: '',
+    secretHint: '',
+    publicMask: '',
+    comments: []
+  });
+  charState.charDays[safeDateKey] = shared.normalizeCharDay(day, safeDateKey);
+  state = shared.setCharState(state, safeCharId, charState);
+  await shared.saveState(state);
+  return scheduleEntryId;
+}
+
 function sanitizeOfflineInvitePayloadForModel(payload){
   var src = payload && typeof payload === 'object' ? Object.assign({}, payload) : {};
   delete src.aside;
@@ -619,7 +851,7 @@ async function openOfflineSession(payload){
   postToShell({
     type:'OPEN_APP_WITH',
     payload:{
-      app:'offline',
+      app:'offline_mode',
       charId: targetCharId,
       launchMode:'invite',
       launchToken: launchToken,
@@ -893,10 +1125,22 @@ function appendOfflineInviteRejectNoticeText(){
   return '系统提示：' + charName + '暂时拒绝了这次约会邀请';
 }
 
-async function appendOfflineInviteToChat(role, payload, doScroll){
-  var notice = makeSystemNoticeEntry(appendOfflineInviteNoticeText(role));
-  chatLog.push(notice);
-  addSystemNotice(notice.content, doScroll !== false, notice.id);
+function appendOfflineInviteAcceptedNoticeText(payload){
+  var charName = String((payload && payload.charName) || (character && (character.nickname || character.name)) || 'Char').trim() || 'Char';
+  return '系统提示：' + charName + '答应了这次约会邀请';
+}
+
+async function appendOfflineInviteToChat(role, payload, doScroll, options){
+  var safeOptions = options && typeof options === 'object' ? options : {};
+  var noticeText = '';
+  if(safeOptions.skipNotice !== true){
+    noticeText = String(safeOptions.noticeText || appendOfflineInviteNoticeText(role)).trim();
+  }
+  if(noticeText){
+    var notice = makeSystemNoticeEntry(noticeText);
+    chatLog.push(notice);
+    addSystemNotice(notice.content, doScroll !== false, notice.id);
+  }
   var safePayload = coerceOfflineInvitePayloadToThread(payload || {}, role === 'user' ? 'user' : 'assistant');
   var finalPayload = buildOfflineInvitePayload(role === 'user' ? 'user' : 'assistant', safePayload && safePayload.content, safePayload || {});
   if(role === 'user') finalPayload.aside = '';
@@ -975,8 +1219,9 @@ async function requestCharOfflineInviteDecision(userPayload){
     '一定要把用户邀约里写的那句话和地点真正读进去，再决定接受还是拒绝，不能忽略地点，也不能把卡片装饰文案当成用户原话。',
     '如果 accept 为 true，text 不是模板句，而是角色本人认真写给用户的一句约会邀请或回应，语气要符合角色，不要套话，不要默认文案。',
     'text 控制在大约 45 个字，允许上下浮动一点，但不要太短，也不要太长。',
-    '只返回 JSON：{"accept":true|false,"text":"...","mood":"...","weather":"...","location":"...","aside":"..."}',
+    '只返回 JSON：{"accept":true|false,"text":"...","mood":"...","weather":"...","location":"...","aside":"...","scheduledDate":"YYYY-MM-DD","scheduledTime":"HH:MM"}',
     '如果 accept 为 true，text 写一句自然口语的线下回应，其他字段用于邀约卡片。',
+    '如果 accept 为 true，请顺手给出你真的能赴约的时间 scheduledDate / scheduledTime。这个时间必须现实、合理，不能比现在更早，也不要写凌晨四点这种不合常理的时间。',
     '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成邀约卡片文案。',
     '如果 accept 为 false，请像真人聊天一样回复：可以先来一句当下反应，再补一句解释或安抚，语气要有停顿感和生活感。',
     '优先由你自己决定是否分成多条短消息；如果分多条，请用 <msg> 隔开，并严格参考当前聊天设置的范围：最少 ' + msgMin + ' 条，最多 ' + msgMax + ' 条。',
@@ -1078,6 +1323,13 @@ async function handlePendingOfflineInviteReply(){
     var decision = await requestCharOfflineInviteDecision(pending.payload);
     hideTyping();
     if(decision && decision.accept){
+      var schedule = deriveOfflineInviteAcceptedSchedule(pending.payload, decision);
+      pending.payload.status = 'accepted';
+      pending.payload.scheduledDate = schedule.scheduledDate;
+      pending.payload.scheduledTime = schedule.scheduledTime;
+      pending.payload.dateLabel = schedule.dateLabel;
+      pending.payload.timeLabel = schedule.timeLabel;
+      pending.entry.content = JSON.stringify(pending.payload);
       var charWeather = await resolveOfflineInviteWeather('char', decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'));
       var replyPayload = buildOfflineInvitePayload('assistant', normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面'), {
         charId: String((character && character.id) || '').trim(),
@@ -1085,16 +1337,67 @@ async function handlePendingOfflineInviteReply(){
         mood: decision.mood || randomPick(OFFLINE_MOODS, '(///v///)'),
         weather: charWeather.icon,
         location: decision.location || pending.payload.location,
-        aside: decision.aside || '这次别拒绝我'
+        aside: decision.aside || '这次别拒绝我',
+        status: 'accepted',
+        scheduledDate: schedule.scheduledDate,
+        scheduledTime: schedule.scheduledTime,
+        dateLabel: schedule.dateLabel,
+        timeLabel: schedule.timeLabel,
+        recordId: ensureOfflineInviteRecordId(pending.payload)
       });
-      await appendOfflineInviteToChat('assistant', replyPayload, true);
+      var replyEntry = await appendOfflineInviteToChat('assistant', replyPayload, true, {
+        noticeText: appendOfflineInviteAcceptedNoticeText(replyPayload)
+      });
+      replyPayload.replyMessageId = replyEntry && replyEntry.id ? String(replyEntry.id) : '';
+      var scheduleEntryId = await syncAcceptedOfflineInviteToSchedule(pending.payload, replyPayload);
+      if(scheduleEntryId){
+        replyPayload.scheduleEntryId = scheduleEntryId;
+        pending.payload.scheduleEntryId = scheduleEntryId;
+        pending.entry.content = JSON.stringify(pending.payload);
+      }
+      if(replyEntry){
+        replyEntry.content = JSON.stringify(Object.assign({}, replyPayload));
+      }
+      await syncOfflineInviteRecord(pending.payload, {
+        id: ensureOfflineInviteRecordId(pending.payload),
+        inviteMessageId: String(pending.entry && pending.entry.id || '').trim(),
+        replyMessageId: String(replyEntry && replyEntry.id || '').trim(),
+        scheduleEntryId: String(scheduleEntryId || '').trim(),
+        charId: String(replyPayload.charId || pending.payload.charId || '').trim(),
+        charName: String(replyPayload.charName || pending.payload.charName || '').trim(),
+        content: String(replyPayload.content || '').trim(),
+        location: String(replyPayload.location || pending.payload.location || '').trim(),
+        scheduledDate: String(replyPayload.scheduledDate || '').trim(),
+        scheduledTime: String(replyPayload.scheduledTime || '').trim(),
+        dateLabel: String(replyPayload.dateLabel || '').trim(),
+        timeLabel: String(replyPayload.timeLabel || '').trim(),
+        sourceRole: 'assistant',
+        status: 'accepted',
+        reminderState: 'pending',
+        snoozeUntil: 0,
+        remindedAt: 0,
+        openedAt: 0
+      });
+      await saveChat(true);
+      rerenderChat();
       return true;
     }
+    pending.payload.status = 'rejected';
+    pending.entry.content = JSON.stringify(pending.payload);
     var rejectNotice = makeSystemNoticeEntry(appendOfflineInviteRejectNoticeText());
     chatLog.push(rejectNotice);
     addSystemNotice(rejectNotice.content, true, rejectNotice.id);
+    await syncOfflineInviteRecord(pending.payload, {
+      id: ensureOfflineInviteRecordId(pending.payload),
+      inviteMessageId: String(pending.entry && pending.entry.id || '').trim(),
+      status: 'rejected',
+      sourceRole: 'user',
+      remindedAt: 0,
+      reminderState: 'pending'
+    });
     await deliverAiReply(normalizeOfflineInviteRejectText((decision && decision.text) || '', '今天先不出门了，不过我有点心动。'), Math.max(1, character && character.msgMax ? character.msgMax : 3));
     await saveChat(true);
+    rerenderChat();
     return true;
   }catch(err){
     hideTyping();
@@ -1143,9 +1446,18 @@ async function sendOfflineInviteFromUser(){
     scheduledDate: dateValue,
     scheduledTime: timeValue
   });
+  ensureOfflineInviteRecordId(payload);
   payload.aside = '';
   payload.mood = '';
-  await appendOfflineInviteToChat('user', payload, true);
+  var entry = await appendOfflineInviteToChat('user', payload, true);
+  payload.inviteMessageId = entry && entry.id ? String(entry.id) : '';
+  await syncOfflineInviteRecord(payload, {
+    id: ensureOfflineInviteRecordId(payload),
+    inviteMessageId: String(entry && entry.id || '').trim(),
+    sourceRole: 'user',
+    status: 'pending',
+    reminderState: 'pending'
+  });
 }
 
 function importPendingOfflineArtifacts(){
@@ -1194,7 +1506,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var data = buildOfflineInvitePayload(viewRole === 'user' ? 'user' : 'assistant', '', coerceOfflineInvitePayloadToThread(parseOfflineInvitePayload(raw) || {}, viewRole === 'user' ? 'user' : 'assistant'));
   var canRespond = viewRole !== 'user';
   var status = String(data.status || 'pending');
-  var title = viewRole === 'user' ? 'SENT INVITE' : 'Incoming Invite';
+  var title = viewRole === 'user' ? 'SENT INVITE' : (status === 'accepted' ? 'ACCEPTED' : 'Incoming Invite');
   var statusLabel = status === 'accepted' ? 'Accepted' : (status === 'rejected' ? 'Rejected' : 'Pending');
   var disabled = status !== 'pending';
   var statusTone = status === 'accepted' ? ' is-accepted' : (status === 'rejected' ? ' is-rejected' : ' is-pending');
@@ -1220,6 +1532,30 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
         if(!safe) return;
         avatar.innerHTML = '<img src="' + escAttr(safe) + '" alt=""><div class="offline-invite-plain-avatar-label">' + esc(getCurrentUserDisplayName() || 'USER') + '</div>';
       }).catch(function(){});
+    }
+    return;
+  }
+  if(status === 'accepted'){
+    bubble.innerHTML = '<div class="offline-invite-plain reply">'
+      + '<div class="offline-invite-plain-head">'
+      + '<div class="offline-invite-plain-title is-sent">' + esc(title) + '</div>'
+      + '<div class="offline-invite-plain-status is-dot is-accepted" title="' + escAttr(statusLabel) + '" aria-label="' + escAttr(statusLabel) + '"></div>'
+      + '</div>'
+      + '<div class="offline-invite-plain-body is-compact">' + esc(String(data.content || '').trim() || '我会去见你。') + '</div>'
+      + '<div class="offline-invite-plain-meta">'
+      + '<div class="offline-invite-plain-row is-plain">' + timeText + '</div>'
+      + '<div class="offline-invite-plain-row is-plain">' + locationText + '</div>'
+      + '</div>'
+      + '<div class="offline-invite-plain-avatar is-right"><span class="offline-invite-plain-avatar-fallback">' + esc(getOfflineInviteAvatarFallback('assistant')) + '</span><div class="offline-invite-plain-avatar-label">' + esc(getOfflineInviteDisplayName('assistant')) + '</div></div>'
+      + '</div>';
+    var assistantAvatar = bubble.querySelector('.offline-invite-plain-avatar');
+    if(assistantAvatar){
+      Promise.resolve(loadStoredAsset && character && character.id ? loadStoredAsset('char_avatar_' + character.id) : '')
+        .then(function(src){
+          var safe = String(src || (character && character.imageData) || '').trim();
+          if(!safe) return;
+          assistantAvatar.innerHTML = '<img src="' + escAttr(safe) + '" alt=""><div class="offline-invite-plain-avatar-label">' + esc(getOfflineInviteDisplayName('assistant')) + '</div>';
+        }).catch(function(){});
     }
     return;
   }

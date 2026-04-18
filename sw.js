@@ -1,10 +1,11 @@
-const CACHE_VERSION = '2026-04-18T01:30:35Z';
+const CACHE_VERSION = '2026-04-18T02:30:36Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
   './index.html',
   './style.css',
   './main.js',
+  './offlineInviteStore.js',
   './assetStore.js',
   './chatStorage.js',
   './metadataStore.js',
@@ -14,6 +15,8 @@ const CORE_URLS = [
   './version.json',
   './apps/qq.html',
   './apps/chat.html',
+  './apps/offline.html',
+  './apps/offline_mode.html',
   './apps/map6.html',
   './apps/characters.html',
   './apps/settings.html',
@@ -139,6 +142,7 @@ self.addEventListener('notificationclick', (event)=>{
     var app = String(data && data.app || '').trim();
     if(app) nextUrl.searchParams.set('openApp', app);
     if(data && data.charId) nextUrl.searchParams.set('notifyCharId', String(data.charId));
+    if(data && data.inviteId) nextUrl.searchParams.set('notifyInviteId', String(data.inviteId));
     await self.clients.openWindow(nextUrl.toString()).catch(function(){ return null; });
   })());
 });

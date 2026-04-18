@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover">
+<title>约会</title>
+<style>
+:root{
+  --safe-top:max(env(safe-area-inset-top), 0px);
+  --safe-bottom:max(env(safe-area-inset-bottom), 0px);
+  --bg:#f7f7f7;
+  --ink:#111;
+  --muted:#666;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:"Nunito","PingFang SC","Hiragino Sans GB",sans-serif;color:var(--ink)}
+body{display:flex;justify-content:center}
+.offline-page{
+  width:100%;
+  max-width:430px;
+  min-height:100%;
+  padding:calc(var(--safe-top) + 18px) 16px calc(var(--safe-bottom) + 18px);
+  background:
+    radial-gradient(circle at 18% 14%, rgba(0,0,0,.06) 0, rgba(0,0,0,0) 34%),
+    linear-gradient(180deg, #fcfcfc 0%, #f4f4f4 100%);
+  overflow:auto;
+}
+.offline-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:18px}
+.offline-title-wrap{display:flex;flex-direction:column;gap:10px}
+.offline-kicker{
+  display:inline-flex;align-items:center;gap:8px;width:fit-content;min-height:28px;padding:0 10px;
+  background:#111;color:#fff;font-size:12px;font-weight:900;letter-spacing:.06em;box-shadow:2px 2px 0 rgba(255,255,255,.94);
+}
+.offline-kicker img{width:16px;height:16px;display:block;object-fit:contain;filter:brightness(0) invert(1)}
+.offline-title{font-size:28px;line-height:1;font-weight:900;letter-spacing:.04em}
+.offline-sub{font-size:12px;line-height:1.55;font-weight:800;color:#5f5f5f;max-width:260px}
+.offline-count{
+  min-width:54px;height:54px;padding:0 10px;border:2px solid #111;border-radius:999px;background:#fff;
+  box-shadow:4px 4px 0 #111;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900
+}
+.offline-list{display:flex;flex-direction:column;gap:12px}
+.offline-empty{
+  min-height:180px;border:2px solid #111;border-radius:28px;background:#fff;box-shadow:5px 5px 0 #111;
+  display:flex;align-items:center;justify-content:center;padding:20px;text-align:center;font-size:13px;font-weight:800;line-height:1.7;color:#575757
+}
+.offline-item{
+  position:relative;display:flex;align-items:center;gap:12px;padding:14px 16px;border:2px solid #111;border-radius:28px;
+  background:#fff;box-shadow:5px 5px 0 #111;
+}
+.offline-item.is-focused{transform:translateY(-1px);box-shadow:6px 6px 0 #111}
+.offline-avatar{
+  width:58px;height:58px;border:2px solid #111;border-radius:22px;background:#111 center/cover no-repeat;color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900;flex-shrink:0;overflow:hidden
+}
+.offline-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}
+.offline-name-row{display:flex;align-items:center;gap:8px;min-width:0}
+.offline-name{font-size:14px;font-weight:900;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.offline-tag{
+  display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:0 8px;background:#111;color:#fff;
+  font-size:11px;font-weight:900;letter-spacing:.04em;flex-shrink:0
+}
+.offline-body{
+  font-size:12px;line-height:1.55;font-weight:800;color:#343434;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden
+}
+.offline-meta{font-size:11px;line-height:1.45;font-weight:800;color:#707070}
+</style>
+</head>
+<body>
+  <main class="offline-page">
+    <section class="offline-head">
+      <div class="offline-title-wrap">
+        <div class="offline-kicker"><img src="assets/约会提醒.svg" alt="约会提醒"><span>DATE BOX</span></div>
+        <div class="offline-title">约会</div>
+        <div class="offline-sub">所有收到的赴约邀请都会留在这里。详细赴约页下一轮再接，现在先把入口和提醒接顺。</div>
+      </div>
+      <div class="offline-count" id="offlineCount">0</div>
+    </section>
+    <section class="offline-list" id="offlineList"></section>
+  </main>
+<script src="../assetStore.js"></script>
+<script src="../offlineInviteStore.js"></script>
+<script>
+function esc(text){
+  return String(text == null ? '' : text)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function getParentCharacters(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.getStoredCharactersSnapshot === 'function'){
+      return window.parent.getStoredCharactersSnapshot();
+    }
+  }catch(err){}
+  return [];
+}
+
+function getScopedFocusKey(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
+      return window.parent.scopedKeyForAccount('offline_invite_focus_id_v1', window.parent.getActiveAccountId());
+    }
+  }catch(err){}
+  return 'offline_invite_focus_id_v1';
+}
+
+function readFocusId(){
+  try{
+    return String(localStorage.getItem(getScopedFocusKey()) || localStorage.getItem('offline_invite_focus_id_v1') || '').trim();
+  }catch(err){
+    return '';
+  }
+}
+
+function clearFocusId(){
+  try{ localStorage.removeItem(getScopedFocusKey()); }catch(err){}
+  try{ localStorage.removeItem('offline_invite_focus_id_v1'); }catch(err){}
+}
+
+function findByDataAttr(root, attr, value){
+  var list = root && root.querySelectorAll ? root.querySelectorAll('[' + attr + ']') : [];
+  for(var i = 0; i < list.length; i += 1){
+    if(String(list[i].getAttribute(attr) || '') === String(value || '')) return list[i];
+  }
+  return null;
+}
+
+function listAcceptedInvites(){
+  var store = window.OfflineInviteStore;
+  if(!(store && typeof store.listRecords === 'function')) return [];
+  return store.listRecords().filter(function(item){
+    return item && String(item.status || '') === 'accepted' && String(item.sourceRole || '') === 'assistant';
+  });
+}
+
+function resolveCharAvatar(charId){
+  var safeId = String(charId || '').trim();
+  var chars = getParentCharacters();
+  var match = Array.isArray(chars) ? chars.find(function(item){ return item && String(item.id || '') === safeId; }) : null;
+  if(match && String(match.imageData || '').trim()) return Promise.resolve(String(match.imageData || '').trim());
+  if(match && String(match.avatar || '').trim() && /^data:|^blob:|^https?:|^\.{0,2}\//i.test(String(match.avatar || '').trim())){
+    return Promise.resolve(String(match.avatar || '').trim());
+  }
+  if(window.loadStoredAsset && safeId){
+    return loadStoredAsset('char_avatar_' + safeId).catch(function(){ return ''; });
+  }
+  return Promise.resolve('');
+}
+
+function renderOfflineList(){
+  var list = document.getElementById('offlineList');
+  var count = document.getElementById('offlineCount');
+  if(!list || !count) return;
+  var records = listAcceptedInvites();
+  count.textContent = String(records.length);
+  if(!records.length){
+    list.innerHTML = '<div class="offline-empty">还没有收到新的赴约邀请。<br>等 char 点头之后，这里就会开始排队出现。</div>';
+    clearFocusId();
+    return;
+  }
+  var focusId = readFocusId();
+  list.innerHTML = records.map(function(item){
+    var active = focusId && String(item.id || '') === focusId ? ' is-focused' : '';
+    var meta = [String(item.dateLabel || '').trim(), String(item.timeLabel || '').trim(), String(item.location || '').trim()].filter(Boolean).join(' · ');
+    var fallback = esc(String(item.charName || '角').slice(0, 1) || '角');
+    return '<article class="offline-item' + active + '" data-invite-id="' + esc(item.id) + '">'
+      + '<div class="offline-avatar" data-avatar-id="' + esc(item.charId) + '">' + fallback + '</div>'
+      + '<div class="offline-copy">'
+      + '<div class="offline-name-row"><div class="offline-name">' + esc(item.charName || '角色') + '</div><div class="offline-tag">赴约</div></div>'
+      + '<div class="offline-body">' + esc(item.content || '我会来见你。') + '</div>'
+      + '<div class="offline-meta">' + esc(meta || '时间地点待定') + '</div>'
+      + '</div>'
+      + '</article>';
+  }).join('');
+  records.forEach(function(item){
+    resolveCharAvatar(item.charId).then(function(src){
+      var node = findByDataAttr(list, 'data-avatar-id', String(item.charId || ''));
+      if(!node) return;
+      var safe = String(src || '').trim();
+      if(!safe) return;
+      node.style.backgroundImage = 'url(' + JSON.stringify(safe) + ')';
+      node.textContent = '';
+    }).catch(function(){});
+  });
+  if(focusId){
+    var focusNode = findByDataAttr(list, 'data-invite-id', focusId);
+    if(focusNode && typeof focusNode.scrollIntoView === 'function'){
+      setTimeout(function(){ focusNode.scrollIntoView({ block:'center', behavior:'smooth' }); }, 80);
+    }
+    clearFocusId();
+  }
+}
+
+window.addEventListener('message', function(e){
+  var data = e.data || {};
+  if(data.type === 'OFFLINE_INVITE_STORE_DIRTY' || data.type === 'OPEN_SHELL_NOTIFICATION'){
+    renderOfflineList();
+  }
+});
+
+window.addEventListener('storage', function(e){
+  if(e && /offline_invite/i.test(String(e.key || ''))) renderOfflineList();
+});
+
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'visible') renderOfflineList();
+});
+
+renderOfflineList();
+setInterval(renderOfflineList, 20000);
+</script>
+</body>
+</html>
