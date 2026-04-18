@@ -715,88 +715,10 @@ function buildOfflineInviteTimeWheelHtml(type, activeValue){
   }else{
     for(i = 0; i < 60; i += 5) values.push(String(i).padStart(2, '0'));
   }
-  var html = ['<div class="invite-compose-time-spacer" aria-hidden="true"></div>'];
-  values.forEach(function(value){
+  return values.map(function(value){
     var active = String(activeValue || '') === value ? ' active' : '';
-    html.push('<div class="invite-compose-time-option' + active + '" data-value="' + escAttr(value) + '">' + esc(value) + '</div>');
-  });
-  html.push('<div class="invite-compose-time-spacer" aria-hidden="true"></div>');
-  return html.join('');
-}
-
-function bindOfflineInviteTimeWheel(wheel, type){
-  if(!wheel) return;
-  wheel.dataset.wheelType = type;
-  if(wheel.__offlineInviteWheelBound) return;
-  wheel.__offlineInviteWheelBound = true;
-  var scrollTimer = 0;
-  var settle = function(){
-    if(scrollTimer){
-      clearTimeout(scrollTimer);
-      scrollTimer = 0;
-    }
-    scrollTimer = setTimeout(function(){
-      settleOfflineInviteTimeWheel(wheel);
-    }, 90);
-  };
-  wheel.addEventListener('scroll', settle, { passive:true });
-  wheel.addEventListener('click', function(evt){
-    var option = evt.target && evt.target.closest ? evt.target.closest('.invite-compose-time-option[data-value]') : null;
-    if(!option) return;
-    centerOfflineInviteTimeWheelOption(wheel, option, true);
-  });
-}
-
-function centerOfflineInviteTimeWheelOption(wheel, option, commit){
-  if(!wheel || !option) return;
-  var target = Math.max(0, option.offsetTop - Math.round((wheel.clientHeight - option.offsetHeight) / 2));
-  try{
-    wheel.scrollTo({ top: target, behavior:'smooth' });
-  }catch(err){
-    wheel.scrollTop = target;
-  }
-  if(commit){
-    setTimeout(function(){
-      settleOfflineInviteTimeWheel(wheel);
-    }, 120);
-  }
-}
-
-function settleOfflineInviteTimeWheel(wheel){
-  if(!wheel) return;
-  var options = Array.prototype.slice.call(wheel.querySelectorAll('.invite-compose-time-option[data-value]'));
-  if(!options.length) return;
-  var wheelCenter = wheel.scrollTop + (wheel.clientHeight / 2);
-  var best = options[0];
-  var bestDistance = Infinity;
-  options.forEach(function(option){
-    var optionCenter = option.offsetTop + (option.offsetHeight / 2);
-    var distance = Math.abs(optionCenter - wheelCenter);
-    if(distance < bestDistance){
-      bestDistance = distance;
-      best = option;
-    }
-  });
-  options.forEach(function(option){
-    option.classList.toggle('active', option === best);
-  });
-  var value = String(best.getAttribute('data-value') || '').trim();
-  if(value) selectOfflineInviteTimePart(String(wheel.dataset.wheelType || ''), value, true);
-  var snapTop = Math.max(0, best.offsetTop - Math.round((wheel.clientHeight - best.offsetHeight) / 2));
-  if(Math.abs((wheel.scrollTop || 0) - snapTop) > 2){
-    wheel.scrollTop = snapTop;
-  }
-}
-
-function syncOfflineInviteTimeWheelPosition(wheel, value){
-  if(!wheel) return;
-  var option = wheel.querySelector('.invite-compose-time-option[data-value="' + String(value || '').trim() + '"]');
-  if(!option) return;
-  Array.prototype.forEach.call(wheel.querySelectorAll('.invite-compose-time-option[data-value]'), function(node){
-    node.classList.toggle('active', node === option);
-  });
-  var top = Math.max(0, option.offsetTop - Math.round((wheel.clientHeight - option.offsetHeight) / 2));
-  wheel.scrollTop = top;
+    return '<button class="invite-compose-time-option' + active + '" type="button" onclick="event.stopPropagation();selectOfflineInviteTimePart(\'' + type + '\',\'' + value + '\');return false;">' + esc(value) + '</button>';
+  }).join('');
 }
 
 function renderOfflineInviteTimeWheels(hourValue, minuteValue){
@@ -805,14 +727,15 @@ function renderOfflineInviteTimeWheels(hourValue, minuteValue){
   if(hourWheel) hourWheel.innerHTML = buildOfflineInviteTimeWheelHtml('hour', hourValue);
   if(minuteWheel) minuteWheel.innerHTML = buildOfflineInviteTimeWheelHtml('minute', minuteValue);
   setTimeout(function(){
-    if(hourWheel){
-      bindOfflineInviteTimeWheel(hourWheel, 'hour');
-      syncOfflineInviteTimeWheelPosition(hourWheel, hourValue);
-    }
-    if(minuteWheel){
-      bindOfflineInviteTimeWheel(minuteWheel, 'minute');
-      syncOfflineInviteTimeWheelPosition(minuteWheel, minuteValue);
-    }
+    [hourWheel, minuteWheel].forEach(function(wheel){
+      if(!wheel) return;
+      var active = wheel.querySelector('.invite-compose-time-option.active');
+      if(active && typeof active.scrollIntoView === 'function'){
+        try{
+          active.scrollIntoView({ block:'center', inline:'nearest' });
+        }catch(err){}
+      }
+    });
   }, 0);
 }
 
@@ -881,7 +804,7 @@ function selectOfflineInviteDate(evt, value){
   syncOfflineInviteComposerVisuals();
 }
 
-function selectOfflineInviteTimePart(type, value, skipVisualSync){
+function selectOfflineInviteTimePart(type, value){
   var dateField = document.getElementById('offlineInviteDateField');
   if(!dateField) return;
   var current = String(dateField.dataset.time || '').trim() || '19:30';
@@ -891,7 +814,7 @@ function selectOfflineInviteTimePart(type, value, skipVisualSync){
   if(type === 'hour') hourValue = String(value || '19').padStart(2, '0');
   else minuteValue = String(value || '30').padStart(2, '0');
   dateField.dataset.time = hourValue + ':' + minuteValue;
-  if(!skipVisualSync) syncOfflineInviteComposerVisuals();
+  syncOfflineInviteComposerVisuals();
 }
 
 function handleOfflineInviteComposerMask(evt){
