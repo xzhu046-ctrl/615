@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-18T12:29:35Z';
+const APP_BUILD_ID = '2026-04-18T12:34:32Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -4845,12 +4845,18 @@ function bindHomePager(){
   const pages = document.getElementById('home-pages');
   const surface = document.getElementById('home-content') || pages;
   if(!pages || !surface) return;
+  const setPagerDraggingState = (next)=>{
+    pagerDragging = !!next;
+    try{
+      document.body.classList.toggle('home-pager-dragging', !!next);
+    }catch(err){}
+  };
   surface.addEventListener('pointerdown', (evt)=>{
     if(evt.pointerType === 'mouse' && evt.button !== 0) return;
     pagerPointerId = evt.pointerId;
     pagerStartX = evt.clientX;
     pagerStartY = evt.clientY;
-    pagerDragging = false;
+    setPagerDraggingState(false);
   });
   surface.addEventListener('pointermove', (evt)=>{
     if(pagerPointerId !== evt.pointerId) return;
@@ -4858,7 +4864,7 @@ function bindHomePager(){
     const dy = evt.clientY - pagerStartY;
     if(!pagerDragging){
       if(Math.abs(dx) < 12 || Math.abs(dx) <= Math.abs(dy)) return;
-      pagerDragging = true;
+      setPagerDraggingState(true);
       surface.setPointerCapture(evt.pointerId);
     }
     evt.preventDefault();
@@ -4881,7 +4887,7 @@ function bindHomePager(){
     }
     pagerStartX = 0;
     pagerStartY = 0;
-    pagerDragging = false;
+    setPagerDraggingState(false);
     pagerPointerId = null;
   };
   surface.addEventListener('pointerup', finish);
