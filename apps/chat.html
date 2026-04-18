@@ -13,7 +13,7 @@
 <script src="../scheduleShared.js?v=2026-04-08T03:43:00Z"></script>
 <script src="../presenceShared.js?v=2026-04-08T03:43:00Z"></script>
 <script src="../sunnySupport.js?v=2026-04-16T08:32:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-18T01:24:37Z"></script>
+<script src="offlineInvite.js?v=2026-04-18T01:29:29Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -14001,10 +14001,32 @@ function inferCharReactionMood(statusText, messageText){
   return 'calm';
 }
 
-function chooseCharReactionEmojiForText(messageText){
+function chooseCharReactionEmojiForReply(messageText){
   var status = getStoredCharHeaderStatus(character && character.id);
   var mood = inferCharReactionMood(status, messageText);
   return pickRandomChatReaction(CHAR_MESSAGE_REACTION_POOLS[mood], '🤍');
+}
+
+function findPendingCharReactionTarget(){
+  for(var i = chatLog.length - 1; i >= 0; i -= 1){
+    var entry = chatLog[i];
+    if(!entry || entry.hidden) continue;
+    if(entry.role === 'assistant' || entry.role === 'system') continue;
+    if(entry.role !== 'user') continue;
+    if(normalizeMessageType(entry.type || 'text') !== 'text') return null;
+    if(String(entry.charReactionEmoji || '').trim()) return null;
+    return entry;
+  }
+  return null;
+}
+
+async function attachCharReactionToLatestUserMessage(replySeed){
+  var target = findPendingCharReactionTarget();
+  if(!target) return false;
+  target.charReactionEmoji = chooseCharReactionEmojiForReply(replySeed || target.content || '');
+  rerenderChatLogPreserveViewport();
+  await saveChat(true);
+  return true;
 }
 
 function extractHeaderStatusDirective(raw){
@@ -15915,9 +15937,6 @@ async function appendOutgoingUserMessage(composed, sourceText, nudgeKind, inputS
   var restore = inputState || {};
   var entry = makeChatEntry('user', composed.storageContent, composed.type);
   entry.replyToId = replyTargetId;
-  if(entry.type === 'text'){
-    entry.charReactionEmoji = chooseCharReactionEmojiForText(sourceText || composed.displayContent || composed.storageContent || '');
-  }
   var prevReply = replyTargetId;
   var prevComposerMode = composerMode;
   consumeFirstUserTurn(character && character.id);
@@ -26888,6 +26907,13 @@ async function deliverAiReply(text, limitOverride){
   if(sentCount === 0){
     if(avatarActionAttempted) return sentIds;
     throw new Error('AI 没有返回可显示的聊天内容');
+  }
+  if(visibleAssistantSent > 0){
+    try{
+      await attachCharReactionToLatestUserMessage(sentTexts[sentTexts.length - 1] || '');
+    }catch(reactionErr){
+      console.warn('attach char reaction failed', reactionErr);
+    }
   }
   if(sentTexts.length){
     refreshInnerVoiceFromAi(sentTexts[sentTexts.length - 1]);
