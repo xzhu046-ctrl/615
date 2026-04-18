@@ -2436,12 +2436,22 @@ function normalizePreviewMessage(msg){
             if(!parsedActorName) parsedActorName = String(((parsedRecallPayload && parsedRecallPayload.actorRole) === 'user') ? '你' : '对方').trim() || '对方';
             return { content: parsedActorName + '撤回了一条消息', type: 'text' };
           }
-          return { content: parsed.content, type: parsedType };
+          return {
+            content: parsedType === 'text'
+              ? (sanitizeCharacterPreviewSeed(parsed.content) || String(parsed.content || '').trim())
+              : parsed.content,
+            type: parsedType
+          };
         }
       }
     }catch(e){}
   }
-  return { content: next.content || '', type: kind };
+  return {
+    content: kind === 'text'
+      ? (sanitizeCharacterPreviewSeed(next.content) || String(next.content || '').trim())
+      : (next.content || ''),
+    type: kind
+  };
 }
 
 function getLastVisiblePreviewMessage(list){
@@ -2669,6 +2679,7 @@ function renderList(){
     var unread = unreadCountOf(c);
     var preview = normalizePreviewMessage(last || { content:'', type:'text' });
     var snip = (preview && preview.content) ? String(preview.content).trim() : '';
+    snip = sanitizeCharacterPreviewSeed(snip) || snip;
     if(!snip) snip = '暂无消息';
     var pinned = pinnedIds.indexOf(c.id) !== -1;
     var timeLabel = formatChatTimeLabel(lastActivityOf(c));

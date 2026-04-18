@@ -2085,28 +2085,48 @@ function guessImportedResourceKind(path, text) {
     return getStructuredImportedAssetKind(hint.split('.').pop());
   }
   var source = (hint + '\n' + String(text || '')).toLowerCase();
-  if (/(avatar|头像列表|头像管理|初始头像|平时的头像|崩溃时头像|头像为|user[_\s-]*icon)/.test(source) && !/(表情包(?!头像)|meme(?!头像)|sticker|emoji|emote)/.test(source)) {
+  if (/(头像列表|头像管理|可用头像(?:列表)?|以下头像|头像如下|avatar(?:\s+list|\s+library)|初始头像|平时的头像|崩溃时(?:时)?头像(?:为)?|极度兴奋.*头像(?:为)?|user[_\s-]*icon)/.test(source)
+      && !/(表情包列表|表情包使用规范|meme\s+list|sticker\s+list|emoji\s+list|emote\s+list)/.test(source)) {
     return 'avatar';
   }
-  if (/(表情包|meme|sticker|emoji|emote|<meme>|贴图)/.test(source)) {
+  if (/(表情包列表|表情包使用规范|表情列表|meme(?:\s+list)?|sticker(?:\s+list)?|emoji(?:\s+list)?|emote(?:\s+list)?|<meme>|贴图|reaction)/.test(source)) {
     return 'meme';
   }
   return 'unknown';
 }
 
+function looksLikeImportedRuleSentence(text) {
+  var line = String(text || '').trim();
+  if (!line) return false;
+  if (/[。！？!?]/.test(line)) return true;
+  if (line.length > 34 && !/[：:]$/.test(line)) return true;
+  return /(禁止|只能|不得|不会|可以|可直接|仅需|无需|替换|使用|发送|回复|格式|规范|要求|频率|根据|情景|生成|消息|输出|适合|应当)/.test(line);
+}
+
 function isImportedAvatarSectionLine(line) {
   var text = String(line || '').trim();
   if (!text) return false;
+  if (extractImportedImageTokenFromLine(text)) return false;
+  if (looksLikeImportedRuleSentence(text)) return false;
   if (/(表情包头像|meme头像|头像表情包)/i.test(text)) return true;
-  return /(头像列表|头像管理|初始头像|平时的头像|崩溃时(?:时)?头像|极度兴奋.*头像|可用头像(?:列表)?|以下头像|头像如下|avatar(?:\s+list|\s+library)?)/i.test(text)
+  if (/(头像列表|头像管理|可用头像(?:列表)?|以下头像|头像如下|avatar(?:\s+list|\s+library)?)/i.test(text)) {
+    return true;
+  }
+  return /(初始头像|平时的头像|崩溃时(?:时)?头像(?:为)?|极度兴奋.*头像(?:为)?)/i.test(text)
+    && (/[：:]$/.test(text) || text.length <= 22)
     && !/(表情包列表|表情包使用规范|meme list|sticker list)/i.test(text);
 }
 
 function isImportedMemeSectionLine(line) {
   var text = String(line || '').trim();
   if (!text) return false;
+  if (extractImportedImageTokenFromLine(text)) return false;
+  if (looksLikeImportedRuleSentence(text)) return false;
   if (/(表情包头像|meme头像|头像表情包)/i.test(text)) return false;
-  return /(表情包|meme|sticker|emoji|emote|reaction|expression|贴图|表情列表|json文件|json 文件)/i.test(text);
+  if (/(表情包列表|表情包使用规范|表情列表|meme(?:\s+list)?|sticker(?:\s+list)?|emoji(?:\s+list)?|emote(?:\s+list)?|reaction|expression|贴图)/i.test(text)) {
+    return true;
+  }
+  return /(json文件|json 文件|json)/i.test(text) && /[：:]$/.test(text);
 }
 
 function detectImportedLineKind(line, currentKind, path) {
@@ -2393,18 +2413,9 @@ function normalizeImportedGreetingPool(firstMes, alternateGreetings) {
   rawList = rawList.map(function(entry) {
     return String(entry || '').replace(/\r\n/g, '\n').trim();
   }).filter(Boolean);
-  var hasRealGreeting = rawList.some(function(entry) {
-    return !isImportedGreetingPlaceholder(entry) && !looksLikeImportedGreetingHtml(entry) && !looksLikeImportedGreetingMetaNote(entry);
+  rawList = rawList.filter(function(entry) {
+    return !looksLikeImportedGreetingMetaNote(entry);
   });
-  if (hasRealGreeting) {
-    rawList = rawList.filter(function(entry) {
-      return !isImportedGreetingPlaceholder(entry) && !looksLikeImportedGreetingHtml(entry) && !looksLikeImportedGreetingMetaNote(entry);
-    });
-  } else {
-    rawList = rawList.filter(function(entry) {
-      return !looksLikeImportedGreetingHtml(entry) && !looksLikeImportedGreetingMetaNote(entry);
-    });
-  }
   return dedupeImportedEntries(rawList, function(entry) {
     return String(entry || '').trim().toLowerCase();
   });
@@ -2825,6 +2836,8 @@ function parseCard(jsonStr, imageData, filename) {
           card.id = oldId;
           storedCard.id = oldId;
           chars[existIdx] = Object.assign({}, existingCard || {}, card);
+          card = chars[existIdx];
+          storedCard = makeStoredCharacterCard(card);
         }else{
           card.id = mintImportedCharacterId(card.id || card.name || 'c');
           storedCard.id = card.id;

@@ -12764,6 +12764,21 @@ function extractGreetingSelectorMeta(text, index){
   return { title:title, desc:desc, preview:preview };
 }
 
+function sanitizeGreetingDisplayText(text){
+  var raw = String(text || '').replace(/\r\n/g, '\n').trim();
+  if(!raw) return '';
+  var clean = raw.replace(/<!--\s*(?:title|desc)\s*:[\s\S]*?-->/gi, ' ').trim();
+  var isHtmlGreeting = isRenderableRichHtmlPayload(clean) || parseRichHtmlBlocks(clean) || /<!DOCTYPE html>|<html\b|```html/i.test(clean);
+  if(!isHtmlGreeting){
+    clean = clean
+      .replace(/<title>[\s\S]*?<\/title>/gi, ' ')
+      .replace(/<url>[\s\S]*?<\/url>/gi, ' ')
+      .replace(/<lyrics>[\s\S]*?<\/lyrics>/gi, ' ')
+      .trim();
+  }
+  return clean.replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function normalizeGreetingCandidates(firstMes, alternateGreetings){
   var list = [];
   if(String(firstMes || '').trim()) list.push(firstMes);
@@ -12771,18 +12786,9 @@ function normalizeGreetingCandidates(firstMes, alternateGreetings){
   list = list.map(function(entry){
     return String(entry || '').replace(/\r\n/g, '\n').trim();
   }).filter(Boolean);
-  var hasRealGreeting = list.some(function(entry){
-    return !isGreetingPlaceholderText(entry) && !looksLikeGreetingHtmlTemplate(entry) && !looksLikeGreetingMetaNote(entry);
+  list = list.filter(function(entry){
+    return !looksLikeGreetingMetaNote(entry);
   });
-  if(hasRealGreeting){
-    list = list.filter(function(entry){
-      return !isGreetingPlaceholderText(entry) && !looksLikeGreetingHtmlTemplate(entry) && !looksLikeGreetingMetaNote(entry);
-    });
-  }else{
-    list = list.filter(function(entry){
-      return !looksLikeGreetingHtmlTemplate(entry) && !looksLikeGreetingMetaNote(entry);
-    });
-  }
   var seen = {};
   return list.filter(function(entry){
     var key = String(entry || '').trim().toLowerCase();
@@ -12820,12 +12826,22 @@ function getGreetingVariants(applyRegex){
   var all = normalizeGreetingCandidates(character.first_mes, character.alternate_greetings);
   if(applyRegex !== false){
     all = all.map(applyImportedRegexToGreetingText).map(function(item){
-      return String(item || '').replace(/\r\n/g, '\n').trim();
+      return sanitizeGreetingDisplayText(item);
     }).filter(function(item){
-      return item && !isGreetingPlaceholderText(item) && !looksLikeGreetingHtmlTemplate(item);
+      return item && !isGreetingPlaceholderText(item);
     });
+  } else {
+    all = all.map(sanitizeGreetingDisplayText).filter(Boolean);
   }
   return all;
+}
+
+function getGreetingMessageType(text){
+  var content = String(text || '').trim();
+  if(!content) return 'text';
+  if(isRenderableRichHtmlPayload(content) || parseRichHtmlBlocks(content)) return 'richhtml';
+  if(/<!DOCTYPE html>|<html\b|<head\b|<style\b|<script\b|```html/i.test(content)) return 'richhtml';
+  return 'text';
 }
 
 function normalizeReplyHint(hint){
@@ -15788,9 +15804,10 @@ async function restoreOrStartChat() {
   msgs.innerHTML = '';
   chatLog = [];
   if (greeting) {
-    var first = makeChatEntry('assistant', greeting, 'text');
+    var greetingType = getGreetingMessageType(greeting);
+    var first = makeChatEntry('assistant', greeting, greetingType);
     chatLog = [first];
-    addMessage('ai', greeting, false, 'text', first.id);
+    addMessage('ai', greeting, false, greetingType, first.id);
     await saveChat(true);
   } else {
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">' + esc(character.name) + '</div><div class="welcome-sub">发送消息开始对话，或按 ✦ 触发回复</div></div>';
