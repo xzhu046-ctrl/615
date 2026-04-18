@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-18T12:57:42Z';
+const APP_BUILD_ID = '2026-04-18T12:48:20Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -1474,23 +1474,7 @@ function slimChar(c){
   if(userPersonaProfile.length > 240) userPersonaProfile = '';
   return {
     id:c.id, name:c.name, nickname:c.nickname, avatar:c.avatar,
-    avatarUrl:c.avatarUrl,
     imageData:imageData,
-    personality:c.personality,
-    scenario:c.scenario,
-    first_mes:c.first_mes,
-    mes_example:c.mes_example,
-    system_prompt:c.system_prompt,
-    post_history_instructions:c.post_history_instructions,
-    alternate_greetings:c.alternate_greetings,
-    creator_notes:c.creator_notes,
-    creator_notes_multilingual:c.creator_notes_multilingual,
-    regex_scripts:c.regex_scripts,
-    character_expressions:c.character_expressions,
-    card_extensions:c.card_extensions,
-    tags:c.tags,
-    creator:c.creator,
-    character_version:c.character_version,
     msgMin:c.msgMin, msgMax:c.msgMax,
     chatRenderPageSize:c.chatRenderPageSize,
     contextWindow:c.contextWindow,
@@ -1895,10 +1879,6 @@ function getCharacterAvatarForBg(character){
   if(character && character.imageData){
     var current = normalizeShellAssetSrc(character.imageData);
     if(isRenderableShellAvatarSrc(current)) return current;
-  }
-  if(character && character.avatarUrl){
-    var linked = normalizeShellAssetSrc(character.avatarUrl);
-    if(isRenderableShellAvatarSrc(linked)) return linked;
   }
   var id = character && character.id ? character.id : '';
   if(id){
@@ -5212,13 +5192,10 @@ function renderBondWidget(character){
     const applyCharAvatar = (override)=>{
       const safeOverride = normalizeShellAssetSrc(override || '');
       const safeImage = normalizeShellAssetSrc(c && c.imageData || '');
-      const safeLinked = normalizeShellAssetSrc(c && c.avatarUrl || '');
       const baseHtml = isRenderableShellAvatarSrc(safeOverride)
         ? '<span class="bond-avatar-base"><img src="' + safeOverride + '" alt=""></span>'
         : isRenderableShellAvatarSrc(safeImage)
           ? '<span class="bond-avatar-base"><img src="' + safeImage + '" alt=""></span>'
-          : isRenderableShellAvatarSrc(safeLinked)
-            ? '<span class="bond-avatar-base"><img src="' + safeLinked + '" alt=""></span>'
           : '<span class="bond-avatar-base">' + (c ? (c.avatar || '✿') : '✿') + '</span>';
       const frameUrl = getActiveBondAvatarFrameUrl('char');
       if(frameUrl){
@@ -8328,7 +8305,7 @@ function setWidgetCharacter(c){
   const avEl = document.getElementById('wgt-avatar');
   const userAvEl = document.getElementById('wgt-user-avatar');
   const sideNameEl = document.getElementById('wgt-side-name');
-  var liveAvatarSrc = normalizeShellAssetSrc(c && (c.imageData || c.avatarUrl || c.avatar) || '');
+  var liveAvatarSrc = normalizeShellAssetSrc(c && c.imageData || '');
   if(c && c.id){
     var userLabel = getBondWidgetUserName(c, getChatUserName(c.id));
     var charRoleEl = document.getElementById('wgt-char-role');
