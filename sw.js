@@ -1,10 +1,11 @@
-const CACHE_VERSION = '2026-04-18T11:02:31Z';
+const CACHE_VERSION = '2026-04-18T11:11:24Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
   './index.html',
   './style.css',
   './main.js',
+  './avatar-frames.js',
   './offlineInviteStore.js',
   './assetStore.js',
   './chatStorage.js',

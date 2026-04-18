@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-18T11:02:31Z';
+const APP_BUILD_ID = '2026-04-18T11:11:24Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -4617,11 +4617,22 @@ function bindBondLinkInputs(){
 }
 
 function getTopAvatarFrameUrl(){
-  return '';
+  try{
+    return String(localStorage.getItem('home_top_frame_url') || '').trim();
+  }catch(e){
+    return '';
+  }
 }
 
 function getTopFrameChoices(){
-  return [{ id: 'none', url: '', name: '无' }];
+  try{
+    if(typeof avatarFrames !== 'undefined' && Array.isArray(avatarFrames) && avatarFrames.length){
+      return avatarFrames.filter(function(frame){
+        return frame && typeof frame === 'object';
+      });
+    }
+  }catch(e){}
+  return [{ id: 'none', url: '', name: '无', scale: 1.24, offsetX: 0, offsetY: -7 }];
 }
 
 function getTopFrameVisual(url){
@@ -4759,7 +4770,18 @@ function getAvatarFrameRenderSrc(url){
 }
 
 function buildAvatarFrameImg(className, url, styleText){
-  return '';
+  var safeUrl = String(url || '').trim();
+  if(!safeUrl) return '';
+  var renderSrc = getAvatarFrameRenderSrc(safeUrl);
+  if(!renderSrc) return '';
+  var classes = [];
+  if(className) classes.push(className);
+  classes.push('avatar-frame-inline');
+  return ''
+    + '<span class="avatar-frame-stack" aria-hidden="true"' + (styleText ? ' style="' + escapeHtmlAttr(styleText) + '"' : '') + '>'
+    + '<span class="avatar-frame-fallback-wrap">' + buildAvatarFrameFallbackMarkup(safeUrl, '', '') + '</span>'
+    + '<img class="' + escapeHtmlAttr(classes.join(' ').trim()) + '" src="' + escapeHtmlAttr(renderSrc) + '" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.style.display=\'none\'">'
+    + '</span>';
 }
 
 function getActiveTopFrameUrl(){
@@ -4772,7 +4794,11 @@ function getBondAvatarFrameStorageKey(role){
 }
 
 function getBondAvatarFrameUrl(role){
-  return '';
+  try{
+    return String(localStorage.getItem(getBondAvatarFrameStorageKey(role)) || '').trim();
+  }catch(e){
+    return '';
+  }
 }
 
 function getActiveBondAvatarFrameUrl(role){
@@ -5275,7 +5301,13 @@ function bindTopSlotPressBehavior(){
 }
 
 function openBondAvatarFrameEditor(role){
-  return;
+  activeHomeSlot = 'bond-frame-' + (role === 'user' ? 'user' : 'char');
+  topFrameDraftUrl = getBondAvatarFrameUrl(role);
+  isTopFrameEditorOpen = true;
+  renderTopFrameChoices();
+  renderBondWidget();
+  const editor = document.getElementById('top-frame-editor');
+  if(editor) editor.classList.add('open');
 }
 
 function bindBondAvatarPressBehavior(){
@@ -5307,11 +5339,50 @@ function bindBondAvatarPressBehavior(){
 function renderTopFrameChoices(){
   const host = document.getElementById('top-frame-grid');
   if(!host) return;
-  host.innerHTML = '<div class="sub" style="text-align:center;color:#111;">头像框已移除</div>';
+  const titleEl = document.getElementById('top-frame-title');
+  const copyEl = document.getElementById('top-frame-copy');
+  const current = String(topFrameDraftUrl || '');
+  let title = '头像框';
+  let copy = '长按头像就能换框，保存后会留在主页上。';
+  if(activeHomeSlot === 'bond-frame-char'){
+    title = 'CHAR 头像框';
+    copy = '会套在主页第二页左边那个圆头像上。';
+  }else if(activeHomeSlot === 'bond-frame-user'){
+    title = 'USER 头像框';
+    copy = '会套在主页第二页右边那个圆头像上。';
+  }else if(activeHomeSlot === 'top'){
+    title = '主头像框';
+    copy = '会套在主页第一页左上角的圆头像上。';
+  }
+  if(titleEl) titleEl.textContent = title;
+  if(copyEl) copyEl.textContent = copy;
+  host.innerHTML = getTopFrameChoices().map((frame, idx)=>{
+    const url = String((frame && frame.url) || '').trim();
+    const active = url === current;
+    const visual = getTopFrameVisual(url);
+    const frameStyle = '--frame-scale:' + visual.scale + ';--frame-offset-x:' + visual.offsetX + 'px;--frame-offset-y:' + visual.offsetY + 'px;';
+    const inner = url ? buildAvatarFrameImg('', url, frameStyle) : '<span class="frame-chip-none">无框</span>';
+    return ''
+      + '<button class="frame-chip' + (active ? ' active' : '') + '" type="button" data-frame-url="' + escapeHtmlAttr(url) + '" aria-pressed="' + (active ? 'true' : 'false') + '">'
+      + inner
+      + '<span class="frame-chip-label">' + escapeHtml(frame && frame.name ? frame.name : String(idx + 1)) + '</span>'
+      + '</button>';
+  }).join('');
+  host.querySelectorAll('.frame-chip').forEach((button)=>{
+    button.addEventListener('click', ()=>{
+      pickTopFrame(button.getAttribute('data-frame-url') || '');
+    });
+  });
 }
 
 function openTopFrameEditor(){
-  return;
+  activeHomeSlot = 'top';
+  topFrameDraftUrl = getTopAvatarFrameUrl();
+  isTopFrameEditorOpen = true;
+  renderTopFrameChoices();
+  loadStoredAsset('home_slot_top').then((data)=>renderHomeSlot('top', data));
+  const editor = document.getElementById('top-frame-editor');
+  if(editor) editor.classList.add('open');
 }
 
 function closeTopFrameEditor(){
@@ -5328,13 +5399,29 @@ function closeTopFrameEditor(){
 }
 
 function pickTopFrame(url){
-  return;
+  topFrameDraftUrl = String(url || '').trim();
+  renderTopFrameChoices();
+  if(activeHomeSlot === 'top'){
+    loadStoredAsset('home_slot_top').then((data)=>renderHomeSlot('top', data));
+  } else if(activeHomeSlot === 'bond-frame-char' || activeHomeSlot === 'bond-frame-user'){
+    renderBondWidget();
+  }
 }
 
 function saveTopFrame(){
-  try{ localStorage.removeItem('home_top_frame_url'); }catch(e){}
-  try{ localStorage.removeItem('bond_char_frame_url'); }catch(e){}
-  try{ localStorage.removeItem('bond_user_frame_url'); }catch(e){}
+  const nextUrl = String(topFrameDraftUrl || '').trim();
+  if(activeHomeSlot === 'top'){
+    try{
+      if(nextUrl) localStorage.setItem('home_top_frame_url', nextUrl);
+      else localStorage.removeItem('home_top_frame_url');
+    }catch(e){}
+  }else if(activeHomeSlot === 'bond-frame-char' || activeHomeSlot === 'bond-frame-user'){
+    const key = getBondAvatarFrameStorageKey(activeHomeSlot === 'bond-frame-user' ? 'user' : 'char');
+    try{
+      if(nextUrl) localStorage.setItem(key, nextUrl);
+      else localStorage.removeItem(key);
+    }catch(e){}
+  }
   closeTopFrameEditor();
 }
 
