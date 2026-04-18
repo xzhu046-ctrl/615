@@ -3682,9 +3682,24 @@ function normalizeMemeLibrary(raw){
   items.sort(function(a, b){
     return Number(b.createdAt || 0) - Number(a.createdAt || 0);
   });
+  var categories = buildMemeCategoryList(items);
+  var categorySeen = {};
+  categories.forEach(function(cat){
+    categorySeen[String(cat || '').toLowerCase()] = true;
+  });
+  (Array.isArray(base.categories) ? base.categories : []).forEach(function(cat){
+    var normalized = normalizeMemeCategory(cat);
+    var key = normalized.toLowerCase();
+    if(categorySeen[key]) return;
+    categorySeen[key] = true;
+    categories.push(normalized);
+  });
+  categories.sort(function(a, b){
+    return a.localeCompare(b, 'zh-Hans-CN');
+  });
   return {
     items: items,
-    categories: buildMemeCategoryList(items)
+    categories: categories
   };
 }
 function parseMemePayload(raw){
@@ -7508,6 +7523,55 @@ function normalizeImportedRuleBlockMeta(raw){
   return text ? { title:title, text:text } : null;
 }
 
+function parseImportedBooleanFlag(value){
+  if(value === true || value === false) return !!value;
+  var text = String(value == null ? '' : value).trim().toLowerCase();
+  return text === 'true' || text === '1' || text === 'yes' || text === 'on';
+}
+
+function normalizeImportedNumberList(value){
+  var source = value;
+  if(typeof source === 'string'){
+    var trimmed = String(source || '').trim();
+    if(!trimmed) return [];
+    if((trimmed.charAt(0) === '[' && trimmed.charAt(trimmed.length - 1) === ']')
+      || (trimmed.charAt(0) === '{' && trimmed.charAt(trimmed.length - 1) === '}')){
+      try{ source = JSON.parse(trimmed); }catch(err){}
+    }else{
+      source = trimmed.split(/[\n,，\s]+/);
+    }
+  }
+  if(typeof source === 'number') source = [source];
+  if(!Array.isArray(source)) return [];
+  var seen = {};
+  return source.map(function(entry){
+    return Number(entry);
+  }).filter(function(entry){
+    if(!isFinite(entry)) return false;
+    var key = String(entry);
+    if(seen[key]) return false;
+    seen[key] = true;
+    return true;
+  }).slice(0, 12);
+}
+
+function normalizeImportedTrimStringList(value){
+  var source = value;
+  if(typeof source === 'string'){
+    var trimmed = String(source || '').trim();
+    if(!trimmed) return [];
+    if(trimmed.charAt(0) === '[' && trimmed.charAt(trimmed.length - 1) === ']'){
+      try{ source = JSON.parse(trimmed); }catch(err){}
+    }else{
+      source = trimmed.split(/\n|,|，/);
+    }
+  }
+  if(!Array.isArray(source)) return [];
+  return source.map(function(entry){
+    return String(entry || '').trim();
+  }).filter(Boolean).slice(0, 12);
+}
+
 function normalizeImportedRegexScriptMeta(raw){
   if(!raw) return null;
   var embedded = null;
@@ -7520,8 +7584,8 @@ function normalizeImportedRegexScriptMeta(raw){
   var scriptName = String((source && (source.scriptName || source.name || source.label || source.id)) || name).replace(/\s+/g, ' ').trim() || name;
   var findRegex = String(source && (source.findRegex || source.find_regex) || '').trim();
   var replaceString = String(source && (source.replaceString || source.replace_string) || '').trim();
-  var trimStrings = Array.isArray(source && source.trimStrings) ? source.trimStrings.map(function(v){ return String(v || '').trim(); }).filter(Boolean).slice(0, 12) : [];
-  var placement = Array.isArray(source && source.placement) ? source.placement.map(function(v){ return Number(v) || 0; }).slice(0, 12) : [];
+  var trimStrings = normalizeImportedTrimStringList(source && source.trimStrings);
+  var placement = normalizeImportedNumberList(source && source.placement);
   var regexText = source && source.text;
   if(!regexText && raw && typeof raw === 'object' && (findRegex || replaceString || scriptName || placement.length)){
     regexText = JSON.stringify({
@@ -7549,10 +7613,10 @@ function normalizeImportedRegexScriptMeta(raw){
     replaceString: replaceString,
     trimStrings: trimStrings,
     placement: placement,
-    disabled: !!(source && source.disabled),
-    markdownOnly: !!(source && source.markdownOnly),
-    promptOnly: !!(source && source.promptOnly),
-    runOnEdit: !!(source && source.runOnEdit),
+    disabled: parseImportedBooleanFlag(source && source.disabled),
+    markdownOnly: parseImportedBooleanFlag(source && source.markdownOnly),
+    promptOnly: parseImportedBooleanFlag(source && source.promptOnly),
+    runOnEdit: parseImportedBooleanFlag(source && source.runOnEdit),
     substituteRegex: Number(source && source.substituteRegex || 0) || 0,
     minDepth: Number(source && source.minDepth || 0) || 0,
     maxDepth: Number(source && source.maxDepth || 0) || 0,
@@ -7908,6 +7972,17 @@ async function syncImportedMemeResources(target){
   if(prunedItems.length !== items.length){
     items = prunedItems;
     changed = true;
+  }
+  if(category && Array.isArray(target.importedMemeResources) && target.importedMemeResources.length){
+    var categoryList = Array.isArray(memeLibraryCache.categories) ? memeLibraryCache.categories.slice() : [];
+    var hasCategory = categoryList.some(function(entry){
+      return String(entry || '').trim().toLowerCase() === String(category || '').trim().toLowerCase();
+    });
+    if(!hasCategory){
+      categoryList.push(category);
+      memeLibraryCache.categories = categoryList;
+      changed = true;
+    }
   }
   if(changed){
     memeLibraryCache.items = items;
@@ -9753,7 +9828,43 @@ function tryPromoteTextToRichHtml(raw, meta){
   if(!source) return '';
   if(parseRichHtmlBlocks(source)) return coerceRichHtmlPayload(source, meta || {});
   if(/^\s*\{[\s\S]*["']html["']\s*:/i.test(source)) return coerceRichHtmlPayload(source, meta || {});
+  var taggedPayload = parseTaggedRichHtmlPayload(source);
+  if(taggedPayload) return buildRichHtmlPayload(Object.assign({}, taggedPayload, meta || {}));
   return '';
+}
+
+function parseTaggedRichHtmlPayload(raw){
+  var source = String(raw || '');
+  if(!source.trim()) return null;
+  var titleMatch = source.match(/<title>([\s\S]*?)<\/title>/i);
+  var urlMatch = source.match(/<url>([\s\S]*?)<\/url>/i);
+  var lyricsMatch = source.match(/<lyrics>([\s\S]*?)<\/lyrics>/i);
+  var title = String(titleMatch && titleMatch[1] || '').trim();
+  var url = normalizeStandaloneWebUrl(String(urlMatch && urlMatch[1] || '').trim());
+  var lyrics = String(lyricsMatch && lyricsMatch[1] || '').trim();
+  if(!title && !url && !lyrics) return null;
+  var plain = source
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<title>[\s\S]*?<\/title>/gi, ' ')
+    .replace(/<url>[\s\S]*?<\/url>/gi, ' ')
+    .replace(/<lyrics>[\s\S]*?<\/lyrics>/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  var textParts = [lyrics, plain].filter(function(part, idx, arr){
+    if(!part) return false;
+    return arr.indexOf(part) === idx;
+  });
+  var text = textParts.join('\n').trim() || title || url || '';
+  return {
+    html: '',
+    css: '',
+    js: '',
+    url: url,
+    title: title,
+    cover: '',
+    summary: title || String(text || 'SURPRISE').trim() || 'SURPRISE',
+    text: text
+  };
 }
 
 function parseRichHtmlPayload(raw){
@@ -9772,6 +9883,8 @@ function parseRichHtmlPayload(raw){
       text: extractPlainTextFromHtmlMarkup(String(blockPayload.html || '').trim()) || String(blockPayload.summary || '').trim()
     };
   }
+  var taggedPayload = parseTaggedRichHtmlPayload(source);
+  if(taggedPayload) return taggedPayload;
   try{
     var obj = JSON.parse(source || '{}');
     if(obj && typeof obj === 'object') return obj;
@@ -12865,7 +12978,11 @@ function getGreetingVariantRecords(applyRegex){
   if(!character) return [];
   var rawList = normalizeGreetingCandidates(character.first_mes, character.alternate_greetings);
   return rawList.map(function(raw, index){
-    var rendered = applyRegex !== false ? sanitizeGreetingDisplayText(applyImportedRegexToGreetingText(raw)) : sanitizeGreetingDisplayText(raw);
+    var source = applyRegex !== false ? applyImportedRegexToGreetingText(raw) : String(raw || '');
+    var rich = parseRichHtmlPayload(source) || {};
+    var rendered = (String(rich.html || '').trim() || String(rich.url || '').trim() || String(rich.css || '').trim() || String(rich.js || '').trim())
+      ? String(source || '').trim()
+      : sanitizeGreetingDisplayText(source);
     if(!rendered || isGreetingPlaceholderText(rendered)) return null;
     var rawMeta = extractGreetingSelectorMeta(raw, index);
     var renderedMeta = extractGreetingSelectorMeta(rendered, index);
@@ -12892,6 +13009,8 @@ function getGreetingVariants(applyRegex){
 function getGreetingMessageType(text){
   var content = String(text || '').trim();
   if(!content) return 'text';
+  var parsed = parseRichHtmlPayload(content) || {};
+  if(String(parsed.html || '').trim() || String(parsed.url || '').trim() || String(parsed.css || '').trim() || String(parsed.js || '').trim()) return 'richhtml';
   if(isRenderableRichHtmlPayload(content) || parseRichHtmlBlocks(content)) return 'richhtml';
   if(/<!DOCTYPE html>|<html\b|<head\b|<style\b|<script\b|```html/i.test(content)) return 'richhtml';
   return 'text';

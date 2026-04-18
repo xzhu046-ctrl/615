@@ -2271,6 +2271,55 @@ function normalizeImportedRuleBlock(raw, fallbackTitle) {
   return null;
 }
 
+function parseImportedBooleanFlag(value) {
+  if (value === true || value === false) return !!value;
+  var text = String(value == null ? '' : value).trim().toLowerCase();
+  return text === 'true' || text === '1' || text === 'yes' || text === 'on';
+}
+
+function normalizeImportedNumberList(value) {
+  var source = value;
+  if (typeof source === 'string') {
+    var trimmed = String(source || '').trim();
+    if (!trimmed) return [];
+    if ((trimmed.charAt(0) === '[' && trimmed.charAt(trimmed.length - 1) === ']')
+        || (trimmed.charAt(0) === '{' && trimmed.charAt(trimmed.length - 1) === '}')) {
+      try { source = JSON.parse(trimmed); } catch (err) {}
+    } else {
+      source = trimmed.split(/[\n,，\s]+/);
+    }
+  }
+  if (typeof source === 'number') source = [source];
+  if (!Array.isArray(source)) return [];
+  var seen = {};
+  return source.map(function(entry) {
+    return Number(entry);
+  }).filter(function(entry) {
+    if (!isFinite(entry)) return false;
+    var key = String(entry);
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  }).slice(0, 12);
+}
+
+function normalizeImportedTrimStringList(value) {
+  var source = value;
+  if (typeof source === 'string') {
+    var trimmed = String(source || '').trim();
+    if (!trimmed) return [];
+    if (trimmed.charAt(0) === '[' && trimmed.charAt(trimmed.length - 1) === ']') {
+      try { source = JSON.parse(trimmed); } catch (err) {}
+    } else {
+      source = trimmed.split(/\n|,|，/);
+    }
+  }
+  if (!Array.isArray(source)) return [];
+  return source.map(function(entry) {
+    return String(entry || '').trim();
+  }).filter(Boolean).slice(0, 12);
+}
+
 function normalizeImportedRegexScript(raw, fallbackName) {
   if (!raw) return null;
   if (typeof raw === 'string') {
@@ -2305,8 +2354,8 @@ function normalizeImportedRegexScript(raw, fallbackName) {
     var richText = source.text || source.content || source.script || source.pattern || '';
     var findRegex = String(source.findRegex || source.find_regex || '').trim();
     var replaceString = String(source.replaceString || source.replace_string || '').trim();
-    var placement = Array.isArray(source.placement) ? source.placement.slice(0, 12) : [];
-    var trimStrings = Array.isArray(source.trimStrings) ? source.trimStrings.slice(0, 12) : [];
+    var placement = normalizeImportedNumberList(source.placement);
+    var trimStrings = normalizeImportedTrimStringList(source.trimStrings);
     if (!richText && (raw.findRegex || raw.replaceString || raw.scriptName || raw.placement)) {
       richText = JSON.stringify({
         scriptName: scriptName,
@@ -2333,10 +2382,10 @@ function normalizeImportedRegexScript(raw, fallbackName) {
       replaceString: replaceString,
       trimStrings: trimStrings,
       placement: placement,
-      disabled: !!source.disabled,
-      markdownOnly: !!source.markdownOnly,
-      promptOnly: !!source.promptOnly,
-      runOnEdit: !!source.runOnEdit,
+      disabled: parseImportedBooleanFlag(source.disabled),
+      markdownOnly: parseImportedBooleanFlag(source.markdownOnly),
+      promptOnly: parseImportedBooleanFlag(source.promptOnly),
+      runOnEdit: parseImportedBooleanFlag(source.runOnEdit),
       substituteRegex: Number(source.substituteRegex || 0) || 0,
       minDepth: Number(source.minDepth || 0) || 0,
       maxDepth: Number(source.maxDepth || 0) || 0,
