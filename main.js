@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-18T23:26:18Z';
+const APP_BUILD_ID = '2026-04-18T23:49:27Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -1473,10 +1473,36 @@ function slimChar(c){
   if(!imageData) imageData = normalizeShellAssetSrc(c.avatarUrl || '');
   var userPersonaProfile = String(c.userPersonaProfile || '');
   if(userPersonaProfile.length > 240) userPersonaProfile = '';
+  function copyList(list){
+    return Array.isArray(list) ? list.map(function(item){
+      if(item && typeof item === 'object'){
+        try{ return JSON.parse(JSON.stringify(item)); }catch(err){ return Object.assign({}, item); }
+      }
+      return item;
+    }) : [];
+  }
   return {
     id:c.id, name:c.name, nickname:c.nickname, avatar:c.avatar,
     imageData:imageData,
     avatarUrl:normalizeShellAssetSrc(c.avatarUrl || ''),
+    description:String(c.description || ''),
+    personality:String(c.personality || ''),
+    scenario:String(c.scenario || ''),
+    system_prompt:String(c.system_prompt || ''),
+    first_mes:String(c.first_mes || ''),
+    alternate_greetings:Array.isArray(c.alternate_greetings) ? c.alternate_greetings.slice() : [],
+    tags:Array.isArray(c.tags) ? c.tags.slice() : [],
+    character_version:String(c.character_version || ''),
+    spec:String(c.spec || ''),
+    creator:String(c.creator || ''),
+    importedAvatarResources:copyList(c.importedAvatarResources),
+    importedMemeResources:copyList(c.importedMemeResources),
+    importedRuleBlocks:copyList(c.importedRuleBlocks),
+    importedRegexScripts:copyList(c.importedRegexScripts),
+    importedMemeCategory:String(c.importedMemeCategory || ''),
+    authorRulesEnabled:c.authorRulesEnabled !== false,
+    regexRulesEnabled:c.regexRulesEnabled !== false,
+    regexRulesUserTouched:!!c.regexRulesUserTouched,
     msgMin:c.msgMin, msgMax:c.msgMax,
     chatRenderPageSize:c.chatRenderPageSize,
     contextWindow:c.contextWindow,

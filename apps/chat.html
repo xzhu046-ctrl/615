@@ -14467,10 +14467,32 @@ function compactChar(c){
   if(!imageData){
     imageData = normalizeAvatarSrc(c.avatarUrl || '');
   }
+  function copyList(list){
+    return Array.isArray(list) ? list.map(function(item){
+      if(item && typeof item === 'object'){
+        try{ return JSON.parse(JSON.stringify(item)); }catch(err){ return Object.assign({}, item); }
+      }
+      return item;
+    }) : [];
+  }
   return {
     id:c.id, name:c.name, nickname:c.nickname, avatar:c.avatar,
     imageData:imageData,
     avatarUrl:normalizeAvatarSrc(c.avatarUrl || ''),
+    description:String(c.description || ''),
+    personality:String(c.personality || ''),
+    scenario:String(c.scenario || ''),
+    system_prompt:String(c.system_prompt || ''),
+    first_mes:String(c.first_mes || ''),
+    alternate_greetings:Array.isArray(c.alternate_greetings) ? c.alternate_greetings.slice() : [],
+    tags:Array.isArray(c.tags) ? c.tags.slice() : [],
+    character_version:String(c.character_version || ''),
+    spec:String(c.spec || ''),
+    creator:String(c.creator || ''),
+    importedAvatarResources:copyList(c.importedAvatarResources),
+    importedMemeResources:copyList(c.importedMemeResources),
+    importedRuleBlocks:copyList(c.importedRuleBlocks),
+    importedRegexScripts:copyList(c.importedRegexScripts),
     msgMin:Number(c.msgMin)||1, msgMax:Number(c.msgMax)||Math.max(Number(c.msgMin)||1,3),
     chatRenderPageSize:Math.max(MIN_CHAT_RENDER_PAGE_SIZE, Math.min(MAX_CHAT_RENDER_PAGE_SIZE, Number(c.chatRenderPageSize) || DEFAULT_CHAT_RENDER_PAGE_SIZE)),
     contextWindow:Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.contextWindow) || DEFAULT_CONTEXT_WINDOW)),
@@ -14497,7 +14519,8 @@ function compactChar(c){
     userPersonaProfile:String(c.userPersonaProfile||''),
     importedMemeCategory:String(c.importedMemeCategory || ''),
     authorRulesEnabled:c.authorRulesEnabled !== false,
-    regexRulesEnabled:!!c.regexRulesEnabled
+    regexRulesEnabled:c.regexRulesEnabled !== false,
+    regexRulesUserTouched:!!c.regexRulesUserTouched
   };
 }
 
@@ -16166,8 +16189,14 @@ async function restoreOrStartChat() {
   }
   if (restored.length) {
     chatLog = restored;
+    var refreshedGreeting = refreshStoredGreetingEntryIfNeeded(chatLog);
     appendMoneyDebugLog('restore', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
     renderChatLog(false);
+    if(refreshedGreeting){
+      persistChatSnapshotDirect(chatLog).catch(function(err){
+        console.warn('refreshStoredGreetingEntryIfNeeded persist failed', err);
+      });
+    }
     return;
   }
   // Fresh start — show greeting
@@ -16226,6 +16255,39 @@ function getGreeting() {
   if (!all.length) return '';
   var idx = curGreetingIdx;
   return all[Math.min(idx, all.length - 1)] || '';
+}
+
+function shouldRefreshStoredGreetingEntry(entry, renderedGreeting, renderedType){
+  if(!(entry && entry.role === 'assistant')) return false;
+  var currentContent = String(entry.content || '').trim();
+  if(!currentContent) return false;
+  if(currentContent.indexOf('{{user}}') !== -1 || currentContent.indexOf('{{char}}') !== -1) return true;
+  if(isGreetingPlaceholderText(currentContent)) return true;
+  if(/surprise/i.test(currentContent) && renderedType === 'richhtml') return true;
+  var normalizedCurrent = normalizeGreetingMatchText(currentContent);
+  if(!normalizedCurrent) return false;
+  var rawGreetings = normalizeGreetingCandidates(character && character.first_mes, character && character.alternate_greetings);
+  if(rawGreetings.some(function(raw){ return normalizeGreetingMatchText(raw) === normalizedCurrent; })) return true;
+  var greetingRecords = getGreetingVariantRecords(shouldRenderGreetingWithRegex());
+  if(greetingRecords.some(function(item){
+    return normalizeGreetingMatchText(item && item.raw || '') === normalizedCurrent;
+  })) return true;
+  if(String(entry.type || 'text') !== String(renderedType || 'text') && greetingRecords.some(function(item){
+    return normalizeGreetingMatchText(item && item.text || '') === normalizedCurrent;
+  })) return true;
+  return false;
+}
+
+function refreshStoredGreetingEntryIfNeeded(log){
+  if(!(Array.isArray(log) && log.length && character)) return false;
+  var first = log[0];
+  var renderedGreeting = getGreeting();
+  if(!renderedGreeting) return false;
+  var renderedType = getGreetingMessageType(renderedGreeting);
+  if(!shouldRefreshStoredGreetingEntry(first, renderedGreeting, renderedType)) return false;
+  first.content = renderedGreeting;
+  first.type = renderedType;
+  return true;
 }
 
 function hasAnyGreetingForCharacter(){
@@ -24229,9 +24291,10 @@ async function clearChatData(opts){
   if(options.keepGreeting){
     var g = getGreeting();
     if (g) {
-      var first = makeChatEntry('assistant', g, 'text');
+      var greetingType = getGreetingMessageType(g);
+      var first = makeChatEntry('assistant', g, greetingType);
       chatLog = [first];
-      addMessage('ai', g, false, 'text', first.id);
+      addMessage('ai', g, false, greetingType, first.id);
     } else {
       msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">🗑</div><div class="welcome-title">已清空</div></div>';
     }
@@ -27202,6 +27265,16 @@ async function saveChatSettings() {
     character.userNameProfile = isDefault ? un : '';
     character.userNicknameNote = unick;
     character.userPersonaProfile = isDefault ? up : '';
+    if(refreshStoredGreetingEntryIfNeeded(chatLog)){
+      try{
+        var msgsForRefresh = document.getElementById('messages');
+        if(msgsForRefresh) msgsForRefresh.innerHTML = '';
+        renderChatLog(false);
+        await persistChatSnapshotDirect(chatLog);
+      }catch(refreshErr){
+        console.warn('saveChatSettings greeting refresh failed', refreshErr);
+      }
+    }
     character.chatRenderPageSize = renderPageSize;
     character.contextWindow = cwin;
     character.summaryEvery = severy;
