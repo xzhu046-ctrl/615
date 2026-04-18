@@ -10619,6 +10619,10 @@ function getMomentsAiName(){
 
 function getMomentsAiAvatar(){
   if(character && character.imageData && String(character.imageData).startsWith('data:')) return String(character.imageData);
+  if(character && character.avatarUrl){
+    var linkedAvatar = String(character.avatarUrl || '');
+    if(linkedAvatar && (linkedAvatar.startsWith('data:') || linkedAvatar.startsWith('http') || linkedAvatar.startsWith('blob:') || linkedAvatar.startsWith('/'))) return linkedAvatar;
+  }
   var id = character && character.id ? character.id : '';
   if(id){
     try{
@@ -23381,6 +23385,8 @@ function getChatExportWorldbook(){
 
 function buildChatExportPayload(){
   var book = getChatExportWorldbook();
+  var extensions = getChatExportExtensions(character);
+  var exportAvatar = getChatExportCardAvatar(character);
   var data = {
     name: character && character.name || '',
     description: character && character.description || '',
@@ -23395,8 +23401,42 @@ function buildChatExportPayload(){
     creator: character && character.creator || '',
     character_version: character && character.character_version || ''
   };
+  if(character && character.creator_notes) data.creator_notes = String(character.creator_notes || '');
+  if(character && character.creator_notes_multilingual && typeof character.creator_notes_multilingual === 'object'){
+    data.creator_notes_multilingual = cloneChatExportValue(character.creator_notes_multilingual);
+  }
+  if(exportAvatar) data.avatar = exportAvatar;
+  if(extensions) data.extensions = extensions;
   if(book) data.character_book = book;
   return { spec:'chara_card_v2', spec_version:'2.0', data:data };
+}
+
+function cloneChatExportValue(value){
+  if(value == null) return value;
+  try{ return JSON.parse(JSON.stringify(value)); }
+  catch(err){ return value; }
+}
+
+function isRenderableChatExportAsset(value){
+  return /^(data:|https?:|blob:|\/|\.\.?\/|assets\/)/i.test(String(value || '').trim());
+}
+
+function getChatExportCardAvatar(source){
+  if(!source) return '';
+  var candidate = [source.avatarUrl, source.imageData, source.avatar].find(function(item){
+    return isRenderableChatExportAsset(item);
+  });
+  return String(candidate || '').trim();
+}
+
+function getChatExportExtensions(source){
+  if(!source) return null;
+  var base = (source.card_extensions && typeof source.card_extensions === 'object' && !Array.isArray(source.card_extensions))
+    ? cloneChatExportValue(source.card_extensions)
+    : {};
+  if(source.regex_scripts != null) base.regex_scripts = cloneChatExportValue(source.regex_scripts);
+  if(source.character_expressions != null) base.character_expressions = cloneChatExportValue(source.character_expressions);
+  return Object.keys(base).length ? base : null;
 }
 
 function chatUtf8ToB64(str){
@@ -23795,6 +23835,8 @@ function resolveBestCharAvatarSource(){
   return resolveCharAvatarDataUrl().then(function(src){
     if(src) return src;
     if(character && character.imageData) return String(character.imageData).trim();
+    if(character && character.avatarUrl) return String(character.avatarUrl).trim();
+    if(character && isRenderableAvatarSrc(character.avatar)) return String(character.avatar).trim();
     try{
       var legacy = localStorage.getItem('char_avatar_' + (character && character.id || '')) || '';
       if(legacy) return String(legacy).trim();
@@ -23802,6 +23844,8 @@ function resolveBestCharAvatarSource(){
     return '';
   }).catch(function(){
     if(character && character.imageData) return String(character.imageData).trim();
+    if(character && character.avatarUrl) return String(character.avatarUrl).trim();
+    if(character && isRenderableAvatarSrc(character.avatar)) return String(character.avatar).trim();
     return '';
   }).then(function(src){
     return ensureChatRenderableAvatarSrc(src);
@@ -23817,6 +23861,8 @@ function getChatAvatarCandidates(){
   }
   push(currentVisibleCharAvatarSrc());
   push(character && character.imageData);
+  push(character && character.avatarUrl);
+  push(character && character.avatar);
   try{ push(localStorage.getItem('char_avatar_' + (character && character.id || '')) || ''); }catch(e){}
   return loadStoredAsset('char_avatar_' + (character && character.id || '')).then(function(assetSrc){
     push(assetSrc);
@@ -24082,7 +24128,7 @@ function fillIdentityCardFields(options){
       if(liveAvatarSrc) return liveAvatarSrc;
       return avatarResolver();
     }).then(function(src){
-      setAvatarNodeFromSource(avatarEl, src || character.imageData || '', character.avatar || 'AI', false);
+      setAvatarNodeFromSource(avatarEl, src || character.imageData || character.avatarUrl || character.avatar || '', character.avatar || 'AI', false);
     });
   }
   return Promise.resolve();

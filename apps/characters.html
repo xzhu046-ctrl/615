@@ -422,8 +422,11 @@ function hydrateAvatarAssets(){
 function getAvatarSrc(c){
   if(!c) return '';
   var ovr = avatarAssetCache[c.id];
-  if(ovr && ovr.startsWith('data:')) return ovr;
-  return c.imageData || '';
+  if(isRenderableImportedAssetSrc(ovr)) return String(ovr || '').trim();
+  if(isRenderableImportedAssetSrc(c.imageData)) return String(c.imageData || '').trim();
+  if(isRenderableImportedAssetSrc(c.avatarUrl)) return String(c.avatarUrl || '').trim();
+  if(isRenderableImportedAssetSrc(c.avatar)) return String(c.avatar || '').trim();
+  return '';
 }
 // Downscale dataURL to keep storage usage low (<=256px, ~200KB target)
 function shrinkDataUrl(dataUrl, maxDim){ 
@@ -1087,6 +1090,8 @@ function getCharacterWorldbookExport(charId, charName) {
 
 function buildCharacterExportPayload(c) {
   var book = getCharacterWorldbookExport(c.id, c.name);
+  var extensions = getCharacterCardExportExtensions(c);
+  var exportAvatar = getCharacterCardExportAvatar(c);
   var data = {
     name: c.name || '',
     description: c.description || '',
@@ -1103,6 +1108,12 @@ function buildCharacterExportPayload(c) {
     spec: 'chara_card_v2',
     spec_version: '2.0'
   };
+  if(c.creator_notes) data.creator_notes = String(c.creator_notes || '');
+  if(c.creator_notes_multilingual && typeof c.creator_notes_multilingual === 'object'){
+    data.creator_notes_multilingual = cloneImportedCardValue(c.creator_notes_multilingual);
+  }
+  if(exportAvatar) data.avatar = exportAvatar;
+  if(extensions) data.extensions = extensions;
   if(book) data.character_book = book;
   return {
     spec: 'chara_card_v2',
@@ -1124,6 +1135,108 @@ function utf8ToB64(str){
   var bin = '';
   for(var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin);
+}
+
+function cloneImportedCardValue(value){
+  if(value == null) return value;
+  try{ return JSON.parse(JSON.stringify(value)); }
+  catch(err){ return value; }
+}
+
+function isRenderableImportedAssetSrc(value){
+  return /^(data:|https?:|blob:|\/|\.\.?\/|assets\/)/i.test(String(value || '').trim());
+}
+
+function firstImportedString(candidates){
+  var list = Array.isArray(candidates) ? candidates : [candidates];
+  for(var i = 0; i < list.length; i += 1){
+    var text = String(list[i] || '').trim();
+    if(text) return text;
+  }
+  return '';
+}
+
+function normalizeImportedGreetings(value){
+  if(Array.isArray(value)){
+    return value.map(function(item){ return String(item || '').trim(); }).filter(Boolean);
+  }
+  var text = String(value || '').trim();
+  return text ? [text] : [];
+}
+
+function normalizeImportedTags(value){
+  if(Array.isArray(value)) return value.slice();
+  if(typeof value === 'string'){
+    return value.split(',').map(function(item){ return String(item || '').trim(); }).filter(Boolean);
+  }
+  return [];
+}
+
+function getImportedCardExtensions(raw, data){
+  var out = {};
+  [raw && raw.extensions, data && data.extensions].forEach(function(source){
+    if(source && typeof source === 'object' && !Array.isArray(source)){
+      Object.keys(source).forEach(function(key){
+        out[key] = cloneImportedCardValue(source[key]);
+      });
+    }
+  });
+  return Object.keys(out).length ? out : null;
+}
+
+function extractImportedCardAvatarUrl(raw, data, extensions){
+  var candidates = [
+    data && data.avatarUrl,
+    data && data.avatar_url,
+    data && data.avatar,
+    data && data.image,
+    data && data.image_url,
+    extensions && extensions.avatarUrl,
+    extensions && extensions.avatar_url,
+    extensions && extensions.avatar,
+    raw && raw.avatarUrl,
+    raw && raw.avatar_url,
+    raw && raw.avatar
+  ];
+  for(var i = 0; i < candidates.length; i += 1){
+    var value = String(candidates[i] || '').trim();
+    if(isRenderableImportedAssetSrc(value)) return value;
+  }
+  return '';
+}
+
+function extractImportedCardRegexScripts(raw, data, extensions){
+  var candidate = (data && (data.regex_scripts || data.regexScripts))
+    || (extensions && (extensions.regex_scripts || extensions.regexScripts))
+    || (raw && (raw.regex_scripts || raw.regexScripts))
+    || null;
+  if(candidate == null) return null;
+  return cloneImportedCardValue(candidate);
+}
+
+function extractImportedCardExpressions(raw, data, extensions){
+  var candidate = (data && (data.character_expressions || data.characterExpressions || data.expressions || data.emoticons || data.emoji_map || data.emojiMap || data.stickers))
+    || (extensions && (extensions.character_expressions || extensions.characterExpressions || extensions.expressions || extensions.emoticons || extensions.emoji_map || extensions.emojiMap || extensions.stickers))
+    || (raw && (raw.character_expressions || raw.characterExpressions || raw.expressions || raw.emoticons || raw.emoji_map || raw.emojiMap || raw.stickers))
+    || null;
+  if(candidate == null) return null;
+  return cloneImportedCardValue(candidate);
+}
+
+function getCharacterCardExportAvatar(card){
+  if(!card) return '';
+  var avatarUrl = firstImportedString([card.avatarUrl, card.imageData, card.avatar]);
+  return isRenderableImportedAssetSrc(avatarUrl) ? avatarUrl : '';
+}
+
+function getCharacterCardExportExtensions(card){
+  if(!card) return null;
+  var base = (card.card_extensions && typeof card.card_extensions === 'object' && !Array.isArray(card.card_extensions))
+    ? cloneImportedCardValue(card.card_extensions)
+    : {};
+  if(card.regex_scripts != null) base.regex_scripts = cloneImportedCardValue(card.regex_scripts);
+  if(card.character_expressions != null) base.character_expressions = cloneImportedCardValue(card.character_expressions);
+  return Object.keys(base).length ? base : null;
 }
 
 var crc32Table = null;
@@ -2033,6 +2146,13 @@ function parseCard(jsonStr, imageData, filename) {
     var spec = raw.spec || '';
     // V2/V3: data is in raw.data
     var d = (spec && raw.data) ? raw.data : raw;
+    var importedExtensions = getImportedCardExtensions(raw, d);
+    var importedAvatarUrl = extractImportedCardAvatarUrl(raw, d, importedExtensions);
+    var importedAvatarText = isRenderableImportedAssetSrc(d && d.avatar) ? '' : String((d && d.avatar) || '').trim();
+    var importedAlternateGreetings = normalizeImportedGreetings(d.alternate_greetings || d.alternateGreetings || []);
+    var importedTags = normalizeImportedTags(d.tags || d.tag_list || []);
+    var importedRegexScripts = extractImportedCardRegexScripts(raw, d, importedExtensions);
+    var importedExpressions = extractImportedCardExpressions(raw, d, importedExtensions);
 
     // character_book can be in d.character_book or d.data.character_book or d.world_info
     var charBook = d.character_book || (d.data && d.data.character_book) || d.world_info || null;
@@ -2046,7 +2166,8 @@ function parseCard(jsonStr, imageData, filename) {
       spec: spec || 'V1',
       name: d.name || d.char_name || filename.replace(/\.(png|json)$/i,'') || 'Unknown',
       nickname: d.nick || d.nickname || '',
-      avatar: '🌸',
+      avatar: importedAvatarText || '🌸',
+      avatarUrl: importedAvatarUrl || '',
       description: d.description || d.char_persona || '',
       personality: d.personality || '',
       scenario: d.scenario || d.world_scenario || '',
@@ -2054,9 +2175,14 @@ function parseCard(jsonStr, imageData, filename) {
       mes_example: d.mes_example || d.example_dialogue || '',
       system_prompt: d.system_prompt || d.char_system_prompt || '',
       post_history_instructions: d.post_history_instructions || '',
-      alternate_greetings: d.alternate_greetings || [],
+      creator_notes: d.creator_notes || d.creatorcomment || '',
+      creator_notes_multilingual: cloneImportedCardValue(d.creator_notes_multilingual || null),
+      alternate_greetings: importedAlternateGreetings,
       character_book: charBook,
-      tags: d.tags || [],
+      regex_scripts: importedRegexScripts,
+      character_expressions: importedExpressions,
+      card_extensions: importedExtensions,
+      tags: importedTags,
       creator: d.creator || d.character_creator || '',
       character_version: d.character_version || '',
       spec_version: d.spec_version || '',
