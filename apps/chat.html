@@ -1378,6 +1378,12 @@ backdrop-filter:blur(26px) saturate(130%);
 padding:14px 14px 12px 18px;box-shadow:none;position:relative;font-family:'Courier New',monospace!important;font-size:11px!important;line-height:1.62!important;letter-spacing:0!important;text-decoration:none}
 .cs-textarea.cs-code-editor:focus{box-shadow:none;background-size:100% 100%,4px 100%}
 .cs-textarea.cs-code-editor::placeholder{font-family:'Courier New',monospace!important}
+.imported-regex-list{display:flex;flex-direction:column;gap:8px}
+.imported-regex-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border:2px solid rgba(17,17,17,.88);border-radius:16px;background:rgba(255,255,255,.94)}
+.imported-regex-item.is-off{opacity:.62;background:rgba(245,245,245,.94)}
+.imported-regex-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.imported-regex-name{font-family:var(--fontcute);font-size:12px;font-weight:900;color:#111;line-height:1.25;word-break:break-word}
+.imported-regex-meta{font-family:'Courier New',monospace;font-size:10px;line-height:1.45;color:#575757;white-space:pre-wrap;word-break:break-word}
 .cs-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#6c6c6c;margin-bottom:4px;display:block}
 .cs-inline-grid{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px}
 .cs-small-input-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;justify-items:start}
@@ -2337,7 +2343,8 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
               </div>
               <div style="margin-top:10px">
                 <span class="cs-label">正则 / 脚本</span>
-                <textarea class="cs-textarea cs-code-editor" id="csImportedRegex" rows="6" placeholder="导入到的正则、脚本或额外格式提示会显示在这里。"></textarea>
+                <div class="imported-regex-list" id="csImportedRegexList"></div>
+                <textarea class="cs-textarea cs-code-editor" id="csImportedRegex" rows="6" placeholder="导入到的正则、脚本或额外格式提示会显示在这里。" style="display:none"></textarea>
               </div>
             </div>
             <div class="cs-subcard">
@@ -7437,14 +7444,19 @@ function normalizeImportedRuleBlockMeta(raw){
 function normalizeImportedRegexScriptMeta(raw){
   if(!raw) return null;
   var name = String((raw && (raw.name || raw.scriptName || raw.label || raw.id)) || '').replace(/\s+/g, ' ').trim() || '导入脚本';
+  var scriptName = String((raw && (raw.scriptName || raw.name || raw.label || raw.id)) || name).replace(/\s+/g, ' ').trim() || name;
+  var findRegex = String(raw && (raw.findRegex || raw.find_regex) || '').trim();
+  var replaceString = String(raw && (raw.replaceString || raw.replace_string) || '').trim();
+  var trimStrings = Array.isArray(raw && raw.trimStrings) ? raw.trimStrings.map(function(v){ return String(v || '').trim(); }).filter(Boolean).slice(0, 12) : [];
+  var placement = Array.isArray(raw && raw.placement) ? raw.placement.map(function(v){ return Number(v) || 0; }).slice(0, 12) : [];
   var regexText = raw && raw.text;
-  if(!regexText && raw && typeof raw === 'object' && (raw.findRegex || raw.replaceString || raw.scriptName || raw.placement)){
+  if(!regexText && raw && typeof raw === 'object' && (findRegex || replaceString || scriptName || placement.length)){
     regexText = JSON.stringify({
-      scriptName: raw.scriptName || raw.name || '',
-      findRegex: raw.findRegex || '',
-      replaceString: raw.replaceString || '',
-      trimStrings: Array.isArray(raw.trimStrings) ? raw.trimStrings : [],
-      placement: Array.isArray(raw.placement) ? raw.placement : [],
+      scriptName: scriptName,
+      findRegex: findRegex,
+      replaceString: replaceString,
+      trimStrings: trimStrings,
+      placement: placement,
       disabled: !!raw.disabled,
       markdownOnly: !!raw.markdownOnly,
       promptOnly: !!raw.promptOnly,
@@ -7455,7 +7467,24 @@ function normalizeImportedRegexScriptMeta(raw){
     }, null, 2);
   }
   var text = sanitizeImportedMetaText(raw && (regexText || raw.content || raw.script || raw.pattern) || raw, 8000);
-  return text ? { name:name, text:text } : null;
+  if(!text && !findRegex && !replaceString) return null;
+  return {
+    id: String(raw && raw.id || '').trim(),
+    name: name,
+    scriptName: scriptName,
+    findRegex: findRegex,
+    replaceString: replaceString,
+    trimStrings: trimStrings,
+    placement: placement,
+    disabled: !!(raw && raw.disabled),
+    markdownOnly: !!(raw && raw.markdownOnly),
+    promptOnly: !!(raw && raw.promptOnly),
+    runOnEdit: !!(raw && raw.runOnEdit),
+    substituteRegex: Number(raw && raw.substituteRegex || 0) || 0,
+    minDepth: Number(raw && raw.minDepth || 0) || 0,
+    maxDepth: Number(raw && raw.maxDepth || 0) || 0,
+    text: text
+  };
 }
 
 function dedupeImportedMeta(entries, keyFn){
@@ -7494,7 +7523,13 @@ function normalizeImportedCharacterMeta(target){
     return (String(entry.title || '') + '::' + String(entry.text || '')).toLowerCase();
   });
   target.importedRegexScripts = dedupeImportedMeta((Array.isArray(target.importedRegexScripts) ? target.importedRegexScripts : []).map(normalizeImportedRegexScriptMeta).filter(Boolean), function(entry){
-    return (String(entry.name || '') + '::' + String(entry.text || '')).toLowerCase();
+    return [
+      String(entry.scriptName || entry.name || ''),
+      String(entry.findRegex || ''),
+      String(entry.replaceString || ''),
+      Array.isArray(entry.placement) ? entry.placement.join(',') : '',
+      Array.isArray(entry.trimStrings) ? entry.trimStrings.join(',') : ''
+    ].join('::').toLowerCase();
   });
   target.importedMemeCategory = normalizeImportedMemeCategoryName(target.importedMemeCategory, ((target.nickname || target.name || '角色') + ' · 导入表情'));
   target.authorRulesEnabled = target.authorRulesEnabled !== false && !!target.importedRuleBlocks.length;
@@ -7512,6 +7547,60 @@ function importedRuleBlocksToEditorText(list, labelKey){
     if(!text) return '';
     return (title ? ('【' + title + '】\n') : '') + text;
   }).filter(Boolean).join('\n\n---\n\n');
+}
+
+function buildImportedRegexScriptSummary(entry){
+  if(!entry) return '';
+  var bits = [];
+  if(String(entry.findRegex || '').trim()) bits.push('/' + String(entry.findRegex || '').trim() + '/');
+  if(String(entry.replaceString || '').trim()) bits.push('→ ' + String(entry.replaceString || '').trim());
+  if(Array.isArray(entry.placement) && entry.placement.length) bits.push('位置 ' + entry.placement.join(','));
+  if(entry.markdownOnly) bits.push('Markdown');
+  if(entry.promptOnly) bits.push('Prompt');
+  if(entry.runOnEdit) bits.push('编辑时运行');
+  if(Array.isArray(entry.trimStrings) && entry.trimStrings.length) bits.push('Trim ' + entry.trimStrings.length);
+  if(!bits.length){
+    var raw = sanitizeImportedMetaText(entry.text || '', 120);
+    return raw || '没有附带结构化字段';
+  }
+  return bits.join(' · ');
+}
+
+function renderImportedRegexList(){
+  var list = document.getElementById('csImportedRegexList');
+  if(!list){
+    return;
+  }
+  if(!(character && Array.isArray(character.importedRegexScripts) && character.importedRegexScripts.length)){
+    list.innerHTML = '<div class="toggle-sub">这张卡没有导入到 regex_scripts。</div>';
+    return;
+  }
+  normalizeImportedCharacterMeta(character);
+  list.innerHTML = character.importedRegexScripts.map(function(entry, idx){
+    var item = normalizeImportedRegexScriptMeta(entry);
+    if(!item) return '';
+    var name = esc(item.scriptName || item.name || ('脚本 ' + (idx + 1)));
+    var summary = esc(buildImportedRegexScriptSummary(item));
+    return ''
+      + '<div class="imported-regex-item' + (item.disabled ? ' is-off' : '') + '">'
+      +   '<div class="imported-regex-main">'
+      +     '<div class="imported-regex-name">' + name + '</div>'
+      +     '<div class="imported-regex-meta">' + summary + '</div>'
+      +   '</div>'
+      +   '<button class="toggle-switch' + (item.disabled ? '' : ' on') + '" type="button" onclick="toggleImportedRegexItem(' + idx + ')"></button>'
+      + '</div>';
+  }).filter(Boolean).join('');
+}
+
+function toggleImportedRegexItem(index){
+  if(!(character && Array.isArray(character.importedRegexScripts))) return;
+  var idx = Number(index);
+  if(!(idx >= 0) || idx >= character.importedRegexScripts.length) return;
+  var next = normalizeImportedRegexScriptMeta(character.importedRegexScripts[idx]);
+  if(!next) return;
+  next.disabled = !next.disabled;
+  character.importedRegexScripts[idx] = next;
+  renderImportedRegexList();
 }
 
 function parseImportedEditorBlocks(text, kind){
@@ -12422,16 +12511,31 @@ function buildImportedAuthorRulesPrompt(){
 
 function buildImportedRegexPrompt(){
   if(!(character && character.importedRegexScripts && character.importedRegexScripts.length && character.regexRulesEnabled)) return '';
+  var enabledScripts = character.importedRegexScripts.map(normalizeImportedRegexScriptMeta).filter(function(entry){
+    return entry && !entry.disabled;
+  });
+  if(!enabledScripts.length) return '';
   var lines = [
     '【正则 / 脚本参考】',
     '下面这些是角色卡里带来的正则、脚本或格式约束，只当成补充风格线索。',
     '不要输出代码，不要逐字复述这些脚本，也不要把它们当成要发给用户看的正文。'
   ];
-  character.importedRegexScripts.slice(0, 6).forEach(function(entry, idx){
-    var title = String(entry && entry.name || ('导入脚本 ' + (idx + 1))).trim();
-    var text = sanitizeImportedMetaText(entry && entry.text || '', 1800);
-    if(!text) return;
-    lines.push('【' + title + '】\n' + text);
+  enabledScripts.slice(0, 8).forEach(function(entry, idx){
+    var title = String(entry.scriptName || entry.name || ('导入脚本 ' + (idx + 1))).trim();
+    var bits = [];
+    if(String(entry.findRegex || '').trim()) bits.push('查找：' + String(entry.findRegex || '').trim());
+    if(String(entry.replaceString || '').trim()) bits.push('替换：' + String(entry.replaceString || '').trim());
+    if(Array.isArray(entry.trimStrings) && entry.trimStrings.length) bits.push('裁剪：' + entry.trimStrings.join(' / '));
+    if(Array.isArray(entry.placement) && entry.placement.length) bits.push('位置：' + entry.placement.join(','));
+    if(entry.markdownOnly) bits.push('仅 Markdown');
+    if(entry.promptOnly) bits.push('仅 Prompt');
+    if(entry.runOnEdit) bits.push('编辑时运行');
+    if(!bits.length){
+      var text = sanitizeImportedMetaText(entry.text || '', 1000);
+      if(text) bits.push(text);
+    }
+    if(!bits.length) return;
+    lines.push('【' + title + '】\n' + bits.join('\n'));
   });
   return lines.join('\n');
 }
@@ -25209,6 +25313,7 @@ function renderImportedResourceSettings(){
     if(summary) summary.textContent = '这张卡还没有导入扩展资源。';
     if(rules) rules.value = '';
     if(regex) regex.value = '';
+    renderImportedRegexList();
     if(categoryInput) categoryInput.value = '';
     if(authorToggle) authorToggle.classList.remove('on');
     if(regexToggle) regexToggle.classList.remove('on');
@@ -25223,6 +25328,7 @@ function renderImportedResourceSettings(){
   if(summary) summary.textContent = bits.length ? ('已导入：' + bits.join(' / ')) : '这张卡还没有导入扩展资源。';
   if(rules) rules.value = importedRuleBlocksToEditorText(character.importedRuleBlocks, 'title');
   if(regex) regex.value = importedRuleBlocksToEditorText(character.importedRegexScripts, 'name');
+  renderImportedRegexList();
   if(categoryInput) categoryInput.value = normalizeImportedMemeCategoryName(character.importedMemeCategory, (character.nickname || character.name || '角色') + ' · 导入表情');
   if(authorToggle) authorToggle.classList.toggle('on', character.authorRulesEnabled !== false && !!character.importedRuleBlocks.length);
   if(regexToggle) regexToggle.classList.toggle('on', !!character.regexRulesEnabled && !!character.importedRegexScripts.length);
@@ -26300,7 +26406,7 @@ async function saveChatSettings() {
   var translationMode = normalizeTranslationMode((document.getElementById('csTranslationMode') || {}).value || 'ondemand');
   var importedMemeCategory = normalizeImportedMemeCategoryName((document.getElementById('csImportedMemeCategory') || {}).value || '', (character && (character.importedMemeCategory || (character.nickname || character.name || '角色') + ' · 导入表情')) || '角色 · 导入表情');
   var importedRuleBlocks = parseImportedEditorBlocks((document.getElementById('csImportedRules') || {}).value || '', 'rule');
-  var importedRegexScripts = parseImportedEditorBlocks((document.getElementById('csImportedRegex') || {}).value || '', 'regex');
+  var importedRegexScripts = (Array.isArray(character && character.importedRegexScripts) ? character.importedRegexScripts : []).map(normalizeImportedRegexScriptMeta).filter(Boolean);
   var authorRulesEnabled = !!(document.getElementById('csAuthorRulesToggle') && document.getElementById('csAuthorRulesToggle').classList.contains('on'));
   var regexRulesEnabled = !!(document.getElementById('csRegexRulesToggle') && document.getElementById('csRegexRulesToggle').classList.contains('on'));
   var narratorEnabled = !!(document.getElementById('csNarratorToggle') && document.getElementById('csNarratorToggle').classList.contains('on'));

@@ -2188,18 +2188,39 @@ function normalizeImportedRegexScript(raw, fallbackName) {
   if (!raw) return null;
   if (typeof raw === 'string') {
     var text = clampImportedText(raw, 8000);
-    return text ? { name: normalizeImportedLabel(fallbackName, '导入脚本'), text: text } : null;
+    return text ? {
+      id: '',
+      name: normalizeImportedLabel(fallbackName, '导入脚本'),
+      scriptName: normalizeImportedLabel(fallbackName, '导入脚本'),
+      findRegex: '',
+      replaceString: '',
+      trimStrings: [],
+      placement: [],
+      disabled: false,
+      markdownOnly: false,
+      promptOnly: false,
+      runOnEdit: false,
+      substituteRegex: 0,
+      minDepth: 0,
+      maxDepth: 0,
+      text: text
+    } : null;
   }
   if (typeof raw === 'object') {
-    var name = normalizeImportedLabel(raw.name || raw.scriptName || raw.label || raw.id, fallbackName || '导入脚本');
+    var name = normalizeImportedLabel(raw.scriptName || raw.name || raw.label || raw.id, fallbackName || '导入脚本');
+    var scriptName = normalizeImportedLabel(raw.scriptName || raw.name || raw.label || raw.id, name);
     var richText = raw.text || raw.content || raw.script || raw.pattern || '';
+    var findRegex = String(raw.findRegex || raw.find_regex || '').trim();
+    var replaceString = String(raw.replaceString || raw.replace_string || '').trim();
+    var placement = Array.isArray(raw.placement) ? raw.placement.slice(0, 12) : [];
+    var trimStrings = Array.isArray(raw.trimStrings) ? raw.trimStrings.slice(0, 12) : [];
     if (!richText && (raw.findRegex || raw.replaceString || raw.scriptName || raw.placement)) {
       richText = JSON.stringify({
-        scriptName: raw.scriptName || raw.name || '',
-        findRegex: raw.findRegex || '',
-        replaceString: raw.replaceString || '',
-        trimStrings: Array.isArray(raw.trimStrings) ? raw.trimStrings : [],
-        placement: Array.isArray(raw.placement) ? raw.placement : [],
+        scriptName: scriptName,
+        findRegex: findRegex,
+        replaceString: replaceString,
+        trimStrings: trimStrings,
+        placement: placement,
         disabled: !!raw.disabled,
         markdownOnly: !!raw.markdownOnly,
         promptOnly: !!raw.promptOnly,
@@ -2211,7 +2232,23 @@ function normalizeImportedRegexScript(raw, fallbackName) {
     }
     if (!richText) richText = JSON.stringify(raw, null, 2);
     richText = clampImportedText(richText, 8000);
-    return richText ? { name: name, text: richText } : null;
+    return richText ? {
+      id: String(raw.id || '').trim(),
+      name: name,
+      scriptName: scriptName,
+      findRegex: findRegex,
+      replaceString: replaceString,
+      trimStrings: trimStrings,
+      placement: placement,
+      disabled: !!raw.disabled,
+      markdownOnly: !!raw.markdownOnly,
+      promptOnly: !!raw.promptOnly,
+      runOnEdit: !!raw.runOnEdit,
+      substituteRegex: Number(raw.substituteRegex || 0) || 0,
+      minDepth: Number(raw.minDepth || 0) || 0,
+      maxDepth: Number(raw.maxDepth || 0) || 0,
+      text: richText
+    } : null;
   }
   return null;
 }
@@ -2380,9 +2417,6 @@ function collectStructuredImportedAssets(source, path, bucket) {
     var type = String(asset.type || '').trim().toLowerCase();
     var token = String(asset.uri || asset.url || asset.src || asset.path || '').trim();
     var kind = getStructuredImportedAssetKind(type);
-    if (kind === 'unknown') {
-      kind = guessImportedResourceKind(String(path || 'data.assets') + '[' + idx + '].' + type, asset.name || asset.label || '');
-    }
     if (kind === 'unknown') return;
     if (!token && asset.name && isImportedImageFileName(asset.name)) token = String(asset.name || '').trim();
     var entry = buildImportedImageEntry(
@@ -2427,6 +2461,10 @@ function extractImportedAssetEntriesFromText(text, path) {
   var fallbackKind = guessImportedResourceKind(path, '');
   var currentKind = fallbackKind === 'unknown' ? '' : fallbackKind;
   var lines = raw.split('\n').map(function(line){ return String(line || '').trim(); }).filter(Boolean);
+  var hasExplicitSection = lines.some(function(line){
+    return isImportedAvatarSectionLine(line) || isImportedMemeSectionLine(line);
+  });
+  if (!hasExplicitSection && currentKind !== 'avatar' && currentKind !== 'meme') return [];
   var entries = [];
   lines.forEach(function(line) {
     if (isImportedAvatarSectionLine(line)) {
