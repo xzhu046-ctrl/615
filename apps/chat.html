@@ -3650,6 +3650,23 @@ function buildMemeCategoryList(items){
   });
   return out.sort(function(a, b){ return a.localeCompare(b, 'zh-Hans-CN'); });
 }
+
+function sortMemeCategoriesForDisplay(categories){
+  var list = (Array.isArray(categories) ? categories : []).slice();
+  var currentImported = normalizeImportedMemeCategoryName(character && character.importedMemeCategory || '', '');
+  return list.sort(function(a, b){
+    var left = normalizeMemeCategory(a);
+    var right = normalizeMemeCategory(b);
+    var leftImported = /导入表情/i.test(left);
+    var rightImported = /导入表情/i.test(right);
+    if(currentImported){
+      if(left === currentImported && right !== currentImported) return -1;
+      if(right === currentImported && left !== currentImported) return 1;
+    }
+    if(leftImported !== rightImported) return leftImported ? -1 : 1;
+    return left.localeCompare(right, 'zh-Hans-CN');
+  });
+}
 function normalizeMemeItem(item){
   if(!item || typeof item !== 'object') return null;
   var name = normalizeMemeName(item.name);
@@ -10090,11 +10107,49 @@ function buildRichWebVisibleDoc(data){
 
 function buildRichHtmlSrcdoc(payload){
   var data = normalizeRichHtmlRenderableData(payload);
+  var bridgeJs = [
+    '(function(){',
+    'if(window.__PHONE_RICH_BRIDGE_READY__) return;',
+    'window.__PHONE_RICH_BRIDGE_READY__ = true;',
+    'var pending = Object.create(null);',
+    'window.addEventListener("message", function(event){',
+    '  var msg = event && event.data || {};',
+    '  if(msg.type !== "RICHHTML_IFRAME_RPC_RESULT" || !msg.token) return;',
+    '  var handler = pending[msg.token];',
+    '  if(!handler) return;',
+    '  delete pending[msg.token];',
+    '  if(msg.ok === false) handler.reject(new Error(msg.error || "rpc_failed"));',
+    '  else handler.resolve(msg.result);',
+    '});',
+    'function rpc(action, payload){',
+    '  return new Promise(function(resolve, reject){',
+    '    var token = "rpc_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2);',
+    '    pending[token] = { resolve: resolve, reject: reject };',
+    '    try{',
+    '      parent.postMessage({ type:"RICHHTML_IFRAME_RPC", token: token, action: action, payload: payload || {} }, "*");',
+    '    }catch(err){',
+    '      delete pending[token];',
+    '      reject(err);',
+    '      return;',
+    '    }',
+    '    setTimeout(function(){',
+    '      if(!pending[token]) return;',
+    '      delete pending[token];',
+    '      reject(new Error("rpc_timeout"));',
+    '    }, 8000);',
+    '  });',
+    '}',
+    'window.getChatMessages = function(chatId, options){ return rpc("getChatMessages", { chatId: chatId, options: options || {} }); };',
+    'window.setChatMessage = function(content, index, options){ return rpc("setChatMessage", { content: content, index: index, options: options || {} }); };',
+    'window.__PHONE_GREETING_BRIDGE__ = { rpc: rpc };',
+    '})();'
+  ].join(''),
   return [
     '<!doctype html><html><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
     '<style>html,body{margin:0;padding:0;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"PingFang SC\",sans-serif;overflow:auto}*,*:before,*:after{box-sizing:border-box}' + String(data.css || '') + '</style>',
     '</head><body>',
+    '<script>' + bridgeJs + '<\/script>',
     String(data.html || ''),
     String(data.js || '').trim() ? ('<script>' + String(data.js || '') + '<\/script>') : '',
     '</body></html>'
@@ -13004,6 +13059,19 @@ function getGreetingVariants(applyRegex){
   return getGreetingVariantRecords(applyRegex).map(function(entry){
     return entry.text;
   });
+}
+
+function getGreetingSwipeContents(applyRegex){
+  if(!character) return [];
+  return normalizeGreetingCandidates(character.first_mes, character.alternate_greetings).map(function(raw){
+    var source = applyRegex !== false ? applyImportedRegexToGreetingText(raw) : String(raw || '');
+    var rich = parseRichHtmlPayload(source) || {};
+    var rendered = (String(rich.html || '').trim() || String(rich.url || '').trim() || String(rich.css || '').trim() || String(rich.js || '').trim())
+      ? String(source || '').trim()
+      : sanitizeGreetingDisplayText(source);
+    if(!rendered || isGreetingPlaceholderText(rendered)) return '';
+    return String(source || '').trim();
+  }).filter(Boolean);
 }
 
 function getGreetingMessageType(text){
@@ -18803,7 +18871,7 @@ function getMemeItemsForCategory(category){
 function refreshMemeCategoryStrip(){
   var host = document.getElementById('memeCategoryStrip');
   if(!host) return;
-  var cats = ['all'].concat(memeLibraryCache.categories || []);
+  var cats = ['all'].concat(sortMemeCategoriesForDisplay(memeLibraryCache.categories || []));
   if(cats.indexOf(activeMemeCategory) < 0) activeMemeCategory = 'all';
   host.innerHTML = cats.map(function(cat){
     var label = cat === 'all' ? '全部' : cat;
@@ -26092,15 +26160,19 @@ function cancelGreetingChange(){
   if(cg) cg.classList.remove('open');
 }
 
-async function confirmGreetingChange(){
-  if(confirmGreetingChange.__busy) return;
-  if(pendingGreetingIdx === null || !character) { cancelGreetingChange(); return; }
-  confirmGreetingChange.__busy = true;
-  toast('正在切换开场白...');
+async function applyGreetingSelectionByIndex(nextIndex, options){
+  if(applyGreetingSelectionByIndex.__busy) return false;
+  if(!(character && character.id)) return false;
+  var greetings = getGreetingVariants(true);
+  var safeIdx = Number(nextIndex);
+  if(!(safeIdx >= 0) || safeIdx >= greetings.length) return false;
+  applyGreetingSelectionByIndex.__busy = true;
+  var opts = options || {};
+  if(!opts.silent) toast('正在切换开场白...');
   var quotaFallbackUsed = false;
   try{
     resetPendingListenAlongInviteState();
-    curGreetingIdx = pendingGreetingIdx;
+    curGreetingIdx = safeIdx;
     safeLocalStorageSet(greetingStorageKey(character.id), String(curGreetingIdx));
     document.querySelectorAll('.g-item').forEach(function(el) {
       el.classList.toggle('active-g', parseInt(el.dataset.gi, 10) === curGreetingIdx);
@@ -26150,14 +26222,23 @@ async function confirmGreetingChange(){
     syncActiveCharacterToShell();
     postSettingsPreviewSync();
     updateFloatingUi();
-    cancelGreetingChange();
-    toast(quotaFallbackUsed ? '已切换开场白，旧聊天已清掉；存储空间有点紧，但这次切换我已经稳住了。' : '已切换开场白，并清空聊天/记忆/心声');
+    if(!opts.keepConfirmOpen) cancelGreetingChange();
+    if(!opts.silent){
+      toast(quotaFallbackUsed ? '已切换开场白，旧聊天已清掉；存储空间有点紧，但这次切换我已经稳住了。' : '已切换开场白，并清空聊天/记忆/心声');
+    }
+    return true;
   }catch(err){
     console.error('confirmGreetingChange failed', err);
-    toast('切换开场白失败：' + (err && err.message ? err.message : '未知错误'));
+    if(!opts.silent) toast('切换开场白失败：' + (err && err.message ? err.message : '未知错误'));
+    return false;
   }finally{
-    confirmGreetingChange.__busy = false;
+    applyGreetingSelectionByIndex.__busy = false;
   }
+}
+
+async function confirmGreetingChange(){
+  if(pendingGreetingIdx === null || !character) { cancelGreetingChange(); return; }
+  await applyGreetingSelectionByIndex(pendingGreetingIdx, { silent:false, keepConfirmOpen:false });
 }
 
 function toggleWB() {
@@ -28210,6 +28291,63 @@ async function deliverAiReply(text, limitOverride, options){
 // ════════════════════════════════════════════
 window.addEventListener('message', async function(e) {
   var d = e.data || {};
+  if(d.type === 'RICHHTML_IFRAME_RPC'){
+    var reply = function(ok, result, error){
+      try{
+        if(e.source && typeof e.source.postMessage === 'function'){
+          e.source.postMessage({
+            type: 'RICHHTML_IFRAME_RPC_RESULT',
+            token: d.token,
+            ok: !!ok,
+            result: ok ? result : null,
+            error: ok ? '' : String(error || 'rpc_failed')
+          }, '*');
+        }
+      }catch(err){}
+    };
+    try{
+      if(!character){
+        reply(false, null, 'character_not_ready');
+        return;
+      }
+      if(d.action === 'getChatMessages'){
+        var swipes = getGreetingSwipeContents(true);
+        var currentSwipe = swipes[curGreetingIdx] || swipes[0] || '';
+        reply(true, [{
+          mes: currentSwipe,
+          swipes: swipes
+        }], '');
+        return;
+      }
+      if(d.action === 'setChatMessage'){
+        var payload = d.payload || {};
+        var options = payload.options || {};
+        var swipes = getGreetingSwipeContents(true);
+        var targetIndex = Number(options.swipe_id);
+        if(!(targetIndex >= 0) || targetIndex >= swipes.length){
+          var content = String(payload.content || '').trim();
+          targetIndex = swipes.findIndex(function(item){ return String(item || '').trim() === content; });
+        }
+        if(!(targetIndex >= 0) || targetIndex >= swipes.length){
+          reply(false, null, 'swipe_not_found');
+          return;
+        }
+        var switched = await applyGreetingSelectionByIndex(targetIndex, { silent:true, keepConfirmOpen:false });
+        if(!switched){
+          reply(false, null, 'switch_failed');
+          return;
+        }
+        reply(true, { ok:true, swipe_id: targetIndex }, '');
+        return;
+      }
+      reply(false, null, 'unknown_action');
+      return;
+    }catch(err){
+      console.error('RICHHTML_IFRAME_RPC failed', err);
+      reply(false, null, err && err.message ? err.message : 'rpc_failed');
+      return;
+    }
+  }
   if(d.type === 'PARENT_CHAT_COMPOSER_SHIFT'){
     parentComposerShift = Math.max(0, Number(d.payload) || 0);
     syncChatViewport();
