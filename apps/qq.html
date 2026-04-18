@@ -2888,6 +2888,11 @@ async function confirmDeleteContact(){
     await removeChatRecordsForCharacter(targetId);
     await removeImportedMemesForCharacter(target);
     unpinChat(targetId);
+    try{
+      if(window.AccountManager && typeof window.AccountManager.removeFriend === 'function'){
+        window.AccountManager.removeFriend(targetId);
+      }
+    }catch(err){}
     if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
       await window.MetadataStore.saveCharacters(allChars);
     }else{
@@ -2905,6 +2910,17 @@ async function confirmDeleteContact(){
       localStorage.removeItem('wbCharId');
       localStorage.removeItem('pendingChatCharId');
       localStorage.removeItem('pendingChatChar');
+      localStorage.removeItem(accountScopedKey('activeCharacter'));
+      localStorage.removeItem(accountScopedKey('activeChatCharacterId'));
+      localStorage.removeItem(accountScopedKey('chat_' + targetId));
+      localStorage.removeItem(accountScopedKey('char_discovered_' + targetId));
+      localStorage.removeItem(accountScopedKey('friend_first_user_turn_' + targetId));
+      localStorage.removeItem(accountScopedKey('user_name_' + targetId));
+      localStorage.removeItem(accountScopedKey('user_persona_' + targetId));
+      localStorage.removeItem(accountScopedKey('user_avatar_' + targetId));
+      localStorage.removeItem('pending_friend_req_intro_' + targetId);
+      localStorage.removeItem('activeCharacter');
+      localStorage.removeItem('activeChatCharacterId');
     }catch(err){}
     closeContactsDrawer();
     await loadChars();
@@ -3050,12 +3066,15 @@ window.addEventListener('message', async function(e){
     var payload = d.payload || {};
     var payloadId = String((payload && payload.id) || '').trim();
     if(payloadId){
-      var next = await resolveLatestChar(payloadId, payload);
+      var next = await resolveLatestChar(payloadId, null);
       var replaced = false;
       chars = (Array.isArray(chars) ? chars : []).map(function(item){
         if(item && String(item.id || '') === payloadId){
-          replaced = true;
-          return Object.assign({}, item, next || payload);
+          if(next){
+            replaced = true;
+            return Object.assign({}, item, next);
+          }
+          return item;
         }
         return item;
       });

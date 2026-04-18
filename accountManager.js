@@ -206,6 +206,17 @@
     });
   }
 
+  function removeFriend(charId){
+    var safeId = String(charId || '').trim();
+    if(!safeId) return;
+    updateActive(function(acct){
+      acct.friends = Array.isArray(acct.friends) ? acct.friends : [];
+      acct.friends = acct.friends.filter(function(id){
+        return String(id || '').trim() !== safeId;
+      });
+    });
+  }
+
   function isFriend(charId){
     var acct = getActive();
     if(acct.isDefault) return true;
@@ -270,6 +281,7 @@
     scopedKey: scopedKey,
     addFavorite: addFavorite,
     addFriend: addFriend,
+    removeFriend: removeFriend,
     isFriend: isFriend,
     getDefaultId: function(){ ensure(); return localStorage.getItem(DEFAULT_KEY); }
   };
