@@ -7573,6 +7573,27 @@ async function syncImportedAvatarResources(target){
   }
 }
 
+function pruneImportedAvatarResourcesByItem(item){
+  if(!character || !item) return false;
+  var itemId = String(item.id || '').trim();
+  var previewSrc = normalizeAvatarSrc(String(item.previewData || '').trim());
+  var fileName = String(item.fileName || '').trim().toLowerCase();
+  var before = Array.isArray(character.importedAvatarResources) ? character.importedAvatarResources.slice() : [];
+  var next = before.filter(function(entry){
+    var normalized = normalizeImportedAvatarResource(entry);
+    if(!normalized) return true;
+    if(itemId && String(normalized.id || '').trim() === itemId) return false;
+    if(previewSrc && normalizeAvatarSrc(String(normalized.previewData || '').trim()) === previewSrc) return false;
+    if(fileName && String(normalized.fileName || '').trim().toLowerCase() === fileName) return false;
+    return true;
+  });
+  if(next.length === before.length) return false;
+  character.importedAvatarResources = next;
+  normalizeImportedCharacterMeta(character);
+  persistCharacter().catch(function(err){ console.warn('persistCharacter after avatar prune failed', err); });
+  return true;
+}
+
 async function syncImportedMemeResources(target){
   if(!target) return;
   normalizeImportedCharacterMeta(target);
@@ -7615,6 +7636,21 @@ async function syncImportedMemeResources(target){
     refreshMemeCategoryStrip();
     refreshMemeSuggestionsForInput();
   }
+}
+
+function pruneImportedMemeResourcesByMatcher(matcher){
+  if(!character || typeof matcher !== 'function') return false;
+  var before = Array.isArray(character.importedMemeResources) ? character.importedMemeResources.slice() : [];
+  var next = before.filter(function(entry){
+    var normalized = normalizeImportedMemeResource(entry);
+    if(!normalized) return true;
+    return !matcher(normalized);
+  });
+  if(next.length === before.length) return false;
+  character.importedMemeResources = next;
+  normalizeImportedCharacterMeta(character);
+  persistCharacter().catch(function(err){ console.warn('persistCharacter after meme prune failed', err); });
+  return true;
 }
 
 async function syncImportedCharacterResources(target){
@@ -18254,12 +18290,24 @@ function updateMemeItem(nextItem){
 function removeMemeItem(id){
   var targetId = String(id || '');
   if(!targetId) return false;
+  var removedItems = [];
   var removed = false;
   memeLibraryCache.items = getAllMemeItems().filter(function(item){
     if(String(item.id || '') !== targetId) return true;
     removed = true;
+    removedItems.push(item);
     return false;
   });
+  if(removedItems.length){
+    pruneImportedMemeResourcesByMatcher(function(entry){
+      return removedItems.some(function(item){
+        return String(entry.id || '') === String(item.id || '')
+          || (String(entry.src || '').trim() && String(entry.src || '').trim() === String(item.src || '').trim())
+          || (String(entry.fileName || '').trim().toLowerCase() && String(entry.fileName || '').trim().toLowerCase() === String(item.fileName || '').trim().toLowerCase())
+          || (normalizeMemeName(entry.name) && normalizeMemeName(entry.name) === normalizeMemeName(item.name));
+      });
+    });
+  }
   if(removed) saveMemeLibrary().then(function(){
     refreshMemeCategoryStrip();
     updateMemeManageBar();
@@ -18280,7 +18328,20 @@ async function removeMemeItems(ids){
     return !idMap[String(item.id || '')];
   });
   if(next.length === before.length) return 0;
+  var removedItems = before.filter(function(item){
+    return idMap[String(item.id || '')];
+  });
   memeLibraryCache.items = next;
+  if(removedItems.length){
+    pruneImportedMemeResourcesByMatcher(function(entry){
+      return removedItems.some(function(item){
+        return String(entry.id || '') === String(item.id || '')
+          || (String(entry.src || '').trim() && String(entry.src || '').trim() === String(item.src || '').trim())
+          || (String(entry.fileName || '').trim().toLowerCase() && String(entry.fileName || '').trim().toLowerCase() === String(item.fileName || '').trim().toLowerCase())
+          || (normalizeMemeName(entry.name) && normalizeMemeName(entry.name) === normalizeMemeName(item.name));
+      });
+    });
+  }
   await saveMemeLibrary();
   refreshMemeCategoryStrip();
   updateMemeManageBar();
@@ -18297,6 +18358,10 @@ async function removeMemeCategory(category){
     return normalizeMemeCategory(item.category) !== safeCategory;
   });
   if(next.length === before.length) return 0;
+  pruneImportedMemeResourcesByMatcher(function(entry){
+    return normalizeMemeCategory(character && character.importedMemeCategory || '') === safeCategory
+      || normalizeMemeCategory(entry.category || '') === safeCategory;
+  });
   memeLibraryCache.items = next;
   if(activeMemeCategory === safeCategory) activeMemeCategory = 'all';
   await saveMemeLibrary();
@@ -26040,11 +26105,19 @@ async function confirmAvatarMetaDelete(){
   var role = pendingAvatarMetaDraft.role === 'user' ? 'user' : 'char';
   var itemId = String(pendingAvatarMetaDraft.itemId || '');
   var assetKey = String(pendingAvatarMetaDraft.assetKey || '').trim();
+  var previewSrc = String(pendingAvatarMetaDraft.src || '').trim();
   var store = await loadAvatarLibraryStore(character.id);
   var list = Array.isArray(store[role]) ? store[role].slice() : [];
   store[role] = list.filter(function(entry){ return String(entry && entry.id || '') !== itemId; });
   await saveAvatarLibraryStore(character.id, store);
   avatarLibraryCache = store;
+  if(role === 'char'){
+    pruneImportedAvatarResourcesByItem({
+      id: itemId,
+      previewData: previewSrc,
+      fileName: pendingAvatarMetaDraft.fileName || ''
+    });
+  }
   if(assetKey){
     var stillUsed = ['char','user'].some(function(group){
       return Array.isArray(store[group]) && store[group].some(function(entry){

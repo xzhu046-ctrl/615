@@ -2062,6 +2062,38 @@ function guessImportedResourceKind(path, text) {
   return 'unknown';
 }
 
+function isImportedAvatarSectionLine(line) {
+  var text = String(line || '').trim();
+  if (!text) return false;
+  if (/(表情包头像|meme头像|头像表情包)/i.test(text)) return true;
+  return /(头像列表|头像管理|初始头像|平时的头像|崩溃时头像|头像为|更换头像|自定义头像|可用头像|头像：|头像\s*$|avatar(?:\s+list)?|profile(?:\s+image|\s+pic)?|icon)/i.test(text)
+    && !/(表情包列表|表情包使用规范|meme list|sticker list)/i.test(text);
+}
+
+function isImportedMemeSectionLine(line) {
+  var text = String(line || '').trim();
+  if (!text) return false;
+  if (/(表情包头像|meme头像|头像表情包)/i.test(text)) return false;
+  return /(表情包|meme|sticker|emoji|emote|reaction|expression|贴图|表情列表|json文件|json 文件)/i.test(text);
+}
+
+function detectImportedLineKind(line, currentKind, path) {
+  var text = String(line || '').trim();
+  if (!text) return 'unknown';
+  if (isImportedAvatarSectionLine(text)) return 'avatar';
+  if (isImportedMemeSectionLine(text)) return 'meme';
+  if (/(头像|avatar|profile(?:\s+image|\s+pic)?|icon)/i.test(text) && !/(表情包(?!头像)|meme(?!头像)|sticker|emoji|emote|reaction|expression|贴图)/i.test(text)) {
+    return 'avatar';
+  }
+  if (/(表情包(?!头像)|meme(?!头像)|sticker|emoji|emote|reaction|expression|贴图)/i.test(text) && !/(头像|avatar|profile(?:\s+image|\s+pic)?|icon)/i.test(text)) {
+    return 'meme';
+  }
+  var pathKind = guessImportedResourceKind(path, '');
+  if (currentKind === 'avatar' || currentKind === 'meme') return currentKind;
+  if (pathKind === 'avatar' || pathKind === 'meme') return pathKind;
+  return 'unknown';
+}
+
 function splitRuleBlocksFromText(text) {
   var raw = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   if (!raw) return [];
@@ -2356,20 +2388,20 @@ function collectStructuredRegexScripts(source, path, bucket) {
 function extractImportedAssetEntriesFromText(text, path) {
   var raw = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (!raw.trim()) return [];
-  var fallbackKind = guessImportedResourceKind(path, raw);
+  var fallbackKind = guessImportedResourceKind(path, '');
   var currentKind = fallbackKind === 'unknown' ? '' : fallbackKind;
   var lines = raw.split('\n').map(function(line){ return String(line || '').trim(); }).filter(Boolean);
   var entries = [];
   lines.forEach(function(line) {
-    if (/(头像列表|头像管理|初始头像|平时的头像|头像：|头像\s*$)/i.test(line) && !/(表情包|meme|sticker|emoji)/i.test(line)) {
+    if (isImportedAvatarSectionLine(line)) {
       currentKind = 'avatar';
-    } else if (/(表情包|meme|sticker|emoji|<bqb>|<meme>|json)/i.test(line)) {
+    } else if (isImportedMemeSectionLine(line)) {
       currentKind = 'meme';
     }
     var token = extractImportedImageTokenFromLine(line);
     if (!token) return;
-    var kindHint = currentKind || guessImportedResourceKind(String(path || '') + '\n' + line, line) || fallbackKind;
-    if (kindHint === 'unknown') return;
+    var kindHint = detectImportedLineKind(line, currentKind, path);
+    if (kindHint !== 'avatar' && kindHint !== 'meme') return;
     var isAvatar = kindHint === 'avatar';
     var label = '';
     if (isAvatar) {
@@ -2382,7 +2414,14 @@ function extractImportedAssetEntriesFromText(text, path) {
         importedFileNameFromUri(token)
       );
     } else {
-      label = importedFileNameFromUri(token) || basenameFromImportUrl(token);
+      label = normalizeImportedLabel(
+        line
+          .replace(token, '')
+          .replace(/^[•·▪◦\-\*\d.\)\( ]+/g, '')
+          .replace(/[：:]\s*$/, '')
+          .trim(),
+        importedFileNameFromUri(token) || basenameFromImportUrl(token)
+      );
     }
     var entry = buildImportedImageEntry(kindHint, token, label, path, isAvatar ? '世界书头像列表' : '世界书表情包列表');
     if (entry) entries.push(entry);
