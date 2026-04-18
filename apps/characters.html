@@ -2300,6 +2300,23 @@ function extractImportedImageTokenFromLine(line) {
   return '';
 }
 
+function isExplicitImportedResourceEntryLine(line, token, kind) {
+  var text = String(line || '').trim();
+  var cleanToken = String(token || '').trim();
+  if (!text || !cleanToken) return false;
+  if (/^<meme>\s*.+?\s*<\/meme>$/i.test(text)) return true;
+  var stripped = text
+    .replace(cleanToken, '')
+    .replace(/^[•·▪◦\-\*\d.\)\( ]+/g, '')
+    .trim();
+  if (!stripped) return true;
+  if (/[：:=]/.test(text)) return true;
+  if (/^(?:https?:\/\/|www\.)/i.test(cleanToken)) return true;
+  if (kind === 'meme' && stripped.length <= 24 && !/[。！？!?]/.test(stripped)) return true;
+  if (kind === 'avatar' && /(头像|avatar|icon|profile)/i.test(stripped)) return true;
+  return false;
+}
+
 function importedFileNameFromUri(uri) {
   var raw = String(uri || '').trim();
   if (!raw) return '';
@@ -2476,6 +2493,7 @@ function extractImportedAssetEntriesFromText(text, path) {
     if (!token) return;
     var kindHint = detectImportedLineKind(line, currentKind, path);
     if (kindHint !== 'avatar' && kindHint !== 'meme') return;
+    if (!isExplicitImportedResourceEntryLine(line, token, kindHint)) return;
     var isAvatar = kindHint === 'avatar';
     var label = '';
     if (isAvatar) {
