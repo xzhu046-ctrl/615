@@ -1839,7 +1839,7 @@ async function refreshChatCaches(){
       try{
         var saved = await window.PhoneStorage.get('chats', accountScopedKey('chat_' + c.id));
         var msgs = normalizeStoredChatHistory(saved && Array.isArray(saved.history) ? saved.history : []);
-        var last = {content:c.description||'', type:'text'};
+        var last = {content:getCharacterPreviewFallback(c), type:'text'};
         var previewSource = getLastVisiblePreviewMessage(msgs);
         var lastAt = Number((previewSource && (previewSource.sentAt || previewSource.readAt)) || (saved && saved.updatedAt) || 0) || 0;
         if(previewSource){
@@ -1857,6 +1857,46 @@ async function refreshChatCaches(){
     }));
   }
   chatSummaryCache = next;
+}
+
+function isPreviewGreetingPlaceholder(text){
+  var clean = String(text || '').replace(/\r\n/g, '\n').trim();
+  if(!clean) return true;
+  return /^(?:【\s*开场\s*】|\[\s*开场\s*\]|开场白?)$/i.test(clean);
+}
+
+function looksLikePreviewHtmlTemplate(text){
+  var clean = String(text || '').trim();
+  if(!clean) return false;
+  return /<!DOCTYPE html>|<html\b|<head\b|<style\b|<script\b|emoji-picker-element|phone-container/i.test(clean);
+}
+
+function sanitizeCharacterPreviewSeed(text){
+  var clean = String(text || '').replace(/\r\n/g, '\n').trim();
+  if(!clean) return '';
+  clean = clean
+    .replace(/<\/?info>/gi, ' ')
+    .replace(/<\/?character>/gi, ' ')
+    .replace(/<\/?writing_rule>/gi, ' ')
+    .replace(/```(?:yaml|html|json)?/gi, ' ')
+    .replace(/\[OOC：[^\]]+\]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if(looksLikePreviewHtmlTemplate(clean)) return '';
+  if(clean.length > 120) clean = clean.slice(0, 120).trim();
+  return clean;
+}
+
+function getCharacterPreviewFallback(c){
+  if(!c) return '';
+  var pool = [];
+  if(String(c.first_mes || '').trim()) pool.push(c.first_mes);
+  if(Array.isArray(c.alternate_greetings)) pool = pool.concat(c.alternate_greetings);
+  for(var i = 0; i < pool.length; i++){
+    var candidate = sanitizeCharacterPreviewSeed(pool[i]);
+    if(candidate && !isPreviewGreetingPlaceholder(candidate)) return candidate;
+  }
+  return sanitizeCharacterPreviewSeed(c.description || '');
 }
 
 async function refreshMomentsCache(){
@@ -2080,7 +2120,7 @@ function lastMsgOf(c){
     var previewSource = getLastVisiblePreviewMessage(best);
     if(previewSource) return normalizePreviewMessage(previewSource);
   }catch(e){}
-  return {content:c.description||'', type:'text'};
+  return {content:getCharacterPreviewFallback(c), type:'text'};
 }
 
 function unreadCountOf(c){

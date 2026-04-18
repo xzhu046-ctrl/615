@@ -2094,7 +2094,7 @@ function isImportedAvatarSectionLine(line) {
   var text = String(line || '').trim();
   if (!text) return false;
   if (/(表情包头像|meme头像|头像表情包)/i.test(text)) return true;
-  return /(头像列表|头像管理|初始头像|平时的头像|崩溃时头像|头像为|更换头像|自定义头像|可用头像|头像：|头像\s*$|avatar(?:\s+list)?|profile(?:\s+image|\s+pic)?|icon)/i.test(text)
+  return /(头像列表|头像管理|初始头像|平时的头像|崩溃时(?:时)?头像|极度兴奋.*头像|可用头像(?:列表)?|以下头像|头像如下|avatar(?:\s+list|\s+library)?)/i.test(text)
     && !/(表情包列表|表情包使用规范|meme list|sticker list)/i.test(text);
 }
 
@@ -2110,12 +2110,6 @@ function detectImportedLineKind(line, currentKind, path) {
   if (!text) return 'unknown';
   if (isImportedAvatarSectionLine(text)) return 'avatar';
   if (isImportedMemeSectionLine(text)) return 'meme';
-  if (/(头像|avatar)/i.test(text) && !/(表情包(?!头像)|meme(?!头像)|sticker|emoji|emote|reaction|expression|贴图)/i.test(text)) {
-    return 'avatar';
-  }
-  if (/(表情包(?!头像)|meme(?!头像)|sticker|emoji|emote|reaction|expression|贴图)/i.test(text) && !/(头像|avatar|profile(?:\s+image|\s+pic)?|icon)/i.test(text)) {
-    return 'meme';
-  }
   var pathKind = guessImportedResourceKind(path, '');
   if (currentKind === 'avatar' || currentKind === 'meme') return currentKind;
   if (pathKind === 'avatar' || pathKind === 'meme') return pathKind;
@@ -2305,6 +2299,10 @@ function extractImportedImageTokenFromLine(line) {
   return '';
 }
 
+function escapeImportedRegexToken(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function isExplicitImportedResourceEntryLine(line, token, kind) {
   var text = String(line || '').trim();
   var cleanToken = String(token || '').trim();
@@ -2315,10 +2313,59 @@ function isExplicitImportedResourceEntryLine(line, token, kind) {
     .replace(/^[•·▪◦\-\*\d.\)\( ]+/g, '')
     .trim();
   if (!stripped) return true;
-  if (/[：:=]/.test(text)) return true;
-  if (/^(?:https?:\/\/|www\.)/i.test(cleanToken)) return true;
-  if (kind === 'meme' && stripped.length <= 24 && !/[。！？!?]/.test(stripped)) return true;
+  var tokenTailRe = new RegExp(escapeImportedRegexToken(cleanToken) + '(?:\\s*[）\\)】\\]〉>][^\\n]{0,24})?\\s*$', 'i');
+  if (kind === 'avatar') {
+    if (!tokenTailRe.test(text)) return false;
+    if (/<[^>]+>/.test(text) || /\{\{|\}\}|<!DOCTYPE html>|<StatusBlock>|\[对方消息|\[我方消息/i.test(text)) return false;
+    if (!/[：:]/.test(text)) return false;
+    var avatarLabel = stripped.replace(/[：:=]/g, ' ').trim();
+    return !!avatarLabel && avatarLabel.length <= 32;
+  }
+  if (kind === 'meme') {
+    if (/^(?:https?:\/\/|www\.)/i.test(cleanToken)) return true;
+    if (!tokenTailRe.test(text)) return false;
+    if (/<[^>]+>/.test(text) && !/^<meme>\s*.+?\s*<\/meme>$/i.test(text)) return false;
+    var memeLabel = stripped.replace(/[：:=]/g, ' ').trim();
+    if (!memeLabel) return true;
+    return memeLabel.length <= 28 && !/[。！？!?]/.test(memeLabel);
+  }
   return false;
+}
+
+function isImportedGreetingPlaceholder(text) {
+  var clean = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!clean) return true;
+  return /^(?:【\s*开场\s*】|\[\s*开场\s*\]|开场白?)$/i.test(clean);
+}
+
+function looksLikeImportedGreetingHtml(text) {
+  var clean = String(text || '').trim();
+  if (!clean) return false;
+  return /<!DOCTYPE html>|<html\b|<head\b|<style\b|<script\b|emoji-picker-element|phone-container/i.test(clean);
+}
+
+function normalizeImportedGreetingPool(firstMes, alternateGreetings) {
+  var rawList = [];
+  if (String(firstMes || '').trim()) rawList.push(firstMes);
+  if (Array.isArray(alternateGreetings)) rawList = rawList.concat(alternateGreetings);
+  rawList = rawList.map(function(entry) {
+    return String(entry || '').replace(/\r\n/g, '\n').trim();
+  }).filter(Boolean);
+  var hasRealGreeting = rawList.some(function(entry) {
+    return !isImportedGreetingPlaceholder(entry) && !looksLikeImportedGreetingHtml(entry);
+  });
+  if (hasRealGreeting) {
+    rawList = rawList.filter(function(entry) {
+      return !isImportedGreetingPlaceholder(entry) && !looksLikeImportedGreetingHtml(entry);
+    });
+  } else {
+    rawList = rawList.filter(function(entry) {
+      return !looksLikeImportedGreetingHtml(entry);
+    });
+  }
+  return dedupeImportedEntries(rawList, function(entry) {
+    return String(entry || '').trim().toLowerCase();
+  });
 }
 
 function importedFileNameFromUri(uri) {
@@ -2657,6 +2704,7 @@ function parseCard(jsonStr, imageData, filename) {
     if (!derivedId) derivedId = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
 
     var importMeta = extractImportedCardMetadata(raw, d, charBook, jsonStr, filename);
+    var normalizedGreetings = normalizeImportedGreetingPool(d.first_mes || d.char_greeting || '', d.alternate_greetings || []);
 
     var card = {
       id: derivedId,
@@ -2668,11 +2716,11 @@ function parseCard(jsonStr, imageData, filename) {
       description: d.description || d.char_persona || '',
       personality: d.personality || '',
       scenario: d.scenario || d.world_scenario || '',
-      first_mes: d.first_mes || d.char_greeting || '',
+      first_mes: normalizedGreetings[0] || '',
       mes_example: d.mes_example || d.example_dialogue || '',
       system_prompt: d.system_prompt || d.char_system_prompt || '',
       post_history_instructions: d.post_history_instructions || '',
-      alternate_greetings: d.alternate_greetings || [],
+      alternate_greetings: normalizedGreetings.slice(1),
       character_book: charBook,
       tags: d.tags || [],
       creator: d.creator || d.character_creator || '',

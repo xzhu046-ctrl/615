@@ -12706,6 +12706,46 @@ function getEnabledImportedGreetingRegexScripts(){
     .filter(function(entry){ return entry && !entry.disabled && String(entry.findRegex || '').trim(); });
 }
 
+function isGreetingPlaceholderText(text){
+  var clean = String(text || '').replace(/\r\n/g, '\n').trim();
+  if(!clean) return true;
+  return /^(?:【\s*开场\s*】|\[\s*开场\s*\]|开场白?)$/i.test(clean);
+}
+
+function looksLikeGreetingHtmlTemplate(text){
+  var clean = String(text || '').trim();
+  if(!clean) return false;
+  return /<!DOCTYPE html>|<html\b|<head\b|<style\b|<script\b|emoji-picker-element|phone-container/i.test(clean);
+}
+
+function normalizeGreetingCandidates(firstMes, alternateGreetings){
+  var list = [];
+  if(String(firstMes || '').trim()) list.push(firstMes);
+  if(Array.isArray(alternateGreetings)) list = list.concat(alternateGreetings);
+  list = list.map(function(entry){
+    return String(entry || '').replace(/\r\n/g, '\n').trim();
+  }).filter(Boolean);
+  var hasRealGreeting = list.some(function(entry){
+    return !isGreetingPlaceholderText(entry) && !looksLikeGreetingHtmlTemplate(entry);
+  });
+  if(hasRealGreeting){
+    list = list.filter(function(entry){
+      return !isGreetingPlaceholderText(entry) && !looksLikeGreetingHtmlTemplate(entry);
+    });
+  }else{
+    list = list.filter(function(entry){
+      return !looksLikeGreetingHtmlTemplate(entry);
+    });
+  }
+  var seen = {};
+  return list.filter(function(entry){
+    var key = String(entry || '').trim().toLowerCase();
+    if(!key || seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
+}
+
 function applyImportedRegexToGreetingText(text){
   var content = String(text || '');
   if(!content) return '';
@@ -12731,12 +12771,13 @@ function applyImportedRegexToGreetingText(text){
 
 function getGreetingVariants(applyRegex){
   if(!character) return [];
-  var all = [];
-  if (character.first_mes) all.push(character.first_mes);
-  if (Array.isArray(character.alternate_greetings)) all = all.concat(character.alternate_greetings);
-  all = all.map(function(item){ return String(item || '').trim(); }).filter(Boolean);
+  var all = normalizeGreetingCandidates(character.first_mes, character.alternate_greetings);
   if(applyRegex !== false){
-    all = all.map(applyImportedRegexToGreetingText).filter(Boolean);
+    all = all.map(applyImportedRegexToGreetingText).map(function(item){
+      return String(item || '').replace(/\r\n/g, '\n').trim();
+    }).filter(function(item){
+      return item && !isGreetingPlaceholderText(item) && !looksLikeGreetingHtmlTemplate(item);
+    });
   }
   return all;
 }
