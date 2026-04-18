@@ -423,7 +423,7 @@ function getAvatarSrc(c){
   if(!c) return '';
   var ovr = avatarAssetCache[c.id];
   if(ovr && ovr.startsWith('data:')) return ovr;
-  return c.imageData || '';
+  return c.imageData || c.avatarUrl || '';
 }
 // Downscale dataURL to keep storage usage low (<=256px, ~200KB target)
 function shrinkDataUrl(dataUrl, maxDim){ 
@@ -2021,6 +2021,241 @@ async function handleCard(jsonStr, imageData, filename) {
   parseCard(jsonStr, smallImg, filename);
 }
 
+function clampImportedText(value, maxLen) {
+  var text = String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  var limit = Math.max(80, Number(maxLen) || 0);
+  if (!text) return '';
+  return text.length > limit ? (text.slice(0, limit) + '…') : text;
+}
+
+function normalizeImportedLabel(value, fallback) {
+  var text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text || String(fallback || '').trim();
+}
+
+function basenameFromImportUrl(url) {
+  var safe = String(url || '').trim();
+  if (!safe) return '';
+  var withoutQuery = safe.split('#')[0].split('?')[0];
+  var parts = withoutQuery.split('/');
+  return decodeURIComponent(parts[parts.length - 1] || '').trim();
+}
+
+function importedResourceLabelFromUrl(url, fallback) {
+  var base = basenameFromImportUrl(url).replace(/\.[^.]+$/, '').trim();
+  return normalizeImportedLabel(base, fallback || '未命名资源');
+}
+
+function importPathHint(path) {
+  return String(path || '').replace(/\[\d+\]/g, '').toLowerCase();
+}
+
+function guessImportedResourceKind(path, text) {
+  var hint = importPathHint(path);
+  var source = (hint + '\n' + String(text || '')).toLowerCase();
+  if (/(avatar|头像|profile[_\s-]*image|profile[_\s-]*pic|头像列表|头像管理)/.test(source) && !/(meme|sticker|emoji|表情包)/.test(source)) {
+    return 'avatar';
+  }
+  if (/(meme|sticker|emoji|emote|reaction|expression|表情包|表情|贴图)/.test(source)) {
+    return 'meme';
+  }
+  return 'unknown';
+}
+
+function splitRuleBlocksFromText(text) {
+  var raw = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  if (!raw) return [];
+  var blocks = [];
+  var tagged = raw.match(/<\s*online character_specification\s*>[\s\S]*?<\s*\/\s*online character_specification\s*>/ig) || [];
+  tagged.forEach(function(block) {
+    var inner = String(block || '')
+      .replace(/<\s*online character_specification\s*>/i, '')
+      .replace(/<\s*\/\s*online character_specification\s*>/i, '')
+      .trim();
+    if (inner) blocks.push({ title: '线上角色规则', text: inner });
+  });
+  if (!blocks.length && /(头像管理规范|聊天消息生成规范|表情包使用规范|消息时间要求|线上聊天风格|online character_specification)/i.test(raw) && raw.length >= 120) {
+    blocks.push({ title: '作者扩展规则', text: raw });
+  }
+  return blocks;
+}
+
+function extractNamedImageEntriesFromText(text, path, forcedKind) {
+  var raw = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!raw.trim()) return [];
+  var kindHint = forcedKind || guessImportedResourceKind(path, raw);
+  var lines = raw.split('\n').map(function(line){ return String(line || '').trim(); }).filter(Boolean);
+  var entries = [];
+  var pendingLabel = '';
+  lines.forEach(function(line) {
+    var urls = line.match(/https?:\/\/[^\s"'<>]+?\.(?:png|jpe?g|gif|webp)(?:\?[^\s"'<>]*)?/ig) || [];
+    if (urls.length) {
+      urls.forEach(function(url) {
+        var inlineLabel = normalizeImportedLabel(line.replace(url, '').replace(/^[•·▪◦\-\*\t ]+/g, '').replace(/[：:]\s*$/, ''), '');
+        entries.push({
+          kind: kindHint,
+          url: url,
+          label: normalizeImportedLabel(inlineLabel || pendingLabel, importedResourceLabelFromUrl(url)),
+          path: path,
+          note: ''
+        });
+      });
+      pendingLabel = '';
+      return;
+    }
+    if (/^(https?:\/\/|www\.)/i.test(line)) return;
+    pendingLabel = normalizeImportedLabel(line.replace(/[：:]\s*$/, ''), pendingLabel);
+  });
+  return entries;
+}
+
+function normalizeImportedRuleBlock(raw, fallbackTitle) {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    var text = clampImportedText(raw, 12000);
+    return text ? { title: normalizeImportedLabel(fallbackTitle, '作者规则'), text: text } : null;
+  }
+  if (typeof raw === 'object') {
+    var title = normalizeImportedLabel(raw.title || raw.name, fallbackTitle || '作者规则');
+    var richText = clampImportedText(raw.text || raw.content || '', 12000);
+    return richText ? { title: title, text: richText } : null;
+  }
+  return null;
+}
+
+function normalizeImportedRegexScript(raw, fallbackName) {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    var text = clampImportedText(raw, 8000);
+    return text ? { name: normalizeImportedLabel(fallbackName, '导入脚本'), text: text } : null;
+  }
+  if (typeof raw === 'object') {
+    var name = normalizeImportedLabel(raw.name || raw.label || raw.id, fallbackName || '导入脚本');
+    var richText = clampImportedText(raw.script || raw.pattern || raw.text || raw.content || JSON.stringify(raw, null, 2), 8000);
+    return richText ? { name: name, text: richText } : null;
+  }
+  return null;
+}
+
+function dedupeImportedEntries(entries, keyFn) {
+  var seen = {};
+  var out = [];
+  (Array.isArray(entries) ? entries : []).forEach(function(entry) {
+    if (!entry) return;
+    var key = String((keyFn && keyFn(entry)) || '').trim();
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    out.push(entry);
+  });
+  return out;
+}
+
+function buildImportedMemeCategory(cardName) {
+  var safe = normalizeImportedLabel(cardName, '角色');
+  return safe + ' · 导入表情';
+}
+
+function collectImportedMetadataFromNode(node, path, bucket, depth) {
+  if (depth > 6 || node == null) return;
+  if (typeof node === 'string') {
+    extractNamedImageEntriesFromText(node, path, '').forEach(function(entry) {
+      bucket.images.push(entry);
+    });
+    splitRuleBlocksFromText(node).forEach(function(block) {
+      bucket.rules.push(block);
+    });
+    if (/(regex|正则|script|脚本)/i.test(importPathHint(path))) {
+      var regexEntry = normalizeImportedRegexScript(node, String(path || '').split('.').pop());
+      if (regexEntry) bucket.regex.push(regexEntry);
+    }
+    return;
+  }
+  if (Array.isArray(node)) {
+    node.slice(0, 120).forEach(function(item, idx) {
+      collectImportedMetadataFromNode(item, String(path || '') + '[' + idx + ']', bucket, depth + 1);
+    });
+    return;
+  }
+  if (typeof node !== 'object') return;
+  if (/(regex|正则|script|脚本)/i.test(importPathHint(path))) {
+    var block = normalizeImportedRegexScript(node, String(path || '').split('.').pop());
+    if (block) bucket.regex.push(block);
+  }
+  Object.keys(node).slice(0, 120).forEach(function(key) {
+    collectImportedMetadataFromNode(node[key], path ? (path + '.' + key) : key, bucket, depth + 1);
+  });
+}
+
+function extractImportedCardMetadata(raw, d, charBook, jsonStr, filename) {
+  var bucket = { images: [], rules: [], regex: [] };
+  collectImportedMetadataFromNode(raw, 'raw', bucket, 0);
+  if (charBook) collectImportedMetadataFromNode(charBook, 'character_book', bucket, 0);
+  splitRuleBlocksFromText(jsonStr).forEach(function(block) { bucket.rules.push(block); });
+  var directAvatarCandidates = [
+    d && d.avatar_url,
+    d && d.avatarUrl,
+    d && d.profile_image,
+    d && d.profileImage,
+    d && d.image_url,
+    d && d.imageUrl,
+    raw && raw.avatar_url,
+    raw && raw.avatarUrl
+  ].map(function(value){ return String(value || '').trim(); }).filter(function(value){
+    return /^https?:\/\/[^\s"'<>]+?\.(?:png|jpe?g|gif|webp)(?:\?[^\s"'<>]*)?$/i.test(value);
+  }).map(function(url){
+    return { kind: 'avatar', url: url, label: importedResourceLabelFromUrl(url, filename), path: 'direct.avatar', note: '角色卡自带头像链接' };
+  });
+  bucket.images = directAvatarCandidates.concat(bucket.images);
+
+  var avatarResources = dedupeImportedEntries(bucket.images.filter(function(entry) {
+    return entry && entry.url && guessImportedResourceKind(entry.path, entry.label || '') === 'avatar';
+  }).map(function(entry, idx) {
+    return {
+      id: 'import_avatar_' + idx,
+      label: normalizeImportedLabel(entry.label, importedResourceLabelFromUrl(entry.url, '头像')),
+      previewData: String(entry.url || '').trim(),
+      note: normalizeImportedLabel(entry.note, '角色卡导入')
+    };
+  }), function(entry) {
+    return String(entry.previewData || '').trim().toLowerCase();
+  });
+
+  var memeResources = dedupeImportedEntries(bucket.images.filter(function(entry) {
+    return entry && entry.url && guessImportedResourceKind(entry.path, entry.label || '') === 'meme';
+  }).map(function(entry, idx) {
+    return {
+      id: 'import_meme_' + idx,
+      name: normalizeImportedLabel(entry.label, importedResourceLabelFromUrl(entry.url, '表情包')),
+      src: String(entry.url || '').trim()
+    };
+  }), function(entry) {
+    return (String(entry.name || '').trim().toLowerCase() + '::' + String(entry.src || '').trim().toLowerCase());
+  });
+
+  var ruleBlocks = dedupeImportedEntries(bucket.rules.map(function(entry) {
+    return normalizeImportedRuleBlock(entry, '作者规则');
+  }).filter(Boolean), function(entry) {
+    return (String(entry.title || '') + '::' + String(entry.text || '')).toLowerCase();
+  });
+
+  var regexScripts = dedupeImportedEntries(bucket.regex.map(function(entry) {
+    return normalizeImportedRegexScript(entry, '导入脚本');
+  }).filter(Boolean), function(entry) {
+    return (String(entry.name || '') + '::' + String(entry.text || '')).toLowerCase();
+  });
+
+  return {
+    avatarUrl: avatarResources.length ? String(avatarResources[0].previewData || '').trim() : '',
+    importedAvatarResources: avatarResources.slice(0, 24),
+    importedMemeResources: memeResources.slice(0, 120),
+    importedRuleBlocks: ruleBlocks.slice(0, 10),
+    importedRegexScripts: regexScripts.slice(0, 10),
+    importedMemeCategory: buildImportedMemeCategory((d && (d.nick || d.nickname || d.name || d.char_name)) || filename),
+    authorRulesEnabled: ruleBlocks.length ? true : false,
+    regexRulesEnabled: false
+  };
+}
+
 // ── Parse card JSON — handles V1, V2, V3, raw, and nested formats ──
 function parseCard(jsonStr, imageData, filename) {
   try {
@@ -2041,12 +2276,15 @@ function parseCard(jsonStr, imageData, filename) {
     var derivedId = d.id || d.character_id || (d.data && d.data.id);
     if (!derivedId) derivedId = 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
 
+    var importMeta = extractImportedCardMetadata(raw, d, charBook, jsonStr, filename);
+
     var card = {
       id: derivedId,
       spec: spec || 'V1',
       name: d.name || d.char_name || filename.replace(/\.(png|json)$/i,'') || 'Unknown',
       nickname: d.nick || d.nickname || '',
       avatar: '🌸',
+      avatarUrl: importMeta.avatarUrl || '',
       description: d.description || d.char_persona || '',
       personality: d.personality || '',
       scenario: d.scenario || d.world_scenario || '',
@@ -2063,6 +2301,13 @@ function parseCard(jsonStr, imageData, filename) {
       imageData: imageData || null,
       msgMin: d.msg_min || 1,
       msgMax: d.msg_max || 3,
+      importedAvatarResources: importMeta.importedAvatarResources || [],
+      importedMemeResources: importMeta.importedMemeResources || [],
+      importedRuleBlocks: importMeta.importedRuleBlocks || [],
+      importedRegexScripts: importMeta.importedRegexScripts || [],
+      importedMemeCategory: importMeta.importedMemeCategory || buildImportedMemeCategory(d.name || d.char_name || filename),
+      authorRulesEnabled: importMeta.authorRulesEnabled !== false,
+      regexRulesEnabled: !!importMeta.regexRulesEnabled,
       ownerAccountId: window.AccountManager ? ((window.AccountManager.getActive()||{}).id || '') : ''
     };
     if(card.imageData && card.imageData.length > 200000){
@@ -2120,8 +2365,14 @@ function parseCard(jsonStr, imageData, filename) {
         return;
       }
       if (charBook) autoImportWorldBook(card, charBook);
+      var importBits = [];
+      if (card.importedAvatarResources && card.importedAvatarResources.length) importBits.push(card.importedAvatarResources.length + ' 个头像');
+      if (card.importedMemeResources && card.importedMemeResources.length) importBits.push(card.importedMemeResources.length + ' 个表情包');
+      if (card.importedRuleBlocks && card.importedRuleBlocks.length) importBits.push(card.importedRuleBlocks.length + ' 份作者规则');
+      if (card.importedRegexScripts && card.importedRegexScripts.length) importBits.push(card.importedRegexScripts.length + ' 份正则');
       log('已导入: ' + card.name + (charBook ? ' · 档案已载入 ✓' : '') +
-        (card.alternate_greetings.length ? ' · ' + (card.alternate_greetings.length+1) + '条开场白' : ''));
+        (card.alternate_greetings.length ? ' · ' + (card.alternate_greetings.length+1) + '条开场白' : '') +
+        (importBits.length ? (' · 扩展：' + importBits.join(' / ')) : ''));
       updateCount(); renderList();
       window.parent.postMessage({ type:'CHARACTER_IMPORTED', payload:card }, '*');
     }

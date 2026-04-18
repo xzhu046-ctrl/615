@@ -2306,6 +2306,41 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
               </div>
             </div>
             <div class="cs-subcard">
+              <div class="cs-subcard-title">导入扩展</div>
+              <div class="toggle-row" style="padding-top:0">
+                <div class="toggle-left">
+                  <div class="toggle-label">资源摘要</div>
+                  <div class="toggle-sub" id="csImportedSummary">这张卡还没有导入扩展资源。</div>
+                </div>
+              </div>
+              <div style="margin-top:10px">
+                <span class="cs-label">表情包分类</span>
+                <input class="cs-input cs-underline" id="csImportedMemeCategory" type="text" placeholder="角色 · 导入表情" oninput="syncChatSettingsFieldWidths()">
+              </div>
+              <div class="toggle-row" style="margin-top:10px;padding-top:0">
+                <div class="toggle-left">
+                  <div class="toggle-label">启用作者规则参考</div>
+                  <div class="toggle-sub">只学语义、节奏和习惯，不照抄别的前端格式。</div>
+                </div>
+                <div class="toggle-switch" id="csAuthorRulesToggle" onclick="toggleAuthorRulesSwitch()"></div>
+              </div>
+              <div style="margin-top:10px">
+                <span class="cs-label">作者规则</span>
+                <textarea class="cs-textarea cs-code-editor" id="csImportedRules" rows="8" placeholder="导入到的作者规则会显示在这里，你也可以手动整理。"></textarea>
+              </div>
+              <div class="toggle-row" style="margin-top:10px;padding-top:0">
+                <div class="toggle-left">
+                  <div class="toggle-label">启用正则 / 脚本参考</div>
+                  <div class="toggle-sub">当成额外风格约束线索，不直接执行代码。</div>
+                </div>
+                <div class="toggle-switch" id="csRegexRulesToggle" onclick="toggleRegexRulesSwitch()"></div>
+              </div>
+              <div style="margin-top:10px">
+                <span class="cs-label">正则 / 脚本</span>
+                <textarea class="cs-textarea cs-code-editor" id="csImportedRegex" rows="6" placeholder="导入到的正则、脚本或额外格式提示会显示在这里。"></textarea>
+              </div>
+            </div>
+            <div class="cs-subcard">
               <div class="cs-subcard-title">消息范围</div>
               <div class="cs-split">
                 <div class="cs-col">
@@ -7246,6 +7281,223 @@ function saveAvatarLibraryStore(charId, store){
   });
 }
 
+function sanitizeImportedMetaText(value, maxLen){
+  var text = String(value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  var limit = Math.max(80, Number(maxLen) || 0);
+  if(!text) return '';
+  return text.length > limit ? (text.slice(0, limit) + '…') : text;
+}
+
+function normalizeImportedMemeCategoryName(value, fallback){
+  return String(value || fallback || '角色 · 导入表情').replace(/\s+/g, ' ').trim() || '角色 · 导入表情';
+}
+
+function normalizeImportedAvatarResource(raw){
+  if(!raw || typeof raw !== 'object') return null;
+  var src = normalizeAvatarSrc(raw.previewData || raw.src || raw.url || '');
+  if(!isRenderableAvatarSrc(src)) return null;
+  var label = String(raw.label || raw.name || '').replace(/\s+/g, ' ').trim() || '导入头像';
+  return {
+    id: String(raw.id || '').trim(),
+    label: label,
+    previewData: src,
+    note: sanitizeImportedMetaText(raw.note || '', 240)
+  };
+}
+
+function normalizeImportedMemeResource(raw){
+  if(!raw || typeof raw !== 'object') return null;
+  var src = String(raw.src || raw.url || '').trim();
+  if(!/^(data:|blob:|https?:|\/|\.\/|\.\.\/)/i.test(src)) return null;
+  var name = normalizeMemeName(raw.name || raw.label || '');
+  if(!name) return null;
+  return {
+    id: String(raw.id || '').trim(),
+    name: name,
+    src: src
+  };
+}
+
+function normalizeImportedRuleBlockMeta(raw){
+  if(!raw) return null;
+  var title = String((raw && (raw.title || raw.name)) || '').replace(/\s+/g, ' ').trim() || '作者规则';
+  var text = sanitizeImportedMetaText(raw && (raw.text || raw.content) || raw, 12000);
+  return text ? { title:title, text:text } : null;
+}
+
+function normalizeImportedRegexScriptMeta(raw){
+  if(!raw) return null;
+  var name = String((raw && (raw.name || raw.label || raw.id)) || '').replace(/\s+/g, ' ').trim() || '导入脚本';
+  var text = sanitizeImportedMetaText(raw && (raw.text || raw.content || raw.script || raw.pattern) || raw, 8000);
+  return text ? { name:name, text:text } : null;
+}
+
+function dedupeImportedMeta(entries, keyFn){
+  var seen = {};
+  var out = [];
+  (Array.isArray(entries) ? entries : []).forEach(function(entry){
+    if(!entry) return;
+    var key = String((keyFn && keyFn(entry)) || '').trim();
+    if(!key || seen[key]) return;
+    seen[key] = true;
+    out.push(entry);
+  });
+  return out;
+}
+
+function stableImportedResourceId(prefix, charId, seed){
+  var input = String(seed || '').trim();
+  var hash = 2166136261;
+  for(var i = 0; i < input.length; i++){
+    hash ^= input.charCodeAt(i);
+    hash = (hash * 16777619) >>> 0;
+  }
+  return prefix + '_' + String(charId || '').trim() + '_' + hash.toString(36);
+}
+
+function normalizeImportedCharacterMeta(target){
+  if(!target || typeof target !== 'object') return target;
+  target.avatarUrl = normalizeAvatarSrc(target.avatarUrl || '');
+  target.importedAvatarResources = dedupeImportedMeta((Array.isArray(target.importedAvatarResources) ? target.importedAvatarResources : []).map(normalizeImportedAvatarResource).filter(Boolean), function(entry){
+    return String(entry.previewData || '').trim().toLowerCase();
+  });
+  target.importedMemeResources = dedupeImportedMeta((Array.isArray(target.importedMemeResources) ? target.importedMemeResources : []).map(normalizeImportedMemeResource).filter(Boolean), function(entry){
+    return (String(entry.name || '').trim().toLowerCase() + '::' + String(entry.src || '').trim().toLowerCase());
+  });
+  target.importedRuleBlocks = dedupeImportedMeta((Array.isArray(target.importedRuleBlocks) ? target.importedRuleBlocks : []).map(normalizeImportedRuleBlockMeta).filter(Boolean), function(entry){
+    return (String(entry.title || '') + '::' + String(entry.text || '')).toLowerCase();
+  });
+  target.importedRegexScripts = dedupeImportedMeta((Array.isArray(target.importedRegexScripts) ? target.importedRegexScripts : []).map(normalizeImportedRegexScriptMeta).filter(Boolean), function(entry){
+    return (String(entry.name || '') + '::' + String(entry.text || '')).toLowerCase();
+  });
+  target.importedMemeCategory = normalizeImportedMemeCategoryName(target.importedMemeCategory, ((target.nickname || target.name || '角色') + ' · 导入表情'));
+  target.authorRulesEnabled = target.authorRulesEnabled !== false && !!target.importedRuleBlocks.length;
+  target.regexRulesEnabled = !!target.regexRulesEnabled && !!target.importedRegexScripts.length;
+  if(!target.avatarUrl && target.importedAvatarResources.length){
+    target.avatarUrl = String(target.importedAvatarResources[0].previewData || '').trim();
+  }
+  return target;
+}
+
+function importedRuleBlocksToEditorText(list, labelKey){
+  return (Array.isArray(list) ? list : []).map(function(entry){
+    var title = String(entry && (entry[labelKey] || entry.title || entry.name) || '').trim();
+    var text = sanitizeImportedMetaText(entry && (entry.text || entry.content) || '', labelKey === 'name' ? 8000 : 12000);
+    if(!text) return '';
+    return (title ? ('【' + title + '】\n') : '') + text;
+  }).filter(Boolean).join('\n\n---\n\n');
+}
+
+function parseImportedEditorBlocks(text, kind){
+  var safeKind = kind === 'regex' ? 'regex' : 'rule';
+  return String(text || '').split(/\n\s*---+\s*\n/g).map(function(block, idx){
+    var raw = String(block || '').trim();
+    if(!raw) return null;
+    var titleMatch = raw.match(/^【([^】]+)】\s*\n?/);
+    var title = titleMatch ? String(titleMatch[1] || '').trim() : '';
+    var body = raw.replace(/^【[^】]+】\s*\n?/, '').trim();
+    if(!body) return null;
+    if(safeKind === 'regex'){
+      return normalizeImportedRegexScriptMeta({ name:title || ('导入脚本 ' + (idx + 1)), text:body });
+    }
+    return normalizeImportedRuleBlockMeta({ title:title || ('作者规则 ' + (idx + 1)), text:body });
+  }).filter(Boolean);
+}
+
+async function syncImportedAvatarResources(target){
+  if(!target || !target.id) return;
+  normalizeImportedCharacterMeta(target);
+  if(!target.importedAvatarResources.length) return;
+  var store = await loadAvatarLibraryStore(target.id);
+  var nextStore = normalizeAvatarLibraryStore(store);
+  var changed = false;
+  target.importedAvatarResources.forEach(function(entry, idx){
+    var normalized = normalizeImportedAvatarResource(entry);
+    if(!normalized) return;
+    var stableId = normalized.id || stableImportedResourceId('import_avatar', target.id, normalized.previewData || ('avatar_' + idx));
+    var nextItem = normalizeAvatarLibraryItem({
+      id: stableId,
+      role: 'char',
+      label: normalized.label,
+      note: normalized.note || '角色卡导入',
+      previewData: normalized.previewData,
+      createdAt: Date.now()
+    }, 'char');
+    if(!nextItem) return;
+    var currentIndex = (nextStore.char || []).findIndex(function(item){
+      return String(item.id || '') === String(stableId || '') || String(item.previewData || '').trim() === String(nextItem.previewData || '').trim();
+    });
+    if(currentIndex >= 0){
+      var current = nextStore.char[currentIndex];
+      var merged = normalizeAvatarLibraryItem(Object.assign({}, current || {}, nextItem, { id: current.id || nextItem.id }), 'char');
+      if(JSON.stringify(current) !== JSON.stringify(merged)){
+        nextStore.char[currentIndex] = merged;
+        changed = true;
+      }
+    }else{
+      nextStore.char.unshift(nextItem);
+      changed = true;
+    }
+  });
+  if(changed){
+    avatarLibraryCache = await saveAvatarLibraryStore(target.id, nextStore);
+  }else{
+    avatarLibraryCache = nextStore;
+  }
+}
+
+async function syncImportedMemeResources(target){
+  if(!target) return;
+  normalizeImportedCharacterMeta(target);
+  if(!target.importedMemeResources.length) return;
+  if(!memeLibraryCache || !Array.isArray(memeLibraryCache.items)) await loadMemeLibrary();
+  var category = normalizeImportedMemeCategoryName(target.importedMemeCategory, (target.nickname || target.name || '角色') + ' · 导入表情');
+  var changed = false;
+  var items = getAllMemeItems();
+  target.importedMemeResources.forEach(function(entry, idx){
+    var normalized = normalizeImportedMemeResource(entry);
+    if(!normalized) return;
+    var stableId = normalized.id || stableImportedResourceId('import_meme', target.id, normalized.src || (normalized.name + '_' + idx));
+    var nextItem = normalizeMemeItem({
+      id: stableId,
+      name: normalized.name,
+      src: normalized.src,
+      sourceType: 'url',
+      category: category,
+      createdAt: Date.now()
+    });
+    if(!nextItem) return;
+    var currentIndex = items.findIndex(function(item){
+      return String(item.id || '') === String(stableId || '') || (String(item.src || '').trim() === String(nextItem.src || '').trim() && normalizeMemeName(item.name) === normalizeMemeName(nextItem.name));
+    });
+    if(currentIndex >= 0){
+      var current = items[currentIndex];
+      var merged = normalizeMemeItem(Object.assign({}, current || {}, nextItem, { id: current.id || nextItem.id }));
+      if(JSON.stringify(current) !== JSON.stringify(merged)){
+        items[currentIndex] = merged;
+        changed = true;
+      }
+    }else{
+      items.unshift(nextItem);
+      changed = true;
+    }
+  });
+  if(changed){
+    memeLibraryCache.items = items;
+    await saveMemeLibrary();
+    refreshMemeCategoryStrip();
+    refreshMemeSuggestionsForInput();
+  }
+}
+
+async function syncImportedCharacterResources(target){
+  if(!target || !target.id) return target;
+  normalizeImportedCharacterMeta(target);
+  await syncImportedAvatarResources(target);
+  await syncImportedMemeResources(target);
+  return target;
+}
+
 function loadAvatarVisionEnabled(charId){
   if(!charId) return false;
   try{ return localStorage.getItem(avatarVisionToggleKey(charId)) === '1'; }catch(e){ return false; }
@@ -7771,6 +8023,7 @@ function buildChatSettingsPatchFromCharacter(c){
     id: String(c.id || ''),
     name: String(c.name || ''),
     nickname: String(c.nickname || ''),
+    avatarUrl: String(c.avatarUrl || '').slice(0, 120000),
     personality: String(c.personality || ''),
     msgMin: Number(c.msgMin) || 1,
     msgMax: Number(c.msgMax) || Math.max(Number(c.msgMin) || 1, 3),
@@ -7812,7 +8065,14 @@ function buildChatSettingsPatchFromCharacter(c){
     })(c.memoryVectorStrategy),
     memoryVectorUserMsgCount: Math.max(1, Math.min(10, Number(c.memoryVectorUserMsgCount) || DEFAULT_VECTOR_USER_MSG_COUNT)),
     autoSummaryEnabled: c.autoSummaryEnabled != null ? !!c.autoSummaryEnabled : true,
-    livePresence: cloneJsonSafe(c.livePresence || null, null)
+    livePresence: cloneJsonSafe(c.livePresence || null, null),
+    importedAvatarResources: cloneJsonSafe(c.importedAvatarResources || [], []),
+    importedMemeResources: cloneJsonSafe(c.importedMemeResources || [], []),
+    importedRuleBlocks: cloneJsonSafe(c.importedRuleBlocks || [], []),
+    importedRegexScripts: cloneJsonSafe(c.importedRegexScripts || [], []),
+    importedMemeCategory: String(c.importedMemeCategory || ''),
+    authorRulesEnabled: c.authorRulesEnabled !== false,
+    regexRulesEnabled: !!c.regexRulesEnabled
   };
   return patch;
 }
@@ -7822,6 +8082,7 @@ function applyChatSettingsPatch(target, patch){
   [
     'name',
     'nickname',
+    'avatarUrl',
     'personality',
     'msgMin',
     'msgMax',
@@ -7859,7 +8120,14 @@ function applyChatSettingsPatch(target, patch){
     'memoryVectorTopN',
     'memoryVectorStrategy',
     'memoryVectorUserMsgCount',
-    'autoSummaryEnabled'
+    'autoSummaryEnabled',
+    'importedAvatarResources',
+    'importedMemeResources',
+    'importedRuleBlocks',
+    'importedRegexScripts',
+    'importedMemeCategory',
+    'authorRulesEnabled',
+    'regexRulesEnabled'
   ].forEach(function(key){
     if(Object.prototype.hasOwnProperty.call(patch, key)){
       target[key] = cloneJsonSafe(patch[key], patch[key]);
@@ -7891,6 +8159,7 @@ async function applyStoredChatSettingsPatchToCharacter(target){
   if(!target || !target.id) return target;
   var patch = await loadChatSettingsPatch(target.id);
   if(patch) applyChatSettingsPatch(target, patch);
+  normalizeImportedCharacterMeta(target);
   return target;
 }
 
@@ -11923,6 +12192,50 @@ function buildMemeLibraryPromptBlock(){
   });
   return lines.join('\n');
 }
+
+function buildGreetingDisciplinePrompt(){
+  return [
+    '【手机聊天节奏钉子户】',
+    '开场白、世界书、作者规则都要读，但主要拿来学关系、语气和节奏，不拿来照抄长度。',
+    '就算开场白本身是一大段，日常回复也默认还是短句短气泡；不要因为读到大段文字，就把每轮都写成小作文。',
+    '默认少用句号。能不用句号就不用；优先短句、换条、问号、省略号、语气词。只有认真、冷下来、收口时才偶尔用句号。',
+    '如果想分成多条气泡，就直接换行、<msg> 或干脆另起一句，不要靠逗号硬拆，也不要把好几层意思塞进一条长句里。'
+  ].join('\n');
+}
+
+function buildImportedAuthorRulesPrompt(){
+  if(!(character && character.importedRuleBlocks && character.importedRuleBlocks.length && character.authorRulesEnabled !== false)) return '';
+  var lines = [
+    '【作者扩展规则参考】',
+    '下面这些是作者写给别的聊天前端或角色卡的补充规则。',
+    '你只吸收其中的人设语气、消息节奏、头像/表情包习惯、特殊消息偏好和标点偏好。',
+    '不要照抄里面另一套前端的 sender/avatar/time/JSON/脚本格式；这台手机最终只服从当前系统给你的消息协议。'
+  ];
+  character.importedRuleBlocks.slice(0, 6).forEach(function(entry, idx){
+    var title = String(entry && entry.title || ('作者规则 ' + (idx + 1))).trim();
+    var text = sanitizeImportedMetaText(entry && entry.text || '', 2200);
+    if(!text) return;
+    lines.push('【' + title + '】\n' + text);
+  });
+  return lines.join('\n');
+}
+
+function buildImportedRegexPrompt(){
+  if(!(character && character.importedRegexScripts && character.importedRegexScripts.length && character.regexRulesEnabled)) return '';
+  var lines = [
+    '【正则 / 脚本参考】',
+    '下面这些是角色卡里带来的正则、脚本或格式约束，只当成补充风格线索。',
+    '不要输出代码，不要逐字复述这些脚本，也不要把它们当成要发给用户看的正文。'
+  ];
+  character.importedRegexScripts.slice(0, 6).forEach(function(entry, idx){
+    var title = String(entry && entry.name || ('导入脚本 ' + (idx + 1))).trim();
+    var text = sanitizeImportedMetaText(entry && entry.text || '', 1800);
+    if(!text) return;
+    lines.push('【' + title + '】\n' + text);
+  });
+  return lines.join('\n');
+}
+
 function normalizeReplyHint(hint){
   var s = String(hint || '').trim();
   if(!s) return '';
@@ -13171,9 +13484,13 @@ function compactChar(c){
   if(!c) return null;
   var imageData = String(c.imageData || '').trim();
   if(/^data:/i.test(imageData)) imageData = '';
+  if(!imageData){
+    imageData = normalizeAvatarSrc(c.avatarUrl || '');
+  }
   return {
     id:c.id, name:c.name, nickname:c.nickname, avatar:c.avatar,
     imageData:imageData,
+    avatarUrl:normalizeAvatarSrc(c.avatarUrl || ''),
     msgMin:Number(c.msgMin)||1, msgMax:Number(c.msgMax)||Math.max(Number(c.msgMin)||1,3),
     chatRenderPageSize:Math.max(MIN_CHAT_RENDER_PAGE_SIZE, Math.min(MAX_CHAT_RENDER_PAGE_SIZE, Number(c.chatRenderPageSize) || DEFAULT_CHAT_RENDER_PAGE_SIZE)),
     contextWindow:Math.max(MIN_CONTEXT_WINDOW, Math.min(MAX_CONTEXT_WINDOW, Number(c.contextWindow) || DEFAULT_CONTEXT_WINDOW)),
@@ -13197,7 +13514,10 @@ function compactChar(c){
     chatSignature:String(c.chatSignature || '').slice(0,80),
     userNameProfile:String(c.userNameProfile||''),
     userNicknameNote:String(c.userNicknameNote||''),
-    userPersonaProfile:String(c.userPersonaProfile||'')
+    userPersonaProfile:String(c.userPersonaProfile||''),
+    importedMemeCategory:String(c.importedMemeCategory || ''),
+    authorRulesEnabled:c.authorRulesEnabled !== false,
+    regexRulesEnabled:!!c.regexRulesEnabled
   };
 }
 
@@ -13427,6 +13747,7 @@ async function init() {
   }
   if(character && character.id){
     await applyStoredChatSettingsPatchToCharacter(character);
+    normalizeImportedCharacterMeta(character);
   }
   try{ localStorage.removeItem('pendingChatChar'); }catch(err){}
   try{ localStorage.removeItem('pendingChatCharId'); }catch(err){}
@@ -13434,6 +13755,9 @@ async function init() {
     syncActiveCharacterToShell();
   }
   await loadMemeLibrary();
+  if(character && character.id){
+    await syncImportedCharacterResources(character);
+  }
   var initToken = ++characterSwitchToken;
   var initCharId = String((character && character.id) || '').trim();
   ensureMsgRange();
@@ -15010,8 +15334,13 @@ function buildSystemPrompt() {
   if(replyLanguagePrompt) parts.push(replyLanguagePrompt);
   var weatherCommonSense = buildWeatherCommonSensePrompt();
   if(weatherCommonSense) parts.push(weatherCommonSense);
+  parts.push(buildGreetingDisciplinePrompt());
   var memePrompt = buildMemeLibraryPromptBlock();
   if(memePrompt) parts.push(memePrompt);
+  var importedAuthorRulesPrompt = buildImportedAuthorRulesPrompt();
+  if(importedAuthorRulesPrompt) parts.push(importedAuthorRulesPrompt);
+  var importedRegexPrompt = buildImportedRegexPrompt();
+  if(importedRegexPrompt) parts.push(importedRegexPrompt);
   var elapsedContext = getConversationElapsedContext();
   if(elapsedContext) parts.push(elapsedContext);
   var recentSystemEvents = buildRecentSystemEventsPrompt(2);
@@ -22710,7 +23039,8 @@ function autoSplitLongAssistantText(text){
   if(normalized.length <= 34 && !/[。！？!?；;]\s*.+/.test(normalized)) return [];
   var units = normalized.match(/[^。！？!?；;]+[。！？!?；;]?/g) || [];
   if(!units.length || units.length === 1){
-    units = normalized.match(/[^，,]+[，,]?/g) || [normalized];
+    if(normalized.length <= 52) return [];
+    units = normalized.match(/.{1,22}/g) || [normalized];
   }
   if(!units.length || units.length === 1) return [];
   var out = [];
@@ -22727,7 +23057,7 @@ function autoSplitLongAssistantText(text){
       sentenceCount = 0;
     }
     if(tooLong && !bucket){
-      var hardParts = piece.match(/.{1,20}(?:[，,、]|$)/g) || [piece];
+      var hardParts = piece.match(/.{1,18}/g) || [piece];
       hardParts.forEach(function(hard){
         var safeHard = String(hard || '').trim();
         if(safeHard) out.push(safeHard);
@@ -23794,6 +24124,7 @@ function resolveBestCharAvatarSource(){
   if(liveSrc) return ensureChatRenderableAvatarSrc(liveSrc);
   return resolveCharAvatarDataUrl().then(function(src){
     if(src) return src;
+    if(character && character.avatarUrl) return String(character.avatarUrl).trim();
     if(character && character.imageData) return String(character.imageData).trim();
     try{
       var legacy = localStorage.getItem('char_avatar_' + (character && character.id || '')) || '';
@@ -23816,6 +24147,7 @@ function getChatAvatarCandidates(){
     if(out.indexOf(text) === -1) out.push(text);
   }
   push(currentVisibleCharAvatarSrc());
+  push(character && character.avatarUrl);
   push(character && character.imageData);
   try{ push(localStorage.getItem('char_avatar_' + (character && character.id || '')) || ''); }catch(e){}
   return loadStoredAsset('char_avatar_' + (character && character.id || '')).then(function(assetSrc){
@@ -24003,6 +24335,9 @@ function syncChatSettingsFieldWidths(){
   setChatSettingsInputChWidth('csUserNick', 3, 14);
   ['weatherCharAlias','weatherCharReal','weatherUserAlias','weatherUserReal'].forEach(function(id){
     setChatSettingsInputChWidth(id, 5, 16);
+  });
+  ['csImportedMemeCategory'].forEach(function(id){
+    setChatSettingsInputChWidth(id, 6, 22);
   });
   ['csMsgMin','csMsgMax','csVectorTopN','csVectorUserMsgCount','csChatRenderPageSize','csContextWindow','csSummaryEvery','csMemoryMergeThreshold','csManualSummarySize','csBubbleCharmUserScale','csBubbleCharmAiScale','csBubbleCharmUserLeft','csBubbleCharmUserTop','csBubbleCharmAiRight','csBubbleCharmAiTop'].forEach(function(id){
     setChatSettingsInputChWidth(id, 1, 6);
@@ -24414,7 +24749,7 @@ async function renderChatShareCardCanvasFallback(cardEl){
 
 function getCharAvatarHTML() {
   if (!character) return '🌸';
-  if (character.imageData) return '<img src="' + character.imageData + '">';
+  if (character.imageData || character.avatarUrl) return '<img src="' + esc(character.imageData || character.avatarUrl) + '">';
   return esc(character.avatar || '🌸');
 }
 
@@ -24622,6 +24957,46 @@ function restoreParentTopbarForSettings(){
 // ════════════════════════════════════════════
 //  Chat Settings Panel
 // ════════════════════════════════════════════
+function toggleAuthorRulesSwitch(){
+  var toggle = document.getElementById('csAuthorRulesToggle');
+  if(toggle) toggle.classList.toggle('on');
+}
+
+function toggleRegexRulesSwitch(){
+  var toggle = document.getElementById('csRegexRulesToggle');
+  if(toggle) toggle.classList.toggle('on');
+}
+
+function renderImportedResourceSettings(){
+  var summary = document.getElementById('csImportedSummary');
+  var rules = document.getElementById('csImportedRules');
+  var regex = document.getElementById('csImportedRegex');
+  var categoryInput = document.getElementById('csImportedMemeCategory');
+  var authorToggle = document.getElementById('csAuthorRulesToggle');
+  var regexToggle = document.getElementById('csRegexRulesToggle');
+  if(!character){
+    if(summary) summary.textContent = '这张卡还没有导入扩展资源。';
+    if(rules) rules.value = '';
+    if(regex) regex.value = '';
+    if(categoryInput) categoryInput.value = '';
+    if(authorToggle) authorToggle.classList.remove('on');
+    if(regexToggle) regexToggle.classList.remove('on');
+    return;
+  }
+  normalizeImportedCharacterMeta(character);
+  var bits = [];
+  if(character.importedAvatarResources.length) bits.push(character.importedAvatarResources.length + ' 个头像');
+  if(character.importedMemeResources.length) bits.push(character.importedMemeResources.length + ' 个表情包');
+  if(character.importedRuleBlocks.length) bits.push(character.importedRuleBlocks.length + ' 份作者规则');
+  if(character.importedRegexScripts.length) bits.push(character.importedRegexScripts.length + ' 份正则');
+  if(summary) summary.textContent = bits.length ? ('已导入：' + bits.join(' / ')) : '这张卡还没有导入扩展资源。';
+  if(rules) rules.value = importedRuleBlocksToEditorText(character.importedRuleBlocks, 'title');
+  if(regex) regex.value = importedRuleBlocksToEditorText(character.importedRegexScripts, 'name');
+  if(categoryInput) categoryInput.value = normalizeImportedMemeCategoryName(character.importedMemeCategory, (character.nickname || character.name || '角色') + ' · 导入表情');
+  if(authorToggle) authorToggle.classList.toggle('on', character.authorRulesEnabled !== false && !!character.importedRuleBlocks.length);
+  if(regexToggle) regexToggle.classList.toggle('on', !!character.regexRulesEnabled && !!character.importedRegexScripts.length);
+}
+
 function openChatSettings() {
   if(isSunnyChat()){
     toast('Sunny 不走普通角色设置链，老板，汪');
@@ -24650,6 +25025,7 @@ function openChatSettings() {
     bindChatMomentsFreqButtons();
     var isDefault = isDefaultAccountContext();
     if (character) {
+      normalizeImportedCharacterMeta(character);
       syncSettingsCharAvatarPreview().then(function(){ renderChatSettingsAvatarShelves(); renderChatBubbleCssPreview(); });
       document.getElementById('csCharName').value = character.name || '';
       document.getElementById('csCharNick').value = character.nickname || '';
@@ -24720,6 +25096,7 @@ function openChatSettings() {
       if(charmAiRight) charmAiRight.value = charmSettings.aiRight;
       if(charmAiTop) charmAiTop.value = charmSettings.aiTop;
       applyBubbleCharmSettings(charmSettings);
+      renderImportedResourceSettings();
       syncChatSettingsHero();
       syncChatSettingsFieldWidths();
       renderChatBubbleCssPreview();
@@ -24757,6 +25134,7 @@ function openChatSettings() {
       applyGlobalChatThemeCss(getDefaultGlobalThemeCss());
       applyBubbleChatThemeCss(getDefaultBubbleThemeCss());
       applyBubbleCharmSettings(defaultCharm);
+      renderImportedResourceSettings();
       loadGlobalThemePresets().then(function(){
         renderGlobalThemePresetList();
       });
@@ -24836,6 +25214,7 @@ function openChatSettings() {
       avatarLibraryCache = defaultAvatarLibraryStore();
       renderChatSettingsAvatarShelves();
     });
+    renderImportedResourceSettings();
     updateBlockedUi();
     refreshMemoryUi();
     syncChatSettingsHero();
@@ -25678,6 +26057,11 @@ async function saveChatSettings() {
   var translationEnabled = !!(replyLanguageToggle && replyLanguageToggle.classList.contains('on'));
   var replyLanguage = normalizeReplyLanguage((document.getElementById('csReplyLanguage') || {}).value || 'zh');
   var translationMode = normalizeTranslationMode((document.getElementById('csTranslationMode') || {}).value || 'ondemand');
+  var importedMemeCategory = normalizeImportedMemeCategoryName((document.getElementById('csImportedMemeCategory') || {}).value || '', (character && (character.importedMemeCategory || (character.nickname || character.name || '角色') + ' · 导入表情')) || '角色 · 导入表情');
+  var importedRuleBlocks = parseImportedEditorBlocks((document.getElementById('csImportedRules') || {}).value || '', 'rule');
+  var importedRegexScripts = parseImportedEditorBlocks((document.getElementById('csImportedRegex') || {}).value || '', 'regex');
+  var authorRulesEnabled = !!(document.getElementById('csAuthorRulesToggle') && document.getElementById('csAuthorRulesToggle').classList.contains('on'));
+  var regexRulesEnabled = !!(document.getElementById('csRegexRulesToggle') && document.getElementById('csRegexRulesToggle').classList.contains('on'));
   var narratorEnabled = !!(document.getElementById('csNarratorToggle') && document.getElementById('csNarratorToggle').classList.contains('on'));
   var avatarVisionEnabled = pendingAvatarVisionEnabled === null ? loadAvatarVisionEnabled(character && character.id) : !!pendingAvatarVisionEnabled;
   var charAvatarAutoEnabled = pendingCharAvatarAutoEnabled === null ? loadCharAvatarAutoEnabled(character && character.id) : !!pendingCharAvatarAutoEnabled;
@@ -25772,6 +26156,11 @@ async function saveChatSettings() {
     character.translationEnabled = translationEnabled;
     character.replyLanguage = replyLanguage;
     character.translationMode = translationMode;
+    character.importedMemeCategory = importedMemeCategory;
+    character.importedRuleBlocks = importedRuleBlocks;
+    character.importedRegexScripts = importedRegexScripts;
+    character.authorRulesEnabled = authorRulesEnabled && !!importedRuleBlocks.length;
+    character.regexRulesEnabled = regexRulesEnabled && !!importedRegexScripts.length;
     character.allowNarrator = narratorEnabled;
     if(!narratorEnabled){
       clearComposerMode();
@@ -25781,6 +26170,8 @@ async function saveChatSettings() {
     character.readTimeVisible = !!readTimeVisible;
     saveAvatarVisionEnabled(character.id, !!avatarVisionEnabled);
     saveCharAvatarAutoEnabled(character.id, !!charAvatarAutoEnabled);
+    normalizeImportedCharacterMeta(character);
+    await syncImportedCharacterResources(character);
     character.userNameProfile = isDefault ? un : '';
     character.userNicknameNote = unick;
     character.userPersonaProfile = isDefault ? up : '';
@@ -27103,6 +27494,11 @@ window.addEventListener('message', async function(e) {
     character = incoming;
     if(character && character.id){
       await applyStoredChatSettingsPatchToCharacter(character);
+      normalizeImportedCharacterMeta(character);
+    }
+    await loadMemeLibrary();
+    if(character && character.id){
+      await syncImportedCharacterResources(character);
     }
     syncActiveCharacterToShell();
     ensureMsgRange();
