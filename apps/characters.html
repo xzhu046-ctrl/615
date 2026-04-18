@@ -2050,13 +2050,42 @@ function importPathHint(path) {
   return String(path || '').replace(/\[\d+\]/g, '').toLowerCase();
 }
 
+var STRUCTURED_AVATAR_ASSET_TYPES = {
+  icon: true,
+  user_icon: true,
+  avatar: true,
+  profile: true,
+  profile_image: true,
+  profile_pic: true
+};
+
+var STRUCTURED_MEME_ASSET_TYPES = {
+  emotion: true,
+  expression: true,
+  meme: true,
+  sticker: true,
+  emoji: true,
+  emote: true
+};
+
+function getStructuredImportedAssetKind(type) {
+  var safe = String(type || '').trim().toLowerCase();
+  if (!safe) return 'unknown';
+  if (STRUCTURED_AVATAR_ASSET_TYPES[safe]) return 'avatar';
+  if (STRUCTURED_MEME_ASSET_TYPES[safe]) return 'meme';
+  return 'unknown';
+}
+
 function guessImportedResourceKind(path, text) {
   var hint = importPathHint(path);
+  if (/assets\.[a-z_]+$/.test(hint)) {
+    return getStructuredImportedAssetKind(hint.split('.').pop());
+  }
   var source = (hint + '\n' + String(text || '')).toLowerCase();
-  if (/(avatar|头像|profile[_\s-]*image|profile[_\s-]*pic|头像列表|头像管理)/.test(source) && !/(meme|sticker|emoji|表情包)/.test(source)) {
+  if (/(avatar|头像列表|头像管理|初始头像|平时的头像|崩溃时头像|头像为|profile[_\s-]*image|profile[_\s-]*pic|user[_\s-]*icon)/.test(source) && !/(表情包(?!头像)|meme(?!头像)|sticker|emoji|emote)/.test(source)) {
     return 'avatar';
   }
-  if (/(meme|sticker|emoji|emote|reaction|expression|表情包|表情|贴图)/.test(source)) {
+  if (/(表情包|meme|sticker|emoji|emote|<meme>|贴图)/.test(source)) {
     return 'meme';
   }
   return 'unknown';
@@ -2349,11 +2378,11 @@ function collectStructuredImportedAssets(source, path, bucket) {
   assets.slice(0, 160).forEach(function(asset, idx) {
     if (!asset || typeof asset !== 'object') return;
     var type = String(asset.type || '').trim().toLowerCase();
-    var token = String(asset.uri || asset.url || asset.src || '').trim();
-    var kind = '';
-    if (/^(icon|user_icon|avatar|profile)/.test(type)) kind = 'avatar';
-    else if (/(emotion|expression|meme|sticker|emoji|emote)/.test(type)) kind = 'meme';
-    else kind = guessImportedResourceKind(String(path || 'data.assets') + '[' + idx + '].' + type, asset.name || asset.label || '');
+    var token = String(asset.uri || asset.url || asset.src || asset.path || '').trim();
+    var kind = getStructuredImportedAssetKind(type);
+    if (kind === 'unknown') {
+      kind = guessImportedResourceKind(String(path || 'data.assets') + '[' + idx + '].' + type, asset.name || asset.label || '');
+    }
     if (kind === 'unknown') return;
     if (!token && asset.name && isImportedImageFileName(asset.name)) token = String(asset.name || '').trim();
     var entry = buildImportedImageEntry(
@@ -2368,20 +2397,27 @@ function collectStructuredImportedAssets(source, path, bucket) {
 }
 
 function collectStructuredRegexScripts(source, path, bucket) {
-  var extensions = source && source.extensions;
-  if (!extensions || typeof extensions !== 'object') return;
-  ['regex_scripts', 'regx_scripts', 'regex', 'regx'].forEach(function(key) {
-    var value = extensions[key];
-    if (!value) return;
-    if (Array.isArray(value)) {
-      value.slice(0, 80).forEach(function(item, idx) {
-        var entry = normalizeImportedRegexScript(item, key + '_' + (idx + 1));
-        if (entry) bucket.regex.push(entry);
-      });
-      return;
-    }
-    var single = normalizeImportedRegexScript(value, key);
-    if (single) bucket.regex.push(single);
+  var roots = [];
+  if (source && typeof source === 'object') roots.push(source);
+  if (source && source.extensions && typeof source.extensions === 'object') roots.push(source.extensions);
+  roots.forEach(function(root) {
+    ['regex_scripts', 'regx_scripts'].forEach(function(key) {
+      var value = root[key];
+      if (!value) return;
+      if (Array.isArray(value)) {
+        value.slice(0, 80).forEach(function(item, idx) {
+          if (!item || typeof item !== 'object') return;
+          if (!item.findRegex && !item.replaceString && !item.scriptName && !Array.isArray(item.placement)) return;
+          var entry = normalizeImportedRegexScript(item, key + '_' + (idx + 1));
+          if (entry) bucket.regex.push(entry);
+        });
+        return;
+      }
+      if (value && typeof value === 'object' && (value.findRegex || value.replaceString || value.scriptName || Array.isArray(value.placement))) {
+        var single = normalizeImportedRegexScript(value, key);
+        if (single) bucket.regex.push(single);
+      }
+    });
   });
 }
 
@@ -2435,22 +2471,9 @@ function collectImportedMetadataFromNode(node, path, bucket, depth) {
     extractImportedAssetEntriesFromText(node, path).forEach(function(entry) {
       bucket.images.push(entry);
     });
-    if (guessImportedResourceKind(path, node) === 'avatar' || isImportedAvatarSectionLine(node)) {
-      extractNamedImageEntriesFromText(node, path, 'avatar').forEach(function(entry) {
-        bucket.images.push(entry);
-      });
-    } else if (guessImportedResourceKind(path, node) === 'meme' || isImportedMemeSectionLine(node)) {
-      extractNamedImageEntriesFromText(node, path, 'meme').forEach(function(entry) {
-        bucket.images.push(entry);
-      });
-    }
     splitRuleBlocksFromText(node).forEach(function(block) {
       bucket.rules.push(block);
     });
-    if (/(regex|正则|script|脚本)/i.test(importPathHint(path))) {
-      var regexEntry = normalizeImportedRegexScript(node, String(path || '').split('.').pop());
-      if (regexEntry) bucket.regex.push(regexEntry);
-    }
     return;
   }
   if (Array.isArray(node)) {
@@ -2462,10 +2485,6 @@ function collectImportedMetadataFromNode(node, path, bucket, depth) {
   if (typeof node !== 'object') return;
   collectStructuredImportedAssets(node, path, bucket);
   collectStructuredRegexScripts(node, path, bucket);
-  if (/(regex|正则|script|脚本)/i.test(importPathHint(path))) {
-    var block = normalizeImportedRegexScript(node, String(path || '').split('.').pop());
-    if (block) bucket.regex.push(block);
-  }
   Object.keys(node).slice(0, 120).forEach(function(key) {
     collectImportedMetadataFromNode(node[key], path ? (path + '.' + key) : key, bucket, depth + 1);
   });
