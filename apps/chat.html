@@ -9701,6 +9701,20 @@ function parseRichHtmlBlocks(text){
       summary: String(summary || '').slice(0, 160)
     };
   }
+  var genericFenceMatch = raw.match(/^```(?:[a-z0-9_-]+)?\s*([\s\S]*?)```$/i);
+  if(genericFenceMatch && genericFenceMatch[1]){
+    var fencedBody = String(genericFenceMatch[1] || '').trim();
+    if(/<!DOCTYPE html>|<html\b|<head\b|<body\b|<(div|section|article|main|style|script|table)\b/i.test(fencedBody)){
+      var fencedTitleMatch = fencedBody.match(/<title>([\s\S]*?)<\/title>/i);
+      var fencedTitle = String(fencedTitleMatch && fencedTitleMatch[1] || '').trim();
+      return {
+        html: fencedBody,
+        css: '',
+        js: '',
+        summary: fencedTitle || extractPlainTextFromHtmlMarkup(fencedBody).slice(0, 40) || '小惊喜'
+      };
+    }
+  }
   if(/<(div|section|article|main|style|script|table|html|body)\b/i.test(raw) && /<\/(div|section|article|main|style|script|table|html|body)>/i.test(raw)){
     var rawTitleMatch = raw.match(/<title>([\s\S]*?)<\/title>/i);
     var rawTitle = String(rawTitleMatch && rawTitleMatch[1] || '').trim();
@@ -9877,6 +9891,9 @@ function tryPromoteTextToRichHtml(raw, meta){
 function parseTaggedRichHtmlPayload(raw){
   var source = String(raw || '');
   if(!source.trim()) return null;
+  if(/<!DOCTYPE html>|<html\b|<head\b|<body\b|<(div|section|article|main|style|script|table)\b/i.test(source)){
+    return null;
+  }
   var titleMatch = source.match(/<title>([\s\S]*?)<\/title>/i);
   var urlMatch = source.match(/<url>([\s\S]*?)<\/url>/i);
   var lyricsMatch = source.match(/<lyrics>([\s\S]*?)<\/lyrics>/i);
@@ -10164,6 +10181,11 @@ function buildRichHtmlSrcdoc(payload){
     '(function(){',
     'if(window.__PHONE_RICH_BRIDGE_READY__) return;',
     'window.__PHONE_RICH_BRIDGE_READY__ = true;',
+    '["click","pointerdown","pointerup","change","input","submit"].forEach(function(type){',
+    '  window.addEventListener(type, function(ev){',
+    '    try{ window.event = ev; }catch(err){}',
+    '  }, true);',
+    '});',
     'var pending = Object.create(null);',
     'window.addEventListener("message", function(event){',
     '  var msg = event && event.data || {};',
