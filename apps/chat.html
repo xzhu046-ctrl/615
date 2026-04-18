@@ -7292,15 +7292,33 @@ function normalizeImportedMemeCategoryName(value, fallback){
   return String(value || fallback || '角色 · 导入表情').replace(/\s+/g, ' ').trim() || '角色 · 导入表情';
 }
 
+function isImportedAssetFileName(value){
+  return /^[^\s"'<>|]+?\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)$/i.test(String(value || '').trim());
+}
+
+function importedAssetFileNameFromValue(value){
+  var raw = String(value || '').trim();
+  if(!raw) return '';
+  var stripped = raw.replace(/^(?:embeded|embedded):\/\//i, '').replace(/^__asset:/i, '').trim();
+  if(!stripped) return '';
+  if(/^(?:data:|blob:|https?:|\/|\.\/|\.\.\/)/i.test(stripped)){
+    var base = stripped.split(/[?#]/)[0].split('/').pop();
+    return isImportedAssetFileName(base) ? base : '';
+  }
+  return isImportedAssetFileName(stripped) ? stripped : '';
+}
+
 function normalizeImportedAvatarResource(raw){
   if(!raw || typeof raw !== 'object') return null;
   var src = normalizeAvatarSrc(raw.previewData || raw.src || raw.url || '');
-  if(!isRenderableAvatarSrc(src)) return null;
+  var fileName = importedAssetFileNameFromValue(raw.fileName || raw.filename || raw.previewData || raw.src || raw.url || '');
+  if(!isRenderableAvatarSrc(src) && !fileName) return null;
   var label = String(raw.label || raw.name || '').replace(/\s+/g, ' ').trim() || '导入头像';
   return {
     id: String(raw.id || '').trim(),
     label: label,
-    previewData: src,
+    previewData: isRenderableAvatarSrc(src) ? src : '',
+    fileName: fileName,
     note: sanitizeImportedMetaText(raw.note || '', 240)
   };
 }
@@ -7308,13 +7326,19 @@ function normalizeImportedAvatarResource(raw){
 function normalizeImportedMemeResource(raw){
   if(!raw || typeof raw !== 'object') return null;
   var src = String(raw.src || raw.url || '').trim();
-  if(!/^(data:|blob:|https?:|\/|\.\/|\.\.\/)/i.test(src)) return null;
-  var name = normalizeMemeName(raw.name || raw.label || '');
+  var fileName = importedAssetFileNameFromValue(raw.fileName || raw.filename || src || '');
+  if(src && !/^(data:|blob:|https?:|\/|\.\/|\.\.\/)/i.test(src)){
+    if(!fileName) fileName = importedAssetFileNameFromValue(src);
+    src = '';
+  }
+  if(!src && !fileName) return null;
+  var name = normalizeMemeName(raw.name || raw.label || fileName || '');
   if(!name) return null;
   return {
     id: String(raw.id || '').trim(),
     name: name,
-    src: src
+    src: src,
+    fileName: fileName
   };
 }
 
@@ -7327,8 +7351,25 @@ function normalizeImportedRuleBlockMeta(raw){
 
 function normalizeImportedRegexScriptMeta(raw){
   if(!raw) return null;
-  var name = String((raw && (raw.name || raw.label || raw.id)) || '').replace(/\s+/g, ' ').trim() || '导入脚本';
-  var text = sanitizeImportedMetaText(raw && (raw.text || raw.content || raw.script || raw.pattern) || raw, 8000);
+  var name = String((raw && (raw.name || raw.scriptName || raw.label || raw.id)) || '').replace(/\s+/g, ' ').trim() || '导入脚本';
+  var regexText = raw && raw.text;
+  if(!regexText && raw && typeof raw === 'object' && (raw.findRegex || raw.replaceString || raw.scriptName || raw.placement)){
+    regexText = JSON.stringify({
+      scriptName: raw.scriptName || raw.name || '',
+      findRegex: raw.findRegex || '',
+      replaceString: raw.replaceString || '',
+      trimStrings: Array.isArray(raw.trimStrings) ? raw.trimStrings : [],
+      placement: Array.isArray(raw.placement) ? raw.placement : [],
+      disabled: !!raw.disabled,
+      markdownOnly: !!raw.markdownOnly,
+      promptOnly: !!raw.promptOnly,
+      runOnEdit: !!raw.runOnEdit,
+      substituteRegex: raw.substituteRegex,
+      minDepth: raw.minDepth,
+      maxDepth: raw.maxDepth
+    }, null, 2);
+  }
+  var text = sanitizeImportedMetaText(raw && (regexText || raw.content || raw.script || raw.pattern) || raw, 8000);
   return text ? { name:name, text:text } : null;
 }
 
@@ -7359,10 +7400,10 @@ function normalizeImportedCharacterMeta(target){
   if(!target || typeof target !== 'object') return target;
   target.avatarUrl = normalizeAvatarSrc(target.avatarUrl || '');
   target.importedAvatarResources = dedupeImportedMeta((Array.isArray(target.importedAvatarResources) ? target.importedAvatarResources : []).map(normalizeImportedAvatarResource).filter(Boolean), function(entry){
-    return String(entry.previewData || '').trim().toLowerCase();
+    return (String(entry.previewData || '').trim().toLowerCase() + '::' + String(entry.fileName || '').trim().toLowerCase());
   });
   target.importedMemeResources = dedupeImportedMeta((Array.isArray(target.importedMemeResources) ? target.importedMemeResources : []).map(normalizeImportedMemeResource).filter(Boolean), function(entry){
-    return (String(entry.name || '').trim().toLowerCase() + '::' + String(entry.src || '').trim().toLowerCase());
+    return (String(entry.name || '').trim().toLowerCase() + '::' + String(entry.src || '').trim().toLowerCase() + '::' + String(entry.fileName || '').trim().toLowerCase());
   });
   target.importedRuleBlocks = dedupeImportedMeta((Array.isArray(target.importedRuleBlocks) ? target.importedRuleBlocks : []).map(normalizeImportedRuleBlockMeta).filter(Boolean), function(entry){
     return (String(entry.title || '') + '::' + String(entry.text || '')).toLowerCase();
@@ -7414,6 +7455,7 @@ async function syncImportedAvatarResources(target){
   target.importedAvatarResources.forEach(function(entry, idx){
     var normalized = normalizeImportedAvatarResource(entry);
     if(!normalized) return;
+    if(!isRenderableAvatarSrc(normalized.previewData || '')) return;
     var stableId = normalized.id || stableImportedResourceId('import_avatar', target.id, normalized.previewData || ('avatar_' + idx));
     var nextItem = normalizeAvatarLibraryItem({
       id: stableId,
@@ -7457,12 +7499,12 @@ async function syncImportedMemeResources(target){
   target.importedMemeResources.forEach(function(entry, idx){
     var normalized = normalizeImportedMemeResource(entry);
     if(!normalized) return;
-    var stableId = normalized.id || stableImportedResourceId('import_meme', target.id, normalized.src || (normalized.name + '_' + idx));
+    var stableId = normalized.id || stableImportedResourceId('import_meme', target.id, normalized.src || normalized.fileName || (normalized.name + '_' + idx));
     var nextItem = normalizeMemeItem({
       id: stableId,
       name: normalized.name,
       src: normalized.src,
-      sourceType: 'url',
+      sourceType: normalized.src ? 'url' : 'imported_name',
       category: category,
       createdAt: Date.now()
     });
@@ -12203,6 +12245,33 @@ function buildGreetingDisciplinePrompt(){
   ].join('\n');
 }
 
+function buildImportedResourcePrompt(){
+  if(!character) return '';
+  var avatars = Array.isArray(character.importedAvatarResources) ? character.importedAvatarResources.filter(Boolean) : [];
+  var memes = Array.isArray(character.importedMemeResources) ? character.importedMemeResources.filter(Boolean) : [];
+  if(!avatars.length && !memes.length) return '';
+  var lines = [
+    '【角色卡导入资源】',
+    '如果作者给了头像或表情包资源，优先只从下面这些现成资源里选，不要编造新的文件名。'
+  ];
+  if(avatars.length){
+    lines.push('【可用头像】');
+    avatars.slice(0, 18).forEach(function(entry){
+      var label = String(entry && entry.label || '').trim() || '头像';
+      var token = String(entry && (entry.fileName || importedAssetFileNameFromValue(entry.previewData || '')) || '').trim();
+      lines.push(token ? ('- ' + label + ' -> ' + token) : ('- ' + label));
+    });
+  }
+  if(memes.length){
+    lines.push('【可用表情包】');
+    lines.push(memes.slice(0, 80).map(function(entry){
+      return String(entry && (entry.fileName || entry.name) || '').trim();
+    }).filter(Boolean).join('、'));
+  }
+  lines.push('如果你要在线上格式里写头像或表情包，优先使用作者给的原文件名。');
+  return lines.join('\n');
+}
+
 function buildImportedAuthorRulesPrompt(){
   if(!(character && character.importedRuleBlocks && character.importedRuleBlocks.length && character.authorRulesEnabled !== false)) return '';
   var lines = [
@@ -15335,6 +15404,8 @@ function buildSystemPrompt() {
   var weatherCommonSense = buildWeatherCommonSensePrompt();
   if(weatherCommonSense) parts.push(weatherCommonSense);
   parts.push(buildGreetingDisciplinePrompt());
+  var importedResourcePrompt = buildImportedResourcePrompt();
+  if(importedResourcePrompt) parts.push(importedResourcePrompt);
   var memePrompt = buildMemeLibraryPromptBlock();
   if(memePrompt) parts.push(memePrompt);
   var importedAuthorRulesPrompt = buildImportedAuthorRulesPrompt();

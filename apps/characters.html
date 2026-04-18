@@ -2130,8 +2130,26 @@ function normalizeImportedRegexScript(raw, fallbackName) {
     return text ? { name: normalizeImportedLabel(fallbackName, '导入脚本'), text: text } : null;
   }
   if (typeof raw === 'object') {
-    var name = normalizeImportedLabel(raw.name || raw.label || raw.id, fallbackName || '导入脚本');
-    var richText = clampImportedText(raw.script || raw.pattern || raw.text || raw.content || JSON.stringify(raw, null, 2), 8000);
+    var name = normalizeImportedLabel(raw.name || raw.scriptName || raw.label || raw.id, fallbackName || '导入脚本');
+    var richText = raw.text || raw.content || raw.script || raw.pattern || '';
+    if (!richText && (raw.findRegex || raw.replaceString || raw.scriptName || raw.placement)) {
+      richText = JSON.stringify({
+        scriptName: raw.scriptName || raw.name || '',
+        findRegex: raw.findRegex || '',
+        replaceString: raw.replaceString || '',
+        trimStrings: Array.isArray(raw.trimStrings) ? raw.trimStrings : [],
+        placement: Array.isArray(raw.placement) ? raw.placement : [],
+        disabled: !!raw.disabled,
+        markdownOnly: !!raw.markdownOnly,
+        promptOnly: !!raw.promptOnly,
+        runOnEdit: !!raw.runOnEdit,
+        substituteRegex: raw.substituteRegex,
+        minDepth: raw.minDepth,
+        maxDepth: raw.maxDepth
+      }, null, 2);
+    }
+    if (!richText) richText = JSON.stringify(raw, null, 2);
+    richText = clampImportedText(richText, 8000);
     return richText ? { name: name, text: richText } : null;
   }
   return null;
@@ -2155,10 +2173,143 @@ function buildImportedMemeCategory(cardName) {
   return safe + ' · 导入表情';
 }
 
+function isImportedImageUrl(value) {
+  return /^https?:\/\/[^\s"'<>]+?\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)(?:\?[^\s"'<>]*)?$/i.test(String(value || '').trim());
+}
+
+function isImportedImageFileName(value) {
+  return /^[^\s"'<>|]+?\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)$/i.test(String(value || '').trim());
+}
+
+function stripImportedImageDecorations(value) {
+  return String(value || '')
+    .replace(/^[`"'“”‘’<>\[\](){}]+|[`"'“”‘’<>\[\](){}]+$/g, '')
+    .replace(/[，。；;！？!?]+$/g, '')
+    .trim();
+}
+
+function extractImportedImageTokenFromLine(line) {
+  var text = String(line || '').trim();
+  if (!text) return '';
+  var urlMatch = text.match(/https?:\/\/[^\s"'<>]+?\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)(?:\?[^\s"'<>]*)?/i);
+  if (urlMatch && urlMatch[0]) return stripImportedImageDecorations(urlMatch[0]);
+  var fileMatch = text.match(/[^\s"'<>|，,；;:：]+?\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)\b/i);
+  if (fileMatch && fileMatch[0]) return stripImportedImageDecorations(fileMatch[0]);
+  return '';
+}
+
+function importedFileNameFromUri(uri) {
+  var raw = String(uri || '').trim();
+  if (!raw) return '';
+  var cleaned = raw.replace(/^(?:embeded|embedded):\/\//i, '').replace(/^__asset:/i, '').trim();
+  if (!cleaned) return '';
+  if (isImportedImageUrl(cleaned)) return basenameFromImportUrl(cleaned);
+  var normalized = cleaned.split(/[?#]/)[0].split('/').pop();
+  return isImportedImageFileName(normalized) ? normalized : '';
+}
+
+function buildImportedImageEntry(kind, token, label, path, note) {
+  var safeKind = kind === 'avatar' ? 'avatar' : 'meme';
+  var clean = stripImportedImageDecorations(token);
+  if (!clean) return null;
+  var src = isImportedImageUrl(clean) ? clean : '';
+  var fileName = importedFileNameFromUri(clean);
+  if (!src && !fileName && isImportedImageFileName(clean)) fileName = clean;
+  if (!src && !fileName) return null;
+  var fallback = src ? importedResourceLabelFromUrl(src, safeKind === 'avatar' ? '头像' : '表情包') : (fileName || (safeKind === 'avatar' ? '头像' : '表情包'));
+  return {
+    kind: safeKind,
+    url: src,
+    fileName: fileName,
+    label: normalizeImportedLabel(label, fallback),
+    path: String(path || ''),
+    note: normalizeImportedLabel(note, '')
+  };
+}
+
+function collectStructuredImportedAssets(source, path, bucket) {
+  var assets = source && source.assets;
+  if (!Array.isArray(assets)) return;
+  assets.slice(0, 160).forEach(function(asset, idx) {
+    if (!asset || typeof asset !== 'object') return;
+    var type = String(asset.type || '').trim().toLowerCase();
+    var token = String(asset.uri || asset.url || asset.src || '').trim();
+    var kind = '';
+    if (/^(icon|user_icon|avatar|profile)/.test(type)) kind = 'avatar';
+    else if (/(emotion|expression|meme|sticker|emoji|emote)/.test(type)) kind = 'meme';
+    else kind = guessImportedResourceKind(String(path || 'data.assets') + '[' + idx + '].' + type, asset.name || asset.label || '');
+    if (kind === 'unknown') return;
+    if (!token && asset.name && isImportedImageFileName(asset.name)) token = String(asset.name || '').trim();
+    var entry = buildImportedImageEntry(
+      kind,
+      token,
+      asset.name || asset.label || asset.id || '',
+      String(path || 'data.assets') + '[' + idx + ']',
+      type || '角色卡资源'
+    );
+    if (entry) bucket.images.push(entry);
+  });
+}
+
+function collectStructuredRegexScripts(source, path, bucket) {
+  var extensions = source && source.extensions;
+  if (!extensions || typeof extensions !== 'object') return;
+  ['regex_scripts', 'regx_scripts', 'regex', 'regx'].forEach(function(key) {
+    var value = extensions[key];
+    if (!value) return;
+    if (Array.isArray(value)) {
+      value.slice(0, 80).forEach(function(item, idx) {
+        var entry = normalizeImportedRegexScript(item, key + '_' + (idx + 1));
+        if (entry) bucket.regex.push(entry);
+      });
+      return;
+    }
+    var single = normalizeImportedRegexScript(value, key);
+    if (single) bucket.regex.push(single);
+  });
+}
+
+function extractImportedAssetEntriesFromText(text, path) {
+  var raw = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!raw.trim()) return [];
+  var fallbackKind = guessImportedResourceKind(path, raw);
+  var currentKind = fallbackKind === 'unknown' ? '' : fallbackKind;
+  var lines = raw.split('\n').map(function(line){ return String(line || '').trim(); }).filter(Boolean);
+  var entries = [];
+  lines.forEach(function(line) {
+    if (/(头像列表|头像管理|初始头像|平时的头像|头像：|头像\s*$)/i.test(line) && !/(表情包|meme|sticker|emoji)/i.test(line)) {
+      currentKind = 'avatar';
+    } else if (/(表情包|meme|sticker|emoji|<bqb>|<meme>|json)/i.test(line)) {
+      currentKind = 'meme';
+    }
+    var token = extractImportedImageTokenFromLine(line);
+    if (!token) return;
+    var kindHint = currentKind || guessImportedResourceKind(String(path || '') + '\n' + line, line) || fallbackKind;
+    if (kindHint === 'unknown') return;
+    var isAvatar = kindHint === 'avatar';
+    var label = '';
+    if (isAvatar) {
+      label = normalizeImportedLabel(
+        line
+          .replace(token, '')
+          .replace(/^[•·▪◦\-\*\d.\)\( ]+/g, '')
+          .replace(/[：:]\s*$/, '')
+          .trim(),
+        importedFileNameFromUri(token)
+      );
+    } else {
+      label = importedFileNameFromUri(token) || basenameFromImportUrl(token);
+    }
+    var entry = buildImportedImageEntry(kindHint, token, label, path, isAvatar ? '世界书头像列表' : '世界书表情包列表');
+    if (entry) entries.push(entry);
+  });
+  return entries;
+}
+
 function collectImportedMetadataFromNode(node, path, bucket, depth) {
   if (depth > 6 || node == null) return;
   if (typeof node === 'string') {
-    extractNamedImageEntriesFromText(node, path, '').forEach(function(entry) {
+    extractImportedAssetEntriesFromText(node, path).forEach(function(entry) {
       bucket.images.push(entry);
     });
     splitRuleBlocksFromText(node).forEach(function(block) {
@@ -2177,6 +2328,8 @@ function collectImportedMetadataFromNode(node, path, bucket, depth) {
     return;
   }
   if (typeof node !== 'object') return;
+  collectStructuredImportedAssets(node, path, bucket);
+  collectStructuredRegexScripts(node, path, bucket);
   if (/(regex|正则|script|脚本)/i.test(importPathHint(path))) {
     var block = normalizeImportedRegexScript(node, String(path || '').split('.').pop());
     if (block) bucket.regex.push(block);
@@ -2201,35 +2354,41 @@ function extractImportedCardMetadata(raw, d, charBook, jsonStr, filename) {
     raw && raw.avatar_url,
     raw && raw.avatarUrl
   ].map(function(value){ return String(value || '').trim(); }).filter(function(value){
-    return /^https?:\/\/[^\s"'<>]+?\.(?:png|jpe?g|gif|webp)(?:\?[^\s"'<>]*)?$/i.test(value);
+    return isImportedImageUrl(value);
   }).map(function(url){
-    return { kind: 'avatar', url: url, label: importedResourceLabelFromUrl(url, filename), path: 'direct.avatar', note: '角色卡自带头像链接' };
+    return { kind: 'avatar', url: url, fileName: importedFileNameFromUri(url), label: importedResourceLabelFromUrl(url, filename), path: 'direct.avatar', note: '角色卡自带头像链接' };
   });
   bucket.images = directAvatarCandidates.concat(bucket.images);
 
   var avatarResources = dedupeImportedEntries(bucket.images.filter(function(entry) {
-    return entry && entry.url && guessImportedResourceKind(entry.path, entry.label || '') === 'avatar';
+    return entry && (entry.url || entry.fileName) && String(entry.kind || guessImportedResourceKind(entry.path, entry.label || '')).toLowerCase() === 'avatar';
   }).map(function(entry, idx) {
+    var previewData = isImportedImageUrl(entry.url) ? String(entry.url || '').trim() : '';
+    var fileName = importedFileNameFromUri(entry.fileName || entry.url || '');
     return {
       id: 'import_avatar_' + idx,
-      label: normalizeImportedLabel(entry.label, importedResourceLabelFromUrl(entry.url, '头像')),
-      previewData: String(entry.url || '').trim(),
+      label: normalizeImportedLabel(entry.label, importedResourceLabelFromUrl(previewData || fileName, '头像')),
+      previewData: previewData,
+      fileName: fileName,
       note: normalizeImportedLabel(entry.note, '角色卡导入')
     };
   }), function(entry) {
-    return String(entry.previewData || '').trim().toLowerCase();
+    return (String(entry.previewData || '').trim().toLowerCase() + '::' + String(entry.fileName || '').trim().toLowerCase());
   });
 
   var memeResources = dedupeImportedEntries(bucket.images.filter(function(entry) {
-    return entry && entry.url && guessImportedResourceKind(entry.path, entry.label || '') === 'meme';
+    return entry && (entry.url || entry.fileName) && String(entry.kind || guessImportedResourceKind(entry.path, entry.label || '')).toLowerCase() === 'meme';
   }).map(function(entry, idx) {
+    var src = isImportedImageUrl(entry.url) ? String(entry.url || '').trim() : '';
+    var fileName = importedFileNameFromUri(entry.fileName || entry.url || '');
     return {
       id: 'import_meme_' + idx,
-      name: normalizeImportedLabel(entry.label, importedResourceLabelFromUrl(entry.url, '表情包')),
-      src: String(entry.url || '').trim()
+      name: normalizeImportedLabel(entry.label, fileName || importedResourceLabelFromUrl(src, '表情包')),
+      src: src,
+      fileName: fileName
     };
   }), function(entry) {
-    return (String(entry.name || '').trim().toLowerCase() + '::' + String(entry.src || '').trim().toLowerCase());
+    return (String(entry.name || '').trim().toLowerCase() + '::' + String(entry.src || '').trim().toLowerCase() + '::' + String(entry.fileName || '').trim().toLowerCase());
   });
 
   var ruleBlocks = dedupeImportedEntries(bucket.rules.map(function(entry) {
