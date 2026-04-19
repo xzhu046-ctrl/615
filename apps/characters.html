@@ -2408,6 +2408,61 @@ function dedupeImportedEntries(entries, keyFn) {
   return out;
 }
 
+function getImportedRegexIdentityKey(entry) {
+  var item = normalizeImportedRegexScript(entry, '导入脚本');
+  if (!item) return '';
+  return [
+    String(item.scriptName || item.name || ''),
+    String(item.findRegex || ''),
+    String(item.replaceString || ''),
+    Array.isArray(item.placement) ? item.placement.join(',') : '',
+    Array.isArray(item.trimStrings) ? item.trimStrings.join(',') : ''
+  ].join('::').toLowerCase();
+}
+
+function choosePreferredImportedRegexEntry(current, incoming) {
+  var a = normalizeImportedRegexScript(current, '导入脚本');
+  var b = normalizeImportedRegexScript(incoming, '导入脚本');
+  if (!a) return b;
+  if (!b) return a;
+  var aScore = 0;
+  var bScore = 0;
+  if (!a.disabled) aScore += 5;
+  if (!b.disabled) bScore += 5;
+  if (String(a.findRegex || '').trim()) aScore += 2;
+  if (String(b.findRegex || '').trim()) bScore += 2;
+  if (String(a.replaceString || '').trim()) aScore += 2;
+  if (String(b.replaceString || '').trim()) bScore += 2;
+  if (Array.isArray(a.placement) && a.placement.length) aScore += 1;
+  if (Array.isArray(b.placement) && b.placement.length) bScore += 1;
+  if (String(a.text || '').trim().length) aScore += Math.min(2, Math.ceil(String(a.text || '').trim().length / 800));
+  if (String(b.text || '').trim().length) bScore += Math.min(2, Math.ceil(String(b.text || '').trim().length / 800));
+  return bScore > aScore ? b : a;
+}
+
+function dedupeImportedRegexEntries(entries) {
+  var seen = {};
+  var out = [];
+  (Array.isArray(entries) ? entries : []).forEach(function(entry) {
+    var item = normalizeImportedRegexScript(entry, '导入脚本');
+    if (!item) return;
+    var key = getImportedRegexIdentityKey(item);
+    if (!key) return;
+    if (!seen[key]) {
+      seen[key] = item;
+      out.push(item);
+      return;
+    }
+    var preferred = choosePreferredImportedRegexEntry(seen[key], item);
+    seen[key] = preferred;
+    var idx = out.findIndex(function(candidate) {
+      return getImportedRegexIdentityKey(candidate) === key;
+    });
+    if (idx >= 0) out[idx] = preferred;
+  });
+  return out;
+}
+
 function buildImportedMemeCategory(cardName) {
   var safe = normalizeImportedLabel(cardName, '角色');
   return safe + ' · 导入表情';
@@ -2834,11 +2889,7 @@ function extractImportedCardMetadata(raw, d, charBook, jsonStr, filename) {
     return (String(entry.title || '') + '::' + String(entry.text || '')).toLowerCase();
   });
 
-  var regexScripts = dedupeImportedEntries(bucket.regex.map(function(entry) {
-    return normalizeImportedRegexScript(entry, '导入脚本');
-  }).filter(Boolean), function(entry) {
-    return (String(entry.name || '') + '::' + String(entry.text || '')).toLowerCase();
-  });
+  var regexScripts = dedupeImportedRegexEntries(bucket.regex);
 
   return {
     avatarUrl: avatarResources.length ? String(avatarResources[0].previewData || '').trim() : '',

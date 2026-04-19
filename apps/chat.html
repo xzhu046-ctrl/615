@@ -7661,6 +7661,61 @@ function dedupeImportedMeta(entries, keyFn){
   return out;
 }
 
+function getImportedRegexIdentityKey(entry){
+  var item = normalizeImportedRegexScriptMeta(entry);
+  if(!item) return '';
+  return [
+    String(item.scriptName || item.name || ''),
+    String(item.findRegex || ''),
+    String(item.replaceString || ''),
+    Array.isArray(item.placement) ? item.placement.join(',') : '',
+    Array.isArray(item.trimStrings) ? item.trimStrings.join(',') : ''
+  ].join('::').toLowerCase();
+}
+
+function choosePreferredImportedRegexEntry(current, incoming){
+  var a = normalizeImportedRegexScriptMeta(current);
+  var b = normalizeImportedRegexScriptMeta(incoming);
+  if(!a) return b;
+  if(!b) return a;
+  var aScore = 0;
+  var bScore = 0;
+  if(!a.disabled) aScore += 5;
+  if(!b.disabled) bScore += 5;
+  if(String(a.findRegex || '').trim()) aScore += 2;
+  if(String(b.findRegex || '').trim()) bScore += 2;
+  if(String(a.replaceString || '').trim()) aScore += 2;
+  if(String(b.replaceString || '').trim()) bScore += 2;
+  if(Array.isArray(a.placement) && a.placement.length) aScore += 1;
+  if(Array.isArray(b.placement) && b.placement.length) bScore += 1;
+  if(String(a.text || '').trim().length) aScore += Math.min(2, Math.ceil(String(a.text || '').trim().length / 800));
+  if(String(b.text || '').trim().length) bScore += Math.min(2, Math.ceil(String(b.text || '').trim().length / 800));
+  return bScore > aScore ? b : a;
+}
+
+function dedupeImportedRegexMeta(entries){
+  var seen = {};
+  var out = [];
+  (Array.isArray(entries) ? entries : []).forEach(function(entry){
+    var item = normalizeImportedRegexScriptMeta(entry);
+    if(!item) return;
+    var key = getImportedRegexIdentityKey(item);
+    if(!key) return;
+    if(!seen[key]){
+      seen[key] = item;
+      out.push(item);
+      return;
+    }
+    var preferred = choosePreferredImportedRegexEntry(seen[key], item);
+    seen[key] = preferred;
+    var idx = out.findIndex(function(candidate){
+      return getImportedRegexIdentityKey(candidate) === key;
+    });
+    if(idx >= 0) out[idx] = preferred;
+  });
+  return out;
+}
+
 function stableImportedResourceId(prefix, charId, seed){
   var input = String(seed || '').trim();
   var hash = 2166136261;
@@ -7683,15 +7738,7 @@ function normalizeImportedCharacterMeta(target){
   target.importedRuleBlocks = dedupeImportedMeta((Array.isArray(target.importedRuleBlocks) ? target.importedRuleBlocks : []).map(normalizeImportedRuleBlockMeta).filter(Boolean), function(entry){
     return (String(entry.title || '') + '::' + String(entry.text || '')).toLowerCase();
   });
-  target.importedRegexScripts = dedupeImportedMeta((Array.isArray(target.importedRegexScripts) ? target.importedRegexScripts : []).map(normalizeImportedRegexScriptMeta).filter(Boolean), function(entry){
-    return [
-      String(entry.scriptName || entry.name || ''),
-      String(entry.findRegex || ''),
-      String(entry.replaceString || ''),
-      Array.isArray(entry.placement) ? entry.placement.join(',') : '',
-      Array.isArray(entry.trimStrings) ? entry.trimStrings.join(',') : ''
-    ].join('::').toLowerCase();
-  });
+  target.importedRegexScripts = dedupeImportedRegexMeta(Array.isArray(target.importedRegexScripts) ? target.importedRegexScripts : []);
   target.importedMemeCategory = normalizeImportedMemeCategoryName(target.importedMemeCategory, ((target.nickname || target.name || '角色') + ' · 导入表情'));
   target.authorRulesEnabled = target.authorRulesEnabled !== false && !!target.importedRuleBlocks.length;
   target.regexRulesUserTouched = !!target.regexRulesUserTouched;
@@ -10266,11 +10313,22 @@ function buildRichHtmlSrcdoc(payload){
     '  if(!(swipeId >= 0)) swipeId = 0;',
     '  var swipes = Array.isArray(current.swipes) ? current.swipes : [];',
     '  var content = String(current.mes || swipes[swipeId] || "");',
-    '  await window.setChatMessage(content, 0, { swipe_id: swipeId });',
-    '  return true;',
+    '  var result = await window.setChatMessage(content, 0, { swipe_id: swipeId });',
+    '  window.__PHONE_GREETING_BRIDGE__.lastSetResult = result || null;',
+    '  return result || true;',
     '};',
     'window.SillyTavern.reloadCurrentChat = async function(){',
-    '  return syncSillyTavernGreetingState();',
+    '  var state = await syncSillyTavernGreetingState();',
+    '  var lastResult = window.__PHONE_GREETING_BRIDGE__ && window.__PHONE_GREETING_BRIDGE__.lastSetResult;',
+    '  if(lastResult && lastResult.type === "richhtml" && String(lastResult.srcdoc || "").trim()){',
+    '    try{',
+    '      document.open();',
+    '      document.write(String(lastResult.srcdoc || ""));',
+    '      document.close();',
+    '      return state;',
+    '    }catch(err){}',
+    '  }',
+    '  return state;',
     '};',
     'window.SillyTavern.__syncGreetingState = syncSillyTavernGreetingState;',
     'syncSillyTavernGreetingState();',
@@ -13028,7 +13086,7 @@ function buildImportedAuthorRulesPrompt(){
 }
 
 function parseImportedGreetingRegex(entry){
-  var pattern = String(entry && entry.findRegex || '').trim();
+  var pattern = buildImportedGreetingRegexSource(entry);
   if(!pattern) return null;
   var source = pattern;
   var flags = 'g';
@@ -13046,6 +13104,66 @@ function parseImportedGreetingRegex(entry){
     }catch(innerErr){
       return null;
     }
+  }
+}
+
+function escapeGreetingRegexMacro(value){
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildImportedGreetingRegexSource(entry){
+  var item = normalizeImportedRegexScriptMeta(entry);
+  var pattern = String(item && item.findRegex || '').trim();
+  if(!pattern) return '';
+  var mode = Number(item && item.substituteRegex || 0) || 0;
+  if(mode === 1){
+    return substituteGreetingTemplateParams(pattern);
+  }
+  if(mode === 2){
+    var userName = String(getGreetingUserDisplayName() || '你').trim() || '你';
+    var charName = String((character && (character.nickname || character.name)) || '对方').trim() || '对方';
+    return pattern
+      .replace(/\{\{\s*user\s*\}\}/gi, escapeGreetingRegexMacro(userName))
+      .replace(/\{\{\s*char\s*\}\}/gi, escapeGreetingRegexMacro(charName))
+      .replace(/<\s*user\s*>/gi, escapeGreetingRegexMacro(userName))
+      .replace(/<\s*char\s*>/gi, escapeGreetingRegexMacro(charName));
+  }
+  return pattern;
+}
+
+function runImportedGreetingRegexScript(entry, rawText){
+  var item = normalizeImportedRegexScriptMeta(entry);
+  var sourceText = String(rawText || '');
+  if(!(item && !item.disabled && sourceText && String(item.findRegex || '').trim())) return sourceText;
+  var regex = parseImportedGreetingRegex(item);
+  if(!regex) return sourceText;
+  try{
+    return String(sourceText).replace(regex, function(){
+      var args = Array.prototype.slice.call(arguments);
+      var match = args[0];
+      var groups = args[args.length - 1];
+      var replacePattern = String(item.replaceString || '').replace(/\{\{\s*match\s*\}\}/gi, '$0');
+      var replaceWithGroups = replacePattern.replace(/\$(\d+)|\$<([^>]+)>/g, function(_, num, groupName){
+        var replacementMatch = '';
+        if(num){
+          replacementMatch = args[Number(num)] || '';
+        }else if(groupName && groups && typeof groups === 'object'){
+          replacementMatch = groups[groupName] || '';
+        }
+        var filteredMatch = String(replacementMatch || '');
+        if(Array.isArray(item.trimStrings) && item.trimStrings.length){
+          item.trimStrings.forEach(function(token){
+            var safe = substituteGreetingTemplateParams(String(token || ''));
+            if(!safe) return;
+            filteredMatch = filteredMatch.split(safe).join('');
+          });
+        }
+        return filteredMatch;
+      });
+      return substituteGreetingTemplateParams(replaceWithGroups);
+    });
+  }catch(err){
+    return sourceText;
   }
 }
 
@@ -13153,18 +13271,7 @@ function applyImportedRegexToGreetingText(text){
   if(!scripts.length) return content;
   var next = content;
   scripts.forEach(function(entry){
-    var regex = parseImportedGreetingRegex(entry);
-    if(!regex) return;
-    try{
-      next = String(next).replace(regex, String(entry.replaceString || ''));
-      if(Array.isArray(entry.trimStrings) && entry.trimStrings.length){
-        entry.trimStrings.forEach(function(token){
-          var safe = String(token || '');
-          if(!safe) return;
-          next = next.split(safe).join('');
-        });
-      }
-    }catch(err){}
+    next = runImportedGreetingRegexScript(entry, next);
   });
   return String(next || '').trim();
 }
@@ -28635,7 +28742,15 @@ window.addEventListener('message', async function(e) {
           reply(false, null, 'switch_failed');
           return;
         }
-        reply(true, { ok:true, swipe_id: targetIndex }, '');
+        var selectedGreeting = swipes[targetIndex] || '';
+        var selectedType = getGreetingMessageType(selectedGreeting);
+        reply(true, {
+          ok:true,
+          swipe_id: targetIndex,
+          content: selectedGreeting,
+          type: selectedType,
+          srcdoc: selectedType === 'richhtml' ? buildRichHtmlVisibleDoc(selectedGreeting) : ''
+        }, '');
         return;
       }
       reply(false, null, 'unknown_action');
