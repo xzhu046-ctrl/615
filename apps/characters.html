@@ -2807,6 +2807,42 @@ function countImportedBareMemeLines(lines) {
   return count;
 }
 
+function extractImportedBareMemeBlockEntries(text, path) {
+  var raw = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!raw.trim()) return [];
+  var candidates = [];
+  var fenceRe = /```(?:json|js|txt)?\s*([\s\S]*?)```/ig;
+  var match;
+  while ((match = fenceRe.exec(raw))) {
+    if (match && match[1]) candidates.push(String(match[1] || ''));
+  }
+  candidates.push(raw);
+
+  var best = [];
+  candidates.forEach(function(candidate) {
+    var bracketRe = /\[[\s\S]*?\]/g;
+    var blockMatch;
+    var blockFound = false;
+    while ((blockMatch = bracketRe.exec(candidate))) {
+      blockFound = true;
+      var lines = String(blockMatch[0] || '').split('\n');
+      var entries = lines.map(function(line) {
+        return parseImportedBareMemeLine(line, path);
+      }).filter(Boolean);
+      if (entries.length > best.length) best = entries;
+    }
+    if (!blockFound) {
+      var plainLines = String(candidate || '').split('\n');
+      var plainEntries = plainLines.map(function(line) {
+        return parseImportedBareMemeLine(line, path);
+      }).filter(Boolean);
+      if (plainEntries.length > best.length) best = plainEntries;
+    }
+  });
+
+  return best.length >= 4 ? best : [];
+}
+
 function buildImportedImageEntry(kind, token, label, path, note) {
   var safeKind = kind === 'avatar' ? 'avatar' : 'meme';
   var clean = stripImportedImageDecorations(token);
@@ -2909,6 +2945,10 @@ function collectStructuredRegexScripts(source, path, bucket) {
 function extractImportedAssetEntriesFromText(text, path, options) {
   var raw = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (!raw.trim()) return [];
+  var explicitBareMemeEntries = extractImportedBareMemeBlockEntries(raw, path);
+  if (explicitBareMemeEntries.length >= 4) {
+    return explicitBareMemeEntries;
+  }
   var fallbackKind = guessImportedResourceKind(path, '');
   var currentKind = fallbackKind === 'unknown' ? '' : fallbackKind;
   var avatarSectionAllowed = currentKind === 'avatar';
