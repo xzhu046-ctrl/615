@@ -7790,7 +7790,13 @@ function renderImportedRegexList(){
 
 function toggleRegexRulesSwitch(){
   var toggle = document.getElementById('csRegexRulesToggle');
-  if(toggle) toggle.classList.toggle('on');
+  if(!toggle){
+    if(character){
+      character.regexRulesEnabled = !!(character.importedRegexScripts && character.importedRegexScripts.length && character.regexRulesEnabled !== false);
+    }
+    return;
+  }
+  toggle.classList.toggle('on');
   if(character){
     character.regexRulesEnabled = !!(toggle && toggle.classList.contains('on') && character.importedRegexScripts && character.importedRegexScripts.length);
     character.regexRulesUserTouched = true;
@@ -27360,7 +27366,10 @@ async function saveChatSettings() {
   var importedRuleBlocks = parseImportedEditorBlocks((document.getElementById('csImportedRules') || {}).value || '', 'rule');
   var importedRegexScripts = (Array.isArray(character && character.importedRegexScripts) ? character.importedRegexScripts : []).map(normalizeImportedRegexScriptMeta).filter(Boolean);
   var authorRulesEnabled = !!(document.getElementById('csAuthorRulesToggle') && document.getElementById('csAuthorRulesToggle').classList.contains('on'));
-  var regexRulesEnabled = !!(document.getElementById('csRegexRulesToggle') && document.getElementById('csRegexRulesToggle').classList.contains('on'));
+  var regexToggle = document.getElementById('csRegexRulesToggle');
+  var regexRulesEnabled = regexToggle
+    ? !!regexToggle.classList.contains('on')
+    : !!(importedRegexScripts.length && (!character || character.regexRulesEnabled !== false));
   var narratorEnabled = !!(document.getElementById('csNarratorToggle') && document.getElementById('csNarratorToggle').classList.contains('on'));
   var avatarVisionEnabled = pendingAvatarVisionEnabled === null ? loadAvatarVisionEnabled(character && character.id) : !!pendingAvatarVisionEnabled;
   var charAvatarAutoEnabled = pendingCharAvatarAutoEnabled === null ? loadCharAvatarAutoEnabled(character && character.id) : !!pendingCharAvatarAutoEnabled;
@@ -27459,8 +27468,8 @@ async function saveChatSettings() {
     character.importedRuleBlocks = importedRuleBlocks;
     character.importedRegexScripts = importedRegexScripts;
     character.authorRulesEnabled = authorRulesEnabled && !!importedRuleBlocks.length;
-    character.regexRulesEnabled = regexRulesEnabled && !!importedRegexScripts.length;
-    character.regexRulesUserTouched = true;
+    character.regexRulesEnabled = !!(importedRegexScripts.length && regexRulesEnabled);
+    if(regexToggle) character.regexRulesUserTouched = true;
     character.allowNarrator = narratorEnabled;
     if(!narratorEnabled){
       clearComposerMode();
