@@ -13492,11 +13492,11 @@ function getGreetingSourceRecord(){
   };
 }
 
-function getGreetingRenderRecord(applyRegex){
+function getGreetingRenderRecordForIndex(index, applyRegex){
   if(!character) return { text:'', type:'text', raw:'', rendered:'' };
   var rawList = normalizeGreetingCandidates(character.first_mes, character.alternate_greetings);
   if(!rawList.length) return { text:'', type:'text', raw:'', rendered:'' };
-  var idx = curGreetingIdx;
+  var idx = index;
   var safeIdx = Math.min(Math.max(Number(idx) || 0, 0), rawList.length - 1);
   var raw = String(rawList[safeIdx] || '').trim();
   if(!raw) return { text:'', type:'text', raw:'', rendered:'' };
@@ -13513,6 +13513,10 @@ function getGreetingRenderRecord(applyRegex){
     raw: raw,
     rendered: rendered
   };
+}
+
+function getGreetingRenderRecord(applyRegex){
+  return getGreetingRenderRecordForIndex(curGreetingIdx, applyRegex);
 }
 
 function getGreetingSwipeContents(applyRegex){
@@ -13532,6 +13536,42 @@ function getGreetingMessageType(text){
   if(isRenderableRichHtmlPayload(content) || parseRichHtmlBlocks(content)) return 'richhtml';
   if(/<!DOCTYPE html>|<html\b|<head\b|<style\b|<script\b|```html/i.test(content)) return 'richhtml';
   return 'text';
+}
+
+function resetGreetingIndexToDefault(){
+  if(!(character && character.id)) return false;
+  curGreetingIdx = 0;
+  safeLocalStorageSet(greetingStorageKey(character.id), '0');
+  document.querySelectorAll('.g-item').forEach(function(el){
+    el.classList.toggle('active-g', parseInt(el.dataset.gi, 10) === 0);
+  });
+  return true;
+}
+
+function shouldPreferDefaultRenderableGreeting(history){
+  if(!(character && character.id)) return false;
+  var rawList = normalizeGreetingCandidates(character.first_mes, character.alternate_greetings);
+  if(rawList.length < 2) return false;
+  var storedIdx = Math.min(Math.max(Number(curGreetingIdx) || 0, 0), rawList.length - 1);
+  if(!(storedIdx > 0)) return false;
+  var list = Array.isArray(history) ? history : [];
+  if(list.some(function(item){ return String((item && item.role) || '') === 'user'; })) return false;
+  if(list.length > 1) return false;
+  var defaultRecord = getGreetingRenderRecordForIndex(0, shouldRenderGreetingWithRegex());
+  var selectedRecord = getGreetingRenderRecordForIndex(storedIdx, shouldRenderGreetingWithRegex());
+  if(String(defaultRecord.type || 'text') !== 'richhtml') return false;
+  if(String(selectedRecord.type || 'text') === 'richhtml') return false;
+  var defaultText = String(defaultRecord.text || '').trim();
+  var selectedText = String(selectedRecord.text || '').trim();
+  if(!defaultText || !selectedText) return false;
+  if(normalizeGreetingMatchText(defaultText) === normalizeGreetingMatchText(selectedText)) return false;
+  return true;
+}
+
+function maybeResetGreetingSelectionForRenderableDefault(history){
+  if(!shouldPreferDefaultRenderableGreeting(history)) return false;
+  console.info('Resetting stale greeting index to default rich opening for', character && character.id);
+  return resetGreetingIndexToDefault();
 }
 
 function normalizeReplyHint(hint){
@@ -16505,6 +16545,7 @@ async function restoreOrStartChat() {
   if(restored.length && !hasAnyGreetingForCharacter() && isLikelyStrayGreetingHistory(restored)){
     restored = [];
   }
+  maybeResetGreetingSelectionForRenderableDefault(restored);
   if (restored.length) {
     chatLog = restored;
     var shouldForceGreetingSync = !!(chatLog.length
@@ -16520,6 +16561,7 @@ async function restoreOrStartChat() {
     }
     return;
   }
+  maybeResetGreetingSelectionForRenderableDefault([]);
   // Fresh start — show greeting
   var greetingRecord = getGreetingRenderRecord(shouldRenderGreetingWithRegex());
   var greeting = String(greetingRecord && greetingRecord.text || '').trim();
