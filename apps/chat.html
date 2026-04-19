@@ -13448,6 +13448,29 @@ function getGreetingVariants(applyRegex){
   });
 }
 
+function getGreetingRenderRecord(applyRegex){
+  if(!character) return { text:'', type:'text', raw:'', rendered:'' };
+  var rawList = normalizeGreetingCandidates(character.first_mes, character.alternate_greetings);
+  if(!rawList.length) return { text:'', type:'text', raw:'', rendered:'' };
+  var idx = curGreetingIdx;
+  var safeIdx = Math.min(Math.max(Number(idx) || 0, 0), rawList.length - 1);
+  var raw = String(rawList[safeIdx] || '').trim();
+  if(!raw) return { text:'', type:'text', raw:'', rendered:'' };
+  var transformed = String(transformGreetingSource(raw, applyRegex) || '').trim();
+  var rendered = String(renderGreetingSourceText(raw, applyRegex) || '').trim();
+  var transformedType = getGreetingMessageType(transformed);
+  var renderedType = getGreetingMessageType(rendered);
+  if(applyRegex !== false && transformedType === 'richhtml' && transformed){
+    return { text: transformed, type:'richhtml', raw: raw, rendered: rendered };
+  }
+  return {
+    text: rendered || transformed,
+    type: renderedType || transformedType || 'text',
+    raw: raw,
+    rendered: rendered
+  };
+}
+
 function getGreetingSwipeContents(applyRegex){
   if(!character) return [];
   return normalizeGreetingCandidates(character.first_mes, character.alternate_greetings).map(function(raw){
@@ -16455,12 +16478,13 @@ async function restoreOrStartChat() {
     return;
   }
   // Fresh start — show greeting
-  var greeting = getGreeting();
+  var greetingRecord = getGreetingRenderRecord(shouldRenderGreetingWithRegex());
+  var greeting = String(greetingRecord && greetingRecord.text || '').trim();
   if(shouldWaitForFirstUserTurn(character && character.id)) greeting = '';
   msgs.innerHTML = '';
   chatLog = [];
   if (greeting) {
-    var greetingType = getGreetingMessageType(greeting);
+    var greetingType = String(greetingRecord && greetingRecord.type || getGreetingMessageType(greeting) || 'text');
     var first = makeChatEntry('assistant', greeting, greetingType);
     chatLog = [first];
     addMessage('ai', greeting, false, greetingType, first.id);
@@ -16506,10 +16530,8 @@ function getGreeting() {
     var discovered = String(localStorage.getItem(discoveredKey(character.id)) || '') === '1';
     if(!discovered) return '';
   }
-  var all = getGreetingVariants(shouldRenderGreetingWithRegex());
-  if (!all.length) return '';
-  var idx = curGreetingIdx;
-  return all[Math.min(idx, all.length - 1)] || '';
+  var record = getGreetingRenderRecord(shouldRenderGreetingWithRegex());
+  return String(record && record.text || '').trim();
 }
 
 function shouldRefreshStoredGreetingEntry(entry, renderedGreeting, renderedType, force){
@@ -16551,9 +16573,10 @@ function refreshStoredGreetingEntryIfNeeded(log, options){
   if(!(Array.isArray(log) && log.length && character)) return false;
   var opts = options && typeof options === 'object' ? options : {};
   var first = log[0];
-  var renderedGreeting = getGreeting();
+  var greetingRecord = getGreetingRenderRecord(shouldRenderGreetingWithRegex());
+  var renderedGreeting = String(greetingRecord && greetingRecord.text || '').trim();
   if(!renderedGreeting) return false;
-  var renderedType = getGreetingMessageType(renderedGreeting);
+  var renderedType = String(greetingRecord && greetingRecord.type || getGreetingMessageType(renderedGreeting) || 'text');
   if(!shouldRefreshStoredGreetingEntry(first, renderedGreeting, renderedType, !!opts.force)) return false;
   first.content = renderedGreeting;
   first.type = renderedType;
@@ -16579,10 +16602,8 @@ function isLikelyStrayGreetingHistory(history){
 
 function getPromptGreeting(){
   if(!character) return '';
-  var all = getGreetingVariants(shouldRenderGreetingWithRegex());
-  if (!all.length) return '';
-  var idx = curGreetingIdx;
-  return all[Math.min(idx, all.length - 1)] || '';
+  var record = getGreetingRenderRecord(shouldRenderGreetingWithRegex());
+  return String(record && record.text || '').trim();
 }
 
 // ════════════════════════════════════════════
@@ -26668,9 +26689,10 @@ async function applyGreetingSelectionByIndex(nextIndex, options){
     try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(e){}
     var msgs = document.getElementById('messages');
     if(msgs) msgs.innerHTML = '';
-    var g = getGreeting();
+    var greetingRecord = getGreetingRenderRecord(shouldRenderGreetingWithRegex());
+    var g = String(greetingRecord && greetingRecord.text || '').trim();
     if (g) {
-      var greetingType = getGreetingMessageType(g);
+      var greetingType = String(greetingRecord && greetingRecord.type || getGreetingMessageType(g) || 'text');
       var first = makeChatEntry('assistant', g, greetingType);
       chatLog = [first];
       addMessage('ai', g, false, greetingType, first.id);
