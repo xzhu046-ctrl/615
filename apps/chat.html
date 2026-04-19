@@ -10780,13 +10780,27 @@ function closeRichHtmlFullscreen(){
 
 function renderRichHtmlBubble(host, raw){
   var data = normalizeRichHtmlRenderableData(raw);
+  var initialState = null;
+  var greetingRender = getGreetingRenderRecord(shouldRenderGreetingWithRegex());
+  var greetingSource = getGreetingSourceRecord();
+  if(greetingRender && greetingSource && greetingRender.type === 'richhtml'){
+    var currentRendered = normalizeGreetingMatchText(greetingRender.text);
+    var incomingRendered = normalizeGreetingMatchText(raw);
+    if(currentRendered && incomingRendered && currentRendered === incomingRendered){
+      initialState = {
+        mes: String(greetingSource.text || '').trim(),
+        swipes: [String(greetingSource.text || '').trim()],
+        swipe_id: 0
+      };
+    }
+  }
   host.innerHTML = '<div class="richhtml-card">'
     + '<div class="richhtml-head"><div class="richhtml-kicker">SURPRISE</div><div class="richhtml-head-actions"><button class="richhtml-share-btn" type="button" aria-label="分享卡片"><img src="assets/分享.png" alt="分享"></button><button class="richhtml-expand-btn" type="button" aria-label="全屏查看"><img src="assets/屏幕放大.png" alt="放大"></button></div></div>'
     + '<iframe class="richhtml-frame" sandbox="allow-scripts allow-same-origin" loading="lazy"></iframe>'
     + '</div>';
   var frame = host.querySelector('.richhtml-frame');
   if(frame){
-    frame.srcdoc = buildRichHtmlVisibleDoc(data);
+    frame.srcdoc = buildRichHtmlVisibleDoc(initialState ? Object.assign({}, data, { __initialChatState: initialState }) : data);
   }
   var card = host.querySelector('.richhtml-card');
   var shareBtn = host.querySelector('.richhtml-share-btn');
@@ -13448,6 +13462,20 @@ function getGreetingVariants(applyRegex){
   });
 }
 
+function getGreetingSourceRecord(){
+  if(!character) return { text:'', raw:'' };
+  var rawList = normalizeGreetingCandidates(character.first_mes, character.alternate_greetings);
+  if(!rawList.length) return { text:'', raw:'' };
+  var idx = curGreetingIdx;
+  var safeIdx = Math.min(Math.max(Number(idx) || 0, 0), rawList.length - 1);
+  var raw = String(rawList[safeIdx] || '').trim();
+  if(!raw) return { text:'', raw:'' };
+  return {
+    text: String(transformGreetingSource(raw, false) || '').trim(),
+    raw: raw
+  };
+}
+
 function getGreetingRenderRecord(applyRegex){
   if(!character) return { text:'', type:'text', raw:'', rendered:'' };
   var rawList = normalizeGreetingCandidates(character.first_mes, character.alternate_greetings);
@@ -13474,10 +13502,9 @@ function getGreetingRenderRecord(applyRegex){
 function getGreetingSwipeContents(applyRegex){
   if(!character) return [];
   return normalizeGreetingCandidates(character.first_mes, character.alternate_greetings).map(function(raw){
-    var source = transformGreetingSource(raw, applyRegex);
-    var rendered = applyRegex === false ? sanitizeGreetingDisplayText(source) : String(source || '').trim();
-    if(!rendered || isGreetingPlaceholderText(rendered)) return '';
-    return String(rendered || '').trim();
+    var source = String(transformGreetingSource(raw, false) || '').trim();
+    if(!source || isGreetingPlaceholderText(source)) return '';
+    return source;
   }).filter(Boolean);
 }
 
@@ -28819,7 +28846,7 @@ window.addEventListener('message', async function(e) {
         return;
       }
       if(d.action === 'getChatMessages'){
-        var swipes = getGreetingSwipeContents(shouldRenderGreetingWithRegex());
+        var swipes = getGreetingSwipeContents(false);
         var currentSwipe = swipes[curGreetingIdx] || swipes[0] || '';
         reply(true, [{
           mes: currentSwipe,
@@ -28831,7 +28858,8 @@ window.addEventListener('message', async function(e) {
       if(d.action === 'setChatMessage'){
         var payload = d.payload || {};
         var options = payload.options || {};
-        var swipes = getGreetingSwipeContents(shouldRenderGreetingWithRegex());
+        var swipes = getGreetingSwipeContents(false);
+        var renderedSwipes = getGreetingVariants(shouldRenderGreetingWithRegex());
         var targetIndex = Number(options.swipe_id);
         if(!(targetIndex >= 0) || targetIndex >= swipes.length){
           var content = String(payload.content || '').trim();
@@ -28839,6 +28867,11 @@ window.addEventListener('message', async function(e) {
           targetIndex = swipes.findIndex(function(item){
             return normalizeGreetingMatchText(item) === normalizedContent;
           });
+          if(!(targetIndex >= 0) || targetIndex >= swipes.length){
+            targetIndex = renderedSwipes.findIndex(function(item){
+              return normalizeGreetingMatchText(item) === normalizedContent;
+            });
+          }
         }
         if(!(targetIndex >= 0) || targetIndex >= swipes.length){
           var fallbackRecords = getGreetingVariantRecords(shouldRenderGreetingWithRegex());
@@ -28857,14 +28890,24 @@ window.addEventListener('message', async function(e) {
           reply(false, null, 'switch_failed');
           return;
         }
-        var selectedGreeting = swipes[targetIndex] || '';
+        var selectedGreeting = renderedSwipes[targetIndex] || getGreeting();
+        var selectedSource = swipes[targetIndex] || '';
         var selectedType = getGreetingMessageType(selectedGreeting);
         reply(true, {
           ok:true,
           swipe_id: targetIndex,
-          content: selectedGreeting,
+          content: selectedSource,
           type: selectedType,
-          srcdoc: selectedType === 'richhtml' ? buildRichHtmlVisibleDoc(selectedGreeting) : ''
+          srcdoc: selectedType === 'richhtml'
+            ? buildRichHtmlVisibleDoc(Object.assign({}, normalizeRichHtmlRenderableData(selectedGreeting), {
+                source: selectedGreeting,
+                __initialChatState: {
+                  mes: selectedSource,
+                  swipes: [selectedSource],
+                  swipe_id: 0
+                }
+              }))
+            : ''
         }, '');
         return;
       }
