@@ -7744,6 +7744,21 @@ function renderImportedRegexList(){
 function toggleRegexRulesSwitch(){
   var toggle = document.getElementById('csRegexRulesToggle');
   if(toggle) toggle.classList.toggle('on');
+  if(character){
+    character.regexRulesEnabled = !!(toggle && toggle.classList.contains('on') && character.importedRegexScripts && character.importedRegexScripts.length);
+    character.regexRulesUserTouched = true;
+  }
+  renderImportedRegexList();
+  populateGreetings();
+  if(refreshStoredGreetingEntryIfNeeded(chatLog, { force:true })){
+    try{
+      var msgs = document.getElementById('messages');
+      if(msgs) msgs.innerHTML = '';
+      renderChatLog(false);
+    }catch(err){
+      console.warn('toggleRegexRulesSwitch rerender failed', err);
+    }
+  }
 }
 
 function toggleImportedRegexItem(index){
@@ -7755,6 +7770,7 @@ function toggleImportedRegexItem(index){
   next.disabled = !next.disabled;
   character.importedRegexScripts[idx] = next;
   renderImportedRegexList();
+  populateGreetings();
 }
 
 function handleImportedRegexEditorMask(event){
@@ -7854,6 +7870,7 @@ function saveImportedRegexEditor(){
   normalizeImportedCharacterMeta(character);
   syncImportedRegexEditorFieldWidths();
   renderImportedRegexList();
+  populateGreetings();
   closeImportedRegexEditor();
 }
 
@@ -7864,6 +7881,7 @@ function deleteImportedRegexItem(index){
   character.importedRegexScripts.splice(idx, 1);
   normalizeImportedCharacterMeta(character);
   renderImportedRegexList();
+  populateGreetings();
   closeImportedRegexEditor();
 }
 
@@ -10216,6 +10234,46 @@ function buildRichHtmlSrcdoc(payload){
     '}',
     'window.getChatMessages = function(chatId, options){ return rpc("getChatMessages", { chatId: chatId, options: options || {} }); };',
     'window.setChatMessage = function(content, index, options){ return rpc("setChatMessage", { content: content, index: index, options: options || {} }); };',
+    'function normalizeGreetingRpcState(result){',
+    '  var rows = Array.isArray(result) ? result : [];',
+    '  var first = rows[0] || {};',
+    '  var swipes = Array.isArray(first.swipes) ? first.swipes.slice() : [];',
+    '  var mes = String(first.mes || swipes[0] || "");',
+    '  var swipeId = Number(first.swipe_id);',
+    '  if(!(swipeId >= 0) || swipeId >= swipes.length){',
+    '    swipeId = swipes.findIndex(function(item){ return String(item || "") === mes; });',
+    '  }',
+    '  if(!(swipeId >= 0)) swipeId = 0;',
+    '  return { mes: mes, swipes: swipes, swipe_id: swipeId };',
+    '}',
+    'async function syncSillyTavernGreetingState(){',
+    '  try{',
+    '    var result = await window.getChatMessages(null, {});',
+    '    var state = normalizeGreetingRpcState(result);',
+    '    window.SillyTavern.chat = [state];',
+    '    return state;',
+    '  }catch(err){',
+    '    return window.SillyTavern.chat && window.SillyTavern.chat[0] ? window.SillyTavern.chat[0] : { mes:"", swipes:[], swipe_id:0 };',
+    '  }',
+    '}',
+    'window.SillyTavern = window.SillyTavern || {};',
+    'window.SillyTavern.chat = Array.isArray(window.SillyTavern.chat) && window.SillyTavern.chat.length ? window.SillyTavern.chat : [{ mes:"", swipes:[], swipe_id:0 }];',
+    'window.SillyTavern.getChatMessages = window.getChatMessages;',
+    'window.SillyTavern.setChatMessage = window.setChatMessage;',
+    'window.SillyTavern.saveChat = async function(){',
+    '  var current = window.SillyTavern.chat && window.SillyTavern.chat[0] ? window.SillyTavern.chat[0] : { mes:"", swipes:[], swipe_id:0 };',
+    '  var swipeId = Number(current.swipe_id);',
+    '  if(!(swipeId >= 0)) swipeId = 0;',
+    '  var swipes = Array.isArray(current.swipes) ? current.swipes : [];',
+    '  var content = String(current.mes || swipes[swipeId] || "");',
+    '  await window.setChatMessage(content, 0, { swipe_id: swipeId });',
+    '  return true;',
+    '};',
+    'window.SillyTavern.reloadCurrentChat = async function(){',
+    '  return syncSillyTavernGreetingState();',
+    '};',
+    'window.SillyTavern.__syncGreetingState = syncSillyTavernGreetingState;',
+    'syncSillyTavernGreetingState();',
     'window.__PHONE_GREETING_BRIDGE__ = { rpc: rpc };',
     '})();'
   ].join('');
@@ -13148,7 +13206,20 @@ function transformGreetingSource(raw, applyRegex){
 function renderGreetingSourceText(raw, applyRegex){
   var next = transformGreetingSource(raw, applyRegex);
   if(!next) return '';
-  if(applyRegex === false) return sanitizeGreetingDisplayText(next);
+  if(applyRegex === false){
+    var plainData = parseRichHtmlPayload(next) || {};
+    if(String(plainData.html || '').trim() || String(plainData.url || '').trim() || String(plainData.css || '').trim() || String(plainData.js || '').trim()){
+      return buildRichHtmlFallbackText(plainData);
+    }
+    var plainRich = parseRichHtmlBlocks(next);
+    if(plainRich){
+      return extractPlainTextFromHtmlMarkup(String(plainRich.html || '').trim()) || String(plainRich.summary || '').trim();
+    }
+    if(/<!DOCTYPE html>|<html\b|<head\b|<style\b|<script\b|<(div|section|article|main|table)\b/i.test(next)){
+      return extractPlainTextFromHtmlMarkup(next);
+    }
+    return sanitizeGreetingDisplayText(next);
+  }
   var rich = parseRichHtmlPayload(next) || {};
   if(String(rich.html || '').trim() || String(rich.url || '').trim() || String(rich.css || '').trim() || String(rich.js || '').trim()){
     return String(next || '').trim();
@@ -16257,7 +16328,8 @@ function getGreeting() {
   return all[Math.min(idx, all.length - 1)] || '';
 }
 
-function shouldRefreshStoredGreetingEntry(entry, renderedGreeting, renderedType){
+function shouldRefreshStoredGreetingEntry(entry, renderedGreeting, renderedType, force){
+  if(force) return !!(entry && entry.role === 'assistant');
   if(!(entry && entry.role === 'assistant')) return false;
   var currentContent = String(entry.content || '').trim();
   if(!currentContent) return false;
@@ -16278,13 +16350,14 @@ function shouldRefreshStoredGreetingEntry(entry, renderedGreeting, renderedType)
   return false;
 }
 
-function refreshStoredGreetingEntryIfNeeded(log){
+function refreshStoredGreetingEntryIfNeeded(log, options){
   if(!(Array.isArray(log) && log.length && character)) return false;
+  var opts = options && typeof options === 'object' ? options : {};
   var first = log[0];
   var renderedGreeting = getGreeting();
   if(!renderedGreeting) return false;
   var renderedType = getGreetingMessageType(renderedGreeting);
-  if(!shouldRefreshStoredGreetingEntry(first, renderedGreeting, renderedType)) return false;
+  if(!shouldRefreshStoredGreetingEntry(first, renderedGreeting, renderedType, !!opts.force)) return false;
   first.content = renderedGreeting;
   first.type = renderedType;
   return true;
@@ -27138,6 +27211,7 @@ async function saveChatSettings() {
   var oldCharNicknameRaw = String((character && character.nickname) || '').trim();
   var oldUserDisplayName = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
   var oldUserNicknameNoteRaw = String((character && character.userNicknameNote) || '').trim();
+  var oldGreetingRegexEnabled = shouldRenderGreetingWithRegex();
   var memoryModeBefore = loadMemoryMode();
   var cp = document.getElementById('csCharPersona').value.trim() || (character ? (character.description || character.name || '无') : '无');
   var cmn = parseInt(document.getElementById('csMsgMin').value || '1');
@@ -27265,7 +27339,9 @@ async function saveChatSettings() {
     character.userNameProfile = isDefault ? un : '';
     character.userNicknameNote = unick;
     character.userPersonaProfile = isDefault ? up : '';
-    if(refreshStoredGreetingEntryIfNeeded(chatLog)){
+    var nextUserDisplayName = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
+    var forceGreetingRefresh = oldUserDisplayName !== nextUserDisplayName || oldGreetingRegexEnabled !== shouldRenderGreetingWithRegex();
+    if(refreshStoredGreetingEntryIfNeeded(chatLog, { force: forceGreetingRefresh })){
       try{
         var msgsForRefresh = document.getElementById('messages');
         if(msgsForRefresh) msgsForRefresh.innerHTML = '';
@@ -28525,7 +28601,8 @@ window.addEventListener('message', async function(e) {
         var currentSwipe = swipes[curGreetingIdx] || swipes[0] || '';
         reply(true, [{
           mes: currentSwipe,
-          swipes: swipes
+          swipes: swipes,
+          swipe_id: curGreetingIdx
         }], '');
         return;
       }
