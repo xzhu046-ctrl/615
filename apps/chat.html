@@ -13407,6 +13407,251 @@ function substituteGreetingTemplateParams(text){
     .replace(/<\s*char\s*>/gi, charName);
 }
 
+function looksLikeGreetingProtocolTimeToken(value){
+  var text = String(value || '').trim();
+  if(!text) return false;
+  return /^((上午|下午|凌晨|中午|晚上)\s*)?\d{1,2}:\d{2}$/.test(text)
+    || /^\d{1,2}月\d{1,2}日(?:\s+周[一二三四五六日天])?(?:\s+\d{1,2}:\d{2})?$/.test(text);
+}
+
+function cleanGreetingProtocolText(value){
+  var text = substituteGreetingTemplateParams(String(value || '').replace(/\r\n/g, '\n')).trim();
+  if(!text) return '';
+  if(/^\*[^*][\s\S]*\*$/.test(text)) text = text.slice(1, -1).trim();
+  return text;
+}
+
+function extractGreetingProtocolBlocks(text){
+  var source = String(text || '');
+  if(!source) return [];
+  var blocks = [];
+  var match;
+  var re = /\[([^\[\]]+)\]/g;
+  while((match = re.exec(source))){
+    blocks.push(String(match[1] || '').trim());
+  }
+  return blocks;
+}
+
+function classifyGreetingProtocolLabel(label){
+  var clean = String(label || '').replace(/\s+/g, '').trim();
+  if(!clean) return '';
+  if(/^(我方消息|我方|用户消息|我的消息|自己消息|user消息|user)$/.test(clean)) return 'user';
+  if(/^(对方消息|对方|他的消息|char消息|char)$/.test(clean)) return 'assistant';
+  if(/^(群聊消息|群成员消息|成员消息|群友消息|聊天室消息|group消息|groupchat)$/.test(clean)) return 'group';
+  if(/^(系统消息|提示消息|系统提示|时间分割|时间线|时间)$/.test(clean)) return 'system';
+  return '';
+}
+
+function resolveGreetingProtocolAssetSrc(value, kind){
+  var raw = String(value || '').trim();
+  if(!raw) return '';
+  if(/^(?:data:|blob:|https?:|\/|\.\/|\.\.\/|assets\/|apps\/assets\/)/i.test(raw)){
+    return kind === 'avatar' ? normalizeAvatarSrc(raw) : raw;
+  }
+  var fileName = importedAssetFileNameFromValue(raw);
+  var exactName = String(raw || '').trim();
+  if(kind === 'avatar'){
+    var avatars = Array.isArray(character && character.importedAvatarResources) ? character.importedAvatarResources : [];
+    for(var i = 0; i < avatars.length; i += 1){
+      var entry = normalizeImportedAvatarResource(avatars[i]);
+      if(!entry) continue;
+      var entryFile = String(entry.fileName || '').trim().toLowerCase();
+      var entryLabel = String(entry.label || '').trim();
+      if((fileName && entryFile === String(fileName).trim().toLowerCase()) || (entryLabel && entryLabel === exactName)){
+        if(isRenderableAvatarSrc(entry.previewData)) return normalizeAvatarSrc(entry.previewData);
+      }
+    }
+    var avatarCatbox = parseImportedAvatarCatboxSource(raw, '');
+    if(avatarCatbox && avatarCatbox.src) return normalizeAvatarSrc(avatarCatbox.src);
+    return '';
+  }
+  var memes = Array.isArray(character && character.importedMemeResources) ? character.importedMemeResources : [];
+  for(var j = 0; j < memes.length; j += 1){
+    var memeEntry = normalizeImportedMemeResource(memes[j]);
+    if(!memeEntry) continue;
+    var memeFile = String(memeEntry.fileName || '').trim().toLowerCase();
+    var memeName = String(memeEntry.name || '').trim();
+    if((fileName && memeFile === String(fileName).trim().toLowerCase()) || (memeName && memeName === exactName)){
+      if(memeEntry.src) return String(memeEntry.src || '').trim();
+    }
+  }
+  var memeCatbox = parseImportedMemeCatboxSource(raw, '');
+  if(memeCatbox && memeCatbox.src) return String(memeCatbox.src || '').trim();
+  return '';
+}
+
+function parseGreetingProtocolSource(text){
+  var raw = String(text || '').replace(/\r\n/g, '\n').trim();
+  if(!raw || raw.indexOf('[') === -1 || raw.indexOf(']') === -1) return null;
+  var blocks = extractGreetingProtocolBlocks(raw);
+  if(!blocks.length) return null;
+  var title = '';
+  var entries = [];
+  blocks.forEach(function(block, index){
+    if(index === 0 && block.indexOf('|') === -1){
+      title = cleanGreetingProtocolText(block);
+      return;
+    }
+    var parts = String(block || '').split('|').map(function(part){
+      return String(part || '').trim();
+    });
+    if(!parts.length) return;
+    var label = cleanGreetingProtocolText(parts.shift());
+    var kind = classifyGreetingProtocolLabel(label);
+    if(!kind) return;
+    var time = '';
+    if(parts.length && looksLikeGreetingProtocolTimeToken(parts[parts.length - 1])){
+      time = cleanGreetingProtocolText(parts.pop());
+    }
+    var assetToken = '';
+    var senderName = '';
+    var textValue = '';
+    if(kind === 'user'){
+      textValue = cleanGreetingProtocolText(parts.join('|'));
+    }else if(kind === 'assistant'){
+      if(parts.length >= 2){
+        assetToken = String(parts.shift() || '').trim();
+      }
+      textValue = cleanGreetingProtocolText(parts.join('|'));
+    }else if(kind === 'group'){
+      if(parts.length >= 3){
+        assetToken = String(parts.shift() || '').trim();
+        senderName = cleanGreetingProtocolText(parts.shift());
+      }else if(parts.length >= 2){
+        senderName = cleanGreetingProtocolText(parts.shift());
+      }
+      textValue = cleanGreetingProtocolText(parts.join('|'));
+    }else{
+      textValue = cleanGreetingProtocolText(parts.join('|') || label);
+    }
+    if(!textValue && kind !== 'system') return;
+    var stickerSrc = '';
+    if(textValue && /^[^\s"'<>|]+?\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)$/i.test(textValue)){
+      stickerSrc = resolveGreetingProtocolAssetSrc(textValue, 'meme');
+    }else if(textValue && /[a-z0-9]{6}\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)$/i.test(textValue)){
+      stickerSrc = resolveGreetingProtocolAssetSrc(textValue, 'meme');
+    }
+    entries.push({
+      role: kind,
+      text: textValue,
+      time: time,
+      senderName: senderName,
+      avatarSrc: assetToken ? resolveGreetingProtocolAssetSrc(assetToken, 'avatar') : '',
+      stickerSrc: stickerSrc,
+      delay: kind === 'system' ? 180 : (stickerSrc ? 340 : 260)
+    });
+  });
+  if(!entries.length) return null;
+  var isGroup = entries.some(function(item){ return item.role === 'group'; }) || /群聊|聊天室/.test(title);
+  if(!title){
+    title = isGroup ? '群聊' : ('和' + String((character && (character.nickname || character.name)) || '对方').trim() + '的聊天');
+  }
+  var summary = entries.map(function(entry){
+    if(entry.role === 'system') return entry.text;
+    return entry.senderName ? (entry.senderName + '：' + entry.text) : entry.text;
+  }).filter(Boolean).join(' ').slice(0, 180);
+  return {
+    title: title,
+    entries: entries,
+    isGroup: isGroup,
+    summary: summary
+  };
+}
+
+function buildGreetingProtocolRichHtmlPayload(text){
+  var parsed = parseGreetingProtocolSource(text);
+  if(!parsed) return '';
+  var rowsHtml = parsed.entries.map(function(entry, index){
+    var roleClass = entry.role === 'user' ? 'is-user' : (entry.role === 'group' ? 'is-group' : (entry.role === 'system' ? 'is-system' : 'is-assistant'));
+    if(entry.role === 'system'){
+      return '<div class="gp-row gp-system ' + roleClass + '" data-delay="' + String(entry.delay || 180) + '" data-index="' + String(index) + '">'
+        + '<div class="gp-system-pill">' + esc(entry.text || '') + '</div>'
+        + '</div>';
+    }
+    var avatarHtml = entry.avatarSrc
+      ? ('<div class="gp-avatar"><img src="' + escAttr(entry.avatarSrc) + '" alt=""></div>')
+      : '<div class="gp-avatar gp-avatar-fallback"></div>';
+    var stickerHtml = entry.stickerSrc
+      ? ('<div class="gp-sticker-wrap"><img class="gp-sticker" src="' + escAttr(entry.stickerSrc) + '" alt=""></div>')
+      : '';
+    var textHtml = stickerHtml || ('<div class="gp-bubble-text">' + esc(entry.text || '') + '</div>');
+    var senderHtml = (entry.role === 'group' && entry.senderName)
+      ? ('<div class="gp-sender">' + esc(entry.senderName) + '</div>')
+      : '';
+    var timeHtml = entry.time ? ('<div class="gp-time">' + esc(entry.time) + '</div>') : '';
+    return '<div class="gp-row ' + roleClass + '" data-delay="' + String(entry.delay || 260) + '" data-index="' + String(index) + '">'
+      +   (entry.role === 'user' ? ''
+            : '<div class="gp-left">' + avatarHtml + '</div>')
+      +   '<div class="gp-main">'
+      +     senderHtml
+      +     '<div class="gp-bubble">' + textHtml + '</div>'
+      +     timeHtml
+      +   '</div>'
+      +   (entry.role === 'user' ? '<div class="gp-right-spacer"></div>' : '')
+      + '</div>';
+  }).join('');
+  var html = ''
+    + '<div class="gp-shell' + (parsed.isGroup ? ' is-group' : '') + '">'
+    +   '<div class="gp-topbar"><div class="gp-top-title">' + esc(parsed.title || '聊天') + '</div></div>'
+    +   '<div class="gp-feed" id="gpFeed">' + rowsHtml + '</div>'
+    + '</div>';
+  var css = ''
+    + 'html,body{margin:0;padding:0;background:#e9edf4;color:#111;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;overflow:auto;}'
+    + 'body{padding:0;}'
+    + '.gp-shell{min-height:260px;background:linear-gradient(180deg,#eef2f7 0%,#e5eaf2 100%);}'
+    + '.gp-topbar{position:sticky;top:0;z-index:2;padding:14px 16px 12px;background:rgba(255,255,255,.82);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid rgba(17,17,17,.08);}'
+    + '.gp-top-title{font-size:15px;font-weight:900;letter-spacing:.02em;text-align:center;color:#111;}'
+    + '.gp-feed{padding:14px 12px 18px;display:flex;flex-direction:column;gap:10px;}'
+    + '.gp-row{display:flex;align-items:flex-end;gap:8px;opacity:0;transform:translateY(12px) scale(.98);transition:opacity .24s ease,transform .24s ease;}'
+    + '.gp-row.is-shown{opacity:1;transform:translateY(0) scale(1);}'
+    + '.gp-row.is-user{justify-content:flex-end;}'
+    + '.gp-row.is-system{justify-content:center;}'
+    + '.gp-left{display:flex;align-items:flex-end;justify-content:center;min-width:32px;}'
+    + '.gp-avatar{width:32px;height:32px;border-radius:50%;overflow:hidden;background:#d8dde7;box-shadow:0 1px 0 rgba(0,0,0,.08);flex-shrink:0;}'
+    + '.gp-avatar img{width:100%;height:100%;display:block;object-fit:cover;}'
+    + '.gp-avatar-fallback{background:linear-gradient(180deg,#d5dae4,#bec5d1);}'
+    + '.gp-main{max-width:min(78%,310px);display:flex;flex-direction:column;gap:4px;}'
+    + '.gp-row.is-user .gp-main{align-items:flex-end;}'
+    + '.gp-sender{padding-left:2px;font-size:11px;font-weight:800;color:#6a7485;}'
+    + '.gp-bubble{display:inline-flex;flex-direction:column;gap:6px;max-width:100%;padding:10px 12px;border-radius:18px;background:#fff;color:#111;box-shadow:0 1px 0 rgba(0,0,0,.08);white-space:pre-wrap;word-break:break-word;line-height:1.58;font-size:14px;font-weight:700;}'
+    + '.gp-row.is-user .gp-bubble{background:#95ec69;color:#111;border-bottom-right-radius:6px;}'
+    + '.gp-row.is-assistant .gp-bubble,.gp-row.is-group .gp-bubble{border-bottom-left-radius:6px;}'
+    + '.gp-bubble-text{white-space:pre-wrap;word-break:break-word;}'
+    + '.gp-time{padding:0 3px;font-size:10px;font-weight:700;color:#8a94a3;}'
+    + '.gp-row.is-user .gp-time{text-align:right;}'
+    + '.gp-system-pill{display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:0 10px;border-radius:999px;background:rgba(17,17,17,.08);color:#6c7484;font-size:11px;font-weight:800;}'
+    + '.gp-sticker-wrap{display:flex;align-items:center;justify-content:flex-start;}'
+    + '.gp-sticker{display:block;max-width:136px;max-height:136px;width:auto;height:auto;border-radius:14px;object-fit:contain;background:transparent;}'
+    + '.gp-row.is-user .gp-sticker-wrap{justify-content:flex-end;}'
+    + '.gp-right-spacer{width:0;height:1px;}';
+  var js = ''
+    + '(function(){'
+    + 'var rows=Array.prototype.slice.call(document.querySelectorAll(".gp-row"));'
+    + 'var feed=document.getElementById("gpFeed");'
+    + 'var cursor=0;'
+    + 'function revealNext(){'
+    + '  if(cursor>=rows.length) return;'
+    + '  var row=rows[cursor];'
+    + '  if(row){'
+    + '    row.classList.add("is-shown");'
+    + '    setTimeout(function(){ try{ window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); }catch(err){} }, 40);'
+    + '  }'
+    + '  cursor += 1;'
+    + '  var delay = Number(row && row.dataset && row.dataset.delay) || 260;'
+    + '  setTimeout(revealNext, delay);'
+    + '}'
+    + 'setTimeout(revealNext, 120);'
+    + '})();';
+  return buildRichHtmlPayload({
+    html: html,
+    css: css,
+    js: js,
+    summary: String(parsed.title || '聊天').trim() || '聊天',
+    text: String(parsed.summary || parsed.title || '').trim()
+  });
+}
+
 function transformGreetingSource(raw, applyRegex){
   var source = substituteGreetingTemplateParams(String(raw || ''));
   if(!source.trim()) return '';
@@ -13431,6 +13676,8 @@ function renderGreetingSourceText(raw, applyRegex){
     }
     return sanitizeGreetingDisplayText(next);
   }
+  var protocolPayload = buildGreetingProtocolRichHtmlPayload(next);
+  if(protocolPayload) return protocolPayload;
   var rich = parseRichHtmlPayload(next) || {};
   if(String(rich.html || '').trim() || String(rich.url || '').trim() || String(rich.css || '').trim() || String(rich.js || '').trim()){
     return String(next || '').trim();
