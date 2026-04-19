@@ -152,7 +152,7 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
         '同一轮多条纯文本请用 <msg>...</msg>、<br> 或自然换行分隔；默认一气泡一句话。别整坨发，也别把几个意思串成长句。只有极少数情绪爆发场景，才允许一整段小作文。',
         '不要把开场白、世界书或别处看到的外部消息协议原样复制进正文。就算参考资料里有 sender/avatar/time/json 样例，也只学语义，不照抄格式。',
         'image_message 只写画面；money_packet 只用于真钱；narrator 不是对白。',
-        'offline_invite：用于主动约对方见面/出门/赴约。格式：{"type":"offline_invite","content":"一句自然的见面或赴约话","location":"地点","mood":"表情/气氛","weather":"天气符号或描述","aside":"藏着的小心思，可选","scheduledDate":"YYYY-MM-DD，可选","scheduledTime":"HH:MM，可选"}。想见面就可以主动发，但正文里不要提卡片、按钮或系统提示。',
+        'offline_invite：用于主动约对方见面/出门/赴约。格式：{"type":"offline_invite","content":"一句自然的见面或赴约话","location":"地点","mood":"表情/气氛","weather":"天气符号或描述","scheduledDate":"YYYY-MM-DD，可选","scheduledTime":"HH:MM，可选"}。想见面就可以主动发，但正文里不要提卡片、按钮或系统提示。',
         'rich_html 格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"...","text":"可提取正文","translation":"整张卡片所有可见文字的完整简中译文，可选"}；如果你想发一个真的网页链接，也可以改成 {"type":"rich_html","summary":"一句概括","url":"https://...","title":"网页标题","text":"可提取正文","translation":"整张卡片所有可见文字的完整简中译文，可选"}。',
         'rich_html 的 html/css/js 或 url 必须能真的展示；别给空壳、空字符串、占位框、半成品，也别只写“已生成”。做不到就改回完整 text/narrator。只要输出卡片，就必须是能直接展示的完整成品。',
         '整理类卡片尽量一次到位；translation 需要翻译整张卡片所有可见文字，不要只概括。',

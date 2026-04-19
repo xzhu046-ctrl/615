@@ -203,7 +203,6 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
     mood: randomPick(OFFLINE_MOODS, '(｡･ω･｡)'),
     weather: randomPick(OFFLINE_WEATHERS, '☀︎'),
     location: ((threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '对方') + '想和你见面的地方',
-    aside: sourceRole === 'user' ? '' : '好想见你',
     timeLabel: labels.timeLabel,
     dateLabel: labels.dateLabel,
     createdAt: Date.now(),
@@ -218,9 +217,6 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   data.mood = String(data.mood || '').trim() || '(｡･ω･｡)';
   data.weather = normalizeOfflineWeatherIcon(data.weather);
   data.location = String(data.location || '').trim() || '老地方';
-  data.aside = String(data.aside || '').trim();
-  if(data.sourceRole !== 'user' && !data.aside) data.aside = '好想见你';
-  if(data.sourceRole === 'user') data.aside = '';
   data.timeLabel = String(data.timeLabel || labels.timeLabel);
   data.dateLabel = String(data.dateLabel || labels.dateLabel);
   data.status = String(data.status || 'pending');
@@ -468,7 +464,6 @@ async function syncAcceptedOfflineInviteToSchedule(payload, acceptedPayload){
 
 function sanitizeOfflineInvitePayloadForModel(payload){
   var src = payload && typeof payload === 'object' ? Object.assign({}, payload) : {};
-  delete src.aside;
   delete src.status;
   delete src.type;
   delete src.sourceRole;
@@ -1185,7 +1180,6 @@ async function appendOfflineInviteToChat(role, payload, doScroll, options){
   }
   var safePayload = coerceOfflineInvitePayloadToThread(payload || {}, role === 'user' ? 'user' : 'assistant');
   var finalPayload = buildOfflineInvitePayload(role === 'user' ? 'user' : 'assistant', safePayload && safePayload.content, safePayload || {});
-  if(role === 'user') finalPayload.aside = '';
   var entry = makeChatEntry(role === 'user' ? 'user' : 'assistant', JSON.stringify(finalPayload), 'offline_invite');
   chatLog.push(entry);
   addMessage(role === 'user' ? 'user' : 'ai', entry.content, doScroll !== false, 'offline_invite', entry.id);
@@ -1280,9 +1274,8 @@ async function requestCharOfflineInviteDecision(userPayload){
     '必须认真读取角色当前人设、世界书设定、最近聊天气氛、用户此刻的伤心或情绪状态，以及用户这次邀约里写的具体话和地点。',
     '一定要把用户邀约里写的那句话和地点真正读进去，再决定接受还是拒绝，不能忽略地点，也不能把系统展示用的信息当成用户原话。',
     '对你来说这就是一次正常的见面、出门、赴约沟通。不要提卡片、按钮、接受拒绝按钮或系统提示。',
-    '如果 accept 为 true，text 不是说明文，也不是任何展示文案，而是你随后在聊天里发给对方的第一句正常消息。',
-    '如果 accept 为 true，text 要像真人聊天里顺手发的一句，尽量短，最好控制在 10 到 22 个字，不要写成长句，不要解释一大串。',
-    '只返回 JSON：{"accept":true|false,"text":"...","followups":["..."],"mood":"...","weather":"...","location":"...","aside":"...","scheduledDate":"YYYY-MM-DD","scheduledTime":"HH:MM"}',
+    '如果 accept 为 true，不要再单独写一条邀约语。正常聊天内容都放进 followups。',
+    '只返回 JSON：{"accept":true|false,"text":"...","followups":["..."],"mood":"...","weather":"...","location":"...","scheduledDate":"YYYY-MM-DD","scheduledTime":"HH:MM"}',
     '如果 accept 为 true，scheduledDate / scheduledTime / location 只是你这次见面安排的时间地点，不要把它们写进解释腔里。',
     '如果 accept 为 true，followups 里继续补 0 到 2 条正常聊天消息，像答应见面之后顺手又说了几句。每条都要短，一条一个意思，不要复读展示文案。',
     '如果 accept 为 true，请顺手给出你真的能赴约的时间 scheduledDate / scheduledTime。这个时间必须现实、合理，不能比现在更早，也不要写凌晨四点这种不合常理的时间。',
@@ -1290,7 +1283,6 @@ async function requestCharOfflineInviteDecision(userPayload){
     '如果 accept 为 false，请像真人聊天一样回复：可以先来一句当下反应，再补一句解释或安抚，语气要有停顿感和生活感。',
     '如果 accept 为 false，followups 里再补 0 到 2 条自然的后续消息，可以是解释、安抚、改约的意思，但要像聊天，不要像通知。每条都尽量短。',
     'followups 里的总条数请严格参考当前聊天设置：最少 ' + msgMin + ' 条，最多 ' + msgMax + ' 条；真的一句就够时，也至少给 1 条。',
-    '所有 text / followups 都必须像你平时正常聊天，不要忽然切成旁观者口吻，不要忽然用第三人称说“他/她”，也不要来一句“真拿他没办法”这种像旁白的句子。',
     '不要为了分条而硬切，只有真的像聊天那样自然停顿时才分开。',
     '不要 markdown，不要额外解释。'
   ].join('\n');
@@ -1476,10 +1468,10 @@ async function handlePendingOfflineInviteReply(){
     hideTyping();
     if(decision && decision.accept){
       var schedule = deriveOfflineInviteAcceptedSchedule(pending.payload, decision);
-      var acceptedFollowupText = normalizeOfflineInviteFollowups([decision && decision.text, decision && decision.followups], '好，那天见', {
+      var acceptedFollowupText = normalizeOfflineInviteFollowups(decision && decision.followups, '好，那天见', {
         limit: Math.max(1, Number(character && character.msgMax) || 3)
       });
-      var acceptedPreviewText = firstOfflineInviteFollowupText(acceptedFollowupText) || normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面');
+      var acceptedPreviewText = firstOfflineInviteFollowupText(acceptedFollowupText) || '好，那天见';
       pending.payload.status = 'accepted';
       pending.entry.content = JSON.stringify(pending.payload);
       var charWeather = await resolveOfflineInviteWeather('char', decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'));
@@ -1489,7 +1481,6 @@ async function handlePendingOfflineInviteReply(){
         mood: decision.mood || randomPick(OFFLINE_MOODS, '(///v///)'),
         weather: charWeather.icon,
         location: decision.location || pending.payload.location,
-        aside: decision.aside || '这次别拒绝我',
         status: 'accepted',
         scheduledDate: schedule.scheduledDate,
         scheduledTime: schedule.scheduledTime,
@@ -1616,7 +1607,6 @@ async function sendOfflineInviteFromUser(){
   payload.requestedDateLabel = String(payload.dateLabel || '').trim();
   payload.requestedTimeLabel = String(payload.timeLabel || '').trim();
   ensureOfflineInviteRecordId(payload);
-  payload.aside = '';
   payload.mood = '';
   var entry = await appendOfflineInviteToChat('user', payload, true);
   payload.inviteMessageId = entry && entry.id ? String(entry.id) : '';

@@ -6366,7 +6366,6 @@ function buildInviteTranslationCardHtml(inviteTranslation){
   if(!(inviteTranslation && typeof inviteTranslation === 'object')) return '';
   var lines = [];
   if(String(inviteTranslation.opening || '').trim()) lines.push('<div class="msg-translation-section"><span class="msg-translation-label">邀请正文</span><div class="msg-translation-copy">' + esc(String(inviteTranslation.opening || '').trim()) + '</div></div>');
-  if(String(inviteTranslation.aside || '').trim()) lines.push('<div class="msg-translation-section"><span class="msg-translation-label">小心思</span><div class="msg-translation-copy">' + esc(String(inviteTranslation.aside || '').trim()) + '</div></div>');
   if(String(inviteTranslation.location || '').trim()) lines.push('<div class="msg-translation-section"><span class="msg-translation-label">地点</span><div class="msg-translation-copy">' + esc(String(inviteTranslation.location || '').trim()) + '</div></div>');
   if(!lines.length) return '';
   return '<div class="msg-translation-card"><div class="msg-translation-kicker"><span class="msg-translation-pill">TRANSLATION</span><span class="msg-translation-sub">线下邀约</span></div><div class="msg-translation-list">' + lines.join('') + '</div></div>';
@@ -6536,20 +6535,18 @@ async function requestChatMessageTranslation(msgId, options){
       var inviteSystemPrompt = [
         '你是翻译器。',
         '请把下面这张线下邀约里的原文内容翻译成自然流畅的简体中文。',
-        '只返回 JSON：{"opening":"...","aside":"...","location":"..."}',
-        'opening 对应邀约正文，aside 对应点击浮出来的小心思，location 对应地点显示。没有的字段可以留空。'
+        '只返回 JSON：{"opening":"...","location":"..."}',
+        'opening 对应邀约正文，location 对应地点显示。没有的字段可以留空。'
       ].join('\n');
       var inviteRaw = await callAIWithCustomPrompts(inviteSystemPrompt, JSON.stringify({
         sourceLanguage: getReplyLanguageOption(getCharacterReplyLanguage()).nativeLabel,
         opening: String(invite.content || '').trim(),
-        aside: String(invite.aside || '').trim(),
         location: String(invite.location || '').trim()
       }));
       var inviteParsed = JSON.parse(String(inviteRaw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim() || '{}');
       if(!inviteParsed || typeof inviteParsed !== 'object') throw new Error('empty translation');
       entry.inviteTranslation = {
         opening: String(inviteParsed.opening || '').trim(),
-        aside: String(inviteParsed.aside || '').trim(),
         location: String(inviteParsed.location || '').trim()
       };
     }else{
@@ -6670,7 +6667,7 @@ function queueChatMessageTranslationPrefetch(msgId){
   if(!shouldOfferMessageTranslation(entry) || (entry && entry.translationLoading)) return;
   var kind = normalizeMessageType(entry && entry.type || 'text');
   var hasTranslation = kind === 'offlineinvite'
-    ? !!(entry && entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.aside || entry.inviteTranslation.location))
+    ? !!(entry && entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.location))
     : (kind === 'richhtml'
         ? (!!String(entry && entry.translationRichHtml || '').trim() || !!String(entry && entry.translationText || '').trim())
         : !!String(entry && entry.translationText || '').trim());
@@ -6695,7 +6692,7 @@ function toggleMessageTranslation(msgId){
   if(!shouldOfferMessageTranslation(entry)) return;
   var kind = normalizeMessageType(entry.type || 'text');
   if(kind === 'offlineinvite'){
-    if(!(entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.aside || entry.inviteTranslation.location))){
+    if(!(entry.inviteTranslation && (entry.inviteTranslation.opening || entry.inviteTranslation.location))){
       if(getCharacterTranslationMode() === 'prefetch'){
         toast('这条没有一起带译文');
         return Promise.resolve();
@@ -13089,7 +13086,7 @@ function formatMessageForModel(msg){
     content = '[money_packet mode=' + moneyMode + ' amount=' + moneyAmount + ' status=' + moneyStatus + (moneyNote ? (' note="' + moneyNote.replace(/"/g, '\'') + '"') : '') + (moneySummary ? (' summary="' + moneySummary.replace(/"/g, '\'') + '"') : '') + moneyStateHint + ']';
   } else if(kind === 'offlineinvite'){
     var invitePayload = parseOfflineInvitePayload(content) || {};
-    content = '[offline_invite content="' + String(invitePayload.content || '').replace(/"/g, '\'') + '" location="' + String(invitePayload.location || '').replace(/"/g, '\'') + '" mood="' + String(invitePayload.mood || '').replace(/"/g, '\'') + '" weather="' + String(invitePayload.weather || '').replace(/"/g, '\'') + '" aside="' + String(invitePayload.aside || '').replace(/"/g, '\'') + '"]';
+    content = '[offline_invite content="' + String(invitePayload.content || '').replace(/"/g, '\'') + '" location="' + String(invitePayload.location || '').replace(/"/g, '\'') + '" mood="' + String(invitePayload.mood || '').replace(/"/g, '\'') + '" weather="' + String(invitePayload.weather || '').replace(/"/g, '\'') + '"]';
   } else if(kind === 'callrecord'){
     try{
       var callPayload = typeof content === 'string' ? JSON.parse(content) : (content || {});
@@ -17805,7 +17802,7 @@ function buildChatExtendedFormatPrompt(){
     '你除了普通 text / voice_message / image_message / money_packet，还可以使用 offline_invite / narrator / rich_html / recall / rename_profile / change_avatar / change_user_avatar。',
     'narrator：用于动作、环境、声音、镜头感、心理余波，是旁白，不是说出口的话。格式：{"type":"narrator","content":"..."}',
     'narrator 里禁止写“用户”“USER”“user”“角色”“CHAR”“char”这种偷懒指代。涉及双方时，只能直接写名字、昵称，或者自然的第三人称代称。',
-    'offline_invite：用于主动约对方见面/出门/赴约。格式：{"type":"offline_invite","content":"一句自然的见面话","location":"地点","mood":"表情/气氛","weather":"天气符号或描述","aside":"藏着的小心思，可选","scheduledDate":"YYYY-MM-DD，可选","scheduledTime":"HH:MM，可选"}。',
+    'offline_invite：用于主动约对方见面/出门/赴约。格式：{"type":"offline_invite","content":"一句自然的见面话","location":"地点","mood":"表情/气氛","weather":"天气符号或描述","scheduledDate":"YYYY-MM-DD，可选","scheduledTime":"HH:MM，可选"}。',
     'offline_invite 对你来说只是正常约对方见面。你想见面就可以发，让对方自己决定接受还是拒绝；语气要像真人，不要模板腔，不要像系统通知，也不要提卡片、按钮或“邀请”这种系统词。',
     'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件，也包括聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、邮箱主页、邮箱收件箱、邮件线程、邮件草稿、银行账户总览、银行账户余额、银行账户明细、影评、药品单、医院开的单子、知乎帖子、小说简介、伪小红书帖子、直播间、抖音样式页、社交媒体主页、社交媒体帖子、社交媒体评论、测评、repo、银行账单、银行流水、法院传票、学签、旅游签、工签、银行卡、PPT页、文档页、名片、便签、周易/八卦、中式算卦、抽签、月老签、简历、说明书、调查问卷、MBTI 测试、测试结果、quiz/test/exam 这类页面或卡片。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}；如果是发一个真的网页链接，也可以用 {"type":"rich_html","summary":"一句概括","url":"https://...","title":"网页标题","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}',
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
@@ -28436,7 +28433,6 @@ async function deliverAiReply(text, limitOverride, options){
         mood: item.mood || '',
         weather: item.weather || '',
         location: item.location || '',
-        aside: item.aside || '',
         timeLabel: item.timeLabel || '',
         dateLabel: item.dateLabel || ''
       }));
@@ -28806,7 +28802,6 @@ async function deliverAiReply(text, limitOverride, options){
               mood: obj.mood || '',
               weather: obj.weather || '',
               location: obj.location || '',
-              aside: obj.aside || '',
               timeLabel: obj.timeLabel || '',
               dateLabel: obj.dateLabel || ''
             }));
