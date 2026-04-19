@@ -531,7 +531,7 @@ function normalizeOfflineInviteFollowups(value, fallbackText, options){
   }else{
     splitOfflineInviteFollowupText(value).forEach(pushPart);
   }
-  if(fallbackText){
+  if(!parts.length && fallbackText){
     splitOfflineInviteFollowupText(fallbackText).forEach(pushPart);
   }
   return parts.slice(0, limit).join('<msg>');
@@ -1468,10 +1468,10 @@ async function handlePendingOfflineInviteReply(){
     hideTyping();
     if(decision && decision.accept){
       var schedule = deriveOfflineInviteAcceptedSchedule(pending.payload, decision);
-      var acceptedFollowupText = normalizeOfflineInviteFollowups(decision && decision.followups, '好，那天见', {
+      var acceptedFollowupText = normalizeOfflineInviteFollowups(decision && decision.followups, '', {
         limit: Math.max(1, Number(character && character.msgMax) || 3)
       });
-      var acceptedPreviewText = firstOfflineInviteFollowupText(acceptedFollowupText) || '好，那天见';
+      var acceptedPreviewText = firstOfflineInviteFollowupText(acceptedFollowupText) || 'ACCEPTED';
       pending.payload.status = 'accepted';
       pending.entry.content = JSON.stringify(pending.payload);
       var charWeather = await resolveOfflineInviteWeather('char', decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'));
