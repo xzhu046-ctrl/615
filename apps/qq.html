@@ -1900,6 +1900,146 @@ function looksLikePreviewMetaNote(text){
   return false;
 }
 
+function normalizePreviewRegexScript(entry){
+  if(!entry || typeof entry !== 'object') return null;
+  return {
+    scriptName: String(entry.scriptName || entry.name || entry.label || entry.id || '').trim() || '导入脚本',
+    findRegex: String(entry.findRegex || entry.find_regex || '').trim(),
+    replaceString: String(entry.replaceString || entry.replace_string || '').trim(),
+    placement: Array.isArray(entry.placement) ? entry.placement.map(function(item){ return Number(item); }).filter(function(item){ return isFinite(item); }) : [],
+    trimStrings: Array.isArray(entry.trimStrings) ? entry.trimStrings.map(function(item){ return String(item || '').trim(); }).filter(Boolean) : [],
+    disabled: !!entry.disabled,
+    promptOnly: !!entry.promptOnly,
+    substituteRegex: Number(entry.substituteRegex || 0) || 0
+  };
+}
+
+function getPreviewUserName(){
+  try{
+    if(window.AccountManager){
+      var scoped = window.AccountManager.scopedKey('user_name');
+      var named = String(localStorage.getItem(scoped) || '').trim();
+      if(named) return named;
+    }
+  }catch(err){}
+  try{
+    var legacy = String(localStorage.getItem('user_name') || '').trim();
+    if(legacy) return legacy;
+  }catch(err){}
+  return '你';
+}
+
+function escapePreviewRegexMacro(value){
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function substitutePreviewGreetingTemplateParams(text, c){
+  var source = String(text || '');
+  if(!source) return '';
+  var userName = String(getPreviewUserName() || '你').trim() || '你';
+  var charName = String((c && (c.nickname || c.name)) || '对方').trim() || '对方';
+  return source
+    .replace(/\{\{\s*user\s*\}\}/gi, userName)
+    .replace(/\{\{\s*char\s*\}\}/gi, charName)
+    .replace(/<\s*user\s*>/gi, userName)
+    .replace(/<\s*char\s*>/gi, charName);
+}
+
+function buildPreviewGreetingRegexSource(entry, c){
+  var item = normalizePreviewRegexScript(entry);
+  var pattern = String(item && item.findRegex || '').trim();
+  if(!pattern) return '';
+  var mode = Number(item && item.substituteRegex || 0) || 0;
+  if(mode === 1) return substitutePreviewGreetingTemplateParams(pattern, c);
+  if(mode === 2){
+    var userName = String(getPreviewUserName() || '你').trim() || '你';
+    var charName = String((c && (c.nickname || c.name)) || '对方').trim() || '对方';
+    return pattern
+      .replace(/\{\{\s*user\s*\}\}/gi, escapePreviewRegexMacro(userName))
+      .replace(/\{\{\s*char\s*\}\}/gi, escapePreviewRegexMacro(charName))
+      .replace(/<\s*user\s*>/gi, escapePreviewRegexMacro(userName))
+      .replace(/<\s*char\s*>/gi, escapePreviewRegexMacro(charName));
+  }
+  return pattern;
+}
+
+function parsePreviewGreetingRegex(entry, c){
+  var pattern = buildPreviewGreetingRegexSource(entry, c);
+  if(!pattern) return null;
+  var source = pattern;
+  var flags = 'g';
+  var slashMatch = pattern.match(/^\/([\s\S]*)\/([a-z]*)$/i);
+  if(slashMatch){
+    source = String(slashMatch[1] || '');
+    flags = String(slashMatch[2] || '').replace(/[^dgimsuvy]/g, '');
+    if(flags.indexOf('g') === -1) flags += 'g';
+  }
+  try{
+    return new RegExp(source, flags || 'g');
+  }catch(err){
+    try{ return new RegExp(pattern, 'g'); }catch(innerErr){ return null; }
+  }
+}
+
+function runPreviewGreetingRegexScript(entry, rawText, c){
+  var item = normalizePreviewRegexScript(entry);
+  var sourceText = String(rawText || '');
+  if(!(item && !item.disabled && sourceText && String(item.findRegex || '').trim())) return sourceText;
+  var regex = parsePreviewGreetingRegex(item, c);
+  if(!regex) return sourceText;
+  try{
+    return String(sourceText).replace(regex, function(){
+      var args = Array.prototype.slice.call(arguments);
+      var groups = args[args.length - 1];
+      var replacePattern = String(item.replaceString || '').replace(/\{\{\s*match\s*\}\}/gi, '$0');
+      var replaceWithGroups = replacePattern.replace(/\$(\d+)|\$<([^>]+)>/g, function(_, num, groupName){
+        var replacementMatch = '';
+        if(num){
+          replacementMatch = args[Number(num)] || '';
+        }else if(groupName && groups && typeof groups === 'object'){
+          replacementMatch = groups[groupName] || '';
+        }
+        var filteredMatch = String(replacementMatch || '');
+        if(Array.isArray(item.trimStrings) && item.trimStrings.length){
+          item.trimStrings.forEach(function(token){
+            var safe = substitutePreviewGreetingTemplateParams(String(token || ''), c);
+            if(!safe) return;
+            filteredMatch = filteredMatch.split(safe).join('');
+          });
+        }
+        return filteredMatch;
+      });
+      return substitutePreviewGreetingTemplateParams(replaceWithGroups, c);
+    });
+  }catch(err){
+    return sourceText;
+  }
+}
+
+function getEnabledPreviewGreetingRegexScripts(c){
+  if(!(c && Array.isArray(c.importedRegexScripts) && c.importedRegexScripts.length)) return [];
+  if(c.regexRulesEnabled === false) return [];
+  return c.importedRegexScripts
+    .map(normalizePreviewRegexScript)
+    .filter(function(entry){
+      if(!(entry && !entry.disabled && String(entry.findRegex || '').trim())) return false;
+      var placements = Array.isArray(entry.placement) ? entry.placement : [];
+      if(placements.length && placements.indexOf(2) === -1 && placements.indexOf(1) === -1) return false;
+      return !entry.promptOnly;
+    });
+}
+
+function renderPreviewGreetingSource(text, c){
+  var source = substitutePreviewGreetingTemplateParams(text, c);
+  var scripts = getEnabledPreviewGreetingRegexScripts(c);
+  if(!scripts.length) return source;
+  var next = source;
+  scripts.forEach(function(entry){
+    next = runPreviewGreetingRegexScript(entry, next, c);
+  });
+  return substitutePreviewGreetingTemplateParams(next, c);
+}
+
 function sanitizeCharacterPreviewSeed(text){
   var clean = String(text || '').replace(/\r\n/g, '\n').trim();
   if(!clean) return '';
@@ -1926,7 +2066,10 @@ function getCharacterPreviewFallback(c){
   if(String(c.first_mes || '').trim()) pool.push(c.first_mes);
   if(Array.isArray(c.alternate_greetings)) pool = pool.concat(c.alternate_greetings);
   for(var i = 0; i < pool.length; i++){
-    var candidate = sanitizeCharacterPreviewSeed(pool[i]);
+    var rendered = renderPreviewGreetingSource(pool[i], c);
+    var richSummary = summarizeRichPreview(rendered);
+    if(richSummary && richSummary !== '【SURPRISE】' && !isPreviewGreetingPlaceholder(richSummary)) return richSummary;
+    var candidate = sanitizeCharacterPreviewSeed(rendered);
     if(candidate && !isPreviewGreetingPlaceholder(candidate)) return candidate;
   }
   return sanitizeCharacterPreviewSeed(c.description || '');
@@ -2913,11 +3056,49 @@ function handleContactsDrawerOverlay(evt){
   if(evt.target === evt.currentTarget) closeContactsDrawer();
 }
 function getContactsFrameWindow(){
+  syncContactsHelperFrame(false);
   var iframe = document.getElementById('contactsHelperFrame');
   try{
     return iframe && iframe.contentWindow ? iframe.contentWindow : null;
   }catch(err){
     return null;
+  }
+}
+function getQqPageBuildId(){
+  try{
+    var build = String(new URL(window.location.href).searchParams.get('__appBuild') || '').trim();
+    return build;
+  }catch(err){
+    return '';
+  }
+}
+function buildContactsHelperSrc(){
+  var build = getQqPageBuildId();
+  var url = new URL('characters.html', window.location.href);
+  if(build) url.searchParams.set('__appBuild', build);
+  return url.toString();
+}
+function syncContactsHelperFrame(forceReload){
+  var iframe = document.getElementById('contactsHelperFrame');
+  if(!iframe) return;
+  var targetSrc = buildContactsHelperSrc();
+  var currentSrc = '';
+  try{
+    currentSrc = iframe.contentWindow && iframe.contentWindow.location
+      ? String(iframe.contentWindow.location.href || '').trim()
+      : '';
+  }catch(err){
+    currentSrc = '';
+  }
+  if(!currentSrc){
+    try{
+      currentSrc = new URL(String(iframe.getAttribute('src') || ''), window.location.href).toString();
+    }catch(err){
+      currentSrc = String(iframe.getAttribute('src') || '').trim();
+    }
+  }
+  if(forceReload || currentSrc !== targetSrc){
+    iframe.setAttribute('src', targetSrc);
   }
 }
 function openContactsCreate(){
@@ -2935,6 +3116,7 @@ function openContactsCreate(){
 }
 function openContactsImport(){
   closeContactsDrawer();
+  syncContactsHelperFrame(false);
   var input = document.getElementById('contactsImportInput');
   if(input){
     input.value = '';
@@ -3138,6 +3320,7 @@ function handleContactsImportFiles(files){
     if(input) input.value = '';
     return;
   }
+  syncContactsHelperFrame(false);
   var cw = getContactsFrameWindow();
   if(!cw || typeof cw.onFiles !== 'function'){
     showToast('导入器还没准备好，等一秒再试');
@@ -3160,6 +3343,9 @@ function openProfileCenter(){
   window.location.href = 'qq_profile.html';
 }
 function bindQqHeroInput(){}
+window.addEventListener('load', function(){
+  syncContactsHelperFrame(false);
+});
 window.addEventListener('message', async function(e){
   var d=e.data||{};
   if(d.type==='CHARACTER_IMPORTED'){ await loadChars(); renderMomentsBadge(); syncHomeBadgeCount(); forward(d); }
