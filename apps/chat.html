@@ -19827,12 +19827,18 @@ async function removeMemeCategory(category){
   var next = before.filter(function(item){
     return normalizeMemeCategory(item.category) !== safeCategory;
   });
-  if(next.length === before.length) return 0;
+  var categoryList = Array.isArray(memeLibraryCache.categories) ? memeLibraryCache.categories.slice() : [];
+  var nextCategories = categoryList.filter(function(entry){
+    return normalizeMemeCategory(entry) !== safeCategory;
+  });
+  var categoryChanged = nextCategories.length !== categoryList.length;
+  if(next.length === before.length && !categoryChanged) return 0;
   pruneImportedMemeResourcesByMatcher(function(entry){
     return normalizeMemeCategory(character && character.importedMemeCategory || '') === safeCategory
       || normalizeMemeCategory(entry.category || '') === safeCategory;
   });
   memeLibraryCache.items = next;
+  memeLibraryCache.categories = nextCategories;
   if(activeMemeCategory === safeCategory) activeMemeCategory = 'all';
   await saveMemeLibrary();
   refreshMemeCategoryStrip();
@@ -19865,7 +19871,7 @@ function updateMemeManageBar(){
     deleteSelectedBtn.disabled = !selectedMemeIds.size;
   }
   if(deleteCategoryBtn){
-    deleteCategoryBtn.disabled = !items.length || activeMemeCategory === 'all';
+    deleteCategoryBtn.disabled = activeMemeCategory === 'all';
     deleteCategoryBtn.textContent = activeMemeCategory === 'all' ? '删本类' : ('删“' + String(activeMemeCategory || '').slice(0, 6) + '”');
   }
 }
@@ -19917,10 +19923,9 @@ async function deleteActiveMemeCategory(){
   var safeCategory = normalizeMemeCategory(activeMemeCategory);
   if(!safeCategory || safeCategory === 'all') return;
   var count = getMemeItemsForCategory(safeCategory).length;
-  if(!count) return;
   var confirmed = typeof showCustomConfirm === 'function'
-    ? await showCustomConfirm('确认删除', '确定要删除分类“' + safeCategory + '”里的全部 ' + count + ' 个表情包吗？', { confirmButtonClass:'btn-danger' })
-    : confirm('确定要删除分类“' + safeCategory + '”里的全部 ' + count + ' 个表情包吗？');
+    ? await showCustomConfirm('确认删除', count ? ('确定要删除分类“' + safeCategory + '”里的全部 ' + count + ' 个表情包吗？') : ('确定要删除空分类“' + safeCategory + '”吗？'), { confirmButtonClass:'btn-danger' })
+    : confirm(count ? ('确定要删除分类“' + safeCategory + '”里的全部 ' + count + ' 个表情包吗？') : ('确定要删除空分类“' + safeCategory + '”吗？'));
   if(!confirmed) return;
   await removeMemeCategory(safeCategory);
   selectedMemeIds.clear();

@@ -591,6 +591,49 @@ async function removeImportedCharacterArtifacts(ids){
   if(!list.length) return;
   var unique = [];
   list.forEach(function(id){ if(unique.indexOf(id) === -1) unique.push(id); });
+  function scopedKey(base, id){
+    var raw = String(base || '') + String(id || '').trim();
+    if(window.AccountManager && typeof window.AccountManager.scopedKey === 'function'){
+      try{ return window.AccountManager.scopedKey(raw); }catch(err){}
+    }
+    return raw;
+  }
+  function removeLocalVariants(keys){
+    (Array.isArray(keys) ? keys : []).forEach(function(key){
+      var safeKey = String(key || '').trim();
+      if(!safeKey) return;
+      try{ localStorage.removeItem(safeKey); }catch(err){}
+    });
+  }
+  async function removeLargeStoreIds(keys){
+    var safeKeys = (Array.isArray(keys) ? keys : []).map(function(key){
+      return String(key || '').trim();
+    }).filter(Boolean);
+    if(!safeKeys.length) return;
+    await Promise.all(safeKeys.map(async function(key){
+      try{
+        if(window.PhoneStorage && typeof window.PhoneStorage.removeJson === 'function'){
+          await window.PhoneStorage.removeJson(key);
+        }
+      }catch(err){}
+      try{
+        localStorage.removeItem(key);
+      }catch(err){}
+    }));
+  }
+  async function removeStoredAssetKeys(keys){
+    await Promise.all((Array.isArray(keys) ? keys : []).map(async function(key){
+      var safeKey = String(key || '').trim();
+      if(!safeKey) return;
+      try{
+        if(window.assetStore && typeof window.assetStore.remove === 'function'){
+          await window.assetStore.remove(safeKey);
+        }else{
+          localStorage.removeItem(safeKey);
+        }
+      }catch(err){}
+    }));
+  }
   var worldbooks = getStoredWorldbooksSnapshot();
   var wbChanged = false;
   unique.forEach(function(id){
@@ -607,25 +650,57 @@ async function removeImportedCharacterArtifacts(ids){
     }
   }
   await Promise.all(unique.map(async function(id){
+    var scopedChatKey = chatStorageKeyForChar(id);
+    var legacyChatKey = 'chat_' + id;
+    var greetingKey = getGreetingStorageKey(id);
+    var firstTurnKey = pendingFirstUserTurnKey(id);
+    var localOnlyKeys = [
+      scopedKey('pending_friend_req_intro_', id),
+      'pending_friend_req_intro_' + id,
+      scopedKey('user_name_', id),
+      'user_name_' + id,
+      scopedKey('char_bg_activity_enabled_', id),
+      'char_bg_activity_enabled_' + id,
+      scopedKey('char_moments_freq_', id),
+      'char_moments_freq_' + id,
+      scopedKey('avatar_vision_enabled_', id),
+      'avatar_vision_enabled_' + id,
+      scopedKey('char_avatar_auto_enabled_', id),
+      'char_avatar_auto_enabled_' + id,
+      scopedKey('char_avatar_auto_last_action_', id),
+      'char_avatar_auto_last_action_' + id,
+      scopedKey('presence_nudge_', id),
+      'presence_nudge_' + id
+    ];
+    var largeStoreKeys = [
+      scopedKey('chat_settings_patch_', id),
+      scopedKey('chat_global_theme_css_', id),
+      scopedKey('chat_bubble_theme_css_', id),
+      scopedKey('chat_theme_css_', id),
+      scopedKey('avatar_library_', id),
+      scopedKey('avatar_vision_summary_', id),
+      scopedKey('moments_social_state_', id),
+      scopedKey('chat_block_state_', id)
+    ];
+    var assetKeys = [
+      scopedKey('chat_bg_asset_', id),
+      scopedKey('chat_header_bg_asset_', id),
+      'char_avatar_' + id
+    ];
     try{
       if(window.PhoneStorage && typeof window.PhoneStorage.remove === 'function'){
-        await window.PhoneStorage.remove('chats', chatStorageKeyForChar(id));
-        await window.PhoneStorage.remove('chats', 'chat_' + id);
+        await window.PhoneStorage.remove('chats', scopedChatKey);
+        await window.PhoneStorage.remove('chats', legacyChatKey);
       }
     }catch(err){}
+    await removeStoredAssetKeys(assetKeys);
+    await removeLargeStoreIds(largeStoreKeys);
+    removeLocalVariants(localOnlyKeys);
     try{
-      if(window.assetStore && typeof window.assetStore.remove === 'function'){
-        await window.assetStore.remove('char_avatar_' + id);
-      }else{
-        localStorage.removeItem('char_avatar_' + id);
-      }
-    }catch(err){}
-    try{
-      localStorage.removeItem(chatStorageKeyForChar(id));
-      localStorage.removeItem('chat_' + id);
-      localStorage.removeItem(getGreetingStorageKey(id));
-      localStorage.removeItem(pendingFirstUserTurnKey(id));
-      localStorage.removeItem('pending_friend_req_intro_' + id);
+      localStorage.removeItem(scopedChatKey);
+      localStorage.removeItem(legacyChatKey);
+      localStorage.removeItem(greetingKey);
+      localStorage.removeItem(firstTurnKey);
     }catch(err){}
   }));
 }
@@ -2108,11 +2183,18 @@ var STRUCTURED_AVATAR_ASSET_TYPES = {
 
 var STRUCTURED_MEME_ASSET_TYPES = {
   emotion: true,
+  emotions: true,
   expression: true,
+  expressions: true,
   meme: true,
+  memes: true,
   sticker: true,
+  stickers: true,
   emoji: true,
-  emote: true
+  emote: true,
+  emotes: true,
+  reaction: true,
+  reactions: true
 };
 
 function getStructuredImportedAssetKind(type) {
@@ -2133,7 +2215,7 @@ function guessImportedResourceKind(path, text) {
       && !/(表情包列表|表情包使用规范|meme\s+list|sticker\s+list|emoji\s+list|emote\s+list)/.test(source)) {
     return 'avatar';
   }
-  if (/(表情包列表|表情包使用规范|表情列表|meme(?:\s+list)?|sticker(?:\s+list)?|emoji(?:\s+list)?|emote(?:\s+list)?|<meme>|贴图|reaction)/.test(source)) {
+  if (/(表情包列表|表情包使用规范|表情列表|表符|meme(?:\s+list)?|sticker(?:\s+list)?|emoji(?:\s+list)?|emote(?:\s+list)?|<meme>|贴图|reaction)/.test(source)) {
     return 'meme';
   }
   return 'unknown';
@@ -2167,7 +2249,7 @@ function isImportedMemeSectionLine(line) {
   if (extractImportedImageTokenFromLine(text)) return false;
   if (looksLikeImportedRuleSentence(text)) return false;
   if (/(表情包头像|meme头像|头像表情包)/i.test(text)) return false;
-  if (/(表情包列表|表情包使用规范|表情列表|meme(?:\s+list)?|sticker(?:\s+list)?|emoji(?:\s+list)?|emote(?:\s+list)?|reaction|expression|贴图)/i.test(text)) {
+  if (/(表情包列表|表情包使用规范|表情列表|表符|meme(?:\s+list)?|sticker(?:\s+list)?|emoji(?:\s+list)?|emote(?:\s+list)?|reaction|expression|贴图)/i.test(text)) {
     return true;
   }
   return /(json文件|json 文件|json)/i.test(text) && /[：:]$/.test(text);
@@ -2699,6 +2781,23 @@ function collectStructuredImportedAssets(source, path, bucket) {
   });
 }
 
+function collectLooseImportedAssetObject(source, path, bucket) {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return;
+  var typeHint = String(source.type || source.assetType || source.kind || source.role || '').trim();
+  var label = source.name || source.label || source.title || source.id || '';
+  var token = source.uri || source.url || source.src || source.path || source.file || source.fileName || source.filename || '';
+  if (!token && label && isImportedImageFileName(label)) token = label;
+  if (!token) return;
+  var kind = getStructuredImportedAssetKind(typeHint);
+  if (kind === 'unknown') {
+    var richPath = String(path || '') + '\n' + Object.keys(source).join('\n') + '\n' + String(label || '');
+    kind = guessImportedResourceKind(richPath, String(token || ''));
+  }
+  if (kind !== 'avatar' && kind !== 'meme') return;
+  var entry = buildImportedImageEntry(kind, token, label, String(path || ''), typeHint || '角色卡资源对象');
+  if (entry) bucket.images.push(entry);
+}
+
 function collectStructuredRegexScripts(source, path, bucket) {
   var roots = [];
   if (source && typeof source === 'object') roots.push(source);
@@ -2734,7 +2833,13 @@ function extractImportedAssetEntriesFromText(text, path, options) {
   var hasExplicitSection = lines.some(function(line){
     return isImportedAvatarSectionLine(line) || isImportedMemeSectionLine(line);
   });
-  if (!hasExplicitSection && currentKind !== 'avatar' && currentKind !== 'meme') return [];
+  if (!hasExplicitSection && currentKind !== 'avatar' && currentKind !== 'meme') {
+    var memeLike = /(表情包|表情列表|表符|<meme>|meme|sticker|emoji|reaction|expression|贴图|files\.catbox\.moe)/i.test(raw);
+    var avatarLike = /(头像列表|头像管理|可用头像|avatar(?:\s+list|\s+library)?|初始头像|平时的头像|崩溃时(?:时)?头像|极度兴奋.*头像)/i.test(raw);
+    if (memeLike) currentKind = 'meme';
+    else if (avatarLike) currentKind = 'avatar';
+    else return [];
+  }
   var entries = [];
   lines.forEach(function(line) {
     if (isImportedAvatarSectionLine(line)) {
@@ -2778,7 +2883,7 @@ function extractImportedAssetEntriesFromText(text, path, options) {
   var pairContextIsMeme = currentKind === 'meme'
     || fallbackKind === 'meme'
     || hasExplicitSection
-    || /(表情包|表情列表|<meme>|meme|sticker|emoji|reaction|贴图)/i.test(raw);
+    || /(表情包|表情列表|表符|<meme>|meme|sticker|emoji|reaction|贴图|files\.catbox\.moe)/i.test(raw);
   if (pairContextIsMeme) {
     var pairRe = /(?:^|[,\n，])\s*([^,\n，]+?)\s+(https?:\/\/[^\s,，]+?\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)(?:\?[^\s,，]*)?)/ig;
     var match;
@@ -2788,6 +2893,14 @@ function extractImportedAssetEntriesFromText(text, path, options) {
       if (!pairLabel || !pairToken) continue;
       var pairEntry = buildImportedImageEntry('meme', pairToken, pairLabel, path, '世界书表情包列表');
       if (pairEntry) entries.push(pairEntry);
+    }
+    var catboxPairRe = /(?:^|[,\n，])\s*([^,\n，]+?)\s*[:：]?\s*([A-Za-z0-9_\-\u4e00-\u9fa5]{0,48}[a-z0-9]{6}\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif))/ig;
+    while ((match = catboxPairRe.exec(raw))) {
+      var catboxLabel = normalizeImportedLabel(String(match[1] || '').trim().replace(/[：:]\s*$/, ''), '');
+      var catboxToken = String(match[2] || '').trim();
+      if (!catboxToken) continue;
+      var catboxEntry = buildImportedImageEntry('meme', catboxToken, catboxLabel, path, '世界书表情包列表');
+      if (catboxEntry) entries.push(catboxEntry);
     }
   }
   return entries;
@@ -2817,6 +2930,7 @@ function collectImportedMetadataFromNode(node, path, bucket, depth, options) {
   }
   if (typeof node !== 'object') return;
   collectStructuredImportedAssets(node, path, bucket);
+  collectLooseImportedAssetObject(node, path, bucket);
   collectStructuredRegexScripts(node, path, bucket);
   Object.keys(node).slice(0, 120).forEach(function(key) {
     collectImportedMetadataFromNode(node[key], path ? (path + '.' + key) : key, bucket, depth + 1, options);
