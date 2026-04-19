@@ -1231,6 +1231,16 @@ async function rejectOfflineInvite(messageId){
   var note = makeSystemNoticeEntry(userName + '现在不想出门');
   chatLog.push(note);
   addSystemNotice(note.content, true, note.id);
+  await syncOfflineInviteRecord(payload, {
+    id: ensureOfflineInviteRecordId(payload),
+    inviteMessageId: String(entry && entry.id || '').trim(),
+    sourceRole: 'assistant',
+    status: 'rejected',
+    previewText: userName + '现在不想出门',
+    reminderState: 'pending',
+    arrivalState: 'pending',
+    arrivedAt: 0
+  });
   await saveChat(true);
   rerenderChat();
 }
@@ -1257,6 +1267,16 @@ async function acceptOfflineInvite(messageId){
   payload.status = 'accepted';
   entry.content = JSON.stringify(payload);
   rerenderChat();
+  await syncOfflineInviteRecord(payload, {
+    id: ensureOfflineInviteRecordId(payload),
+    inviteMessageId: String(entry && entry.id || '').trim(),
+    sourceRole: 'assistant',
+    status: 'accepted',
+    previewText: String(payload.content || '').trim(),
+    reminderState: 'pending',
+    arrivalState: 'pending',
+    arrivedAt: 0
+  });
   try{
     var threadCharacter = getOfflineInviteThreadCharacter();
     var shellCharacter = null;
