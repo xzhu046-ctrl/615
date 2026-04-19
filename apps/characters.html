@@ -2742,6 +2742,22 @@ function normalizeImportedMemeDisplayName(name, fileName) {
   return text;
 }
 
+function parseImportedBareMemeLine(line, path) {
+  var text = String(line || '').trim();
+  if (!text) return null;
+  text = text
+    .replace(/^[`"'[{(]+/g, '')
+    .replace(/[`"',\]})]+$/g, '')
+    .replace(/^[•·▪◦\-\*\d.\)\( ]+/g, '')
+    .trim();
+  if (!text) return null;
+  var match = text.match(/^(.+?)([a-z0-9]{6}\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif))$/i);
+  if (!match) return null;
+  var label = normalizeImportedMemeDisplayName(match[1], match[2]);
+  if (!label) return null;
+  return buildImportedImageEntry('meme', match[2], label, path, '世界书表情包列表');
+}
+
 function buildImportedImageEntry(kind, token, label, path, note) {
   var safeKind = kind === 'avatar' ? 'avatar' : 'meme';
   var clean = stripImportedImageDecorations(token);
@@ -2867,6 +2883,13 @@ function extractImportedAssetEntriesFromText(text, path, options) {
       else if (owner === 'other') avatarSectionAllowed = false;
     } else if (isImportedMemeSectionLine(line)) {
       currentKind = 'meme';
+    }
+    if (currentKind === 'meme' || fallbackKind === 'meme') {
+      var bareMemeEntry = parseImportedBareMemeLine(line, path);
+      if (bareMemeEntry) {
+        entries.push(bareMemeEntry);
+        return;
+      }
     }
     var token = extractImportedImageTokenFromLine(line);
     if (!token) return;
