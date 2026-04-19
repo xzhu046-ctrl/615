@@ -494,35 +494,7 @@ function normalizeOfflineInviteDecisionText(text, fallback){
 function normalizeOfflineInviteRejectText(text, fallback){
   var clean = String(text || '').replace(/\s+/g, ' ').trim() || String(fallback || '').trim();
   if(!clean) return '';
-  if(/<msg>/i.test(clean)) return clean;
-  if(clean.length <= 34) return clean;
-  var minCount = Math.max(1, Number(character && character.msgMin) || 1);
-  var maxCount = Math.max(minCount, Number(character && character.msgMax) || 3);
-  var parts = clean.match(/[^，,。！？!?；;]+[，,。！？!?；;]?/g) || [clean];
-  parts = parts.map(function(part){ return String(part || '').trim(); }).filter(Boolean);
-  if(parts.length <= 1){
-    if(clean.length <= 54 || maxCount <= 1) return clean;
-    var mid = Math.ceil(clean.length / 2);
-    var splitAt = clean.indexOf('，', Math.max(6, mid - 6));
-    if(splitAt < 0) splitAt = clean.indexOf(',', Math.max(6, mid - 6));
-    if(splitAt < 0) splitAt = mid;
-    parts = [clean.slice(0, splitAt + (splitAt === mid ? 0 : 1)).trim(), clean.slice(splitAt + (splitAt === mid ? 0 : 1)).trim()].filter(Boolean);
-  }
-  if(parts.length <= 1 || parts.length > maxCount + 2) return clean;
-  var targetCount = Math.min(maxCount, Math.max(Math.min(parts.length, maxCount), Math.min(minCount, parts.length)));
-  if(targetCount <= 1) return clean;
-  var groups = [];
-  var idx = 0;
-  for(var i = 0; i < targetCount; i++){
-    var remainingParts = parts.length - idx;
-    var remainingSlots = targetCount - i;
-    var take = Math.ceil(remainingParts / remainingSlots);
-    var slice = parts.slice(idx, idx + take).join('').trim();
-    if(slice) groups.push(slice);
-    idx += take;
-  }
-  groups = groups.filter(Boolean);
-  return groups.length > 1 ? groups.join('<msg>') : clean;
+  return clean;
 }
 
 function splitOfflineInviteFollowupText(raw){
@@ -548,27 +520,13 @@ function normalizeOfflineInviteFollowups(value, fallbackText, options){
   var parts = [];
   var seen = Object.create(null);
 
-  function splitNaturalLongPart(text){
-    var clean = String(text || '').replace(/\s+/g, ' ').trim();
-    if(!clean) return [];
-    if(clean.length <= 28) return [clean];
-    if(!/[，。！？!?、；;]/.test(clean)) return [clean];
-    var chunks = clean
-      .split(/(?<=[，。！？!?、；;])/)
-      .map(function(part){ return String(part || '').trim(); })
-      .filter(Boolean);
-    return chunks.length ? chunks : [clean];
-  }
-
   function pushPart(text){
-    splitNaturalLongPart(text).forEach(function(piece){
-      var clean = String(piece || '').replace(/\s+/g, ' ').trim();
-      if(!clean) return;
-      var key = clean.replace(/[。！？!?]+$/g, '');
-      if(seen[key]) return;
-      seen[key] = true;
-      parts.push(clean);
-    });
+    var clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if(!clean) return;
+    var key = clean.replace(/[。！？!?]+$/g, '');
+    if(seen[key]) return;
+    seen[key] = true;
+    parts.push(clean);
   }
 
   if(Array.isArray(value)){
@@ -1322,16 +1280,17 @@ async function requestCharOfflineInviteDecision(userPayload){
     '必须认真读取角色当前人设、世界书设定、最近聊天气氛、用户此刻的伤心或情绪状态，以及用户这次邀约里写的具体话和地点。',
     '一定要把用户邀约里写的那句话和地点真正读进去，再决定接受还是拒绝，不能忽略地点，也不能把系统展示用的信息当成用户原话。',
     '对你来说这就是一次正常的见面、出门、赴约沟通。不要提卡片、按钮、接受拒绝按钮或系统提示。',
-    '如果 accept 为 true，accepted 小卡片本身只会显示 ACCEPTED 和时间地点。text 不是卡片文案，而是你随后在聊天里发给对方的第一句正常消息。',
+    '如果 accept 为 true，text 不是说明文，也不是任何展示文案，而是你随后在聊天里发给对方的第一句正常消息。',
     '如果 accept 为 true，text 要像真人聊天里顺手发的一句，尽量短，最好控制在 10 到 22 个字，不要写成长句，不要解释一大串。',
     '只返回 JSON：{"accept":true|false,"text":"...","followups":["..."],"mood":"...","weather":"...","location":"...","aside":"...","scheduledDate":"YYYY-MM-DD","scheduledTime":"HH:MM"}',
-    '如果 accept 为 true，其他字段只是给这次见面安排补充时间地点。',
+    '如果 accept 为 true，scheduledDate / scheduledTime / location 只是你这次见面安排的时间地点，不要把它们写进解释腔里。',
     '如果 accept 为 true，followups 里继续补 0 到 2 条正常聊天消息，像答应见面之后顺手又说了几句。每条都要短，一条一个意思，不要复读展示文案。',
     '如果 accept 为 true，请顺手给出你真的能赴约的时间 scheduledDate / scheduledTime。这个时间必须现实、合理，不能比现在更早，也不要写凌晨四点这种不合常理的时间。',
     '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成通知文案。尽量短一点，别写成长句。',
     '如果 accept 为 false，请像真人聊天一样回复：可以先来一句当下反应，再补一句解释或安抚，语气要有停顿感和生活感。',
     '如果 accept 为 false，followups 里再补 0 到 2 条自然的后续消息，可以是解释、安抚、改约的意思，但要像聊天，不要像通知。每条都尽量短。',
     'followups 里的总条数请严格参考当前聊天设置：最少 ' + msgMin + ' 条，最多 ' + msgMax + ' 条；真的一句就够时，也至少给 1 条。',
+    '所有 text / followups 都必须像你平时正常聊天，不要忽然切成旁观者口吻，不要忽然用第三人称说“他/她”，也不要来一句“真拿他没办法”这种像旁白的句子。',
     '不要为了分条而硬切，只有真的像聊天那样自然停顿时才分开。',
     '不要 markdown，不要额外解释。'
   ].join('\n');
@@ -1517,7 +1476,7 @@ async function handlePendingOfflineInviteReply(){
     hideTyping();
     if(decision && decision.accept){
       var schedule = deriveOfflineInviteAcceptedSchedule(pending.payload, decision);
-      var acceptedFollowupText = normalizeOfflineInviteFollowups([decision && decision.text, decision && decision.followups], (decision && decision.aside) || '我把那会儿空出来了，你别急，慢慢来。', {
+      var acceptedFollowupText = normalizeOfflineInviteFollowups([decision && decision.text, decision && decision.followups], '好，那天见', {
         limit: Math.max(1, Number(character && character.msgMax) || 3)
       });
       var acceptedPreviewText = firstOfflineInviteFollowupText(acceptedFollowupText) || normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面');
