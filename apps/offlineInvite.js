@@ -1354,7 +1354,9 @@ function getPendingUserOfflineInviteEntry(){
   return null;
 }
 
-function getLatestPendingUserOfflineInviteThread(){
+function getLatestUserOfflineInviteThread(options){
+  var safeOptions = options && typeof options === 'object' ? options : {};
+  var requirePending = safeOptions.requirePending === true;
   if(!Array.isArray(chatLog) || !chatLog.length) return null;
   for(var i = chatLog.length - 1; i >= 0; i--){
     var entry = chatLog[i];
@@ -1363,7 +1365,7 @@ function getLatestPendingUserOfflineInviteThread(){
     if(String(entry.role || '') === 'user'){
       if(normalizeMessageType(entry.type || 'text') !== 'offlineinvite') return null;
       var payload = parseOfflineInvitePayload(entry.content) || null;
-      if(payload && String(payload.status || 'pending') === 'pending'){
+      if(payload && (!requirePending || String(payload.status || 'pending') === 'pending')){
         return { index: i, entry: entry, payload: payload };
       }
       return null;
@@ -1372,9 +1374,89 @@ function getLatestPendingUserOfflineInviteThread(){
   return null;
 }
 
+function getLatestPendingUserOfflineInviteThread(){
+  return getLatestUserOfflineInviteThread({ requirePending: true });
+}
+
+var pendingOfflineInviteReplyTimer = 0;
+
+function clearPendingOfflineInviteReplyTimer(){
+  if(!pendingOfflineInviteReplyTimer) return;
+  try{ clearTimeout(pendingOfflineInviteReplyTimer); }catch(err){}
+  pendingOfflineInviteReplyTimer = 0;
+}
+
+function schedulePendingOfflineInviteReply(delayMs){
+  clearPendingOfflineInviteReplyTimer();
+  var delay = Math.max(300, Number(delayMs || 1500) || 1500);
+  pendingOfflineInviteReplyTimer = setTimeout(function(){
+    pendingOfflineInviteReplyTimer = 0;
+    if(isTyping){
+      schedulePendingOfflineInviteReply(900);
+      return;
+    }
+    Promise.resolve(handlePendingOfflineInviteReply()).catch(function(err){
+      console.error('scheduled offline invite reply error:', err);
+    });
+  }, delay);
+}
+
+async function resetOfflineInviteThreadToPending(thread){
+  var target = thread && thread.entry && thread.payload ? thread : getLatestUserOfflineInviteThread();
+  if(!target) return false;
+  clearPendingOfflineInviteReplyTimer();
+  var payload = target.payload || {};
+  var recordId = ensureOfflineInviteRecordId(payload);
+  var record = null;
+  try{
+    var store = getOfflineInviteStoreApi();
+    if(store && typeof store.getRecord === 'function') record = store.getRecord(recordId);
+  }catch(err){}
+  var scheduleEntryId = String((record && record.scheduleEntryId) || payload.scheduleEntryId || '').trim();
+  var scheduleDate = String((record && record.scheduledDate) || '').trim();
+  var scheduleCharId = String((record && record.charId) || payload.charId || '').trim();
+  if(scheduleEntryId && scheduleDate && scheduleCharId){
+    try{ await removeOfflineInviteScheduleEntry(scheduleCharId, scheduleDate, scheduleEntryId); }catch(err){}
+  }
+  payload.status = 'pending';
+  payload.scheduleEntryId = '';
+  payload.replyMessageId = '';
+  if(payload.requestedDate && payload.requestedTime){
+    payload.scheduledDate = String(payload.requestedDate || '').trim();
+    payload.scheduledTime = String(payload.requestedTime || '').trim();
+  }
+  if(payload.requestedDateLabel || payload.requestedTimeLabel){
+    payload.dateLabel = String(payload.requestedDateLabel || payload.dateLabel || '').trim();
+    payload.timeLabel = String(payload.requestedTimeLabel || payload.timeLabel || '').trim();
+  }
+  target.entry.content = JSON.stringify(payload);
+  await syncOfflineInviteRecord(payload, {
+    id: recordId,
+    sourceRole: 'user',
+    status: 'pending',
+    replyMessageId: '',
+    scheduleEntryId: '',
+    previewText: String(payload.content || '').trim(),
+    content: String(payload.content || '').trim(),
+    location: String(payload.location || '').trim(),
+    scheduledDate: String(payload.scheduledDate || '').trim(),
+    scheduledTime: String(payload.scheduledTime || '').trim(),
+    dateLabel: String(payload.dateLabel || '').trim(),
+    timeLabel: String(payload.timeLabel || '').trim(),
+    reminderState: 'pending',
+    snoozeUntil: 0,
+    remindedAt: 0,
+    openedAt: 0,
+    arrivalState: 'pending',
+    arrivedAt: 0
+  });
+  return true;
+}
+
 async function rerollPendingOfflineInviteReply(){
-  var pending = getLatestPendingUserOfflineInviteThread();
+  var pending = getLatestUserOfflineInviteThread();
   if(!pending) return false;
+  await resetOfflineInviteThreadToPending(pending);
   var removedAssistant = false;
   for(var i = chatLog.length - 1; i > pending.index; i--){
     var entry = chatLog[i];
@@ -1411,6 +1493,7 @@ async function handlePendingOfflineInviteReply(){
   var sendBtn = document.getElementById('sendBtn');
   if(genBtn) genBtn.disabled = true;
   if(sendBtn) sendBtn.disabled = true;
+  clearPendingOfflineInviteReplyTimer();
   showTyping();
   try{
     var decision = await requestCharOfflineInviteDecision(pending.payload);
@@ -1422,10 +1505,6 @@ async function handlePendingOfflineInviteReply(){
       });
       var acceptedPreviewText = firstOfflineInviteFollowupText(acceptedFollowupText) || normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面');
       pending.payload.status = 'accepted';
-      pending.payload.scheduledDate = schedule.scheduledDate;
-      pending.payload.scheduledTime = schedule.scheduledTime;
-      pending.payload.dateLabel = schedule.dateLabel;
-      pending.payload.timeLabel = schedule.timeLabel;
       pending.entry.content = JSON.stringify(pending.payload);
       var charWeather = await resolveOfflineInviteWeather('char', decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'));
       var replyPayload = buildOfflineInvitePayload('assistant', normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面'), {
@@ -1556,6 +1635,10 @@ async function sendOfflineInviteFromUser(){
     scheduledDate: dateValue,
     scheduledTime: timeValue
   });
+  payload.requestedDate = dateValue;
+  payload.requestedTime = timeValue;
+  payload.requestedDateLabel = String(payload.dateLabel || '').trim();
+  payload.requestedTimeLabel = String(payload.timeLabel || '').trim();
   ensureOfflineInviteRecordId(payload);
   payload.aside = '';
   payload.mood = '';
@@ -1568,6 +1651,7 @@ async function sendOfflineInviteFromUser(){
     status: 'pending',
     reminderState: 'pending'
   });
+  schedulePendingOfflineInviteReply(1500);
 }
 
 function importPendingOfflineArtifacts(){
