@@ -2843,6 +2843,18 @@ function extractImportedBareMemeBlockEntries(text, path) {
   return best.length >= 4 ? best : [];
 }
 
+function stripImportedBareMemeBlocks(text) {
+  var raw = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!raw.trim()) return '';
+  return raw
+    .replace(/```(?:json|js|txt)?\s*([\s\S]*?)```/ig, function(full, inner) {
+      return extractImportedBareMemeBlockEntries(String(inner || ''), '').length >= 4 ? '\n' : full;
+    })
+    .replace(/\{\s*\[[\s\S]*?\]\s*\}/g, function(block) {
+      return extractImportedBareMemeBlockEntries(block, '').length >= 4 ? '\n' : block;
+    });
+}
+
 function buildImportedImageEntry(kind, token, label, path, note) {
   var safeKind = kind === 'avatar' ? 'avatar' : 'meme';
   var clean = stripImportedImageDecorations(token);
@@ -2946,15 +2958,13 @@ function extractImportedAssetEntriesFromText(text, path, options) {
   var raw = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (!raw.trim()) return [];
   var explicitBareMemeEntries = extractImportedBareMemeBlockEntries(raw, path);
-  if (explicitBareMemeEntries.length >= 4) {
-    return explicitBareMemeEntries;
-  }
+  var workingRaw = explicitBareMemeEntries.length >= 4 ? stripImportedBareMemeBlocks(raw) : raw;
   var fallbackKind = guessImportedResourceKind(path, '');
   var currentKind = fallbackKind === 'unknown' ? '' : fallbackKind;
   var avatarSectionAllowed = currentKind === 'avatar';
-  var lines = raw.split('\n').map(function(line){ return String(line || '').trim(); }).filter(Boolean);
+  var lines = workingRaw.split('\n').map(function(line){ return String(line || '').trim(); }).filter(Boolean);
   var bareMemeLineCount = countImportedBareMemeLines(lines);
-  var avatarLike = /(头像列表|头像管理|可用头像|avatar(?:\s+list|\s+library)?|初始头像|平时的头像|崩溃时(?:时)?头像|极度兴奋.*头像)/i.test(raw);
+  var avatarLike = /(头像列表|头像管理|可用头像|avatar(?:\s+list|\s+library)?|初始头像|平时的头像|崩溃时(?:时)?头像|极度兴奋.*头像)/i.test(workingRaw);
   var hasExplicitAvatarSection = lines.some(function(line){
     return isImportedAvatarSectionLine(line);
   });
@@ -2964,12 +2974,12 @@ function extractImportedAssetEntriesFromText(text, path, options) {
   var hasExplicitSection = hasExplicitAvatarSection || hasExplicitMemeSection;
   var denseBareMemeBlock = bareMemeLineCount >= 4 && !avatarLike && fallbackKind !== 'avatar';
   if (!hasExplicitSection && currentKind !== 'avatar' && currentKind !== 'meme') {
-    var memeLike = /(表情包|表情列表|表符|<meme>|meme|sticker|emoji|贴图)/i.test(raw);
+    var memeLike = /(表情包|表情列表|表符|<meme>|meme|sticker|emoji|贴图)/i.test(workingRaw);
     if (memeLike || denseBareMemeBlock) currentKind = 'meme';
     else if (avatarLike) currentKind = 'avatar';
     else return [];
   }
-  var entries = [];
+  var entries = explicitBareMemeEntries.slice();
   lines.forEach(function(line) {
     if (isImportedAvatarSectionLine(line)) {
       var owner = getImportedAvatarSectionOwner(line, options);
@@ -3023,11 +3033,11 @@ function extractImportedAssetEntriesFromText(text, path, options) {
     || fallbackKind === 'meme'
     || hasExplicitMemeSection
     || denseBareMemeBlock
-    || /(表情包|表情列表|表符|<meme>|meme|sticker|emoji|贴图)/i.test(raw);
+    || /(表情包|表情列表|表符|<meme>|meme|sticker|emoji|贴图)/i.test(workingRaw);
   if (pairContextIsMeme) {
     var pairRe = /(?:^|[,\n，])\s*([^,\n，]+?)\s+(https?:\/\/[^\s,，]+?\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)(?:\?[^\s,，]*)?)/ig;
     var match;
-    while ((match = pairRe.exec(raw))) {
+    while ((match = pairRe.exec(workingRaw))) {
       var pairLabel = normalizeImportedLabel(String(match[1] || '').trim().replace(/[：:]\s*$/, ''), '');
       var pairToken = String(match[2] || '').trim();
       if (!pairLabel || !pairToken) continue;
