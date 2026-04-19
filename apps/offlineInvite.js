@@ -1,4 +1,4 @@
-var OFFLINE_INVITE_SNIPPET = '【约会邀请】';
+var OFFLINE_INVITE_SNIPPET = '【见面安排】';
 var OFFLINE_WEATHERS = ['☀︎','☁︎','⛅︎','☂︎','☃︎'];
 var OFFLINE_MOODS = ['(///v///)','(,,> <,,)','(๑´ㅂ`๑)','(｡･ω･｡)','(っ˘ڡ˘ς)','( ´ ▽ ` )'];
 var OFFLINE_INVITE_STAMP_ASSETS = [
@@ -1169,19 +1169,19 @@ function openOfflineInviteComposer(){
 function appendOfflineInviteNoticeText(role){
   var charName = (character && (character.nickname || character.name)) || 'Char';
   if(role === 'user'){
-    return '系统提示：' + getCurrentUserDisplayName() + '向' + charName + '发出了约会邀请';
+    return '系统提示：' + getCurrentUserDisplayName() + '想约' + charName + '见面';
   }
-  return '系统提示：您收到了' + charName + '的约会邀请';
+  return '系统提示：' + charName + '想约您见面';
 }
 
 function appendOfflineInviteRejectNoticeText(){
   var charName = (character && (character.nickname || character.name)) || 'Char';
-  return '系统提示：' + charName + '暂时拒绝了这次约会邀请';
+  return '系统提示：' + charName + '这次先不出门';
 }
 
 function appendOfflineInviteAcceptedNoticeText(payload){
   var charName = String((payload && payload.charName) || (character && (character.nickname || character.name)) || 'Char').trim() || 'Char';
-  return '系统提示：' + charName + '答应了这次约会邀请';
+  return '系统提示：' + charName + '答应见面了';
 }
 
 function notifyShellAboutOfflineInvite(text){
@@ -1304,16 +1304,17 @@ async function requestCharOfflineInviteDecision(userPayload){
   var msgMin = Math.max(1, Number(character && character.msgMin) || 1);
   var msgMax = Math.max(msgMin, Number(character && character.msgMax) || 3);
   var systemPrompt = [
-    '你是角色本人，要决定是否接受用户发来的线下邀请。',
+    '你是角色本人，要决定是否接受用户刚刚发来的见面请求。',
     '必须认真读取角色当前人设、世界书设定、最近聊天气氛、用户此刻的伤心或情绪状态，以及用户这次邀约里写的具体话和地点。',
-    '一定要把用户邀约里写的那句话和地点真正读进去，再决定接受还是拒绝，不能忽略地点，也不能把卡片装饰文案当成用户原话。',
-    '如果 accept 为 true，text 不是模板句，而是角色本人认真写给用户的一句约会邀请或回应，语气要符合角色，不要套话，不要默认文案。',
+    '一定要把用户邀约里写的那句话和地点真正读进去，再决定接受还是拒绝，不能忽略地点，也不能把系统展示用的信息当成用户原话。',
+    '对你来说这就是一次正常的见面、出门、赴约沟通。不要提卡片、按钮、接受拒绝按钮或系统提示。',
+    '如果 accept 为 true，text 不是模板句，而是角色本人认真写给用户的一句愿意见面、想见面或约好见面的回应，语气要符合角色，不要套话，不要默认文案。',
     'text 控制在大约 45 个字，允许上下浮动一点，但不要太短，也不要太长。',
     '只返回 JSON：{"accept":true|false,"text":"...","followups":["..."],"mood":"...","weather":"...","location":"...","aside":"...","scheduledDate":"YYYY-MM-DD","scheduledTime":"HH:MM"}',
-    '如果 accept 为 true，text 写一句自然口语的线下回应，其他字段用于邀约卡片。',
-    '如果 accept 为 true，followups 里继续补 1 到 3 条正常聊天消息，像答应见面之后顺手又说了几句，不要复读卡片文案。',
+    '如果 accept 为 true，text 写一句自然口语的线下回应，其他字段只是给这次见面安排补充时间地点。',
+    '如果 accept 为 true，followups 里继续补 1 到 3 条正常聊天消息，像答应见面之后顺手又说了几句，不要复读展示文案。',
     '如果 accept 为 true，请顺手给出你真的能赴约的时间 scheduledDate / scheduledTime。这个时间必须现实、合理，不能比现在更早，也不要写凌晨四点这种不合常理的时间。',
-    '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成邀约卡片文案。',
+    '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成通知文案。',
     '如果 accept 为 false，请像真人聊天一样回复：可以先来一句当下反应，再补一句解释或安抚，语气要有停顿感和生活感。',
     '如果 accept 为 false，followups 里再补 0 到 2 条自然的后续消息，可以是解释、安抚、改约的意思，但要像聊天，不要像通知。',
     'followups 里的总条数请严格参考当前聊天设置：最少 ' + msgMin + ' 条，最多 ' + msgMax + ' 条；真的一句就够时，也至少给 1 条。',
@@ -1324,7 +1325,7 @@ async function requestCharOfflineInviteDecision(userPayload){
     buildSystemPrompt(),
     '用户这次真正写下的邀约话语：' + (inviteText || '（空）'),
     '用户想约你的地点：' + (inviteLocation || '（未填写）'),
-    '用户刚刚发来线下邀请（只保留真实邀约信息）：' + JSON.stringify(safePayload),
+    '用户刚刚发来一条想约你见面的消息（只保留真实信息）：' + JSON.stringify(safePayload),
     (window.getInviteWeatherPromptText ? window.getInviteWeatherPromptText('char') : ''),
     (window.getInviteWeatherPromptText ? window.getInviteWeatherPromptText('user') : ''),
     '最近聊天：\n' + formatChatForModel(chatLog.slice(-12))
@@ -1567,7 +1568,6 @@ async function sendOfflineInviteFromUser(){
     status: 'pending',
     reminderState: 'pending'
   });
-  await handlePendingOfflineInviteReply();
 }
 
 function importPendingOfflineArtifacts(){
@@ -1616,7 +1616,6 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var data = buildOfflineInvitePayload(viewRole === 'user' ? 'user' : 'assistant', '', coerceOfflineInvitePayloadToThread(parseOfflineInvitePayload(raw) || {}, viewRole === 'user' ? 'user' : 'assistant'));
   var canRespond = viewRole !== 'user';
   var status = String(data.status || 'pending');
-  var title = viewRole === 'user' ? 'SENT INVITE' : (status === 'accepted' ? 'ACCEPTED' : 'Incoming Invite');
   var statusLabel = status === 'accepted' ? 'Accepted' : (status === 'rejected' ? 'Rejected' : 'Pending');
   var disabled = status !== 'pending';
   var statusTone = status === 'accepted' ? ' is-accepted' : (status === 'rejected' ? ' is-rejected' : ' is-pending');
@@ -1626,7 +1625,7 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   if(viewRole === 'user'){
     bubble.innerHTML = '<div class="offline-invite-plain sent">'
       + '<div class="offline-invite-plain-head">'
-      + '<div class="offline-invite-plain-title is-sent">' + esc(title) + '</div>'
+      + '<div class="offline-invite-plain-title is-sent">MEET UP</div>'
       + '<div class="offline-invite-plain-status is-dot' + statusTone + '" title="' + escAttr(statusLabel) + '" aria-label="' + escAttr(statusLabel) + '"></div>'
       + '</div>'
       + '<div class="offline-invite-plain-meta">'
@@ -1647,10 +1646,6 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   }
   if(status === 'accepted'){
     bubble.innerHTML = '<div class="offline-invite-plain reply">'
-      + '<div class="offline-invite-plain-head">'
-      + '<div class="offline-invite-plain-title is-sent">' + esc(title) + '</div>'
-      + '<div class="offline-invite-plain-status is-dot is-accepted" title="' + escAttr(statusLabel) + '" aria-label="' + escAttr(statusLabel) + '"></div>'
-      + '</div>'
       + '<div class="offline-invite-plain-body is-compact">' + esc(String(data.content || '').trim() || '我会去见你。') + '</div>'
       + '<div class="offline-invite-plain-meta">'
       + '<div class="offline-invite-plain-row is-plain">' + timeText + '</div>'
@@ -1670,14 +1665,10 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     return;
   }
   bubble.innerHTML = '<div class="offline-invite-plain">'
-    + '<div class="offline-invite-plain-head">'
-    + '<div class="offline-invite-plain-title">' + esc(title) + '</div>'
-    + '<div class="offline-invite-plain-status' + (disabled ? ' is-done' : '') + '">' + esc(statusLabel) + '</div>'
-    + '</div>'
-    + '<div class="offline-invite-plain-body">' + esc(String(data.content || '').trim() || '约会邀请') + '</div>'
+    + '<div class="offline-invite-plain-body">' + esc(String(data.content || '').trim() || '想和你见一面') + '</div>'
     + '<div class="offline-invite-plain-meta">'
-    + '<div class="offline-invite-plain-row"><strong>Time</strong>' + timeText + '</div>'
-    + '<div class="offline-invite-plain-row"><strong>At</strong>' + locationText + '</div>'
+    + '<div class="offline-invite-plain-row is-plain">' + timeText + '</div>'
+    + '<div class="offline-invite-plain-row is-plain">' + locationText + '</div>'
     + '</div>'
     + (canRespond ? '<div class="offline-invite-plain-actions">'
       + '<button class="offline-invite-plain-btn" type="button" data-offline-action="reject"' + (disabled ? ' disabled' : '') + '>Pass</button>'
