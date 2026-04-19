@@ -2772,6 +2772,17 @@ function isExplicitImportedMemeEntry(entry) {
   return false;
 }
 
+function isPreferredImportedMemeEntry(entry) {
+  if (!entry) return false;
+  var path = String(entry.path || '').toLowerCase();
+  var note = String(entry.note || '').toLowerCase();
+  if (/世界书表情包列表/i.test(String(entry.note || ''))) return true;
+  if (/character_book|world_info|entries\[\d+\]\.(content|comment|title)/i.test(path)) {
+    return /(表情包|meme|sticker|emoji|emote|reaction|expression|贴图)/i.test(note) || looksLikeImportedMemeLabel(entry.label);
+  }
+  return false;
+}
+
 function parseImportedBareMemeLine(line, path) {
   var text = String(line || '').trim();
   if (!text) return null;
@@ -3060,12 +3071,18 @@ function extractImportedCardMetadata(raw, d, charBook, jsonStr, filename) {
     return (String(entry.previewData || '').trim().toLowerCase() + '::' + String(entry.fileName || '').trim().toLowerCase());
   });
 
-  var memeResources = dedupeImportedEntries(bucket.images.filter(function(entry) {
+  var rawMemeEntries = bucket.images.filter(function(entry) {
     return entry
       && (entry.url || entry.fileName)
       && String(entry.kind || guessImportedResourceKind(entry.path, entry.label || '')).toLowerCase() === 'meme'
       && isExplicitImportedMemeEntry(entry);
-  }).map(function(entry, idx) {
+  });
+  var preferredMemeEntries = rawMemeEntries.filter(function(entry) {
+    return isPreferredImportedMemeEntry(entry);
+  });
+  var chosenMemeEntries = preferredMemeEntries.length >= 4 ? preferredMemeEntries : rawMemeEntries;
+
+  var memeResources = dedupeImportedEntries(chosenMemeEntries.map(function(entry, idx) {
     var src = isImportedImageUrl(entry.url) ? String(entry.url || '').trim() : '';
     var fileName = importedFileNameFromUri(entry.fileName || entry.url || '');
     if (!src && fileName && isLikelyImportedCatboxFileName(fileName)) {
