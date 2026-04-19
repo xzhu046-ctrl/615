@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-19T22:15:46Z';
+const APP_BUILD_ID = '2026-04-19T22:45:28Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -4315,7 +4315,7 @@ function getOfflineInviteReminderBodyText(record){
   if(!(record && typeof record === 'object')) return '到了赴约时间啦。';
   var when = [String(record.dateLabel || '').trim(), String(record.timeLabel || '').trim()].filter(Boolean).join(' · ');
   var where = String(record.location || '').trim();
-  var copy = String(record.content || '').trim() || '到了赴约时间啦。';
+  var copy = String(record.previewText || record.content || '').trim() || '到了赴约时间啦。';
   return [copy, when, where].filter(Boolean).join('\n');
 }
 
@@ -4337,7 +4337,8 @@ async function snoozeOfflineInviteReminder(){
     await Promise.resolve(store.patchRecord(payload.id, {
       reminderState: 'snoozed',
       snoozeUntil: Date.now() + OFFLINE_INVITE_REMINDER_SNOOZE_MS,
-      remindedAt: Date.now()
+      remindedAt: Date.now(),
+      arrivalState: 'pending'
     }));
   }
   dismissOfflineInviteReminder();
@@ -4351,7 +4352,9 @@ async function openOfflineInviteReminderTarget(){
       reminderState: 'opened',
       openedAt: Date.now(),
       remindedAt: Date.now(),
-      snoozeUntil: 0
+      snoozeUntil: 0,
+      arrivalState: 'arrived',
+      arrivedAt: Date.now()
     }));
     setOfflineInviteFocusRecordId(payload.id);
   }

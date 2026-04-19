@@ -33,7 +33,7 @@ body{display:flex;justify-content:center}
 }
 .offline-kicker img{width:16px;height:16px;display:block;object-fit:contain;filter:brightness(0) invert(1)}
 .offline-title{font-size:28px;line-height:1;font-weight:900;letter-spacing:.04em}
-.offline-sub{font-size:12px;line-height:1.55;font-weight:800;color:#5f5f5f;max-width:260px}
+.offline-sub{font-size:12px;line-height:1.55;font-weight:800;color:#5f5f5f;max-width:272px}
 .offline-count{
   min-width:54px;height:54px;padding:0 10px;border:2px solid #111;border-radius:999px;background:#fff;
   box-shadow:4px 4px 0 #111;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900
@@ -52,17 +52,31 @@ body{display:flex;justify-content:center}
   width:58px;height:58px;border:2px solid #111;border-radius:22px;background:#111 center/cover no-repeat;color:#fff;
   display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900;flex-shrink:0;overflow:hidden
 }
-.offline-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}
-.offline-name-row{display:flex;align-items:center;gap:8px;min-width:0}
+.offline-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:6px}
+.offline-name-row{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+.offline-name-wrap{display:flex;align-items:center;gap:8px;min-width:0}
 .offline-name{font-size:14px;font-weight:900;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .offline-tag{
   display:inline-flex;align-items:center;justify-content:center;min-height:22px;padding:0 8px;background:#111;color:#fff;
   font-size:11px;font-weight:900;letter-spacing:.04em;flex-shrink:0
 }
+.offline-stage{
+  display:inline-flex;align-items:center;gap:7px;flex-shrink:0;font-size:11px;font-weight:900;color:#404040
+}
+.offline-stage-dot{
+  width:12px;height:12px;border:2px solid #111;border-radius:999px;background:#d84a4a;flex-shrink:0
+}
+.offline-stage.is-accepted .offline-stage-dot{background:#37a85a}
+.offline-stage.is-reminder .offline-stage-dot{background:#efb82e}
+.offline-stage.is-arrived .offline-stage-dot{background:#22864a}
+.offline-stage.is-pending .offline-stage-dot{background:#d84a4a}
+.offline-stage.is-rejected .offline-stage-dot{background:#d84a4a}
 .offline-body{
   font-size:12px;line-height:1.55;font-weight:800;color:#343434;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden
 }
 .offline-meta{font-size:11px;line-height:1.45;font-weight:800;color:#707070}
+.offline-meta-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.offline-meta-note{font-size:10px;line-height:1.45;font-weight:900;letter-spacing:.03em;color:#8a8a8a}
 </style>
 </head>
 <body>
@@ -71,7 +85,7 @@ body{display:flex;justify-content:center}
       <div class="offline-title-wrap">
         <div class="offline-kicker"><img src="assets/约会提醒.svg" alt="约会提醒"><span>DATE BOX</span></div>
         <div class="offline-title">约会</div>
-        <div class="offline-sub">所有收到的赴约邀请都会留在这里。详细赴约页下一轮再接，现在先把入口和提醒接顺。</div>
+        <div class="offline-sub">这里会把约会邀请的全过程都留下来，像聊天列表一样看谁答应了、谁改时间了、提醒有没有处理。</div>
       </div>
       <div class="offline-count" id="offlineCount">0</div>
     </section>
@@ -128,12 +142,53 @@ function findByDataAttr(root, attr, value){
   return null;
 }
 
-function listAcceptedInvites(){
+function findAllByDataAttr(root, attr, value){
+  var out = [];
+  var list = root && root.querySelectorAll ? root.querySelectorAll('[' + attr + ']') : [];
+  for(var i = 0; i < list.length; i += 1){
+    if(String(list[i].getAttribute(attr) || '') === String(value || '')) out.push(list[i]);
+  }
+  return out;
+}
+
+function listOfflineInviteThreads(){
   var store = window.OfflineInviteStore;
   if(!(store && typeof store.listRecords === 'function')) return [];
   return store.listRecords().filter(function(item){
-    return item && String(item.status || '') === 'accepted' && String(item.sourceRole || '') === 'assistant';
+    return item && (String(item.charId || '').trim() || String(item.charName || '').trim() || String(item.content || '').trim());
   });
+}
+
+function getOfflineRecordStage(item){
+  var status = String(item && item.status || 'pending').trim() || 'pending';
+  var reminderState = String(item && item.reminderState || 'pending').trim() || 'pending';
+  var arrivalState = String(item && item.arrivalState || 'pending').trim() || 'pending';
+  if(arrivalState === 'arrived'){
+    return { tone:'arrived', label:'已来了', note:'用户已经决定去赴约' };
+  }
+  if(status === 'accepted' && (reminderState === 'showing' || reminderState === 'notified')){
+    return { tone:'reminder', label:'该赴约了', note:'已经到提醒时间' };
+  }
+  if(status === 'accepted' && reminderState === 'snoozed'){
+    return { tone:'reminder', label:'稍等中', note:'用户点了稍等' };
+  }
+  if(status === 'accepted' && reminderState === 'opened'){
+    return { tone:'accepted', label:'已确认', note:'用户已经处理提醒' };
+  }
+  if(status === 'accepted'){
+    return { tone:'accepted', label:'已约好', note:'char 已经答应赴约' };
+  }
+  if(status === 'rejected'){
+    return { tone:'rejected', label:'没约成', note:'char 这次没有答应' };
+  }
+  return { tone:'pending', label:'等回应', note:'还在等 char 的决定' };
+}
+
+function getOfflineRecordPreviewText(item){
+  var preview = String(item && (item.previewText || item.content) || '').trim();
+  if(preview) return preview;
+  var stage = getOfflineRecordStage(item);
+  return stage.note || '约会记录';
 }
 
 function resolveCharAvatar(charId){
@@ -154,35 +209,39 @@ function renderOfflineList(){
   var list = document.getElementById('offlineList');
   var count = document.getElementById('offlineCount');
   if(!list || !count) return;
-  var records = listAcceptedInvites();
+  var records = listOfflineInviteThreads();
   count.textContent = String(records.length);
   if(!records.length){
-    list.innerHTML = '<div class="offline-empty">还没有收到新的赴约邀请。<br>等 char 点头之后，这里就会开始排队出现。</div>';
+    list.innerHTML = '<div class="offline-empty">还没有约会记录。<br>等你们开始邀约、答应、改时间、到点提醒之后，这里就会慢慢排起来。</div>';
     clearFocusId();
     return;
   }
   var focusId = readFocusId();
   list.innerHTML = records.map(function(item){
     var active = focusId && String(item.id || '') === focusId ? ' is-focused' : '';
+    var stage = getOfflineRecordStage(item);
     var meta = [String(item.dateLabel || '').trim(), String(item.timeLabel || '').trim(), String(item.location || '').trim()].filter(Boolean).join(' · ');
     var fallback = esc(String(item.charName || '角').slice(0, 1) || '角');
     return '<article class="offline-item' + active + '" data-invite-id="' + esc(item.id) + '">'
       + '<div class="offline-avatar" data-avatar-id="' + esc(item.charId) + '">' + fallback + '</div>'
       + '<div class="offline-copy">'
-      + '<div class="offline-name-row"><div class="offline-name">' + esc(item.charName || '角色') + '</div><div class="offline-tag">赴约</div></div>'
-      + '<div class="offline-body">' + esc(item.content || '我会来见你。') + '</div>'
-      + '<div class="offline-meta">' + esc(meta || '时间地点待定') + '</div>'
+      + '<div class="offline-name-row">'
+      + '<div class="offline-name-wrap"><div class="offline-name">' + esc(item.charName || '角色') + '</div><div class="offline-tag">赴约</div></div>'
+      + '<div class="offline-stage is-' + esc(stage.tone) + '"><span class="offline-stage-dot"></span><span>' + esc(stage.label) + '</span></div>'
+      + '</div>'
+      + '<div class="offline-body">' + esc(getOfflineRecordPreviewText(item)) + '</div>'
+      + '<div class="offline-meta-row"><div class="offline-meta">' + esc(meta || '时间地点待定') + '</div><div class="offline-meta-note">' + esc(stage.note || '') + '</div></div>'
       + '</div>'
       + '</article>';
   }).join('');
   records.forEach(function(item){
     resolveCharAvatar(item.charId).then(function(src){
-      var node = findByDataAttr(list, 'data-avatar-id', String(item.charId || ''));
-      if(!node) return;
       var safe = String(src || '').trim();
       if(!safe) return;
-      node.style.backgroundImage = 'url(' + JSON.stringify(safe) + ')';
-      node.textContent = '';
+      findAllByDataAttr(list, 'data-avatar-id', String(item.charId || '')).forEach(function(node){
+        node.style.backgroundImage = 'url(' + JSON.stringify(safe) + ')';
+        node.textContent = '';
+      });
     }).catch(function(){});
   });
   if(focusId){
