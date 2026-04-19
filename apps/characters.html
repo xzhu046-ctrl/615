@@ -2742,6 +2742,35 @@ function normalizeImportedMemeDisplayName(name, fileName) {
   return text;
 }
 
+function looksLikeImportedAvatarLabel(text) {
+  var safe = String(text || '').trim();
+  if (!safe) return false;
+  return /(头像|avatar|profile|icon|大头照)/i.test(safe);
+}
+
+function looksLikeImportedMemeLabel(text) {
+  var safe = String(text || '').trim();
+  if (!safe) return false;
+  if (looksLikeImportedAvatarLabel(safe)) return false;
+  if (/<[^>]+>|\{\{|\}\}|<!DOCTYPE html>|\[对方消息|\[我方消息/i.test(safe)) return false;
+  if (looksLikeImportedRuleSentence(safe)) return false;
+  if (safe.length > 36) return false;
+  return true;
+}
+
+function isExplicitImportedMemeEntry(entry) {
+  if (!entry) return false;
+  var path = String(entry.path || '').toLowerCase();
+  var note = String(entry.note || '').toLowerCase();
+  var label = String(entry.label || '').trim();
+  if (!looksLikeImportedMemeLabel(label)) return false;
+  if (looksLikeImportedAvatarLabel(label)) return false;
+  if (/(表情包|meme|sticker|emoji|emote|reaction|expression|贴图)/i.test(note)) return true;
+  if (/(?:^|\.)(?:assets|emotions?|expressions?|memes?|stickers?|emoji|emotes?|reactions?)(?:\.|$)/i.test(path)) return true;
+  if (/character_book|world_info|entries\[\d+\]\.(content|comment|title)/i.test(path) && /世界书表情包列表/i.test(String(entry.note || ''))) return true;
+  return false;
+}
+
 function parseImportedBareMemeLine(line, path) {
   var text = String(line || '').trim();
   if (!text) return null;
@@ -3031,7 +3060,10 @@ function extractImportedCardMetadata(raw, d, charBook, jsonStr, filename) {
   });
 
   var memeResources = dedupeImportedEntries(bucket.images.filter(function(entry) {
-    return entry && (entry.url || entry.fileName) && String(entry.kind || guessImportedResourceKind(entry.path, entry.label || '')).toLowerCase() === 'meme';
+    return entry
+      && (entry.url || entry.fileName)
+      && String(entry.kind || guessImportedResourceKind(entry.path, entry.label || '')).toLowerCase() === 'meme'
+      && isExplicitImportedMemeEntry(entry);
   }).map(function(entry, idx) {
     var src = isImportedImageUrl(entry.url) ? String(entry.url || '').trim() : '';
     var fileName = importedFileNameFromUri(entry.fileName || entry.url || '');
