@@ -2873,13 +2873,14 @@ function extractImportedAssetEntriesFromText(text, path, options) {
   var avatarSectionAllowed = currentKind === 'avatar';
   var lines = raw.split('\n').map(function(line){ return String(line || '').trim(); }).filter(Boolean);
   var bareMemeLineCount = countImportedBareMemeLines(lines);
+  var avatarLike = /(头像列表|头像管理|可用头像|avatar(?:\s+list|\s+library)?|初始头像|平时的头像|崩溃时(?:时)?头像|极度兴奋.*头像)/i.test(raw);
   var hasExplicitSection = lines.some(function(line){
     return isImportedAvatarSectionLine(line) || isImportedMemeSectionLine(line);
   });
+  var denseBareMemeBlock = bareMemeLineCount >= 4 && !avatarLike && fallbackKind !== 'avatar';
   if (!hasExplicitSection && currentKind !== 'avatar' && currentKind !== 'meme') {
     var memeLike = /(表情包|表情列表|表符|<meme>|meme|sticker|emoji|贴图)/i.test(raw);
-    var avatarLike = /(头像列表|头像管理|可用头像|avatar(?:\s+list|\s+library)?|初始头像|平时的头像|崩溃时(?:时)?头像|极度兴奋.*头像)/i.test(raw);
-    if (memeLike || (bareMemeLineCount >= 4 && !avatarLike)) currentKind = 'meme';
+    if (memeLike || denseBareMemeBlock) currentKind = 'meme';
     else if (avatarLike) currentKind = 'avatar';
     else return [];
   }
@@ -2893,7 +2894,7 @@ function extractImportedAssetEntriesFromText(text, path, options) {
     } else if (isImportedMemeSectionLine(line)) {
       currentKind = 'meme';
     }
-    if (currentKind === 'meme' || fallbackKind === 'meme' || bareMemeLineCount >= 4) {
+    if ((currentKind === 'meme' || fallbackKind === 'meme' || denseBareMemeBlock) && currentKind !== 'avatar') {
       var bareMemeEntry = parseImportedBareMemeLine(line, path);
       if (bareMemeEntry) {
         entries.push(bareMemeEntry);
@@ -2933,7 +2934,7 @@ function extractImportedAssetEntriesFromText(text, path, options) {
   var pairContextIsMeme = currentKind === 'meme'
     || fallbackKind === 'meme'
     || hasExplicitSection
-    || bareMemeLineCount >= 4
+    || denseBareMemeBlock
     || /(表情包|表情列表|表符|<meme>|meme|sticker|emoji|贴图)/i.test(raw);
   if (pairContextIsMeme) {
     var pairRe = /(?:^|[,\n，])\s*([^,\n，]+?)\s+(https?:\/\/[^\s,，]+?\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)(?:\?[^\s,，]*)?)/ig;
