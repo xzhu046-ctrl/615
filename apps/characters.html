@@ -2758,6 +2758,14 @@ function parseImportedBareMemeLine(line, path) {
   return buildImportedImageEntry('meme', match[2], label, path, '世界书表情包列表');
 }
 
+function countImportedBareMemeLines(lines) {
+  var count = 0;
+  (Array.isArray(lines) ? lines : []).forEach(function(line) {
+    if (parseImportedBareMemeLine(line, '')) count += 1;
+  });
+  return count;
+}
+
 function buildImportedImageEntry(kind, token, label, path, note) {
   var safeKind = kind === 'avatar' ? 'avatar' : 'meme';
   var clean = stripImportedImageDecorations(token);
@@ -2864,13 +2872,14 @@ function extractImportedAssetEntriesFromText(text, path, options) {
   var currentKind = fallbackKind === 'unknown' ? '' : fallbackKind;
   var avatarSectionAllowed = currentKind === 'avatar';
   var lines = raw.split('\n').map(function(line){ return String(line || '').trim(); }).filter(Boolean);
+  var bareMemeLineCount = countImportedBareMemeLines(lines);
   var hasExplicitSection = lines.some(function(line){
     return isImportedAvatarSectionLine(line) || isImportedMemeSectionLine(line);
   });
   if (!hasExplicitSection && currentKind !== 'avatar' && currentKind !== 'meme') {
     var memeLike = /(表情包|表情列表|表符|<meme>|meme|sticker|emoji|贴图)/i.test(raw);
     var avatarLike = /(头像列表|头像管理|可用头像|avatar(?:\s+list|\s+library)?|初始头像|平时的头像|崩溃时(?:时)?头像|极度兴奋.*头像)/i.test(raw);
-    if (memeLike) currentKind = 'meme';
+    if (memeLike || (bareMemeLineCount >= 4 && !avatarLike)) currentKind = 'meme';
     else if (avatarLike) currentKind = 'avatar';
     else return [];
   }
@@ -2884,7 +2893,7 @@ function extractImportedAssetEntriesFromText(text, path, options) {
     } else if (isImportedMemeSectionLine(line)) {
       currentKind = 'meme';
     }
-    if (currentKind === 'meme' || fallbackKind === 'meme') {
+    if (currentKind === 'meme' || fallbackKind === 'meme' || bareMemeLineCount >= 4) {
       var bareMemeEntry = parseImportedBareMemeLine(line, path);
       if (bareMemeEntry) {
         entries.push(bareMemeEntry);
@@ -2924,6 +2933,7 @@ function extractImportedAssetEntriesFromText(text, path, options) {
   var pairContextIsMeme = currentKind === 'meme'
     || fallbackKind === 'meme'
     || hasExplicitSection
+    || bareMemeLineCount >= 4
     || /(表情包|表情列表|表符|<meme>|meme|sticker|emoji|贴图)/i.test(raw);
   if (pairContextIsMeme) {
     var pairRe = /(?:^|[,\n，])\s*([^,\n，]+?)\s+(https?:\/\/[^\s,，]+?\.(?:png|jpe?g|gif|webp|apng|avif|bmp|jfif)(?:\?[^\s,，]*)?)/ig;
