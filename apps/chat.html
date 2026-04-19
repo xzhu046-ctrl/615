@@ -10131,6 +10131,12 @@ function buildRichHtmlContextText(raw){
 
 function normalizeRichHtmlRenderableData(raw){
   var data = parseRichHtmlPayload(raw);
+  var rawSource = '';
+  if(typeof raw === 'string'){
+    rawSource = String(raw || '').trim();
+  }else if(raw && typeof raw === 'object'){
+    rawSource = String(raw.raw || raw.source || raw.payload || '').trim();
+  }
   var html = String(data.html || '').trim();
   var css = String(data.css || '').trim();
   var js = String(data.js || '').trim();
@@ -10155,7 +10161,8 @@ function normalizeRichHtmlRenderableData(raw){
     title: title,
     cover: cover,
     summary: summary || 'SURPRISE',
-    text: plain
+    text: plain,
+    source: rawSource
   };
 }
 
@@ -10219,6 +10226,22 @@ function buildRichWebVisibleDoc(data){
 
 function buildRichHtmlSrcdoc(payload){
   var data = normalizeRichHtmlRenderableData(payload);
+  var initialState = payload && typeof payload === 'object' && payload.__initialChatState && typeof payload.__initialChatState === 'object'
+    ? payload.__initialChatState
+    : null;
+  var normalizedInitialState = {
+    mes: String(initialState && initialState.mes || '').trim(),
+    swipes: Array.isArray(initialState && initialState.swipes)
+      ? initialState.swipes.map(function(item){ return String(item || '').trim(); }).filter(Boolean)
+      : [],
+    swipe_id: Number(initialState && initialState.swipe_id)
+  };
+  if(!normalizedInitialState.swipes.length && normalizedInitialState.mes){
+    normalizedInitialState.swipes = [normalizedInitialState.mes];
+  }
+  if(!(normalizedInitialState.swipe_id >= 0) || normalizedInitialState.swipe_id >= normalizedInitialState.swipes.length){
+    normalizedInitialState.swipe_id = normalizedInitialState.swipes.length ? 0 : 0;
+  }
   function injectIntoFullDocument(source, bridgeJs, inlineCss, inlineJs){
     var doc = String(source || '').trim();
     if(!doc) return '';
@@ -10252,6 +10275,7 @@ function buildRichHtmlSrcdoc(payload){
     '(function(){',
     'if(window.__PHONE_RICH_BRIDGE_READY__) return;',
     'window.__PHONE_RICH_BRIDGE_READY__ = true;',
+    'window.__PHONE_INITIAL_CHAT_STATE__ = ' + JSON.stringify(normalizedInitialState) + ';',
     'function syncWindowEvent(ev){',
     '  try{ window.event = ev; }catch(err){}',
     '  try{ globalThis.event = ev; }catch(err){}',
@@ -10338,7 +10362,8 @@ function buildRichHtmlSrcdoc(payload){
     '  }',
     '}',
     'window.SillyTavern = window.SillyTavern || {};',
-    'window.SillyTavern.chat = Array.isArray(window.SillyTavern.chat) && window.SillyTavern.chat.length ? window.SillyTavern.chat : [{ mes:"", swipes:[], swipe_id:0 }];',
+    'var seededState = window.__PHONE_INITIAL_CHAT_STATE__ || { mes:"", swipes:[], swipe_id:0 };',
+    'window.SillyTavern.chat = Array.isArray(window.SillyTavern.chat) && window.SillyTavern.chat.length ? window.SillyTavern.chat : [seededState];',
     'window.SillyTavern.getChatMessages = window.getChatMessages;',
     'window.SillyTavern.setChatMessage = window.setChatMessage;',
     'window.SillyTavern.saveChat = async function(){',
@@ -10358,12 +10383,17 @@ function buildRichHtmlSrcdoc(payload){
     '  return state;',
     '};',
     'window.SillyTavern.__syncGreetingState = syncSillyTavernGreetingState;',
+    'try{ window.dispatchEvent(new CustomEvent("sillytavern:greeting-seeded", { detail: seededState })); }catch(err){}',
+    'try{ document.dispatchEvent(new CustomEvent("sillytavern:greeting-seeded", { detail: seededState })); }catch(err){}',
     'try{ globalThis.getChatMessages = window.getChatMessages; }catch(err){}',
     'try{ globalThis.setChatMessage = window.setChatMessage; }catch(err){}',
     'try{ globalThis.SillyTavern = window.SillyTavern; }catch(err){}',
     'try{ globalThis.saveChat = window.SillyTavern.saveChat; }catch(err){}',
     'try{ globalThis.reloadCurrentChat = window.SillyTavern.reloadCurrentChat; }catch(err){}',
-    'syncSillyTavernGreetingState();',
+    'syncSillyTavernGreetingState().then(function(state){',
+    '  try{ window.dispatchEvent(new CustomEvent("sillytavern:greeting-synced", { detail: state })); }catch(err){}',
+    '  try{ document.dispatchEvent(new CustomEvent("sillytavern:greeting-synced", { detail: state })); }catch(err){}',
+    '});',
     'window.__PHONE_GREETING_BRIDGE__ = { rpc: rpc };',
     '})();'
   ].join('');
@@ -10469,6 +10499,16 @@ function buildRichHtmlVisibleDoc(data){
   if(!html){
     html = '<article class="card-fallback"><div class="card-fallback-copy">' + esc(fallback) + '</div></article>';
   }
+  var sourcePayload = String(safe.source || '').trim();
+  if(!sourcePayload){
+    sourcePayload = buildRichHtmlPayload({
+      html: html,
+      css: css,
+      js: js,
+      summary: String(safe.summary || '').trim(),
+      text: fallback
+    });
+  }
   return buildRichHtmlSrcdoc({
     html: html,
     css: [
@@ -10481,7 +10521,12 @@ function buildRichHtmlVisibleDoc(data){
     ].join(''),
     js: js,
     summary: String(safe.summary || '').trim(),
-    text: fallback
+    text: fallback,
+    __initialChatState: {
+      mes: sourcePayload,
+      swipes: [sourcePayload],
+      swipe_id: 0
+    }
   });
 }
 
