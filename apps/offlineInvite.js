@@ -548,13 +548,27 @@ function normalizeOfflineInviteFollowups(value, fallbackText, options){
   var parts = [];
   var seen = Object.create(null);
 
-  function pushPart(text){
+  function splitNaturalLongPart(text){
     var clean = String(text || '').replace(/\s+/g, ' ').trim();
-    if(!clean) return;
-    var key = clean.replace(/[。！？!?]+$/g, '');
-    if(seen[key]) return;
-    seen[key] = true;
-    parts.push(clean);
+    if(!clean) return [];
+    if(clean.length <= 28) return [clean];
+    if(!/[，。！？!?、；;]/.test(clean)) return [clean];
+    var chunks = clean
+      .split(/(?<=[，。！？!?、；;])/)
+      .map(function(part){ return String(part || '').trim(); })
+      .filter(Boolean);
+    return chunks.length ? chunks : [clean];
+  }
+
+  function pushPart(text){
+    splitNaturalLongPart(text).forEach(function(piece){
+      var clean = String(piece || '').replace(/\s+/g, ' ').trim();
+      if(!clean) return;
+      var key = clean.replace(/[。！？!?]+$/g, '');
+      if(seen[key]) return;
+      seen[key] = true;
+      parts.push(clean);
+    });
   }
 
   if(Array.isArray(value)){
@@ -1308,15 +1322,15 @@ async function requestCharOfflineInviteDecision(userPayload){
     '必须认真读取角色当前人设、世界书设定、最近聊天气氛、用户此刻的伤心或情绪状态，以及用户这次邀约里写的具体话和地点。',
     '一定要把用户邀约里写的那句话和地点真正读进去，再决定接受还是拒绝，不能忽略地点，也不能把系统展示用的信息当成用户原话。',
     '对你来说这就是一次正常的见面、出门、赴约沟通。不要提卡片、按钮、接受拒绝按钮或系统提示。',
-    '如果 accept 为 true，text 不是模板句，而是角色本人认真写给用户的一句愿意见面、想见面或约好见面的回应，语气要符合角色，不要套话，不要默认文案。',
-    'text 控制在大约 45 个字，允许上下浮动一点，但不要太短，也不要太长。',
+    '如果 accept 为 true，accepted 小卡片本身只会显示 ACCEPTED 和时间地点。text 不是卡片文案，而是你随后在聊天里发给对方的第一句正常消息。',
+    '如果 accept 为 true，text 要像真人聊天里顺手发的一句，尽量短，最好控制在 10 到 22 个字，不要写成长句，不要解释一大串。',
     '只返回 JSON：{"accept":true|false,"text":"...","followups":["..."],"mood":"...","weather":"...","location":"...","aside":"...","scheduledDate":"YYYY-MM-DD","scheduledTime":"HH:MM"}',
-    '如果 accept 为 true，text 写一句自然口语的线下回应，其他字段只是给这次见面安排补充时间地点。',
-    '如果 accept 为 true，followups 里继续补 1 到 3 条正常聊天消息，像答应见面之后顺手又说了几句，不要复读展示文案。',
+    '如果 accept 为 true，其他字段只是给这次见面安排补充时间地点。',
+    '如果 accept 为 true，followups 里继续补 0 到 2 条正常聊天消息，像答应见面之后顺手又说了几句。每条都要短，一条一个意思，不要复读展示文案。',
     '如果 accept 为 true，请顺手给出你真的能赴约的时间 scheduledDate / scheduledTime。这个时间必须现实、合理，不能比现在更早，也不要写凌晨四点这种不合常理的时间。',
-    '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成通知文案。',
+    '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成通知文案。尽量短一点，别写成长句。',
     '如果 accept 为 false，请像真人聊天一样回复：可以先来一句当下反应，再补一句解释或安抚，语气要有停顿感和生活感。',
-    '如果 accept 为 false，followups 里再补 0 到 2 条自然的后续消息，可以是解释、安抚、改约的意思，但要像聊天，不要像通知。',
+    '如果 accept 为 false，followups 里再补 0 到 2 条自然的后续消息，可以是解释、安抚、改约的意思，但要像聊天，不要像通知。每条都尽量短。',
     'followups 里的总条数请严格参考当前聊天设置：最少 ' + msgMin + ' 条，最多 ' + msgMax + ' 条；真的一句就够时，也至少给 1 条。',
     '不要为了分条而硬切，只有真的像聊天那样自然停顿时才分开。',
     '不要 markdown，不要额外解释。'
@@ -1458,16 +1472,19 @@ async function rerollPendingOfflineInviteReply(){
   if(!pending) return false;
   await resetOfflineInviteThreadToPending(pending);
   var removedAssistant = false;
+  var removedSystem = false;
   for(var i = chatLog.length - 1; i > pending.index; i--){
     var entry = chatLog[i];
     if(!entry) continue;
     if(String(entry.role || '') === 'user') return false;
     if(String(entry.role || '') === 'assistant'){
       removedAssistant = true;
+    }else if(String(entry.role || '') === 'system'){
+      removedSystem = true;
     }
     chatLog.splice(i, 1);
   }
-  if(!removedAssistant) return false;
+  if(!removedAssistant && !removedSystem) return false;
   if(typeof rollbackInnerVoiceOnReroll === 'function') rollbackInnerVoiceOnReroll();
   await saveChat(true);
   renderChatLog(false);
@@ -1500,14 +1517,14 @@ async function handlePendingOfflineInviteReply(){
     hideTyping();
     if(decision && decision.accept){
       var schedule = deriveOfflineInviteAcceptedSchedule(pending.payload, decision);
-      var acceptedFollowupText = normalizeOfflineInviteFollowups(decision && decision.followups, (decision && decision.aside) || '我把那会儿空出来了，你别急，慢慢来。', {
+      var acceptedFollowupText = normalizeOfflineInviteFollowups([decision && decision.text, decision && decision.followups], (decision && decision.aside) || '我把那会儿空出来了，你别急，慢慢来。', {
         limit: Math.max(1, Number(character && character.msgMax) || 3)
       });
       var acceptedPreviewText = firstOfflineInviteFollowupText(acceptedFollowupText) || normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面');
       pending.payload.status = 'accepted';
       pending.entry.content = JSON.stringify(pending.payload);
       var charWeather = await resolveOfflineInviteWeather('char', decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'));
-      var replyPayload = buildOfflineInvitePayload('assistant', normalizeOfflineInviteDecisionText(decision.text, '我想认真见你一面'), {
+      var replyPayload = buildOfflineInvitePayload('assistant', 'ACCEPTED', {
         charId: String((character && character.id) || '').trim(),
         charName: String((character && (character.nickname || character.name)) || '').trim(),
         mood: decision.mood || randomPick(OFFLINE_MOODS, '(///v///)'),
@@ -1560,7 +1577,7 @@ async function handlePendingOfflineInviteReply(){
         remindedAt: 0,
         openedAt: 0
       });
-      notifyShellAboutOfflineInvite(String(replyPayload.content || '我答应了这次约会。').trim() || '我答应了这次约会。');
+      notifyShellAboutOfflineInvite(String(acceptedPreviewText || '我答应见面了').trim() || '我答应见面了');
       await saveChat(true);
       rerenderChat();
       return true;
@@ -1730,7 +1747,10 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   }
   if(status === 'accepted'){
     bubble.innerHTML = '<div class="offline-invite-plain reply">'
-      + '<div class="offline-invite-plain-body is-compact">' + esc(String(data.content || '').trim() || '我会去见你。') + '</div>'
+      + '<div class="offline-invite-plain-head">'
+      + '<div class="offline-invite-plain-title is-sent">ACCEPTED</div>'
+      + '<div class="offline-invite-plain-status is-dot is-accepted" title="' + escAttr(statusLabel) + '" aria-label="' + escAttr(statusLabel) + '"></div>'
+      + '</div>'
       + '<div class="offline-invite-plain-meta">'
       + '<div class="offline-invite-plain-row is-plain">' + timeText + '</div>'
       + '<div class="offline-invite-plain-row is-plain">' + locationText + '</div>'
