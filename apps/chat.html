@@ -10306,10 +10306,7 @@ function buildRichHtmlSrcdoc(payload){
     'window.setChatMessage = async function(content, index, options){',
     '  var result = await rpc("setChatMessage", { content: content, index: index, options: options || {} });',
     '  window.__PHONE_GREETING_BRIDGE__.lastSetResult = result || null;',
-    '  var refreshMode = String(options && (options.refresh || options.mode || options.render) || "").toLowerCase();',
-    '  if(refreshMode || !!(options && options.forceRefresh)){',
-    '    applyGreetingRpcResult(result || null);',
-    '  }',
+    '  applyGreetingRpcResult(result || null);',
     '  return result;',
     '};',
     'function normalizeGreetingRpcState(result){',
@@ -16396,7 +16393,10 @@ async function restoreOrStartChat() {
   }
   if (restored.length) {
     chatLog = restored;
-    var refreshedGreeting = refreshStoredGreetingEntryIfNeeded(chatLog);
+    var shouldForceGreetingSync = !!(chatLog.length
+      && String((chatLog[0] && chatLog[0].role) || '') === 'assistant'
+      && !chatLog.some(function(item){ return String((item && item.role) || '') === 'user'; }));
+    var refreshedGreeting = refreshStoredGreetingEntryIfNeeded(chatLog, { force: shouldForceGreetingSync });
     appendMoneyDebugLog('restore', { count: chatLog.length, tail: summarizeChatTail(chatLog) });
     renderChatLog(false);
     if(refreshedGreeting){
