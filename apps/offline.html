@@ -394,6 +394,7 @@ body{display:flex;justify-content:center}
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
+var avatarAssetCache = {};
 
 function esc(text){
   return String(text == null ? '' : text)
@@ -411,6 +412,99 @@ function getParentCharacters(){
     }
   }catch(err){}
   return [];
+}
+
+function isRenderableAssetSource(src){
+  var value = String(src || '').trim();
+  return !!(value && value !== '__asset__' && (value.indexOf('data:') === 0 || value.indexOf('blob:') === 0 || value.indexOf('http') === 0 || value.indexOf('/') === 0 || value.indexOf('./') === 0 || value.indexOf('../') === 0));
+}
+
+function getParentCharByIdOrName(charId, charName){
+  var safeId = String(charId || '').trim();
+  var safeName = String(charName || '').trim().toLowerCase();
+  var chars = getParentCharacters();
+  if(!Array.isArray(chars)) return null;
+  if(safeId){
+    var byId = chars.find(function(item){ return item && String(item.id || '') === safeId; }) || null;
+    if(byId) return byId;
+  }
+  if(safeName){
+    return chars.find(function(item){
+      if(!item) return false;
+      var nick = String(item.nickname || '').trim().toLowerCase();
+      var name = String(item.name || '').trim().toLowerCase();
+      return !!((nick && nick === safeName) || (name && name === safeName));
+    }) || null;
+  }
+  return null;
+}
+
+function readStoredCharAvatar(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return '';
+  if(avatarAssetCache[safeId]) return avatarAssetCache[safeId];
+  try{
+    var direct = String(localStorage.getItem('char_avatar_' + safeId) || '').trim();
+    if(isRenderableAssetSource(direct)){
+      avatarAssetCache[safeId] = direct;
+      return direct;
+    }
+  }catch(err){}
+  return '';
+}
+
+function requestStoredCharAvatar(charId, recordId){
+  var safeId = String(charId || '').trim();
+  var safeRecordId = String(recordId || '').trim();
+  if(!safeId || avatarAssetCache[safeId]) return;
+  if(!(window.assetStore && typeof window.assetStore.load === 'function')) return;
+  window.assetStore.load('char_avatar_' + safeId).then(function(src){
+    var clean = String(src || '').trim();
+    if(!isRenderableAssetSource(clean)) return;
+    avatarAssetCache[safeId] = clean;
+    applyThreadAvatarSource(safeRecordId, { type:'image', value: clean });
+  }).catch(function(){});
+}
+
+function getCharAvatarSource(charId, charName){
+  var safeId = String(charId || '').trim();
+  var match = getParentCharByIdOrName(charId, charName);
+  var override = readStoredCharAvatar(safeId);
+  if(override) return { type:'image', value: override };
+  if(match && isRenderableAssetSource(match.imageData)) return { type:'image', value: String(match.imageData || '').trim() };
+  if(match && isRenderableAssetSource(match.avatarUrl)) return { type:'image', value: String(match.avatarUrl || '').trim() };
+  if(match && isRenderableAssetSource(match.avatar)) return { type:'image', value: String(match.avatar || '').trim() };
+  return { type:'text', value: String((charName || (match && (match.nickname || match.name)) || '角')).trim().slice(0, 1) || '角' };
+}
+
+function applyThreadAvatarSource(recordId, source){
+  var root = document.getElementById('threadList');
+  if(!root) return;
+  var safeRecordId = String(recordId || '').trim();
+  if(!safeRecordId) return;
+  var node = findByDataAttr(root, 'data-avatar-id', safeRecordId);
+  var img = findByDataAttr(root, 'data-avatar-img', safeRecordId);
+  if(!node || !img) return;
+  if(source && source.type === 'image' && source.value){
+    var safe = String(source.value || '').trim();
+    img.onerror = function(){
+      img.removeAttribute('src');
+      node.classList.remove('has-image');
+      var brokenFallback = node.childNodes[node.childNodes.length - 1];
+      if(brokenFallback && brokenFallback.nodeType === 3) brokenFallback.textContent = '角';
+    };
+    img.src = safe;
+    node.classList.add('has-image');
+    node.style.backgroundImage = '';
+    var fallbackNode = node.childNodes[node.childNodes.length - 1];
+    if(fallbackNode && fallbackNode.nodeType === 3) fallbackNode.textContent = '';
+    return;
+  }
+  img.removeAttribute('src');
+  node.classList.remove('has-image');
+  var text = String(source && source.value || '角').trim().slice(0, 1) || '角';
+  var fallback = node.childNodes[node.childNodes.length - 1];
+  if(fallback && fallback.nodeType === 3) fallback.textContent = text;
 }
 
 function getScopedFocusKey(){
@@ -554,95 +648,6 @@ function buildWeekDays(date){
   return list;
 }
 
-function resolveCharAvatar(charId, charName){
-  var safeId = String(charId || '').trim();
-  var safeName = String(charName || '').trim();
-  var chars = getParentCharacters();
-  var match = null;
-  if(Array.isArray(chars) && safeId){
-    match = chars.find(function(item){ return item && String(item.id || '') === safeId; }) || null;
-  }
-  if(!match && Array.isArray(chars) && safeName){
-    var targetLower = safeName.toLowerCase();
-    match = chars.find(function(item){
-      if(!item) return false;
-      var nick = String(item.nickname || '').trim();
-      var name = String(item.name || '').trim();
-      return (nick && nick.toLowerCase() === targetLower) || (name && name.toLowerCase() === targetLower);
-    }) || null;
-  }
-  function finalizeAvatarSrc(src){
-    var safe = String(src || '').trim();
-    if(!safe) return Promise.resolve('');
-    try{
-      if(window.parent && window.parent !== window && typeof window.parent.materializeShellNotificationAvatar === 'function'){
-        return Promise.resolve(window.parent.materializeShellNotificationAvatar(safe)).then(function(next){
-          var materialized = String(next || safe || '').trim();
-          if(!materialized) return '';
-          if(/^(data:|blob:|https?:)/i.test(materialized)) return materialized;
-          try{
-            return new URL(materialized, window.parent.location.href).toString();
-          }catch(err){
-            try{ return new URL(materialized, window.location.href).toString(); }catch(ignoreErr){}
-          }
-          return materialized;
-        }).catch(function(){
-          try{
-            return new URL(safe, window.parent.location.href).toString();
-          }catch(err){
-            try{ return new URL(safe, window.location.href).toString(); }catch(ignoreErr){}
-          }
-          return safe;
-        });
-      }
-    }catch(err){}
-    if(/^(data:|blob:|https?:)/i.test(safe)) return Promise.resolve(safe);
-    try{
-      return Promise.resolve(new URL(safe, window.parent.location.href).toString());
-    }catch(err){
-      try{ return Promise.resolve(new URL(safe, window.location.href).toString()); }catch(ignoreErr){}
-    }
-    return Promise.resolve(safe);
-  }
-  try{
-    if(match && window.parent && window.parent !== window && typeof window.parent.getCharacterAvatarForBg === 'function'){
-      var preferred = String(window.parent.getCharacterAvatarForBg(match) || '').trim();
-      if(preferred) return finalizeAvatarSrc(preferred);
-    }
-  }catch(err){}
-  if(match && String(match.imageData || '').trim()) return finalizeAvatarSrc(String(match.imageData || '').trim());
-  if(match && String(match.avatar || '').trim() && /^data:|^blob:|^https?:|^\.{0,2}\//i.test(String(match.avatar || '').trim())){
-    return finalizeAvatarSrc(String(match.avatar || '').trim());
-  }
-  try{
-    if(safeId && window.parent && window.parent !== window && typeof window.parent.resolveShellNotificationAvatar === 'function'){
-      return Promise.resolve(window.parent.resolveShellNotificationAvatar(safeId, '')).then(function(src){
-        return finalizeAvatarSrc(src);
-      }).catch(function(){ return ''; });
-    }
-  }catch(err){}
-  try{
-    if(match && window.parent && window.parent !== window && typeof window.parent.resolveShellNotificationAvatarByName === 'function'){
-      return Promise.resolve(window.parent.resolveShellNotificationAvatarByName(String((match.nickname || match.name || '')).trim()))
-        .then(function(src){ return finalizeAvatarSrc(src); })
-        .catch(function(){ return ''; });
-    }
-  }catch(err){}
-  try{
-    if(safeName && window.parent && window.parent !== window && typeof window.parent.resolveShellNotificationAvatarByName === 'function'){
-      return Promise.resolve(window.parent.resolveShellNotificationAvatarByName(safeName))
-        .then(function(src){ return finalizeAvatarSrc(src); })
-        .catch(function(){ return ''; });
-    }
-  }catch(err){}
-  if(window.assetStore && typeof window.assetStore.load === 'function' && safeId){
-    return window.assetStore.load('char_avatar_' + safeId).then(function(src){
-      return finalizeAvatarSrc(src);
-    }).catch(function(){ return ''; });
-  }
-  return Promise.resolve('');
-}
-
 function refreshThreadListElasticSpace(){
   var root = document.getElementById('threadList');
   if(!root) return;
@@ -784,27 +789,8 @@ function renderThreadList(records, selectedRecord){
       + '</article>';
   }).join('');
   list.forEach(function(item){
-    resolveCharAvatar(item.charId, item.charName).then(function(src){
-      var safe = String(src || '').trim();
-      if(!safe) return;
-      var node = findByDataAttr(root, 'data-avatar-id', item.id);
-      var img = findByDataAttr(root, 'data-avatar-img', item.id);
-      if(!node || !img) return;
-      img.onload = function(){
-        node.classList.add('has-image');
-      };
-      img.onerror = function(){
-        node.classList.remove('has-image');
-      };
-      img.src = safe;
-      node.classList.add('has-image');
-      node.style.backgroundImage = 'url("' + safe.replace(/"/g, '&quot;') + '")';
-      node.style.backgroundSize = 'cover';
-      node.style.backgroundPosition = 'center';
-      node.lastChild && node.lastChild.nodeType === 3 && (node.lastChild.textContent = '');
-      var fallbackNode = node.childNodes[node.childNodes.length - 1];
-      if(fallbackNode && fallbackNode.nodeType === 3) fallbackNode.textContent = '';
-    }).catch(function(){});
+    applyThreadAvatarSource(item.id, getCharAvatarSource(item.charId, item.charName));
+    requestStoredCharAvatar(item.charId, item.id);
   });
   requestAnimationFrame(refreshThreadListElasticSpace);
 }

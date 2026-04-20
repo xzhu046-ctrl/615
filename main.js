@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T07:49:26Z';
+const APP_BUILD_ID = '2026-04-20T07:54:18Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -4408,16 +4408,20 @@ function showAppNotificationCard(payload){
   function renderNotificationAvatar(src){
     var safeSrc = normalizeShellAssetSrc(src || '');
     if(isRenderableShellAvatarSrc(safeSrc)){
-      var safeAvatarUrl = 'url("' + safeSrc.replace(/"/g, '&quot;') + '")';
-      avatar.style.backgroundImage = safeAvatarUrl;
+      avatar.style.backgroundImage = '';
       if(avatarImg){
         avatarImg.onload = function(){
-          avatar.style.backgroundImage = safeAvatarUrl;
           avatarImg.classList.add('show');
         };
         avatarImg.onerror = function(){
           avatarImg.classList.remove('show');
-          avatar.style.backgroundImage = safeAvatarUrl;
+          avatarImg.removeAttribute('src');
+          if(avatarFallback){
+            avatarFallback.style.display = 'flex';
+            avatarFallback.textContent = String(title || '角').slice(0, 1);
+          }else{
+            avatar.textContent = String(title || '角').slice(0, 1);
+          }
         };
         avatarImg.src = safeSrc;
         avatarImg.classList.add('show');
@@ -4426,7 +4430,6 @@ function showAppNotificationCard(payload){
       avatar.textContent = '';
       return true;
     }
-    avatar.style.backgroundImage = '';
     if(avatarImg){
       avatarImg.removeAttribute('src');
       avatarImg.classList.remove('show');
