@@ -399,6 +399,8 @@ body{display:flex;justify-content:center}
 var currentFilter = 'all';
 var currentSelectedId = '';
 var avatarAssetCache = {};
+var offlineRenderVersion = 0;
+var latestOfflineRecords = [];
 
 function esc(text){
   return String(text == null ? '' : text)
@@ -541,10 +543,218 @@ function findByDataAttr(root, attr, value){
   return null;
 }
 
-function getOfflineRecords(){
+function getOfflineRecordsFromStore(){
   var store = window.OfflineInviteStore;
   if(!(store && typeof store.listRecords === 'function')) return [];
   return store.listRecords().filter(function(item){
+    return item && (String(item.charId || '').trim() || String(item.charName || '').trim());
+  });
+}
+
+function normalizeStoredChatEntry(raw){
+  if(Array.isArray(raw)){
+    return {
+      id: String(raw[0] || '').trim(),
+      role: String(raw[1] || '').trim(),
+      type: String(raw[2] || '').trim(),
+      content: typeof raw[3] === 'string' ? raw[3] : String(raw[3] || ''),
+      sentAt: Number(raw[4] || 0) || 0
+    };
+  }
+  if(raw && typeof raw === 'object'){
+    return {
+      id: String(raw.id || '').trim(),
+      role: String(raw.role || '').trim(),
+      type: String(raw.type || '').trim(),
+      content: typeof raw.content === 'string' ? raw.content : String(raw.content || ''),
+      sentAt: Number(raw.sentAt || 0) || 0
+    };
+  }
+  return null;
+}
+
+function parseOfflineInvitePayloadFromContent(raw){
+  var text = String(raw || '').trim();
+  if(!text) return null;
+  try{
+    var parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  }catch(err){
+    return null;
+  }
+}
+
+function getChatStorageKeyCandidates(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return [];
+  var keys = [];
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
+      keys.push(window.parent.scopedKeyForAccount('chat_' + safeId, window.parent.getActiveAccountId()));
+    }
+  }catch(err){}
+  keys.push('chat_' + safeId);
+  return keys.filter(Boolean);
+}
+
+function extractCharIdFromChatRecord(record){
+  var direct = String(record && record.charId || '').trim();
+  if(direct) return direct;
+  var id = String(record && record.id || '').trim();
+  var match = id.match(/^chat_(.+?)(?:__acct_.+)?$/);
+  return match ? String(match[1] || '').trim() : '';
+}
+
+async function loadStoredChatHistoryByChar(charId){
+  var keys = getChatStorageKeyCandidates(charId);
+  for(var i = 0; i < keys.length; i += 1){
+    var key = String(keys[i] || '').trim();
+    if(!key) continue;
+    try{
+      if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.get === 'function'){
+        var record = await window.parent.PhoneStorage.get('chats', key);
+        if(record && Array.isArray(record.history) && record.history.length) return record.history;
+      }
+    }catch(err){}
+    try{
+      var raw = localStorage.getItem(key) || '';
+      if(raw){
+        var parsed = JSON.parse(raw);
+        if(parsed && Array.isArray(parsed.history) && parsed.history.length) return parsed.history;
+      }
+    }catch(err2){}
+  }
+  return [];
+}
+
+async function collectOfflineChatSources(){
+  var map = Object.create(null);
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.list === 'function'){
+      var records = await window.parent.PhoneStorage.list('chats');
+      (Array.isArray(records) ? records : []).forEach(function(record){
+        if(!(record && typeof record === 'object')) return;
+        var recordId = String(record.id || '').trim();
+        if(recordId.indexOf('chat_') !== 0) return;
+        var charId = extractCharIdFromChatRecord(record);
+        var history = Array.isArray(record.history) ? record.history : [];
+        if(!charId || !history.length) return;
+        var prev = map[charId];
+        if(!prev || history.length >= prev.history.length){
+          map[charId] = { charId: charId, history: history };
+        }
+      });
+    }
+  }catch(err){}
+  try{
+    Object.keys(localStorage).forEach(function(key){
+      if(String(key || '').indexOf('chat_') !== 0) return;
+      var raw = '';
+      try{ raw = localStorage.getItem(key) || ''; }catch(err2){ raw = ''; }
+      if(!raw) return;
+      try{
+        var parsed = JSON.parse(raw);
+        var history = Array.isArray(parsed && parsed.history) ? parsed.history : (Array.isArray(parsed && parsed.messages) ? parsed.messages : []);
+        var charId = extractCharIdFromChatRecord({ id: key, charId: parsed && parsed.charId });
+        if(!charId || !history.length) return;
+        var prev = map[charId];
+        if(!prev || history.length >= prev.history.length){
+          map[charId] = { charId: charId, history: history };
+        }
+      }catch(err3){}
+    });
+  }catch(err4){}
+  return Object.keys(map).map(function(id){ return map[id]; });
+}
+
+function mergeOfflineRecordMaps(target, record){
+  if(!record) return;
+  var safe = Object.assign({}, record);
+  var id = String(safe.id || '').trim();
+  if(!id) return;
+  var existing = target[id];
+  if(!existing){
+    target[id] = safe;
+    return;
+  }
+  var safeUpdated = Number(safe.updatedAt || safe.createdAt || 0) || 0;
+  var existingUpdated = Number(existing.updatedAt || existing.createdAt || 0) || 0;
+  target[id] = safeUpdated >= existingUpdated ? Object.assign({}, existing, safe) : Object.assign({}, safe, existing);
+}
+
+function buildFallbackRecordFromChatEntry(entry, charMeta){
+  var normalized = normalizeStoredChatEntry(entry);
+  if(!normalized) return null;
+  var type = String(normalized.type || '').trim().toLowerCase();
+  if(type !== 'offline_invite' && type !== 'offlineinvite') return null;
+  var payload = parseOfflineInvitePayloadFromContent(normalized.content);
+  if(!(payload && typeof payload === 'object')) return null;
+  var recordId = String(payload.recordId || payload.inviteRecordId || payload.id || normalized.id || '').trim();
+  if(!recordId) return null;
+  var charId = String(payload.charId || (charMeta && charMeta.id) || '').trim();
+  var charName = String(payload.charName || (charMeta && (charMeta.nickname || charMeta.name)) || '').trim();
+  return {
+    id: recordId,
+    threadId: String(payload.threadId || recordId).trim() || recordId,
+    charId: charId,
+    charName: charName,
+    sourceRole: String(payload.sourceRole || normalized.role || 'user').trim() || 'user',
+    previewText: String(payload.previewText || payload.location || '').trim(),
+    location: String(payload.location || '').trim(),
+    scheduledDate: String(payload.scheduledDate || '').trim(),
+    scheduledTime: String(payload.scheduledTime || '').trim(),
+    dateLabel: String(payload.dateLabel || '').trim(),
+    timeLabel: String(payload.timeLabel || '').trim(),
+    status: String(payload.status || 'pending').trim() || 'pending',
+    meetState: String(payload.meetState || '').trim(),
+    reminderState: 'pending',
+    arrivalState: 'pending',
+    arrivedAt: 0,
+    inviteMessageId: String(payload.inviteMessageId || normalized.id || '').trim(),
+    replyMessageId: String(payload.replyMessageId || '').trim(),
+    scheduleEntryId: String(payload.scheduleEntryId || '').trim(),
+    createdAt: Number(normalized.sentAt || Date.now()) || Date.now(),
+    updatedAt: Number(normalized.sentAt || Date.now()) || Date.now()
+  };
+}
+
+async function loadOfflineRecordsFromChatsFallback(){
+  var chars = getParentCharacters();
+  var map = Object.create(null);
+  var sources = await collectOfflineChatSources();
+  if(!sources.length){
+    for(var i = 0; i < chars.length; i += 1){
+      var charMeta = chars[i];
+      if(!(charMeta && charMeta.id)) continue;
+      var history = await loadStoredChatHistoryByChar(charMeta.id);
+      if(history.length) sources.push({ charId: String(charMeta.id || '').trim(), history: history });
+    }
+  }
+  for(var s = 0; s < sources.length; s += 1){
+    var source = sources[s];
+    var charId = String(source && source.charId || '').trim();
+    var history = Array.isArray(source && source.history) ? source.history : [];
+    if(!charId || !history.length) continue;
+    var charMeta = getParentCharByIdOrName(charId, '') || { id: charId };
+    for(var j = 0; j < history.length; j += 1){
+      var record = buildFallbackRecordFromChatEntry(history[j], charMeta);
+      if(record) mergeOfflineRecordMaps(map, record);
+    }
+  }
+  return Object.keys(map).map(function(id){ return map[id]; }).sort(function(a, b){
+    return (Number(b.updatedAt || b.createdAt || 0) || 0) - (Number(a.updatedAt || a.createdAt || 0) || 0);
+  });
+}
+
+async function getOfflineRecords(){
+  var fromStore = getOfflineRecordsFromStore();
+  var map = Object.create(null);
+  fromStore.forEach(function(item){ mergeOfflineRecordMaps(map, item); });
+  var fallback = await loadOfflineRecordsFromChatsFallback();
+  fallback.forEach(function(item){ mergeOfflineRecordMaps(map, item); });
+  return Object.keys(map).map(function(id){ return map[id]; }).sort(function(a, b){
+    return (Number(b.updatedAt || b.createdAt || 0) || 0) - (Number(a.updatedAt || a.createdAt || 0) || 0);
+  }).filter(function(item){
     return item && (String(item.charId || '').trim() || String(item.charName || '').trim());
   });
 }
@@ -857,8 +1067,11 @@ function renderThreadList(records, selectedRecord){
   requestAnimationFrame(refreshThreadListElasticSpace);
 }
 
-function renderOfflineApp(){
-  var records = getOfflineRecords();
+async function renderOfflineApp(){
+  var renderToken = ++offlineRenderVersion;
+  var records = await getOfflineRecords();
+  if(renderToken !== offlineRenderVersion) return;
+  latestOfflineRecords = Array.isArray(records) ? records.slice() : [];
   var selected = pickSelectedRecord(records);
   renderMonthCard(records, selected);
   renderFilterTabs(records);
@@ -941,7 +1154,8 @@ document.addEventListener('click', function(event){
   var recordBtn = event.target && event.target.closest ? event.target.closest('[data-record-id]') : null;
   if(recordBtn){
     currentSelectedId = String(recordBtn.getAttribute('data-record-id') || '').trim();
-    var hit = getOfflineRecords().find(function(item){
+    var source = Array.isArray(latestOfflineRecords) ? latestOfflineRecords.slice() : [];
+    var hit = source.find(function(item){
       return String(item && item.id || '') === currentSelectedId;
     }) || null;
     if(hit && canOpenRecordInOfflineMode(hit)){
