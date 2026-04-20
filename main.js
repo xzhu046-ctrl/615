@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T03:00:24Z';
+const APP_BUILD_ID = '2026-04-20T03:12:29Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -2005,17 +2005,32 @@ async function resolveShellNotificationAvatar(charId, preferredAvatar){
   if(isRenderableShellAvatarSrc(direct)) return direct;
   var id = String(charId || '').trim();
   if(!id) return '';
-  var candidates = [];
-  var foreground = getCurrentForegroundCharacter();
-  if(foreground && String(foreground.id || '') === id) candidates.push(foreground);
-  if(persistedShellActiveCharacter && String(persistedShellActiveCharacter.id || '') === id) candidates.push(persistedShellActiveCharacter);
-  getStoredCharactersSnapshot().forEach(function(item){
-    if(item && String(item.id || '') === id) candidates.push(item);
-  });
-  for(var idx = 0; idx < candidates.length; idx += 1){
-    var src = getCharacterAvatarForBg(candidates[idx]);
-    if(isRenderableShellAvatarSrc(src)) return src;
+  function collectNotificationAvatarCandidates(){
+    var candidates = [];
+    var foreground = getCurrentForegroundCharacter();
+    if(foreground && String(foreground.id || '') === id) candidates.push(foreground);
+    if(persistedShellActiveCharacter && String(persistedShellActiveCharacter.id || '') === id) candidates.push(persistedShellActiveCharacter);
+    getStoredCharactersSnapshot().forEach(function(item){
+      if(item && String(item.id || '') === id) candidates.push(item);
+    });
+    return candidates;
   }
+  function findAvatarFromCandidates(candidates){
+    for(var idx = 0; idx < candidates.length; idx += 1){
+      var src = getCharacterAvatarForBg(candidates[idx]);
+      if(isRenderableShellAvatarSrc(src)) return src;
+    }
+    return '';
+  }
+  var foundFromCache = findAvatarFromCandidates(collectNotificationAvatarCandidates());
+  if(isRenderableShellAvatarSrc(foundFromCache)) return foundFromCache;
+  try{
+    if(window.MetadataStore && typeof window.MetadataStore.reloadCharacters === 'function'){
+      await window.MetadataStore.reloadCharacters().catch(function(){ return null; });
+      var refreshed = findAvatarFromCandidates(collectNotificationAvatarCandidates());
+      if(isRenderableShellAvatarSrc(refreshed)) return refreshed;
+    }
+  }catch(err){}
   try{
     var stored = await loadStoredAsset('char_avatar_' + id).catch(function(){ return ''; });
     stored = normalizeShellAssetSrc(stored || '');
@@ -2030,6 +2045,10 @@ async function resolveShellNotificationAvatar(charId, preferredAvatar){
     }catch(err){}
     var mirrored = normalizeShellAssetSrc((scopedKey ? localStorage.getItem(scopedKey) : '') || localStorage.getItem('char_avatar_' + id) || '');
     if(isRenderableShellAvatarSrc(mirrored)) return mirrored;
+  }catch(err){}
+  try{
+    var refreshedAgain = findAvatarFromCandidates(collectNotificationAvatarCandidates());
+    if(isRenderableShellAvatarSrc(refreshedAgain)) return refreshedAgain;
   }catch(err){}
   return '';
 }
