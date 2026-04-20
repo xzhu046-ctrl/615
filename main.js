@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T05:10:44Z';
+const APP_BUILD_ID = '2026-04-20T06:23:13Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -7449,12 +7449,14 @@ async function performCloseApp(){
   if(outer){
     outer.classList.remove('app-open');
     outer.classList.remove('chat-shell-open');
+    outer.classList.remove('chat-hard-cut');
     outer.style.removeProperty('--chat-shell-bg-image');
     outer.style.removeProperty('--chat-shell-bg-color');
   }
   document.documentElement.classList.remove('app-open-mode');
   document.body.classList.remove('app-open-mode');
   document.body.classList.remove('chat-shell-open');
+  document.body.classList.remove('chat-hard-cut');
   var container = document.getElementById('app-container');
   if(container){
     container.classList.remove('open');
@@ -7506,6 +7508,12 @@ function buildAppFrameUrl(src){
 
 var shellLoadingHideTimer = 0;
 var shellLoadingForceTimer = 0;
+function setChatHardCutMode(enabled){
+  var outer = document.querySelector('.phone-outer');
+  if(outer) outer.classList.toggle('chat-hard-cut', !!enabled);
+  if(document.body) document.body.classList.toggle('chat-hard-cut', !!enabled);
+}
+
 function showShellLoadingOverlay(kind){
   var overlay = document.getElementById('shell-loading-overlay');
   var image = document.getElementById('shell-loading-image');
@@ -7559,6 +7567,7 @@ function renderApp(id){
   const container = document.getElementById('app-container');
   const frame = document.getElementById('app-iframe');
   const topbar = document.querySelector('.app-topbar');
+  setChatHardCutMode(id === 'chat');
   if(outer){
     outer.classList.add('app-open');
     outer.classList.toggle('chat-shell-open', id === 'chat');
@@ -7575,7 +7584,7 @@ function renderApp(id){
   }
   if(frame){
     frame.style.marginTop = '';
-    frame.style.opacity = '0';
+    frame.style.opacity = id === 'chat' ? '1' : '0';
     if(frame.dataset){
       frame.dataset.csPrevMarginTop = '';
     }
