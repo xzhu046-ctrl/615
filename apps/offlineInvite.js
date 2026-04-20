@@ -217,6 +217,7 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   data.mood = String(data.mood || '').trim() || '(｡･ω･｡)';
   data.weather = normalizeOfflineWeatherIcon(data.weather);
   data.location = String(data.location || '').trim() || '老地方';
+  if(data.sourceRole === 'user') delete data.content;
   data.timeLabel = String(data.timeLabel || labels.timeLabel);
   data.dateLabel = String(data.dateLabel || labels.dateLabel);
   data.status = String(data.status || 'pending');
@@ -1218,6 +1219,7 @@ async function appendOfflineInviteToChat(role, payload, doScroll, options){
   }
   var safePayload = coerceOfflineInvitePayloadToThread(payload || {}, role === 'user' ? 'user' : 'assistant');
   var finalPayload = buildOfflineInvitePayload(role === 'user' ? 'user' : 'assistant', safePayload && safePayload.content, safePayload || {});
+  if(role === 'user') delete finalPayload.content;
   var entry = makeChatEntry(role === 'user' ? 'user' : 'assistant', JSON.stringify(finalPayload), 'offline_invite');
   chatLog.push(entry);
   addMessage(role === 'user' ? 'user' : 'ai', entry.content, doScroll !== false, 'offline_invite', entry.id);
@@ -1645,6 +1647,7 @@ async function sendOfflineInviteFromUser(){
   payload.requestedTime = timeValue;
   payload.requestedDateLabel = String(payload.dateLabel || '').trim();
   payload.requestedTimeLabel = String(payload.timeLabel || '').trim();
+  delete payload.content;
   ensureOfflineInviteRecordId(payload);
   payload.mood = '';
   var entry = await appendOfflineInviteToChat('user', payload, true);
