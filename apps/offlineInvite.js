@@ -913,6 +913,26 @@ async function openOfflineSession(payload){
       var threadCharacter = getOfflineInviteThreadCharacter();
       payload.charName = String((threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '').trim();
     }
+    if(String(payload.status || '').trim() === 'accepted'){
+      payload.sourceRole = String(payload.sourceRole || 'assistant').trim() || 'assistant';
+      payload.previewText = String(payload.previewText || payload.location || '赴约已定下').trim();
+      try{
+        await syncOfflineInviteRecord(payload, {
+          id: ensureOfflineInviteRecordId(payload),
+          charId: String(payload.charId || '').trim(),
+          charName: String(payload.charName || '').trim(),
+          location: String(payload.location || '').trim(),
+          scheduledDate: String(payload.scheduledDate || '').trim(),
+          scheduledTime: String(payload.scheduledTime || '').trim(),
+          dateLabel: String(payload.dateLabel || '').trim(),
+          timeLabel: String(payload.timeLabel || '').trim(),
+          sourceRole: String(payload.sourceRole || 'assistant').trim() || 'assistant',
+          status: 'accepted',
+          previewText: String(payload.previewText || payload.location || '赴约已定下').trim(),
+          inviteMessageId: String(payload.inviteMessageId || '').trim()
+        });
+      }catch(err){}
+    }
   }
   writeOfflineInviteDebug({
     chatThreadCharId: liveCharId,
@@ -1472,14 +1492,24 @@ async function acceptOfflineInvite(messageId){
     }
   }
   payload.status = 'accepted';
+  payload.sourceRole = 'assistant';
+  payload.inviteMessageId = String(entry && entry.id || '').trim();
+  payload.previewText = String(payload.previewText || payload.location || '赴约已定下').trim();
   entry.content = JSON.stringify(payload);
   rerenderChat();
   await syncOfflineInviteRecord(payload, {
     id: ensureOfflineInviteRecordId(payload),
     inviteMessageId: String(entry && entry.id || '').trim(),
+    charId: String(payload.charId || '').trim(),
+    charName: String(payload.charName || '').trim(),
+    location: String(payload.location || '').trim(),
+    scheduledDate: String(payload.scheduledDate || '').trim(),
+    scheduledTime: String(payload.scheduledTime || '').trim(),
+    dateLabel: String(payload.dateLabel || '').trim(),
+    timeLabel: String(payload.timeLabel || '').trim(),
     sourceRole: 'assistant',
     status: 'accepted',
-    previewText: '',
+    previewText: String(payload.previewText || payload.location || '赴约已定下').trim(),
     reminderState: 'pending',
     arrivalState: 'pending',
     arrivedAt: 0
