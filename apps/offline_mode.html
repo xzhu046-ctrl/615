@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-08T03:43:00Z"></script>
-<script src="../promptManager.js?v=2026-04-16T02:55:00Z"></script>
-<script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-08T03:43:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-08T03:43:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-20T07:58:45Z"></script>
+<script src="../assetStore.js?v=2026-04-20T18:54:11Z"></script>
+<script src="../chatStorage.js?v=2026-04-20T18:54:11Z"></script>
+<script src="../metadataStore.js?v=2026-04-20T18:54:11Z"></script>
+<script src="../promptManager.js?v=2026-04-20T18:54:11Z"></script>
+<script src="../accountManager.js?v=2026-04-20T18:54:11Z"></script>
+<script src="../scheduleShared.js?v=2026-04-20T18:54:11Z"></script>
+<script src="../presenceShared.js?v=2026-04-20T18:54:11Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-20T18:54:11Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -548,10 +548,19 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
             <div class="offline-setting-row">
               <span class="offline-setting-label">字数设置</span>
               <div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;">
-                <input class="offline-setting-input" id="offlineDrawerMinChars" type="number" min="120" max="1200" step="10" style="width:96px">
+                <input class="offline-setting-input" id="offlineDrawerMinChars" type="number" min="60" max="3600" step="10" style="width:96px">
                 <span class="offline-setting-note" style="font-size:12px">~</span>
-                <input class="offline-setting-input" id="offlineDrawerMaxChars" type="number" min="160" max="1600" step="10" style="width:96px">
+                <input class="offline-setting-input" id="offlineDrawerMaxChars" type="number" min="80" max="4200" step="10" style="width:96px">
               </div>
+            </div>
+            <div class="offline-setting-row">
+              <span class="offline-setting-label">流式输出</span>
+              <button class="offline-setting-toggle" id="offlineDrawerStreamEnabled" type="button" aria-pressed="false"></button>
+            </div>
+            <div class="offline-setting-actions">
+              <button class="offline-setting-btn" id="offlineDrawerPresetImportBtn" type="button">导入预设</button>
+              <input id="offlineDrawerPresetFile" type="file" accept=".json,.settings,.preset" hidden>
+              <div class="offline-setting-note" id="offlineDrawerPresetMeta" style="margin-left:auto;text-align:right">未导入预设</div>
             </div>
             <label class="offline-setting-label" for="offlineDrawerPerspective">人称视角</label>
             <select class="offline-setting-select" id="offlineDrawerPerspective">
@@ -2928,6 +2937,40 @@ function getOfflineUiPrefs(){
     sideStoryType: sideStoryType
   };
 }
+function estimateOfflineOutputTokensFromChars(chars){
+  var safeChars = Math.max(60, Number(chars) || 0);
+  return Math.max(128, Math.min(6000, Math.ceil(safeChars * 1.7 + 96)));
+}
+function estimateOfflineCharsFromTokens(tokens){
+  var safeTokens = Math.max(32, Number(tokens) || 0);
+  return Math.max(60, Math.min(4200, Math.round(safeTokens / 1.7)));
+}
+function getOfflineStreamEnabled(){
+  return character && character.offlineStreamEnabled != null ? !!character.offlineStreamEnabled : false;
+}
+function getOfflineContextLimitTokens(){
+  return Math.max(1024, Math.min(64000, Number(character && character.offlineMaxContextTokens) || 8192));
+}
+function getOfflineMaxOutputTokens(){
+  var direct = Math.max(0, Number(character && character.offlineMaxOutputTokens) || 0);
+  if(direct) return Math.max(128, Math.min(6000, direct));
+  return estimateOfflineOutputTokensFromChars(Number(character && character.offlineInviteMax) || 360);
+}
+function getOfflinePresetName(){
+  return String(character && character.offlinePresetName || '').trim();
+}
+function describeOfflinePresetMeta(source){
+  var preset = source && typeof source === 'object' ? source : buildOfflineDrawerDraft();
+  var bits = [];
+  var name = String(preset.presetName || '').trim();
+  var ctx = Math.max(0, Number(preset.maxContextTokens) || 0);
+  var out = Math.max(0, Number(preset.maxOutputTokens) || 0);
+  if(name) bits.push(name);
+  if(ctx) bits.push('ctx ' + ctx);
+  if(out) bits.push('out ' + out);
+  bits.push(preset.streamEnabled ? 'stream' : 'plain');
+  return bits.join(' · ');
+}
 function buildOfflineDrawerDraft(){
   var prefs = getOfflineStoryPrefs();
   var ui = getOfflineUiPrefs();
@@ -2936,6 +2979,10 @@ function buildOfflineDrawerDraft(){
     maxChars: prefs.maxChars,
     perspective: prefs.perspective,
     style: prefs.style,
+    streamEnabled: !!prefs.streamEnabled,
+    presetName: String(prefs.presetName || '').trim(),
+    maxContextTokens: Math.max(1024, Math.min(64000, Number(prefs.maxContextTokens) || 8192)),
+    maxOutputTokens: Math.max(128, Math.min(6000, Number(prefs.maxOutputTokens) || estimateOfflineOutputTokensFromChars(prefs.maxChars))),
     translationEnabled: !!(character && character.translationEnabled),
     replyLanguage: normalizeReplyLanguage(character && character.replyLanguage || 'zh'),
     translationMode: normalizeTranslationMode(character && character.translationMode || 'ondemand'),
@@ -2952,10 +2999,14 @@ function getOfflineDrawerDraft(){
 function applyOfflineDrawerDraftToCharacter(){
   if(!character) return;
   var draft = getOfflineDrawerDraft();
-  character.offlineInviteMin = Math.max(10, Number(draft.minChars) || 300);
+  character.offlineInviteMin = Math.max(60, Number(draft.minChars) || 300);
   character.offlineInviteMax = Math.max(character.offlineInviteMin, Number(draft.maxChars) || 360);
   character.offlineInvitePerspective = String(draft.perspective || 'first');
   character.offlineInviteStyle = String(draft.style || '').trim();
+  character.offlineStreamEnabled = !!draft.streamEnabled;
+  character.offlinePresetName = String(draft.presetName || '').trim();
+  character.offlineMaxContextTokens = Math.max(1024, Math.min(64000, Number(draft.maxContextTokens) || 8192));
+  character.offlineMaxOutputTokens = Math.max(128, Math.min(6000, Number(draft.maxOutputTokens) || estimateOfflineOutputTokensFromChars(draft.maxChars)));
   character.translationEnabled = !!draft.translationEnabled;
   character.replyLanguage = normalizeReplyLanguage(draft.replyLanguage || 'zh');
   character.translationMode = normalizeTranslationMode(draft.translationMode || 'ondemand');
@@ -3154,6 +3205,8 @@ function syncOfflineDrawerControls(){
   var maxChars = document.getElementById('offlineDrawerMaxChars');
   var perspective = document.getElementById('offlineDrawerPerspective');
   var style = document.getElementById('offlineDrawerStyle');
+  var streamEnabled = document.getElementById('offlineDrawerStreamEnabled');
+  var presetMeta = document.getElementById('offlineDrawerPresetMeta');
   var summaryEvery = document.getElementById('offlineDrawerSummaryEvery');
   var summaryAuto = document.getElementById('offlineDrawerSummaryAuto');
   var memoryReadCount = document.getElementById('offlineDrawerMemoryReadCount');
@@ -3167,6 +3220,11 @@ function syncOfflineDrawerControls(){
   if(maxChars && document.activeElement !== maxChars) maxChars.value = String(draft.maxChars);
   if(perspective) perspective.value = draft.perspective;
   if(style && document.activeElement !== style) style.value = draft.style;
+  if(streamEnabled){
+    streamEnabled.classList.toggle('is-on', !!draft.streamEnabled);
+    streamEnabled.setAttribute('aria-pressed', draft.streamEnabled ? 'true' : 'false');
+  }
+  if(presetMeta) presetMeta.textContent = describeOfflinePresetMeta(draft);
   if(summaryEvery && document.activeElement !== summaryEvery) summaryEvery.value = String(draft.summaryEvery);
   if(memoryReadCount && document.activeElement !== memoryReadCount) memoryReadCount.value = String(draft.memoryReadCount);
   var manualCount = document.getElementById('offlineDrawerManualSummaryCount');
@@ -3207,6 +3265,9 @@ function bindOfflineDrawerControls(){
   var style = document.getElementById('offlineDrawerStyle');
   var minChars = document.getElementById('offlineDrawerMinChars');
   var maxChars = document.getElementById('offlineDrawerMaxChars');
+  var streamEnabled = document.getElementById('offlineDrawerStreamEnabled');
+  var presetImportBtn = document.getElementById('offlineDrawerPresetImportBtn');
+  var presetFile = document.getElementById('offlineDrawerPresetFile');
   var summaryEvery = document.getElementById('offlineDrawerSummaryEvery');
   var summaryAuto = document.getElementById('offlineDrawerSummaryAuto');
   var memoryReadCount = document.getElementById('offlineDrawerMemoryReadCount');
@@ -3238,18 +3299,39 @@ function bindOfflineDrawerControls(){
   if(minChars){
     bindNumericCommit(minChars, function(){
       var draft = getOfflineDrawerDraft();
-      var nextMin = Math.max(10, Number(minChars.value) || 300);
+      var nextMin = Math.max(60, Number(minChars.value) || 300);
       var currentMax = Math.max(nextMin, Number(draft.maxChars) || 360);
       draft.minChars = nextMin;
       draft.maxChars = Math.max(currentMax, nextMin);
+      draft.maxOutputTokens = Math.max(128, Number(draft.maxOutputTokens) || estimateOfflineOutputTokensFromChars(draft.maxChars));
     });
   }
   if(maxChars){
     bindNumericCommit(maxChars, function(){
       var draft = getOfflineDrawerDraft();
-      var currentMin = Math.max(10, Number(draft.minChars) || 300);
+      var currentMin = Math.max(60, Number(draft.minChars) || 300);
       var nextMax = Math.max(currentMin, Number(maxChars.value) || 360);
       draft.maxChars = nextMax;
+      draft.maxOutputTokens = estimateOfflineOutputTokensFromChars(nextMax);
+    });
+  }
+  if(streamEnabled){
+    streamEnabled.addEventListener('click', function(){
+      var draft = getOfflineDrawerDraft();
+      draft.streamEnabled = !draft.streamEnabled;
+      syncOfflineDrawerControls();
+    });
+  }
+  if(presetImportBtn && presetFile){
+    presetImportBtn.addEventListener('click', function(){
+      try{ presetFile.click(); }catch(err){}
+    });
+    presetFile.addEventListener('change', function(){
+      importOfflinePresetFromFile((presetFile.files && presetFile.files[0]) || null).catch(function(err){
+        toast('导入预设失败：' + summarizeOfflineError(err), { sticky:true });
+      }).finally(function(){
+        try{ presetFile.value = ''; }catch(resetErr){}
+      });
     });
   }
   if(perspective){
@@ -4332,16 +4414,29 @@ function formatOfflineHistoryForPrompt(detailLimit, summaryLimit){
   return olderLines.concat(recentLines).join('\n');
 }
 function getOfflineStoryPrefs(){
-  var minChars = Math.max(10, Number(character && character.offlineInviteMin) || 300);
+  var minChars = Math.max(60, Number(character && character.offlineInviteMin) || 300);
   var maxChars = Math.max(minChars, Number(character && character.offlineInviteMax) || 360);
   var perspective = String(character && character.offlineInvitePerspective || 'first');
   var style = String(character && character.offlineInviteStyle || '').trim();
+  var streamEnabled = getOfflineStreamEnabled();
+  var maxContextTokens = getOfflineContextLimitTokens();
+  var maxOutputTokens = getOfflineMaxOutputTokens();
+  var presetName = getOfflinePresetName();
   if(!/^(first|second|third)$/.test(perspective)) perspective = 'first';
-  return { minChars:minChars, maxChars:maxChars, perspective:perspective, style:style };
+  return {
+    minChars:minChars,
+    maxChars:maxChars,
+    perspective:perspective,
+    style:style,
+    streamEnabled:streamEnabled,
+    maxContextTokens:maxContextTokens,
+    maxOutputTokens:maxOutputTokens,
+    presetName:presetName
+  };
 }
 function getOfflineSoftMaxChars(){
   var prefs = getOfflineStoryPrefs();
-  return Math.max(prefs.maxChars, prefs.maxChars + 100);
+  return Math.max(prefs.maxChars, prefs.maxChars + Math.max(120, Math.round(prefs.maxChars * 0.12)));
 }
 function getOfflineReplyMinChars(){
   var prefs = getOfflineStoryPrefs();
@@ -4653,9 +4748,48 @@ async function generateOfflineBodyTextOnly(context, options){
       thoughtChain: opts.thoughtChain || null
     }),
     prompt,
-    Math.min(isMobileOfflineRuntime() ? 70000 : 56000, Number(opts.timeoutMs) || 56000)
+    Math.min(isMobileOfflineRuntime() ? 70000 : 56000, Number(opts.timeoutMs) || 56000),
+    buildOfflineRequestOptions(
+      buildOfflineBodyTextSystemPrompt({
+        compactLevel: Math.max(0, Number(opts.compactLevel) || 0),
+        thoughtChain: opts.thoughtChain || null
+      }),
+      prompt,
+      Number(opts.targetChars) || getOfflineReplyMinChars()
+    )
   );
   return String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+}
+async function streamOfflineBodyText(context, options, onUpdate){
+  var opts = options || {};
+  var prompt = [
+    String(context || '').trim(),
+    '如果上一版踩中了禁词、禁用句式、语言错误、视角错误或缺少台词，请你直接改写成合格正文。',
+    '不要解释，不要返回 JSON，只返回修好的纯正文。',
+    '即使你发现问题，也要直接给出改好的版本，不要拒绝。'
+  ].filter(Boolean).join('\n\n');
+  var systemPrompt = buildOfflineBodyTextSystemPrompt({
+    compactLevel: Math.max(0, Number(opts.compactLevel) || 0),
+    thoughtChain: opts.thoughtChain || null
+  });
+  if(!supportsOfflineStreaming(getOfflineProvider())){
+    throw new Error('当前 provider 暂不支持流式线下正文');
+  }
+  var buffer = '';
+  var lastPaintAt = 0;
+  var ok = await callAIStreamText(systemPrompt, prompt, function(piece){
+    buffer = appendStreamPiece(buffer, piece);
+    if(typeof onUpdate === 'function'){
+      var now = Date.now();
+      if((now - lastPaintAt) >= 70 || String(piece || '').indexOf('\n') >= 0){
+        lastPaintAt = now;
+        onUpdate(String(buffer || '').trim());
+      }
+    }
+  }, buildOfflineRequestOptions(systemPrompt, prompt, Number(opts.targetChars) || getOfflineReplyMinChars()));
+  if(typeof onUpdate === 'function') onUpdate(String(buffer || '').trim());
+  if(!ok) throw new Error('当前接口没有成功进入流式输出');
+  return String(buffer || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
 }
 function normalizeOfflineBodyDraftCandidate(draft){
   var source = draft && typeof draft === 'object' ? draft : {};
@@ -4748,6 +4882,147 @@ async function finalizeOfflineBodyPayload(draft, options){
 function memorySummaryStorageKey(charId){
   return scopedKey('memory_summaries_' + String(charId || '').trim());
 }
+function defaultOfflineAdvancedMemoryState(){
+  return {
+    mode:'diary',
+    structured:{
+      facts:{},
+      events:{},
+      relationship:'',
+      decisions:[],
+      plans:[],
+      emotions:[],
+      custom:{},
+      customCategories:{}
+    },
+    vector:{
+      coreMemories:[],
+      fragments:[],
+      timelineSummaries:{},
+      settings:{}
+    }
+  };
+}
+function normalizeOfflineAdvancedMemoryState(raw){
+  var base = defaultOfflineAdvancedMemoryState();
+  var source = raw && typeof raw === 'object' ? raw : {};
+  base.mode = /^(diary|structured|vector)$/.test(String(source.mode || '').trim()) ? String(source.mode || '').trim() : 'diary';
+  var structured = source.structured && typeof source.structured === 'object' ? source.structured : {};
+  base.structured = {
+    facts: structured.facts && typeof structured.facts === 'object' ? structured.facts : {},
+    events: structured.events && typeof structured.events === 'object' ? structured.events : {},
+    relationship: String(structured.relationship || '').trim(),
+    decisions: Array.isArray(structured.decisions) ? structured.decisions : [],
+    plans: Array.isArray(structured.plans) ? structured.plans : [],
+    emotions: Array.isArray(structured.emotions) ? structured.emotions : [],
+    custom: structured.custom && typeof structured.custom === 'object' ? structured.custom : {},
+    customCategories: structured.customCategories && typeof structured.customCategories === 'object' ? structured.customCategories : {}
+  };
+  var vector = source.vector && typeof source.vector === 'object' ? source.vector : {};
+  base.vector = {
+    coreMemories: Array.isArray(vector.coreMemories) ? vector.coreMemories : [],
+    fragments: Array.isArray(vector.fragments) ? vector.fragments : [],
+    timelineSummaries: vector.timelineSummaries && typeof vector.timelineSummaries === 'object' ? vector.timelineSummaries : {},
+    settings: vector.settings && typeof vector.settings === 'object' ? vector.settings : {}
+  };
+  return base;
+}
+function getOfflineMemoryModeFromStore(store){
+  var safe = normalizeOnlineMemorySummaryStore(store || defaultOnlineMemorySummaryStore());
+  return normalizeOfflineAdvancedMemoryState(safe.advancedMemory).mode;
+}
+function buildOfflineDiaryMemoryPromptText(items){
+  var list = sortOfflineMemoryItemsForPrompt(items).map(function(it){
+    return String((it && it.text) || '').trim();
+  }).filter(Boolean);
+  if(!list.length) return '';
+  return list.slice(-getOfflineMemoryReadCount()).join('\n');
+}
+function buildOfflineStructuredMemoryPromptText(store){
+  var safe = normalizeOnlineMemorySummaryStore(store || defaultOnlineMemorySummaryStore());
+  var mem = normalizeOfflineAdvancedMemoryState(safe.advancedMemory).structured;
+  var lines = [];
+  var factKeys = Object.keys(mem.facts || {});
+  if(factKeys.length){
+    lines.push('## 结构化记忆');
+    factKeys.slice(0, 12).forEach(function(key){
+      lines.push('- ' + key + '：' + String(mem.facts[key] || '').replace(/\(\d{6}\)$/,'').trim());
+    });
+  }
+  if(mem.relationship){
+    lines.push(lines.length ? '' : '## 结构化记忆');
+    lines.push('- 关系推进：' + mem.relationship);
+  }
+  var planList = Array.isArray(mem.plans) ? mem.plans.slice(-6) : [];
+  if(planList.length){
+    lines.push(lines.length ? '' : '## 结构化记忆');
+    planList.forEach(function(item){ lines.push('- 计划：' + String(item || '').trim()); });
+  }
+  var emotionList = Array.isArray(mem.emotions) ? mem.emotions.slice(-4) : [];
+  if(emotionList.length){
+    lines.push(lines.length ? '' : '## 结构化记忆');
+    emotionList.forEach(function(item){ lines.push('- 情绪：' + String(item || '').trim()); });
+  }
+  return lines.join('\n').trim();
+}
+function buildOfflineVectorMemoryPromptText(store){
+  var safe = normalizeOnlineMemorySummaryStore(store || defaultOnlineMemorySummaryStore());
+  var mem = normalizeOfflineAdvancedMemoryState(safe.advancedMemory).vector;
+  var lines = [];
+  if(Array.isArray(mem.coreMemories) && mem.coreMemories.length){
+    lines.push('## 核心记忆');
+    mem.coreMemories.slice(0, 8).forEach(function(item){
+      lines.push('- ' + String(item && item.content || '').trim());
+    });
+  }
+  var keys = ['3h', '6h', '1d', '3d', '7d', '30d'];
+  var labels = { '3h':'最近3小时', '6h':'最近6小时', '1d':'今天', '3d':'最近3天', '7d':'最近一周', '30d':'最近一个月' };
+  var timelineLines = [];
+  keys.forEach(function(key){
+    var hit = mem.timelineSummaries && mem.timelineSummaries[key];
+    var text = String(hit && hit.content || '').trim();
+    if(text) timelineLines.push('- ' + (labels[key] || key) + '：' + text);
+  });
+  if(timelineLines.length){
+    lines.push(lines.length ? '' : '## 向量记忆');
+    lines = lines.concat(timelineLines);
+  }
+  var fragments = Array.isArray(mem.fragments) ? mem.fragments.slice() : [];
+  fragments.sort(function(a, b){
+    return (Number(b && (b.importance || b.createdAt) || 0) || 0) - (Number(a && (a.importance || a.createdAt) || 0) || 0);
+  });
+  var related = fragments.slice(0, Math.max(2, getOfflineMemoryReadCount() + 1)).map(function(frag){
+    return String(frag && frag.content || '').trim();
+  }).filter(Boolean);
+  if(related.length){
+    lines.push(lines.length ? '' : '## 向量记忆');
+    related.forEach(function(text){ lines.push('- ' + text); });
+  }
+  return lines.join('\n').trim();
+}
+function buildOfflineSupplementalMemoryPromptText(store){
+  var safe = normalizeOnlineMemorySummaryStore(store || defaultOnlineMemorySummaryStore());
+  var items = Array.isArray(safe.items) ? safe.items : [];
+  var extra = items.filter(function(it){
+    return /^offline_/.test(String(it && it.sourceType || '').trim());
+  });
+  if(!extra.length) return '';
+  var lines = ['## 线下追加记忆'];
+  sortOfflineMemoryItemsForPrompt(extra).slice(-6).forEach(function(it){
+    lines.push('- ' + String(it && it.text || '').trim());
+  });
+  return lines.join('\n').trim();
+}
+function buildOfflineSharedMemoryPromptText(store){
+  var safe = normalizeOnlineMemorySummaryStore(store || defaultOnlineMemorySummaryStore());
+  var mode = getOfflineMemoryModeFromStore(safe);
+  var base = '';
+  if(mode === 'structured') base = buildOfflineStructuredMemoryPromptText(safe);
+  else if(mode === 'vector') base = buildOfflineVectorMemoryPromptText(safe);
+  else return buildOfflineDiaryMemoryPromptText(safe.items || []);
+  var extra = buildOfflineSupplementalMemoryPromptText(safe);
+  return [String(base || '').trim(), String(extra || '').trim()].filter(Boolean).join('\n\n').trim();
+}
 function getOfflineMemoryReadCount(){
   return Math.max(1, Math.min(12, Number(character && character.offlineMemoryReadCount) || 4));
 }
@@ -4758,10 +5033,7 @@ function getOfflineMemorySnippet(){
     var raw = localStorage.getItem(memorySummaryStorageKey(character.id)) || '';
     if(!raw) return '';
     var parsed = normalizeOnlineMemorySummaryStore(JSON.parse(raw));
-    var items = sortOfflineMemoryItemsForPrompt(parsed && parsed.items).map(function(it){
-      return String((it && it.text) || '').trim();
-    }).filter(Boolean);
-    offlineMemorySnippetCache = items.slice(-getOfflineMemoryReadCount()).join('\n');
+    offlineMemorySnippetCache = clipOfflinePromptText(buildOfflineSharedMemoryPromptText(parsed), 2200);
     return offlineMemorySnippetCache;
   }catch(e){
     return '';
@@ -4780,10 +5052,7 @@ async function hydrateOfflineMemorySnippet(){
     }
   }catch(e){}
   var normalized = normalizeOnlineMemorySummaryStore(source && source.data ? source.data : null);
-  var items = sortOfflineMemoryItemsForPrompt(normalized && normalized.items);
-  offlineMemorySnippetCache = items.map(function(it){
-    return String((it && it.text) || '').trim();
-  }).filter(Boolean).slice(-getOfflineMemoryReadCount()).join('\n');
+  offlineMemorySnippetCache = clipOfflinePromptText(buildOfflineSharedMemoryPromptText(normalized), 2200);
   return offlineMemorySnippetCache;
 }
 async function loadOfflineMemoryStore(){
@@ -5525,16 +5794,123 @@ function buildOfflineUserPrompt(userText){
     '用户刚刚线下说：' + String(userText || '').trim()
   ].filter(Boolean).join('\n\n');
 }
-async function callAI(systemPrompt, userPrompt){
+function normalizeOfflineRequestOptions(options){
+  var opts = options && typeof options === 'object' ? options : {};
+  var maxTokens = Math.max(0, Number(opts.maxTokens) || 0);
+  if(maxTokens) maxTokens = Math.max(128, Math.min(6000, Math.round(maxTokens)));
+  return {
+    maxTokens:maxTokens
+  };
+}
+function estimateOfflinePromptTokens(systemPrompt, userPrompt){
+  var totalChars = String(systemPrompt || '').length + String(userPrompt || '').length;
+  return Math.max(64, Math.ceil(totalChars / 2.2));
+}
+function buildOfflineRequestOptions(systemPrompt, userPrompt, targetChars){
+  var prefs = getOfflineStoryPrefs();
+  var preferred = Math.max(128, Number(prefs.maxOutputTokens) || estimateOfflineOutputTokensFromChars(targetChars || prefs.maxChars));
+  var promptTokens = estimateOfflinePromptTokens(systemPrompt, userPrompt);
+  var available = Math.max(128, Number(prefs.maxContextTokens || 8192) - promptTokens - 420);
+  return normalizeOfflineRequestOptions({
+    maxTokens: Math.min(preferred, available)
+  });
+}
+function getOfflineProvider(){
+  return String(localStorage.getItem('provider') || 'openai').trim() || 'openai';
+}
+function supportsOfflineStreaming(provider){
+  var safe = String(provider || getOfflineProvider()).trim();
+  return safe === 'openai' || safe === 'openrouter' || safe === 'custom';
+}
+function wantsOfflineStreaming(){
+  return !!getOfflineStoryPrefs().streamEnabled;
+}
+function shouldUseOfflineStreaming(){
+  return wantsOfflineStreaming() && supportsOfflineStreaming(getOfflineProvider());
+}
+function parseOfflinePresetObject(source){
+  var obj = source && typeof source === 'object' ? source : {};
+  if(obj.preset && typeof obj.preset === 'object') obj = obj.preset;
+  if(obj.settings && typeof obj.settings === 'object') obj = obj.settings;
+  var name = String(obj.name || obj.preset_name || obj.presetName || obj.title || 'Imported Preset').trim() || 'Imported Preset';
+  var outputTokens = Math.max(
+    0,
+    Number(
+      obj.offlineMaxOutputTokens
+      || obj.openai_max_tokens
+      || obj.max_tokens
+      || obj.genamt
+      || obj.amount_gen
+      || 0
+    ) || 0
+  );
+  var contextTokens = Math.max(
+    0,
+    Number(
+      obj.offlineMaxContextTokens
+      || obj.openai_max_context
+      || obj.max_context
+      || obj.max_length
+      || 0
+    ) || 0
+  );
+  var minChars = Math.max(0, Number(obj.offlineMinChars || obj.min_chars || obj.minChars || 0) || 0);
+  var maxChars = Math.max(0, Number(obj.offlineMaxChars || obj.max_chars || obj.maxChars || 0) || 0);
+  if(!maxChars && outputTokens) maxChars = estimateOfflineCharsFromTokens(outputTokens);
+  if(!minChars && maxChars) minChars = Math.max(60, Math.round(maxChars * 0.82));
+  var streaming = false;
+  if(typeof obj.offlineStreamEnabled === 'boolean') streaming = obj.offlineStreamEnabled;
+  else if(typeof obj.stream_openai === 'boolean') streaming = obj.stream_openai;
+  else if(typeof obj.streaming === 'boolean') streaming = obj.streaming;
+  else if(typeof obj.streaming_textgenerationwebui === 'boolean') streaming = obj.streaming_textgenerationwebui;
+  else if(typeof obj.streaming_kobold === 'boolean') streaming = obj.streaming_kobold;
+  else if(typeof obj.streaming_novel === 'boolean') streaming = obj.streaming_novel;
+  var temperature = Number(obj.temperature);
+  return {
+    name:name,
+    minChars:Math.max(60, Math.min(3600, minChars || 300)),
+    maxChars:Math.max(80, Math.min(4200, maxChars || Math.max(360, minChars || 360))),
+    streamEnabled:!!streaming,
+    maxContextTokens:Math.max(1024, Math.min(64000, contextTokens || 8192)),
+    maxOutputTokens:Math.max(128, Math.min(6000, outputTokens || estimateOfflineOutputTokensFromChars(maxChars || Math.max(360, minChars || 360)))),
+    temperature:isFinite(temperature) ? Math.max(0, Math.min(2, temperature)) : null
+  };
+}
+async function importOfflinePresetFromFile(file){
+  if(!file) return;
+  var text = await file.text();
+  var parsed = null;
+  try{
+    parsed = JSON.parse(String(text || '').trim());
+  }catch(err){
+    throw new Error('预设文件不是合法 JSON');
+  }
+  var imported = parseOfflinePresetObject(parsed);
+  var draft = getOfflineDrawerDraft();
+  draft.minChars = imported.minChars;
+  draft.maxChars = Math.max(imported.minChars, imported.maxChars);
+  draft.streamEnabled = !!imported.streamEnabled;
+  draft.presetName = String(imported.name || '').trim();
+  draft.maxContextTokens = imported.maxContextTokens;
+  draft.maxOutputTokens = imported.maxOutputTokens;
+  if(imported.temperature != null){
+    try{ localStorage.setItem('temp_' + getOfflineProvider(), String(imported.temperature)); }catch(tempErr){}
+  }
+  syncOfflineDrawerControls();
+  persistOfflineDrawerSettings({ silent:true });
+  toast('预设已导入：' + String(imported.name || 'Imported Preset'));
+}
+async function callAI(systemPrompt, userPrompt, requestOptions){
   var provider = localStorage.getItem('provider') || 'openai';
   var key = localStorage.getItem('key_' + provider);
   var model = localStorage.getItem('model_' + provider) || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.9');
+  var req = normalizeOfflineRequestOptions(requestOptions);
   if(provider === 'openai'){
     var res = await fetch('https://api.openai.com/v1/chat/completions', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key },
-      body: JSON.stringify({ model:model, temperature:temperature, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
+      body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
     });
     var data = await res.json();
     if(data.error) throw new Error(data.error.message || JSON.stringify(data.error));
@@ -5544,7 +5920,7 @@ async function callAI(systemPrompt, userPrompt){
     var resClaude = await fetch('https://api.anthropic.com/v1/messages', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
-      body: JSON.stringify({ model:model, temperature:temperature, system:systemPrompt, messages:[{ role:'user', content:userPrompt }] })
+      body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || 2048, system:systemPrompt, messages:[{ role:'user', content:userPrompt }] })
     });
     var dc = await resClaude.json();
     if(dc.error) throw new Error(dc.error.message || JSON.stringify(dc.error));
@@ -5555,7 +5931,7 @@ async function callAI(systemPrompt, userPrompt){
     var resGemini = await fetch(url, {
       method:'POST',
       headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify({ contents:[{ role:'user', parts:[{ text:'[系统提示]\\n' + systemPrompt }] }, { role:'model', parts:[{ text:'好的。' }] }, { role:'user', parts:[{ text:userPrompt }] }], generationConfig:{ temperature:temperature } })
+      body: JSON.stringify({ contents:[{ role:'user', parts:[{ text:'[系统提示]\\n' + systemPrompt }] }, { role:'model', parts:[{ text:'好的。' }] }, { role:'user', parts:[{ text:userPrompt }] }], generationConfig:{ temperature:temperature, maxOutputTokens:req.maxTokens || undefined } })
     });
     var dg = await resGemini.json();
     if(dg.error) throw new Error(dg.error.message || dg.error.status || JSON.stringify(dg.error));
@@ -5565,7 +5941,7 @@ async function callAI(systemPrompt, userPrompt){
     var resOr = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key, 'HTTP-Referer':'https://ephone.app', 'X-Title':'Ephone' },
-      body: JSON.stringify({ model:model, temperature:temperature, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
+      body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
     });
     var dor = await resOr.json();
     if(dor.error) throw new Error(dor.error.message || JSON.stringify(dor.error));
@@ -5582,7 +5958,7 @@ async function callAI(systemPrompt, userPrompt){
       resCustom = await fetch(baseUrl + '/chat/completions', {
         method:'POST',
         headers: headers,
-        body: JSON.stringify({ model: customModel, temperature: temperature, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
+        body: JSON.stringify({ model: customModel, temperature: temperature, max_tokens: req.maxTokens || undefined, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
       });
     }catch(err){
       throw new Error('自定义接口这次没有成功返回内容。你可以稍后再试一下。');
@@ -5636,16 +6012,17 @@ async function readSseStream(response, onPiece){
     }
   }
 }
-async function callAIStreamText(systemPrompt, userPrompt, onPiece){
+async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOptions){
   var provider = localStorage.getItem('provider') || 'openai';
   var key = localStorage.getItem('key_' + provider);
   var model = localStorage.getItem('model_' + provider) || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.9');
+  var req = normalizeOfflineRequestOptions(requestOptions);
   if(provider === 'openai'){
     var res = await fetch('https://api.openai.com/v1/chat/completions', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key },
-      body: JSON.stringify({ model:model, temperature:temperature, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
+      body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
     });
     if(!res.ok) throw new Error('流式请求失败');
     await readSseStream(res, onPiece);
@@ -5655,7 +6032,7 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece){
     var resOr = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key, 'HTTP-Referer':'https://ephone.app', 'X-Title':'Ephone' },
-      body: JSON.stringify({ model:model, temperature:temperature, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
+      body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
     });
     if(!resOr.ok) throw new Error('流式请求失败');
     await readSseStream(resOr, onPiece);
@@ -5670,7 +6047,7 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece){
     var resCustom = await fetch(baseUrl + '/chat/completions', {
       method:'POST',
       headers: headers,
-      body: JSON.stringify({ model: customModel, temperature: temperature, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
+      body: JSON.stringify({ model: customModel, temperature: temperature, max_tokens:req.maxTokens || undefined, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
     });
     if(!resCustom.ok) throw new Error('流式请求失败');
     await readSseStream(resCustom, onPiece);
@@ -5767,10 +6144,10 @@ async function generateOfflineThoughtPair(seedText){
   }catch(e){}
   return fallbackOfflineThoughtPair(seedText);
 }
-async function callAIWithTimeout(systemPrompt, userPrompt, timeoutMs){
+async function callAIWithTimeout(systemPrompt, userPrompt, timeoutMs, requestOptions){
   var ms = Math.max(5000, Number(timeoutMs) || 30000);
   return await Promise.race([
-    callAI(systemPrompt, userPrompt),
+    callAI(systemPrompt, userPrompt, requestOptions),
     new Promise(function(_, reject){
       setTimeout(function(){ reject(new Error('请求超时（' + Math.round(ms / 1000) + 's）')); }, ms);
     })
@@ -6283,13 +6660,15 @@ async function generateOpeningIfNeeded(){
   var storyPrefs = getOfflineStoryPrefs();
   var plan = getOfflineOpeningAttemptPlan();
   var minChars = storyPrefs.minChars;
-  var openingMinChars = Math.max(220, minChars - 120);
+  var openingMinChars = minChars;
   var openingText = '';
   var openingAsides = [];
   var openingTitle = '';
   var openingQuote = '';
   var openingThoughtChain = null;
   var openingStatusCard = null;
+  var liveOpeningEntry = null;
+  var liveOpeningLabels = null;
   var lastError = null;
   var bestText = '';
   var bestAsides = [];
@@ -6302,6 +6681,80 @@ async function generateOpeningIfNeeded(){
       '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 680 : 1080) || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
+    if(shouldUseOfflineStreaming()){
+      try{
+        var openingThoughtRaw = await callAIWithTimeout(
+          buildOfflineThoughtSystemPrompt({ compactLevel: 1 }),
+          [
+            openingContext,
+            '先只补一份 thought_chain，帮助你稳住这一幕的情绪和推进，不要写正文。'
+          ].join('\n\n'),
+          Math.min(getOfflineReplyTimeoutMs(), 42000),
+          buildOfflineRequestOptions(buildOfflineThoughtSystemPrompt({ compactLevel: 1 }), openingContext, 220)
+        );
+        var openingThoughtObj = parseOfflineJsonObject(openingThoughtRaw);
+        if(hasValidOfflineThoughtPayload(openingThoughtObj)){
+          openingThoughtChain = openingThoughtObj.thought_chain;
+        }
+      }catch(streamThoughtErr){
+        lastError = streamThoughtErr;
+      }
+      try{
+        liveOpeningLabels = nowLabels();
+        liveOpeningEntry = {
+          role:'assistant',
+          text:'',
+          title:'',
+          quote:'',
+          asides:[],
+          heart:'♥',
+          thoughtChain: normalizeOfflineThoughtChain(openingThoughtChain, ''),
+          statusCard:null,
+          statusPending:true,
+          statusPendingAt: Date.now(),
+          summaryText:'',
+          bubbles:['……'],
+          timeLabel:liveOpeningLabels.timeLabel,
+          meta:liveOpeningLabels.meta,
+          fullLabel: liveOpeningLabels.fullLabel,
+          createdAt: liveOpeningLabels.createdAt
+        };
+        Object.assign(liveOpeningEntry, buildOfflineEntryMeta(liveOpeningEntry, 'assistant', liveOpeningLabels, { generationMs: 0 }));
+        session.entries.push(liveOpeningEntry);
+        saveSession();
+        renderStory();
+        keepOfflineComposerVisible();
+        openingText = await streamOfflineBodyText(openingContext, {
+          compactLevel: 1,
+          thoughtChain: openingThoughtChain,
+          targetChars: openingMinChars,
+          timeoutMs: Math.min(plan.mainTimeout, 100000)
+        }, function(partialText){
+          if(!liveOpeningEntry) return;
+          liveOpeningEntry.text = ensureOfflineSpeechPresence(String(partialText || '').trim());
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        });
+        bestText = openingText;
+        bestAsides = [];
+        bestDraft = {
+          title:'',
+          quote:'',
+          text:openingText,
+          asides:[]
+        };
+      }catch(streamOpeningErr){
+        lastError = streamOpeningErr;
+        if(liveOpeningEntry && Array.isArray(session.entries)){
+          var liveOpeningIndex = session.entries.indexOf(liveOpeningEntry);
+          if(liveOpeningIndex >= 0) session.entries.splice(liveOpeningIndex, 1);
+          liveOpeningEntry = null;
+          saveSession();
+          renderStory();
+        }
+      }
+    }
     if(isMobileOfflineRuntime()){
       try{
         var emergencyWarmup = await tryEmergencyOfflineOpening(plan, openingMinChars);
@@ -6324,7 +6777,8 @@ async function generateOpeningIfNeeded(){
     }
     if(!String(openingText || '').trim()){
       try{
-        var fastCombinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt({ compactLevel: 2 }), openingContext, Math.min(plan.mainTimeout, 90000));
+        var fastCombinedSys = buildOfflineOpeningChunkSystemPrompt({ compactLevel: 2 });
+        var fastCombinedRaw = await callAIWithTimeout(fastCombinedSys, openingContext, Math.min(plan.mainTimeout, 90000), buildOfflineRequestOptions(fastCombinedSys, openingContext, openingMinChars));
         var fastCombinedObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(fastCombinedRaw));
         if(hasValidOfflineOpeningCombinedPayload(fastCombinedObj)){
           openingThoughtChain = fastCombinedObj.thought_chain;
@@ -6350,7 +6804,8 @@ async function generateOpeningIfNeeded(){
       if(openingTextLength(openingText) >= openingMinChars && openingTitle && openingQuote) break;
       try{
         var compactLevel = attempt >= 2 ? 2 : 1;
-        var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: compactLevel }), openingContext, plan.mainTimeout);
+        var openingBodySys = buildOfflineBodySystemPrompt({ compactLevel: compactLevel });
+        var bodyRaw = await callAIWithTimeout(openingBodySys, openingContext, plan.mainTimeout, buildOfflineRequestOptions(openingBodySys, openingContext, openingMinChars));
         var bodyObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(bodyRaw));
         if(!hasValidOfflineBodyPayload(bodyObj)) throw new Error('正文结构不完整');
         openingText = ensureOfflineSpeechPresence(String(bodyObj.text || '').trim());
@@ -6380,7 +6835,8 @@ async function generateOpeningIfNeeded(){
           ].join('\n\n');
           try{
             var continueCompact = extendAttempt >= 1 ? 1 : 0;
-            var continueRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: continueCompact }), continuePrompt, plan.continueTimeout);
+            var continueSys = buildOfflineBodySystemPrompt({ compactLevel: continueCompact });
+            var continueRaw = await callAIWithTimeout(continueSys, continuePrompt, plan.continueTimeout, buildOfflineRequestOptions(continueSys, continuePrompt, missing));
             var continueObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(continueRaw));
             var extraText = String(continueObj && continueObj.text || '').trim();
             if(!extraText || extraText === openingText) break;
@@ -6411,14 +6867,16 @@ async function generateOpeningIfNeeded(){
     }
     if(!openingThoughtChain && String(openingText || '').trim()){
       try{
+        var openingThoughtSys = buildOfflineThoughtSystemPrompt({ compactLevel: 2 });
         var openingThoughtRaw = await callAIWithTimeout(
-          buildOfflineThoughtSystemPrompt({ compactLevel: 2 }),
+          openingThoughtSys,
           [
             openingContext,
             '这是已经拿到的首幕正文，请只补一份 thought_chain，不要重写正文：',
             String(openingText || '').trim()
           ].join('\n\n'),
-          Math.min(getOfflineReplyTimeoutMs(), 45000)
+          Math.min(getOfflineReplyTimeoutMs(), 45000),
+          buildOfflineRequestOptions(openingThoughtSys, openingContext + '\n' + String(openingText || '').trim(), 220)
         );
         var openingThoughtObj = parseOfflineJsonObject(openingThoughtRaw);
         if(hasValidOfflineThoughtPayload(openingThoughtObj)){
@@ -6430,7 +6888,8 @@ async function generateOpeningIfNeeded(){
     }
     if((!openingTitle || !openingQuote || !String(openingText || '').trim() || !openingThoughtChain)){
       try{
-        var combinedRaw = await callAIWithTimeout(buildOfflineOpeningChunkSystemPrompt({ compactLevel: 2 }), openingContext, Math.min(plan.mainTimeout, 110000));
+        var combinedSys = buildOfflineOpeningChunkSystemPrompt({ compactLevel: 2 });
+        var combinedRaw = await callAIWithTimeout(combinedSys, openingContext, Math.min(plan.mainTimeout, 110000), buildOfflineRequestOptions(combinedSys, openingContext, openingMinChars));
         var combinedObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(combinedRaw));
         if(hasValidOfflineOpeningCombinedPayload(combinedObj)){
           openingThoughtChain = combinedObj.thought_chain;
@@ -6483,29 +6942,35 @@ async function generateOpeningIfNeeded(){
     if(!String(openingText || '').trim()){
       throw lastError || new Error('首幕正文为空');
     }
-    var labels = nowLabels();
+    var labels = liveOpeningLabels || nowLabels();
     var normalizedOpeningStatus = openingStatusCard ? normalizeOfflineStatusCard(openingStatusCard, openingText) : null;
-    var openingEntry = {
+    var openingEntry = liveOpeningEntry || {
       role:'assistant',
-      text:String(openingText || '').trim(),
-      title: openingTitle,
-      quote: openingQuote,
-      asides: openingAsides.length ? openingAsides : [],
       heart:'♥',
-      thoughtChain: normalizeOfflineThoughtChain(openingThoughtChain, openingText),
-      statusCard: normalizedOpeningStatus,
-      statusPending: !normalizedOpeningStatus,
-      statusPendingAt: !normalizedOpeningStatus ? Date.now() : 0,
       bubbles:['终于见到你','过来一点'],
       timeLabel:labels.timeLabel,
       meta:labels.meta,
       fullLabel: labels.fullLabel,
       createdAt: labels.createdAt
     };
+    openingEntry.text = String(openingText || '').trim();
+    openingEntry.title = openingTitle;
+    openingEntry.quote = openingQuote;
+    openingEntry.asides = openingAsides.length ? openingAsides : [];
+    openingEntry.thoughtChain = normalizeOfflineThoughtChain(openingThoughtChain, openingText);
+    openingEntry.statusCard = normalizedOpeningStatus;
+    openingEntry.statusPending = !normalizedOpeningStatus;
+    openingEntry.statusPendingAt = !normalizedOpeningStatus ? Date.now() : 0;
+    openingEntry.summaryText = String(openingEntry.summaryText || '').trim();
+    openingEntry.bubbles = ['终于见到你','过来一点'];
+    openingEntry.timeLabel = labels.timeLabel;
+    openingEntry.meta = labels.meta;
+    openingEntry.fullLabel = labels.fullLabel;
+    openingEntry.createdAt = labels.createdAt;
     Object.assign(openingEntry, buildOfflineEntryMeta(openingEntry, 'assistant', labels, {
       generationMs: Date.now() - openingStartedAt
     }));
-    session.entries.push(openingEntry);
+    if(!liveOpeningEntry) session.entries.push(openingEntry);
     session.openingFailed = false;
     session.lastOpeningError = '';
     session.pendingOpening = false;
@@ -6522,6 +6987,10 @@ async function generateOpeningIfNeeded(){
     });
     return true;
   }catch(e){
+    if(liveOpeningEntry && Array.isArray(session && session.entries)){
+      var failedOpeningIndex = session.entries.indexOf(liveOpeningEntry);
+      if(failedOpeningIndex >= 0) session.entries.splice(failedOpeningIndex, 1);
+    }
     if(isOfflineQuotaLikeError(e)){
       try{
         var emergency = await tryEmergencyOfflineOpening(plan, openingMinChars);
@@ -6642,7 +7111,8 @@ async function requestOfflineReply(options){
     for(var thoughtAttempt = 0; thoughtAttempt < 2; thoughtAttempt += 1){
       var thoughtCompact = Math.min(2, Math.max(retryCompactBase, thoughtAttempt >= 1 ? 1 : 0, thoughtAttempt >= 2 ? 2 : 0));
       try{
-        var thoughtRaw = await callAIWithTimeout(buildOfflineThoughtSystemPrompt({ compactLevel: thoughtCompact }), thoughtContext, Math.min(getOfflineReplyTimeoutMs(), 90000));
+        var thoughtSys = buildOfflineThoughtSystemPrompt({ compactLevel: thoughtCompact });
+        var thoughtRaw = await callAIWithTimeout(thoughtSys, thoughtContext, Math.min(getOfflineReplyTimeoutMs(), 90000), buildOfflineRequestOptions(thoughtSys, thoughtContext, 220));
         var thoughtObj = parseOfflineJsonObject(thoughtRaw);
         if(hasValidOfflineThoughtPayload(thoughtObj)){
           thoughtChain = thoughtObj.thought_chain;
@@ -6672,10 +7142,69 @@ async function requestOfflineReply(options){
     var bodyPayload = null;
     var bestBodyPayload = null;
     var bodyError = null;
+    var liveReplyEntry = null;
+    var liveReplyLabels = null;
+    if(shouldUseOfflineStreaming()){
+      try{
+        liveReplyLabels = nowLabels();
+        liveReplyEntry = {
+          role:'assistant',
+          text:'',
+          title:'',
+          quote:'',
+          asides:[],
+          heart:'♥',
+          thoughtChain: normalizeOfflineThoughtChain(thoughtChain, ''),
+          statusCard:null,
+          statusPending:true,
+          statusPendingAt: Date.now(),
+          summaryText:'',
+          bubbles:['……'],
+          timeLabel:liveReplyLabels.timeLabel,
+          meta:liveReplyLabels.meta,
+          fullLabel: liveReplyLabels.fullLabel,
+          createdAt: liveReplyLabels.createdAt
+        };
+        Object.assign(liveReplyEntry, buildOfflineEntryMeta(liveReplyEntry, 'assistant', liveReplyLabels, { generationMs: 0 }));
+        session.entries.push(liveReplyEntry);
+        saveSession();
+        renderStory();
+        keepOfflineComposerVisible();
+        var streamedReplyText = await streamOfflineBodyText(bodyContext, {
+          compactLevel: retryCompactBase,
+          thoughtChain: thoughtChain,
+          targetChars: minChars,
+          timeoutMs: getOfflineReplyTimeoutMs()
+        }, function(partialText){
+          if(!liveReplyEntry) return;
+          liveReplyEntry.text = ensureOfflineSpeechPresence(String(partialText || '').trim());
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        });
+        bodyPayload = {
+          title:'',
+          quote:'',
+          text:String(streamedReplyText || '').trim(),
+          asides:[]
+        };
+      }catch(streamReplyErr){
+        bodyError = streamReplyErr;
+        if(liveReplyEntry && Array.isArray(session.entries)){
+          var liveReplyIndex = session.entries.indexOf(liveReplyEntry);
+          if(liveReplyIndex >= 0) session.entries.splice(liveReplyIndex, 1);
+          liveReplyEntry = null;
+          saveSession();
+          renderStory();
+        }
+      }
+    }
     for(var bodyAttempt = 0; bodyAttempt < 2; bodyAttempt += 1){
+      if(bodyPayload) break;
       try{
         var bodyCompact = Math.min(2, Math.max(retryCompactBase, bodyAttempt >= 1 ? 1 : 0, bodyAttempt >= 2 ? 2 : 0));
-        var bodyRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: bodyCompact }), bodyContext, getOfflineReplyTimeoutMs());
+        var replyBodySys = buildOfflineBodySystemPrompt({ compactLevel: bodyCompact });
+        var bodyRaw = await callAIWithTimeout(replyBodySys, bodyContext, getOfflineReplyTimeoutMs(), buildOfflineRequestOptions(replyBodySys, bodyContext, minChars));
         var bodyObj = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(bodyRaw));
         if(!hasValidOfflineBodyPayload(bodyObj)) throw new Error('正文结构不完整');
         if(!bestBodyPayload || openingTextLength(bodyObj.text) > openingTextLength(bestBodyPayload.text || '')){
@@ -6721,14 +7250,16 @@ async function requestOfflineReply(options){
     for(var extendAttempt = 0; extendAttempt < 2; extendAttempt += 1){
       if(openingTextLength(replyText) >= minChars) break;
       var missing = minChars - openingTextLength(replyText);
-      var extendRaw = await callAIWithTimeout(buildOfflineBodySystemPrompt({ compactLevel: Math.min(2, retryCompactBase + 1) }), [
+      var extendSys = buildOfflineBodySystemPrompt({ compactLevel: Math.min(2, retryCompactBase + 1) });
+      var extendUser = [
         '这是同一幕线下见面的续写，不要重复前文。',
         '最近线下记录（压缩）：\n' + shortOfflineHistory,
         '已经写好的正文：\n' + replyText,
         '现在还差至少 ' + missing + ' 个字符，请继续补足同一幕的动作、气氛、停顿、对话和身体反应。',
         '继续严格保持这幕已有的标题气质、语录气质和蓝字心声质感。',
         '只返回新增内容 JSON：{"text":"...","asides":["...","..."]}'
-      ].join('\n\n'), getOfflineReplyTimeoutMs());
+      ].join('\n\n');
+      var extendRaw = await callAIWithTimeout(extendSys, extendUser, getOfflineReplyTimeoutMs(), buildOfflineRequestOptions(extendSys, extendUser, missing));
       var extendParsed = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(extendRaw) || {});
       var extraText = String(extendParsed.text || '').trim();
       if(!extraText) break;
@@ -6762,29 +7293,34 @@ async function requestOfflineReply(options){
         : ('当前字数 ' + replyLen + '，字数其实已经够了，但正文校验没过');
       throw new Error('回复我已经自动修过了，但还是没修到合格版本（' + replyLenHint + '；' + replyIssues.join('、') + '）');
     }
-    var nextLabels = nowLabels();
-    var replyEntry = {
+    var nextLabels = liveReplyLabels || nowLabels();
+    var replyEntry = liveReplyEntry || {
       role:'assistant',
-      text:replyText,
-      title:replyTitle,
-      quote:replyQuote,
-      asides:replyAsides,
       heart:'♥',
-      thoughtChain: normalizeOfflineThoughtChain(thoughtChain, replyText),
-      statusCard:null,
-      statusPending:true,
-      statusPendingAt: Date.now(),
-      summaryText:'',
       bubbles:[],
       timeLabel:nextLabels.timeLabel,
       meta:nextLabels.meta,
       fullLabel: nextLabels.fullLabel,
       createdAt: nextLabels.createdAt
     };
+    replyEntry.text = replyText;
+    replyEntry.title = replyTitle;
+    replyEntry.quote = replyQuote;
+    replyEntry.asides = replyAsides;
+    replyEntry.thoughtChain = normalizeOfflineThoughtChain(thoughtChain, replyText);
+    replyEntry.statusCard = null;
+    replyEntry.statusPending = true;
+    replyEntry.statusPendingAt = Date.now();
+    replyEntry.summaryText = String(replyEntry.summaryText || '').trim();
+    replyEntry.bubbles = [];
+    replyEntry.timeLabel = nextLabels.timeLabel;
+    replyEntry.meta = nextLabels.meta;
+    replyEntry.fullLabel = nextLabels.fullLabel;
+    replyEntry.createdAt = nextLabels.createdAt;
     Object.assign(replyEntry, buildOfflineEntryMeta(replyEntry, 'assistant', nextLabels, {
       generationMs: Date.now() - replyStartedAt
     }));
-    session.entries.push(replyEntry);
+    if(!liveReplyEntry) session.entries.push(replyEntry);
     session.lastReplyError = '';
     saveSession();
     queueOfflineInlineTranslationsPrefetch(replyEntry);
@@ -6795,6 +7331,10 @@ async function requestOfflineReply(options){
     keepOfflineComposerVisible();
     return true;
   }catch(e){
+    if(liveReplyEntry && Array.isArray(session && session.entries)){
+      var failedReplyIndex = session.entries.indexOf(liveReplyEntry);
+      if(failedReplyIndex >= 0) session.entries.splice(failedReplyIndex, 1);
+    }
     session.lastReplyError = summarizeOfflineError(e);
     saveSession();
     toast('线下回复生成失败：' + summarizeOfflineError(e), { sticky:true });

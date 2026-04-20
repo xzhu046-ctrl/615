@@ -929,7 +929,7 @@ async function openOfflineSession(payload){
           timeLabel: String(payload.timeLabel || '').trim(),
           sourceRole: String(payload.sourceRole || 'assistant').trim() || 'assistant',
           status: 'accepted',
-          meetState: 'ongoing',
+          meetState: 'scheduled',
           previewText: String(payload.previewText || payload.location || '赴约已定下').trim(),
           inviteMessageId: String(payload.inviteMessageId || '').trim(),
           openedAt: Date.now()

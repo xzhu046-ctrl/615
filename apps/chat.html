@@ -5294,6 +5294,25 @@ function serializeVectorMemoryForPrompt(store, retrieved){
     lines.join('\n')
   ].join('\n').trim();
 }
+function buildOfflineSupplementalMemoryPromptText(store){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var items = Array.isArray(safe.items) ? safe.items : [];
+  var extra = items.filter(function(it){
+    return /^offline_/.test(String(it && it.sourceType || '').trim());
+  });
+  if(!extra.length) return '';
+  return [
+    '## 线下补充记忆',
+    extra.map(function(it){
+      return '- ' + String(it && it.text || '').trim();
+    }).filter(Boolean).join('\n')
+  ].join('\n').trim();
+}
+function appendSupplementalMemoryPromptText(base, extra){
+  var left = String(base || '').trim();
+  var right = String(extra || '').trim();
+  return [left, right].filter(Boolean).join('\n\n').trim();
+}
 async function prepareVectorPromptMemory(messages){
   vectorMemoryPromptCache = '';
   if(!character) return '';
@@ -5311,12 +5330,13 @@ async function prepareVectorPromptMemory(messages){
 function buildMemoryPromptText(store){
   var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
   var mode = getMemoryModeFromStore(safe);
+  var extra = buildOfflineSupplementalMemoryPromptText(safe);
   if(mode === MEMORY_MODE_STRUCTURED){
-    return serializeStructuredMemoryForPrompt(safe);
+    return appendSupplementalMemoryPromptText(serializeStructuredMemoryForPrompt(safe), extra);
   }
   if(mode === MEMORY_MODE_VECTOR){
-    if(vectorMemoryPromptCache) return vectorMemoryPromptCache;
-    return serializeVectorMemoryForPrompt(safe, []);
+    if(vectorMemoryPromptCache) return appendSupplementalMemoryPromptText(vectorMemoryPromptCache, extra);
+    return appendSupplementalMemoryPromptText(serializeVectorMemoryForPrompt(safe, []), extra);
   }
   return buildDiaryMemoryPromptText(safe.items || []);
 }

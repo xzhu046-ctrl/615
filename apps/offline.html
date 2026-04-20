@@ -858,6 +858,59 @@ function renderOfflineApp(){
   renderThreadList(records, selected);
 }
 
+function canOpenRecordInOfflineMode(item){
+  if(!item) return false;
+  return isOngoingInviteRecord(item)
+    || isContinuedInviteRecord(item)
+    || isUpcomingInviteRecord(item)
+    || isCompletedInviteRecord(item);
+}
+
+function openRecordInOfflineMode(item){
+  if(!item || !canOpenRecordInOfflineMode(item)) return false;
+  var safeId = String(item.id || '').trim();
+  var safeCharId = String(item.charId || '').trim();
+  if(!safeCharId) return false;
+  try{
+    localStorage.setItem(getScopedFocusKey(), safeId);
+  }catch(err){}
+  try{
+    if(window.parent && window.parent !== window){
+      window.parent.postMessage({
+        type:'OPEN_APP_WITH',
+        payload:{
+          app:'offline_mode',
+          charId:safeCharId,
+          launchMode:'resume',
+          offlineLaunchRecord:{
+            mode:'resume',
+            charId:safeCharId,
+            payload:{
+              id:safeId,
+              charId:safeCharId,
+              charName:String(item.charName || '').trim(),
+              sourceRole:String(item.sourceRole || '').trim(),
+              status:String(item.status || '').trim(),
+              meetState:String(item.meetState || '').trim(),
+              location:String(item.location || '').trim(),
+              scheduledDate:String(item.scheduledDate || '').trim(),
+              scheduledTime:String(item.scheduledTime || '').trim(),
+              dateLabel:String(item.dateLabel || '').trim(),
+              timeLabel:String(item.timeLabel || '').trim(),
+              previewText:String(item.previewText || '').trim(),
+              inviteMessageId:String(item.inviteMessageId || '').trim(),
+              replyMessageId:String(item.replyMessageId || '').trim()
+            },
+            createdAt:Date.now()
+          }
+        }
+      }, '*');
+      return true;
+    }
+  }catch(err){}
+  return false;
+}
+
 document.addEventListener('click', function(event){
   var exitBtn = event.target && event.target.closest ? event.target.closest('[data-offline-exit]') : null;
   if(exitBtn){
@@ -881,6 +934,13 @@ document.addEventListener('click', function(event){
   var recordBtn = event.target && event.target.closest ? event.target.closest('[data-record-id]') : null;
   if(recordBtn){
     currentSelectedId = String(recordBtn.getAttribute('data-record-id') || '').trim();
+    var hit = getOfflineRecords().find(function(item){
+      return String(item && item.id || '') === currentSelectedId;
+    }) || null;
+    if(hit && canOpenRecordInOfflineMode(hit)){
+      openRecordInOfflineMode(hit);
+      return;
+    }
     renderOfflineApp();
   }
 });

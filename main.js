@@ -8,7 +8,7 @@ const APP_MAP = {
   worldbook:  { title: '档案',           src: 'apps/worldbook.html' },
   schedule:   { title: '日程',           src: 'apps/schedule.html', hideTopbar: true },
   offline:    { title: '约会',           src: 'apps/offline.html', hideTopbar: true },
-  offline_mode:{ title: '约会',          src: 'apps/offline.html', hideTopbar: true },
+  offline_mode:{ title: '线下',          src: 'apps/offline_mode.html', hideTopbar: true },
   backend:    { title: '后台',           src: 'apps/backend.html' },
   map6:       { title: '地图',           src: 'apps/map6.html' },
 };
@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T08:15:39Z';
+const APP_BUILD_ID = '2026-04-20T18:54:11Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -7878,7 +7878,7 @@ window.addEventListener('message',(e)=>{
       pendingOpenOfflineLaunchRecord = clonePendingOfflineLaunchRecord(payload.offlineLaunchRecord || null);
       try{ localStorage.setItem(scopedKeyForAccount('activeOfflineCharacterId', getActiveAccountId()), pendingOpenOfflineCharId); }catch(err){}
       try{ localStorage.setItem('activeOfflineCharacterId', pendingOpenOfflineCharId); }catch(err){}
-      openApp('offline');
+      openApp('offline_mode');
       return;
     }
     openApp(appId);
