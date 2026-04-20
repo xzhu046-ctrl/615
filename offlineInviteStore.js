@@ -80,7 +80,6 @@
   }
 
   function readStateSync(){
-    if(cache) return cloneJson(cache);
     var merged = { version: 1, records: [] };
     var seen = Object.create(null);
     getCandidateStoreKeys().forEach(function(key){
