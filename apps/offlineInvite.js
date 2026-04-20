@@ -507,6 +507,18 @@ async function syncAcceptedOfflineInviteToSchedule(payload, acceptedPayload){
   var scheduleEntryId = String(acceptedPayload && acceptedPayload.scheduleEntryId || '').trim()
     || (recordId ? ('timeline_invite_' + recordId) : shared.createId('timeline'));
   var userName = getCurrentUserDisplayName();
+  var safeDateLabel = String((acceptedPayload && acceptedPayload.dateLabel) || (payload && payload.dateLabel) || '').trim();
+  var safeTimeLabel = String((acceptedPayload && acceptedPayload.timeLabel) || (payload && payload.timeLabel) || '').trim();
+  var safeLocation = String((acceptedPayload && acceptedPayload.location) || (payload && payload.location) || '').trim();
+  var noteParts = ['这次见面已经定下来了。'];
+  if(safeDateLabel || safeTimeLabel || safeLocation){
+    noteParts.push([
+      safeDateLabel,
+      safeTimeLabel,
+      safeLocation ? ('在' + safeLocation) : ''
+    ].filter(Boolean).join(' · ') + '。');
+  }
+  noteParts.push('记得提前留出时间，别让' + userName + '等太久。');
   day.timeline = Array.isArray(day.timeline) ? day.timeline.slice() : [];
   day.timeline = day.timeline.filter(function(item){
     return String(item && item.id || '') !== scheduleEntryId;
@@ -516,8 +528,8 @@ async function syncAcceptedOfflineInviteToSchedule(payload, acceptedPayload){
     start: String(acceptedPayload && acceptedPayload.scheduledTime || '').trim(),
     end: '',
     title: '和' + userName + '赴约',
-    note: '记得去赴约。',
-    location: String((acceptedPayload && acceptedPayload.location) || (payload && payload.location) || '').trim(),
+    note: noteParts.join(' '),
+    location: safeLocation,
     done: false,
     kind: 'char',
     secret: false,
