@@ -31,6 +31,13 @@
     return base;
   }
 
+  function getCandidateStoreKeys(){
+    var scoped = getScopedStoreKey();
+    var keys = [scoped];
+    if(scoped !== STORE_KEY) keys.push(STORE_KEY);
+    return keys.filter(Boolean);
+  }
+
   function createId(prefix){
     return String(prefix || 'invite') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
   }
@@ -74,11 +81,30 @@
 
   function readStateSync(){
     if(cache) return cloneJson(cache);
-    var raw = null;
-    try{ raw = global.localStorage.getItem(getScopedStoreKey()) || 'null'; }catch(err){ raw = 'null'; }
-    var parsed = null;
-    try{ parsed = JSON.parse(raw); }catch(err){ parsed = null; }
-    cache = normalizeState(parsed);
+    var merged = { version: 1, records: [] };
+    var seen = Object.create(null);
+    getCandidateStoreKeys().forEach(function(key){
+      var raw = null;
+      try{ raw = global.localStorage.getItem(key) || 'null'; }catch(err){ raw = 'null'; }
+      var parsed = null;
+      try{ parsed = JSON.parse(raw); }catch(err){ parsed = null; }
+      var state = normalizeState(parsed);
+      state.records.forEach(function(item){
+        var safe = normalizeRecord(item);
+        var id = String(safe.id || '').trim();
+        if(!id) return;
+        if(!seen[id]){
+          seen[id] = safe;
+          merged.records.push(safe);
+          return;
+        }
+        if((Number(safe.updatedAt || safe.createdAt || 0) || 0) >= (Number(seen[id].updatedAt || seen[id].createdAt || 0) || 0)){
+          seen[id] = safe;
+        }
+      });
+    });
+    merged.records = Object.keys(seen).map(function(id){ return seen[id]; });
+    cache = normalizeState(merged);
     return cloneJson(cache);
   }
 
