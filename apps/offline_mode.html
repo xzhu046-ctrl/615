@@ -5804,15 +5804,18 @@ function normalizeOfflineRequestOptions(options){
 }
 function estimateOfflinePromptTokens(systemPrompt, userPrompt){
   var totalChars = String(systemPrompt || '').length + String(userPrompt || '').length;
-  return Math.max(64, Math.ceil(totalChars / 2.2));
+  return Math.max(96, Math.ceil(totalChars / 1.15) + 120);
 }
 function buildOfflineRequestOptions(systemPrompt, userPrompt, targetChars){
   var prefs = getOfflineStoryPrefs();
   var preferred = Math.max(128, Number(prefs.maxOutputTokens) || estimateOfflineOutputTokensFromChars(targetChars || prefs.maxChars));
   var promptTokens = estimateOfflinePromptTokens(systemPrompt, userPrompt);
-  var available = Math.max(128, Number(prefs.maxContextTokens || 8192) - promptTokens - 420);
+  var contextLimit = Math.max(1024, Number(prefs.maxContextTokens || 8192));
+  var reserve = Math.max(720, Math.round(contextLimit * 0.12));
+  var available = Math.max(96, contextLimit - promptTokens - reserve);
+  var cappedPreferred = Math.min(preferred, Math.max(128, Math.round(contextLimit * 0.34)));
   return normalizeOfflineRequestOptions({
-    maxTokens: Math.min(preferred, available)
+    maxTokens: Math.max(96, Math.min(cappedPreferred, Math.round(available * 0.78)))
   });
 }
 function getOfflineProvider(){
@@ -6346,6 +6349,40 @@ async function tryEmergencyOfflineOpening(plan, openingMinChars){
     title: String(finalized && finalized.payload && finalized.payload.title || payload.title || '').trim(),
     quote: String(finalized && finalized.payload && finalized.payload.quote || payload.quote || '').trim(),
     text: String(finalized && finalized.payload && finalized.payload.text || payload.text || '').trim(),
+    asides: normalizeOfflineAsides(finalized && finalized.payload ? finalized.payload.asides : payload.asides)
+  };
+}
+async function tryEmergencyOfflineReply(bodyContext, thoughtChain, minChars){
+  var targetChars = Math.max(220, Math.min(Number(minChars) || 320, 760));
+  var compactContext = clipOfflinePromptText(String(bodyContext || '').trim(), isMobileOfflineRuntime() ? 1200 : 1800);
+  var text = await generateOfflineBodyTextOnly(compactContext, {
+    compactLevel: 2,
+    thoughtChain: thoughtChain || null,
+    targetChars: targetChars,
+    timeoutMs: Math.min(getOfflineReplyTimeoutMs() + 12000, 52000)
+  });
+  var payload = {
+    title: '',
+    quote: '',
+    text: ensureOfflineSpeechPresence(String(text || '').trim()),
+    asides: []
+  };
+  var finalized = await finalizeOfflineBodyPayload(payload, {
+    opening: false,
+    minChars: Math.max(180, Math.min(targetChars, Math.max(220, Number(minChars) || 220))),
+    perspective: getOfflineStoryPrefs().perspective,
+    requireSpeech: true,
+    context: compactContext,
+    thoughtChain: thoughtChain || null,
+    compactLevel: 2,
+    timeoutMs: Math.min(getOfflineReplyTimeoutMs(), 36000)
+  });
+  var issues = Array.isArray(finalized && finalized.issues) ? finalized.issues : [];
+  if(issues.length) throw new Error('应急线下回复仍未通过：' + issues.join('、'));
+  return {
+    text: String(finalized && finalized.payload && finalized.payload.text || payload.text || '').trim(),
+    title: String(finalized && finalized.payload && finalized.payload.title || '').trim(),
+    quote: String(finalized && finalized.payload && finalized.payload.quote || '').trim(),
     asides: normalizeOfflineAsides(finalized && finalized.payload ? finalized.payload.asides : payload.asides)
   };
 }
@@ -7334,6 +7371,46 @@ async function requestOfflineReply(options){
     if(liveReplyEntry && Array.isArray(session && session.entries)){
       var failedReplyIndex = session.entries.indexOf(liveReplyEntry);
       if(failedReplyIndex >= 0) session.entries.splice(failedReplyIndex, 1);
+    }
+    if(isOfflineQuotaLikeError(e)){
+      try{
+        var emergencyReply = await tryEmergencyOfflineReply(bodyContext, thoughtChain, minChars);
+        var emergencyLabels = nowLabels();
+        var emergencyEntry = {
+          role:'assistant',
+          text:String(emergencyReply.text || '').trim(),
+          title:String(emergencyReply.title || '').trim(),
+          quote:String(emergencyReply.quote || '').trim(),
+          asides:normalizeOfflineAsides(emergencyReply.asides),
+          heart:'♥',
+          thoughtChain: normalizeOfflineThoughtChain(thoughtChain, emergencyReply.text),
+          statusCard:null,
+          statusPending:true,
+          statusPendingAt: Date.now(),
+          summaryText:'',
+          bubbles:[],
+          timeLabel:emergencyLabels.timeLabel,
+          meta:emergencyLabels.meta,
+          fullLabel: emergencyLabels.fullLabel,
+          createdAt: emergencyLabels.createdAt
+        };
+        Object.assign(emergencyEntry, buildOfflineEntryMeta(emergencyEntry, 'assistant', emergencyLabels, {
+          generationMs: Date.now() - replyStartedAt
+        }));
+        session.entries.push(emergencyEntry);
+        session.lastReplyError = '';
+        saveSession();
+        queueOfflineInlineTranslationsPrefetch(emergencyEntry);
+        queueOfflineSummaryGeneration(emergencyEntry);
+        queueOfflineStatusCardGeneration(emergencyEntry);
+        queueOfflineStageSummaryGeneration();
+        renderStory();
+        keepOfflineComposerVisible();
+        toast('这轮线下上下文太满了，我已经切成更轻的续写重试成功');
+        return true;
+      }catch(emergencyReplyErr){
+        e = emergencyReplyErr;
+      }
     }
     session.lastReplyError = summarizeOfflineError(e);
     saveSession();

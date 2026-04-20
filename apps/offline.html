@@ -709,7 +709,78 @@ function hideOfflineRecordIds(ids){
   writeHiddenOfflineRecordIds(hidden);
 }
 
-function removeOfflineRecord(id){
+function matchesOfflineInviteEntryForRecord(entry, record){
+  var normalized = normalizeStoredChatEntry(entry);
+  if(!normalized) return false;
+  var type = String(normalized.type || '').trim().toLowerCase();
+  if(type !== 'offline_invite' && type !== 'offlineinvite') return false;
+  var payload = parseOfflineInvitePayloadFromContent(normalized.content);
+  var targets = [
+    record && record.id,
+    record && record.threadId,
+    record && record.inviteMessageId,
+    record && record.replyMessageId,
+    normalized.id
+  ].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
+  var payloadIds = [
+    payload && payload.recordId,
+    payload && payload.inviteRecordId,
+    payload && payload.threadId,
+    payload && payload.inviteMessageId,
+    payload && payload.replyMessageId,
+    payload && payload.id,
+    normalized.id
+  ].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
+  return payloadIds.some(function(id){ return targets.indexOf(id) >= 0; });
+}
+
+async function purgeOfflineRecordFromChatSources(record){
+  var charId = String(record && record.charId || '').trim();
+  var keys = getChatStorageKeyCandidates(charId);
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.list === 'function' && typeof window.parent.PhoneStorage.put === 'function'){
+      var dbRecords = await window.parent.PhoneStorage.list('chats');
+      for(var i = 0; i < (Array.isArray(dbRecords) ? dbRecords.length : 0); i += 1){
+        var dbRecord = dbRecords[i];
+        if(!dbRecord || typeof dbRecord !== 'object') continue;
+        var dbId = String(dbRecord.id || '').trim();
+        if(keys.indexOf(dbId) < 0) continue;
+        var dbHistory = Array.isArray(dbRecord.history) ? dbRecord.history : [];
+        var nextDbHistory = dbHistory.filter(function(entry){
+          return !matchesOfflineInviteEntryForRecord(entry, record);
+        });
+        if(nextDbHistory.length !== dbHistory.length){
+          await window.parent.PhoneStorage.put('chats', Object.assign({}, dbRecord, {
+            id: dbId,
+            updatedAt: Date.now(),
+            history: nextDbHistory
+          }));
+        }
+      }
+    }
+  }catch(err){}
+  for(var j = 0; j < keys.length; j += 1){
+    var key = String(keys[j] || '').trim();
+    if(!key) continue;
+    try{
+      var raw = localStorage.getItem(key) || '';
+      if(!raw) continue;
+      var parsed = JSON.parse(raw);
+      var history = Array.isArray(parsed && parsed.history) ? parsed.history : (Array.isArray(parsed && parsed.messages) ? parsed.messages : []);
+      if(!history.length) continue;
+      var nextHistory = history.filter(function(entry){
+        return !matchesOfflineInviteEntryForRecord(entry, record);
+      });
+      if(nextHistory.length === history.length) continue;
+      localStorage.setItem(key, JSON.stringify(Object.assign({}, parsed || {}, {
+        history: nextHistory,
+        messages: nextHistory
+      })));
+    }catch(err2){}
+  }
+}
+
+async function removeOfflineRecord(id){
   var safeId = String(id || '').trim();
   if(!safeId) return;
   var target = (Array.isArray(latestOfflineRecords) ? latestOfflineRecords : []).find(function(item){
@@ -726,6 +797,7 @@ function removeOfflineRecord(id){
       window.OfflineInviteStore.removeRecord(safeId);
     }
   }catch(err){}
+  await purgeOfflineRecordFromChatSources(target || { id: safeId });
   latestOfflineRecords = (Array.isArray(latestOfflineRecords) ? latestOfflineRecords : []).filter(function(item){
     return String(item && item.id || '').trim() !== safeId;
   });
@@ -1382,7 +1454,7 @@ function openRecordInOfflineMode(item){
   return false;
 }
 
-document.addEventListener('click', function(event){
+document.addEventListener('click', async function(event){
   var deleteBtn = event.target && event.target.closest ? event.target.closest('[data-delete-record-id]') : null;
   if(deleteBtn){
     var deleteId = String(deleteBtn.getAttribute('data-delete-record-id') || '').trim();
@@ -1397,9 +1469,9 @@ document.addEventListener('click', function(event){
   var deleteConfirmBtn = event.target && event.target.closest ? event.target.closest('[data-delete-confirm]') : null;
   if(deleteConfirmBtn){
     if(pendingDeleteRecordId){
-      removeOfflineRecord(pendingDeleteRecordId);
+      await removeOfflineRecord(pendingDeleteRecordId);
       closeDeleteConfirm();
-      renderOfflineApp();
+      await renderOfflineApp();
       return;
     }
     closeDeleteConfirm();
