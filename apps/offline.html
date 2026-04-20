@@ -376,6 +376,7 @@ body{display:flex;justify-content:center}
 }
 .thread-stage.is-pending .thread-stage-dot{background:#b53b3b}
 .thread-stage.is-received .thread-stage-dot{background:#111}
+.thread-stage.is-accepted .thread-stage-dot{background:#fff}
 .thread-stage.is-complete .thread-stage-dot{background:#111}
 .thread-stage.is-continued .thread-stage-dot{background:#fff}
 .thread-stage.is-upcoming .thread-stage-dot{background:#fff}
@@ -574,10 +575,14 @@ function isOngoingInviteRecord(item){
   return meetState === 'ongoing';
 }
 
-function isUpcomingInviteRecord(item){
+function isAcceptedInviteRecord(item){
   var status = String(item && item.status || '').trim();
   var meetState = String(item && item.meetState || '').trim();
-  return status === 'accepted' && (!meetState || meetState === 'scheduled');
+  return status === 'accepted' && (!meetState || meetState === 'scheduled' || meetState === 'accepted');
+}
+
+function isUpcomingInviteRecord(item){
+  return isAcceptedInviteRecord(item);
 }
 
 function getRecordStage(item){
@@ -597,8 +602,8 @@ function getRecordStage(item){
   if(isOngoingInviteRecord(item)){
     return { tone:'continued', label:'On Date', note:'on date', badge:'赴约中' };
   }
-  if(isUpcomingInviteRecord(item)){
-    return { tone:'upcoming', label:'Upcoming', note:'scheduled', badge:'赴约' };
+  if(isAcceptedInviteRecord(item)){
+    return { tone:'accepted', label:'Accepted', note:'accepted', badge:'同意' };
   }
   if(status === 'rejected'){
     return { tone:'ended', label:'Ended', note:'declined', badge:'结束' };
@@ -613,7 +618,7 @@ function getRecordPreview(item){
   if(stage.tone === 'received') return '对方发来了一个见面邀请，现在等你来决定要不要去。';
   if(stage.tone === 'complete') return '这次见面已经好好收尾，也算认真结束了。';
   if(stage.tone === 'continued') return '这次见面还没真正结束，只是先暂时离开了一下。';
-  if(stage.tone === 'upcoming') return '时间和地点已经定下来了，现在就等真正赴约。';
+  if(stage.tone === 'accepted') return '这次见面已经说定了，点进来就能直接进入线下。';
   if(stage.tone === 'ended') return '这次先没有约成，之后也许还能再找个更合适的时间。';
   return '邀约已经发出去，现在就等对方给一个自然的回答。';
 }
@@ -739,7 +744,9 @@ function pickSelectedRecord(records){
   if(!chosen){
     chosen = list.find(isOngoingInviteRecord)
       || list.find(isContinuedInviteRecord)
-      || list.find(isUpcomingInviteRecord)
+      || list.find(isAcceptedInviteRecord)
+      || list.find(isReceivedInviteRecord)
+      || list.find(isPendingInviteRecord)
       || list[0]
       || null;
   }
@@ -860,9 +867,9 @@ function renderOfflineApp(){
 
 function canOpenRecordInOfflineMode(item){
   if(!item) return false;
-  return isOngoingInviteRecord(item)
+  return isAcceptedInviteRecord(item)
+    || isOngoingInviteRecord(item)
     || isContinuedInviteRecord(item)
-    || isUpcomingInviteRecord(item)
     || isCompletedInviteRecord(item);
 }
 
