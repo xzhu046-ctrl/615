@@ -1619,7 +1619,6 @@ async function sendOfflineInviteFromUser(){
   var location = String(locationField && locationField.value || '').trim();
   var dateValue = String(dateField && dateField.value || '').trim();
   var timeValue = String(dateField && dateField.dataset.time || '').trim();
-  var text = '想和你见一面。';
   if(!location){
     if(typeof toast === 'function') toast('地点也要写上呀');
     return;
@@ -1630,7 +1629,7 @@ async function sendOfflineInviteFromUser(){
   }
   closeOfflineInviteComposer();
   var userWeather = await resolveOfflineInviteWeather('user', '☀︎');
-  var payload = buildOfflineInvitePayload('user', text, {
+  var payload = buildOfflineInvitePayload('user', '', {
     charId: String((character && character.id) || '').trim(),
     charName: String((character && (character.nickname || character.name)) || '').trim(),
     weather: userWeather.icon,
