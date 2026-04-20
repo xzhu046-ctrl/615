@@ -443,6 +443,34 @@ async function requestCharOfflineInviteAcceptedFollowups(userPayload, acceptedPa
   return [{ type:'text', content: clean }];
 }
 
+async function requestCharOfflineInviteScheduleNote(userPayload, acceptedPayload){
+  var safeUserPayload = sanitizeOfflineInvitePayloadForModel(userPayload);
+  var safeAcceptedPayload = sanitizeOfflineInvitePayloadForModel(acceptedPayload);
+  var systemPrompt = [
+    '你是角色本人。',
+    '现在你要给自己日程里的这次见面写一句到两句备注。',
+    '这不是发给用户的聊天，也不是系统文案，而是你自己记在日程里的小 note。',
+    '语气要像这个角色真的会写下来的东西，可以带一点情绪、期待、提醒或当下心思，但要自然。',
+    '一定要和已经定下来的时间地点对齐。',
+    '不要提卡片、按钮、邀请、accept 之类系统词。',
+    '只返回纯文本，不要 markdown，不要引号。'
+  ].join('\n');
+  var userPrompt = [
+    buildSystemPrompt(),
+    '用户：' + (getCurrentUserDisplayName() || '用户'),
+    '这次见面的地点：' + (String(safeAcceptedPayload.location || safeUserPayload.location || '').trim() || '（未填写）'),
+    '这次见面的时间：' + [
+      String(safeAcceptedPayload.scheduledDate || '').trim(),
+      String(safeAcceptedPayload.scheduledTime || '').trim()
+    ].filter(Boolean).join(' '),
+    '写 note 时参考这次已经定下来的安排：' + JSON.stringify(safeAcceptedPayload),
+    '最近聊天：\n' + formatChatForModel(chatLog.slice(-12))
+  ].join('\n\n');
+  var raw = await callAIWithCustomPrompts(systemPrompt, userPrompt);
+  var clean = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+  return clean.replace(/^["'“”‘’]+|["'“”‘’]+$/g, '').trim();
+}
+
 async function syncOfflineInviteRecord(payload, patch){
   var store = getOfflineInviteStoreApi();
   if(!store || !(payload && typeof payload === 'object')) return '';
@@ -510,15 +538,14 @@ async function syncAcceptedOfflineInviteToSchedule(payload, acceptedPayload){
   var safeDateLabel = String((acceptedPayload && acceptedPayload.dateLabel) || (payload && payload.dateLabel) || '').trim();
   var safeTimeLabel = String((acceptedPayload && acceptedPayload.timeLabel) || (payload && payload.timeLabel) || '').trim();
   var safeLocation = String((acceptedPayload && acceptedPayload.location) || (payload && payload.location) || '').trim();
-  var noteParts = ['这次见面已经定下来了。'];
-  if(safeDateLabel || safeTimeLabel || safeLocation){
-    noteParts.push([
+  var scheduleNote = String((acceptedPayload && acceptedPayload.scheduleNote) || (payload && payload.scheduleNote) || '').trim();
+  if(!scheduleNote){
+    scheduleNote = [
       safeDateLabel,
       safeTimeLabel,
       safeLocation ? ('在' + safeLocation) : ''
-    ].filter(Boolean).join(' · ') + '。');
+    ].filter(Boolean).join(' · ') || ('和' + userName + '见面');
   }
-  noteParts.push('记得提前留出时间，别让' + userName + '等太久。');
   day.timeline = Array.isArray(day.timeline) ? day.timeline.slice() : [];
   day.timeline = day.timeline.filter(function(item){
     return String(item && item.id || '') !== scheduleEntryId;
@@ -528,7 +555,7 @@ async function syncAcceptedOfflineInviteToSchedule(payload, acceptedPayload){
     start: String(acceptedPayload && acceptedPayload.scheduledTime || '').trim(),
     end: '',
     title: '和' + userName + '赴约',
-    note: noteParts.join(' '),
+    note: scheduleNote,
     location: safeLocation,
     done: false,
     kind: 'char',
@@ -1604,6 +1631,11 @@ async function handlePendingOfflineInviteReply(){
         acceptedFollowupsRaw = await requestCharOfflineInviteAcceptedFollowups(pending.payload, replyPayload);
       }catch(err){
         acceptedFollowupsRaw = decision && decision.followups;
+      }
+      try{
+        replyPayload.scheduleNote = await requestCharOfflineInviteScheduleNote(pending.payload, replyPayload);
+      }catch(err){
+        replyPayload.scheduleNote = '';
       }
       var acceptedFollowups = sanitizeOfflineInviteFollowupItems(acceptedFollowupsRaw, '', {
         limit: Math.max(1, Number(character && character.msgMax) || 3)

@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T02:14:27Z';
+const APP_BUILD_ID = '2026-04-20T02:18:21Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -4269,19 +4269,33 @@ function showAppNotificationCard(payload){
   var shell = document.getElementById('app-notify-shell');
   var card = document.getElementById('app-notify-card');
   var avatar = document.getElementById('app-notify-avatar');
+  var kicker = document.getElementById('app-notify-kicker');
   var name = document.getElementById('app-notify-name');
   var body = document.getElementById('app-notify-body');
-  if(!shell || !card || !avatar || !name || !body) return;
+  var meta = document.getElementById('app-notify-meta');
+  if(!shell || !card || !avatar || !kicker || !name || !body || !meta) return;
   var title = String(payload.name || '角色').trim() || '角色';
   var text = String(payload.text || '').trim() || '有新动静';
   var avatarSrc = String(payload.avatar || '').trim();
+  var appLabelMap = {
+    offline: 'DATE APP',
+    chat: 'CHAT NOTE',
+    schedule: 'SCHEDULE',
+    moments: 'MOMENTS',
+    offline_mode: 'MEET UP'
+  };
+  var appLabel = appLabelMap[String(payload.app || '').trim()] || 'NEW NOTE';
+  var now = new Date();
+  var timeLabel = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
   if(shell.classList.contains('show')){
     appNotifyQueue.push(payload);
     return;
   }
   appNotifyPayload = payload;
+  kicker.textContent = appLabel;
   name.textContent = title;
   body.textContent = text;
+  meta.textContent = appLabel + ' · ' + timeLabel;
   avatar.style.backgroundImage = avatarSrc ? ('url("' + avatarSrc.replace(/"/g, '&quot;') + '")') : '';
   avatar.textContent = avatarSrc ? '' : String(title || '角').slice(0, 1);
   shell.hidden = false;
