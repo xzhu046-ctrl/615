@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T06:23:13Z';
+const APP_BUILD_ID = '2026-04-20T06:36:42Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -1435,13 +1435,16 @@ function renderHomeAppIcon(app, icon){
   const label = HOME_ICON_DEFAULTS[app] || app;
   document.querySelectorAll('[data-app="' + app + '"]').forEach((btn)=>{
     if(!btn) return;
+    const wrapClass = btn.classList.contains('bond-mini-app')
+      ? 'home-app-icon-wrap bond-mini-icon'
+      : 'home-app-icon-wrap';
     if(typeof icon === 'string' && icon.startsWith('data:')){
       btn.classList.add('has-custom-icon');
-      btn.innerHTML = '<span class="home-app-icon-wrap"><img class="home-app-icon-img" src="' + icon + '" alt="' + label + '"></span><span class="home-app-label">' + label + '</span>';
+      btn.innerHTML = '<span class="' + wrapClass + '"><img class="home-app-icon-img" src="' + icon + '" alt="' + label + '"></span><span class="home-app-label">' + label + '</span>';
       return;
     }
     btn.classList.remove('has-custom-icon');
-    btn.innerHTML = '<span class="home-app-icon-wrap home-app-icon-fallback"><span class="home-app-fallback-text">' + label + '</span></span><span class="home-app-label">' + label + '</span>';
+    btn.innerHTML = '<span class="' + wrapClass + ' home-app-icon-fallback"><span class="home-app-fallback-text">' + label + '</span></span><span class="home-app-label">' + label + '</span>';
   });
 }
 
