@@ -24940,6 +24940,95 @@ function openClearChatConfirm(){
 function closeClearChatConfirm(){
   document.getElementById('clearChatConfirmOverlay')?.classList.remove('open');
 }
+function getChatOfflineInviteStore(){
+  try{
+    if(window.parent && window.parent !== window && window.parent.OfflineInviteStore) return window.parent.OfflineInviteStore;
+  }catch(err){}
+  try{
+    if(window.OfflineInviteStore) return window.OfflineInviteStore;
+  }catch(err){}
+  return null;
+}
+function clearOfflineInviteRecordsForChar(charId){
+  var safeCharId = String(charId || '').trim();
+  var store = getChatOfflineInviteStore();
+  if(!safeCharId || !store || typeof store.listRecords !== 'function' || typeof store.removeRecord !== 'function') return;
+  try{
+    store.listRecords().forEach(function(item){
+      if(!item) return;
+      if(String(item.charId || '').trim() !== safeCharId) return;
+      try{ store.removeRecord(String(item.id || '').trim()); }catch(removeErr){}
+    });
+  }catch(err){}
+}
+function clearOfflineArchiveRecordsForChar(charId){
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return;
+  function archiveListKeys(){
+    return [accountScopedKey('offline_meet_archives'), 'offline_meet_archives'].filter(Boolean);
+  }
+  function archiveRecordKeys(id){
+    var safeId = String(id || '').trim();
+    if(!safeId) return [];
+    return [accountScopedKey('offline_meet_archive_record_' + safeId), 'offline_meet_archive_record_' + safeId].filter(Boolean);
+  }
+  var removedIds = [];
+  archiveListKeys().forEach(function(key){
+    var parsed = [];
+    try{
+      parsed = JSON.parse(localStorage.getItem(key) || '[]');
+      if(!Array.isArray(parsed)) parsed = [];
+    }catch(err){
+      parsed = [];
+    }
+    parsed.forEach(function(item){
+      if(item && String(item.charId || '').trim() === safeCharId){
+        removedIds.push(String(item.id || '').trim());
+      }
+    });
+    var nextList = parsed.filter(function(item){
+      return !(item && String(item.charId || '').trim() === safeCharId);
+    });
+    try{ localStorage.setItem(key, JSON.stringify(nextList)); }catch(err){}
+  });
+  removedIds.filter(Boolean).forEach(function(id){
+    archiveRecordKeys(id).forEach(function(key){
+      try{ localStorage.removeItem(key); }catch(err){}
+    });
+  });
+  [
+    accountScopedKey('offline_meet_session_' + safeCharId),
+    'offline_meet_session_' + safeCharId,
+    accountScopedKey('offline_resume_' + safeCharId),
+    'offline_resume_' + safeCharId,
+    accountScopedKey('offline_bootstrap_' + safeCharId),
+    'offline_bootstrap_' + safeCharId,
+    accountScopedKey('offline_launch_' + safeCharId),
+    'offline_launch_' + safeCharId
+  ].filter(Boolean).forEach(function(key){
+    try{ localStorage.removeItem(key); }catch(err){}
+  });
+  try{
+    var activeOffline = String(localStorage.getItem(accountScopedKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
+    if(activeOffline === safeCharId){
+      try{ localStorage.removeItem(accountScopedKey('activeOfflineCharacterId')); }catch(err){}
+      try{ localStorage.removeItem('activeOfflineCharacterId'); }catch(err){}
+    }
+  }catch(err){}
+  try{
+    var latestRaw = localStorage.getItem(accountScopedKey('offline_launch_latest')) || localStorage.getItem('offline_launch_latest') || '';
+    var latest = latestRaw ? JSON.parse(latestRaw) : null;
+    if(latest && String(latest.charId || '').trim() === safeCharId){
+      try{ localStorage.removeItem(accountScopedKey('offline_launch_latest')); }catch(err){}
+      try{ localStorage.removeItem('offline_launch_latest'); }catch(err){}
+      var launchToken = String(latest.launchToken || '').trim();
+      if(launchToken){
+        try{ localStorage.removeItem(accountScopedKey('offline_launch_token_' + launchToken)); }catch(err){}
+        try{ localStorage.removeItem('offline_launch_token_' + launchToken); }catch(err){}
+      }
+    }
+  }catch(err){}
+}
 async function clearChatData(opts){
   var options = opts || {};
   resetPendingListenAlongInviteState();
@@ -24952,6 +25041,8 @@ async function clearChatData(opts){
   pendingFamilyFollowupCue = '';
   chatLog = [];
   if (character){
+    clearOfflineInviteRecordsForChar(character.id);
+    clearOfflineArchiveRecordsForChar(character.id);
     try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(e){}
     await removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
     character.nickname = '';
