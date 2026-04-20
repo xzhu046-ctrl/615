@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T02:53:05Z';
+const APP_BUILD_ID = '2026-04-20T02:56:03Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -4284,24 +4284,27 @@ function showAppNotificationCard(payload){
   appNotifyPayload = payload;
   name.textContent = title;
   body.textContent = text;
-  if(avatarSrc){
-    var safeAvatarUrl = 'url("' + avatarSrc.replace(/"/g, '&quot;') + '")';
-    avatar.style.backgroundImage = safeAvatarUrl;
-    if(avatarImg){
-      avatarImg.onload = function(){
-        avatar.style.backgroundImage = safeAvatarUrl;
+  function renderNotificationAvatar(src){
+    var safeSrc = normalizeShellAssetSrc(src || '');
+    if(isRenderableShellAvatarSrc(safeSrc)){
+      var safeAvatarUrl = 'url("' + safeSrc.replace(/"/g, '&quot;') + '")';
+      avatar.style.backgroundImage = safeAvatarUrl;
+      if(avatarImg){
+        avatarImg.onload = function(){
+          avatar.style.backgroundImage = safeAvatarUrl;
+          avatarImg.classList.add('show');
+        };
+        avatarImg.onerror = function(){
+          avatarImg.classList.remove('show');
+          avatar.style.backgroundImage = safeAvatarUrl;
+        };
+        avatarImg.src = safeSrc;
         avatarImg.classList.add('show');
-      };
-      avatarImg.onerror = function(){
-        avatarImg.classList.remove('show');
-        avatar.style.backgroundImage = safeAvatarUrl;
-      };
-      avatarImg.src = avatarSrc;
-      avatarImg.classList.add('show');
+      }
+      if(avatarFallback) avatarFallback.style.display = 'none';
+      avatar.textContent = '';
+      return true;
     }
-    if(avatarFallback) avatarFallback.style.display = 'none';
-    avatar.textContent = '';
-  }else{
     avatar.style.backgroundImage = '';
     if(avatarImg){
       avatarImg.removeAttribute('src');
@@ -4313,6 +4316,16 @@ function showAppNotificationCard(payload){
     }else{
       avatar.textContent = String(title || '角').slice(0, 1);
     }
+    return false;
+  }
+  var renderedAvatar = renderNotificationAvatar(avatarSrc);
+  if(!renderedAvatar && payload.charId){
+    Promise.resolve(resolveShellNotificationAvatar(payload.charId, ''))
+      .then(function(resolvedAvatar){
+        if(appNotifyPayload !== payload) return;
+        renderNotificationAvatar(resolvedAvatar || '');
+      })
+      .catch(function(){ return null; });
   }
   shell.hidden = false;
   requestAnimationFrame(function(){ shell.classList.add('show'); });
