@@ -86,6 +86,12 @@
     var next = normalizeState(state);
     cache = cloneJson(next);
     try{ global.localStorage.setItem(getScopedStoreKey(), JSON.stringify(next)); }catch(err){}
+    try{ global.dispatchEvent(new CustomEvent('offline-invite-store-dirty', { detail: cloneJson(next) })); }catch(err){}
+    try{
+      if(global.parent && global.parent !== global && typeof global.parent.postMessage === 'function'){
+        global.parent.postMessage({ type:'OFFLINE_INVITE_STORE_DIRTY' }, '*');
+      }
+    }catch(err){}
     return cloneJson(next);
   }
 

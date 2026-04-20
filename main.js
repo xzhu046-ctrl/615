@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T02:21:23Z';
+const APP_BUILD_ID = '2026-04-20T02:25:18Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -7697,6 +7697,9 @@ window.addEventListener('message',(e)=>{
       qqMomentsUnreadCountCache[activeAcctId] = Math.max(0, Number(payload && payload.momentsUnread || 0) || 0);
     }
     renderHomeDockBadges();
+  }
+  if(type==='OFFLINE_INVITE_STORE_DIRTY'){
+    postToChat({ type:'OFFLINE_INVITE_STORE_DIRTY' });
   }
   if(type==='OPEN_APP'){ openApp(payload); }
   if(type==='OPEN_APP_REPLACE'){ replaceApp(payload); }

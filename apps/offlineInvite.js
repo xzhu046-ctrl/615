@@ -1609,7 +1609,6 @@ async function handlePendingOfflineInviteReply(){
   showTyping();
   try{
     var decision = await requestCharOfflineInviteDecision(pending.payload);
-    hideTyping();
     if(decision && decision.accept){
       var schedule = deriveOfflineInviteAcceptedSchedule(pending.payload, decision);
       var charWeather = await resolveOfflineInviteWeather('char', decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'));
@@ -1643,12 +1642,10 @@ async function handlePendingOfflineInviteReply(){
       var acceptedPreviewText = acceptedFollowups.length ? String(acceptedFollowups[0].content || '').trim() : 'ACCEPTED';
       pending.payload.status = 'accepted';
       pending.entry.content = JSON.stringify(pending.payload);
+      hideTyping();
       var replyEntry = await appendOfflineInviteToChat('assistant', replyPayload, true, {
         noticeText: appendOfflineInviteAcceptedNoticeText(replyPayload)
       });
-      if(acceptedFollowups.length){
-        await deliverAiReply(acceptedFollowups, Math.max(1, Number(character && character.msgMax) || 3));
-      }
       replyPayload.replyMessageId = replyEntry && replyEntry.id ? String(replyEntry.id) : '';
       var scheduleEntryId = await syncAcceptedOfflineInviteToSchedule(pending.payload, replyPayload);
       if(scheduleEntryId){
@@ -1681,6 +1678,9 @@ async function handlePendingOfflineInviteReply(){
         remindedAt: 0,
         openedAt: 0
       });
+      if(acceptedFollowups.length){
+        await deliverAiReply(acceptedFollowups, Math.max(1, Number(character && character.msgMax) || 3));
+      }
       notifyShellAboutOfflineInvite(String(acceptedPreviewText || '我答应见面了').trim() || '我答应见面了');
       await saveChat(true);
       rerenderChat();
@@ -1688,6 +1688,7 @@ async function handlePendingOfflineInviteReply(){
     }
     pending.payload.status = 'rejected';
     pending.entry.content = JSON.stringify(pending.payload);
+    hideTyping();
     var rejectNotice = makeSystemNoticeEntry(appendOfflineInviteRejectNoticeText());
     chatLog.push(rejectNotice);
     addSystemNotice(rejectNotice.content, true, rejectNotice.id);
