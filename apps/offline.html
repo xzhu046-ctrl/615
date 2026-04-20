@@ -34,10 +34,13 @@ body{display:flex;justify-content:center}
 .offline-page{
   width:100%;
   max-width:430px;
+  height:100vh;
   min-height:100vh;
-  padding:calc(var(--safe-top) + 4px) 14px calc(var(--safe-bottom) + 26px);
+  padding:calc(var(--safe-top) - 16px) 14px calc(var(--safe-bottom) + 26px);
   position:relative;
-  overflow:auto;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
 }
 .offline-page::before{
   content:"";
@@ -49,7 +52,15 @@ body{display:flex;justify-content:center}
   mask-image:linear-gradient(180deg, rgba(0,0,0,.3), rgba(0,0,0,.1));
   opacity:.24;
 }
-.offline-stack{position:relative;display:flex;flex-direction:column;gap:14px;z-index:1}
+.offline-stack{
+  position:relative;
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  z-index:1;
+  flex:1;
+  min-height:0;
+}
 .month-card,
 .filters-card,
 .thread-card{
@@ -204,7 +215,18 @@ body{display:flex;justify-content:center}
   color:#fff;
   box-shadow:2px 2px 0 #fff, 4px 4px 0 #111;
 }
-.thread-list{display:flex;flex-direction:column;gap:12px}
+.thread-list{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding-right:4px;
+  scrollbar-width:none;
+}
+.thread-list::-webkit-scrollbar{display:none}
 .thread-card{
   padding:12px;
   display:grid;
@@ -519,12 +541,27 @@ function resolveCharAvatar(charId){
   var safeId = String(charId || '').trim();
   var chars = getParentCharacters();
   var match = Array.isArray(chars) ? chars.find(function(item){ return item && String(item.id || '') === safeId; }) : null;
+  try{
+    if(match && window.parent && window.parent !== window && typeof window.parent.getCharacterAvatarForBg === 'function'){
+      var preferred = String(window.parent.getCharacterAvatarForBg(match) || '').trim();
+      if(preferred) return Promise.resolve(preferred);
+    }
+  }catch(err){}
   if(match && String(match.imageData || '').trim()) return Promise.resolve(String(match.imageData || '').trim());
   if(match && String(match.avatar || '').trim() && /^data:|^blob:|^https?:|^\.{0,2}\//i.test(String(match.avatar || '').trim())){
     return Promise.resolve(String(match.avatar || '').trim());
   }
-  if(window.loadStoredAsset && safeId){
-    return loadStoredAsset('char_avatar_' + safeId).catch(function(){ return ''; });
+  try{
+    if(safeId && window.parent && window.parent !== window && typeof window.parent.resolveShellNotificationAvatar === 'function'){
+      return Promise.resolve(window.parent.resolveShellNotificationAvatar(safeId, '')).then(function(src){
+        return String(src || '').trim();
+      }).catch(function(){ return ''; });
+    }
+  }catch(err){}
+  if(window.assetStore && typeof window.assetStore.load === 'function' && safeId){
+    return window.assetStore.load('char_avatar_' + safeId).then(function(src){
+      return String(src || '').trim();
+    }).catch(function(){ return ''; });
   }
   return Promise.resolve('');
 }
