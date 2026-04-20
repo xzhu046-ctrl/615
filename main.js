@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T02:43:42Z';
+const APP_BUILD_ID = '2026-04-20T02:47:59Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -4273,7 +4273,7 @@ function showAppNotificationCard(payload){
   var avatarFallback = document.getElementById('app-notify-avatar-fallback');
   var name = document.getElementById('app-notify-name');
   var body = document.getElementById('app-notify-body');
-  if(!shell || !card || !avatar || !avatarImg || !avatarFallback || !name || !body) return;
+  if(!shell || !card || !avatar || !name || !body) return;
   var title = String(payload.name || '角色').trim() || '角色';
   var text = String(payload.text || '').trim() || '有新动静';
   var avatarSrc = String(payload.avatar || '').trim();
@@ -4285,16 +4285,27 @@ function showAppNotificationCard(payload){
   name.textContent = title;
   body.textContent = text;
   if(avatarSrc){
-    avatar.style.backgroundImage = '';
-    avatarImg.src = avatarSrc;
-    avatarImg.classList.add('show');
-    avatarFallback.style.display = 'none';
+    if(avatarImg){
+      avatar.style.backgroundImage = '';
+      avatarImg.src = avatarSrc;
+      avatarImg.classList.add('show');
+    }else{
+      avatar.style.backgroundImage = 'url("' + avatarSrc.replace(/"/g, '&quot;') + '")';
+    }
+    if(avatarFallback) avatarFallback.style.display = 'none';
+    avatar.textContent = '';
   }else{
     avatar.style.backgroundImage = '';
-    avatarImg.removeAttribute('src');
-    avatarImg.classList.remove('show');
-    avatarFallback.style.display = 'flex';
-    avatarFallback.textContent = String(title || '角').slice(0, 1);
+    if(avatarImg){
+      avatarImg.removeAttribute('src');
+      avatarImg.classList.remove('show');
+    }
+    if(avatarFallback){
+      avatarFallback.style.display = 'flex';
+      avatarFallback.textContent = String(title || '角').slice(0, 1);
+    }else{
+      avatar.textContent = String(title || '角').slice(0, 1);
+    }
   }
   shell.hidden = false;
   requestAnimationFrame(function(){ shell.classList.add('show'); });
