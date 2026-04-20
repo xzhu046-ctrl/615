@@ -199,7 +199,7 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
     sourceRole: sourceRole === 'user' ? 'user' : 'assistant',
     charId: String((threadCharacter && threadCharacter.id) || '').trim(),
     charName: String((threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '').trim(),
-    content: String(text || '').trim() || (sourceRole === 'user' ? '要不要出来见我？' : '宝宝，我来找你了。'),
+    content: String(text || '').trim(),
     mood: randomPick(OFFLINE_MOODS, '(｡･ω･｡)'),
     weather: randomPick(OFFLINE_WEATHERS, '☀︎'),
     location: ((threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '对方') + '想和你见面的地方',
@@ -213,7 +213,7 @@ function buildOfflineInvitePayload(sourceRole, text, overrides){
   data.sourceRole = data.sourceRole === 'user' ? 'user' : 'assistant';
   data.charId = String(data.charId || (threadCharacter && threadCharacter.id) || '').trim();
   data.charName = String(data.charName || (threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '').trim();
-  data.content = String(data.content || '').trim() || '想见你。';
+  data.content = String(data.content || '').trim();
   data.mood = String(data.mood || '').trim() || '(｡･ω･｡)';
   data.weather = normalizeOfflineWeatherIcon(data.weather);
   data.location = String(data.location || '').trim() || '老地方';
