@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T03:12:29Z';
+const APP_BUILD_ID = '2026-04-20T03:21:05Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -2056,6 +2056,7 @@ async function resolveShellNotificationAvatar(charId, preferredAvatar){
 async function resolveShellNotificationAvatarByName(name){
   var target = String(name || '').trim();
   if(!target) return '';
+  var targetLower = target.toLowerCase();
   var candidates = [];
   var foreground = getCurrentForegroundCharacter();
   if(foreground) candidates.push(foreground);
@@ -2066,7 +2067,19 @@ async function resolveShellNotificationAvatarByName(name){
   for(var idx = 0; idx < candidates.length; idx += 1){
     var candidate = candidates[idx];
     var candidateName = String((candidate && (candidate.nickname || candidate.name)) || '').trim();
-    if(!candidateName || candidateName !== target) continue;
+    var candidateAlt = String((candidate && candidate.name) || '').trim();
+    var candidateLower = candidateName.toLowerCase();
+    var candidateAltLower = candidateAlt.toLowerCase();
+    var matched = !!(
+      candidateName && (
+        candidateLower === targetLower ||
+        candidateAltLower === targetLower ||
+        candidateLower.indexOf(targetLower) !== -1 ||
+        targetLower.indexOf(candidateLower) !== -1 ||
+        (candidateAltLower && (candidateAltLower.indexOf(targetLower) !== -1 || targetLower.indexOf(candidateAltLower) !== -1))
+      )
+    );
+    if(!matched) continue;
     var src = getCharacterAvatarForBg(candidate);
     if(isRenderableShellAvatarSrc(src)) return src;
     var candidateId = String((candidate && candidate.id) || '').trim();
@@ -2075,6 +2088,15 @@ async function resolveShellNotificationAvatarByName(name){
       if(isRenderableShellAvatarSrc(resolved)) return resolved;
     }
   }
+  return '';
+}
+
+function resolveAnyActiveNotificationAvatar(){
+  var foreground = getCurrentForegroundCharacter();
+  var src = getCharacterAvatarForBg(foreground || null);
+  if(isRenderableShellAvatarSrc(src)) return src;
+  src = getCharacterAvatarForBg(persistedShellActiveCharacter || null);
+  if(isRenderableShellAvatarSrc(src)) return src;
   return '';
 }
 
@@ -2241,6 +2263,20 @@ function maybeShowShellActivityNotification(payload){
   Promise.resolve(resolveShellNotificationAvatar(charId, payload.avatar || getCharacterAvatarForBg(character || { id: charId }) || ''))
     .catch(function(){ return ''; })
     .then(function(avatar){
+      pushBackendLogEntry({
+        level: 'info',
+        app: appName,
+        source: 'notify.avatar.resolve',
+        message: '通知头像解析',
+        detail: {
+          kind: kind,
+          charId: charId,
+          name: name,
+          inputAvatarPrefix: String(payload.avatar || '').trim().slice(0, 48),
+          resolvedAvatarPrefix: String(avatar || '').trim().slice(0, 48),
+          resolvedAvatarLength: String(avatar || '').length
+        }
+      });
       if(!settings.disableInternal){
         showAppNotificationCard({
           app: appName,
@@ -4367,16 +4403,27 @@ function showAppNotificationCard(payload){
     Promise.resolve(resolveShellNotificationAvatar(payload.charId, ''))
       .then(function(resolvedAvatar){
         if(appNotifyPayload !== payload) return;
-        renderNotificationAvatar(resolvedAvatar || '');
+        var applied = renderNotificationAvatar(resolvedAvatar || '');
+        if(applied || appNotifyPayload !== payload) return;
+        return resolveShellNotificationAvatarByName(title).then(function(byNameAvatar){
+          if(appNotifyPayload !== payload) return;
+          var namedApplied = renderNotificationAvatar(byNameAvatar || '');
+          if(namedApplied || appNotifyPayload !== payload) return;
+          renderNotificationAvatar(resolveAnyActiveNotificationAvatar());
+        });
       })
       .catch(function(){ return null; });
   }else if(!renderedAvatar && title){
     Promise.resolve(resolveShellNotificationAvatarByName(title))
       .then(function(resolvedAvatar){
         if(appNotifyPayload !== payload) return;
-        renderNotificationAvatar(resolvedAvatar || '');
+        var applied = renderNotificationAvatar(resolvedAvatar || '');
+        if(applied || appNotifyPayload !== payload) return;
+        renderNotificationAvatar(resolveAnyActiveNotificationAvatar());
       })
       .catch(function(){ return null; });
+  }else if(!renderedAvatar){
+    renderNotificationAvatar(resolveAnyActiveNotificationAvatar());
   }
   shell.hidden = false;
   requestAnimationFrame(function(){ shell.classList.add('show'); });
