@@ -225,6 +225,13 @@ function buildOfflineInvitePayload(sourceRole, overrides){
   data.timeLabel = String(data.timeLabel || labels.timeLabel);
   data.dateLabel = String(data.dateLabel || labels.dateLabel);
   data.status = String(data.status || 'pending');
+  data.immediate = !!data.immediate || (data.sourceRole === 'assistant' && data.status === 'pending');
+  if(data.immediate){
+    data.scheduledDate = '';
+    data.scheduledTime = '';
+    data.dateLabel = '';
+    data.timeLabel = '现在';
+  }
   delete data.content;
   if(!data.charSnapshot || typeof data.charSnapshot !== 'object'){
     data.charSnapshot = buildOfflineLaunchCharSnapshot(snapshotSource);
@@ -1139,21 +1146,61 @@ function renderOfflineInviteTimeWheels(hourValue, minuteValue){
   }, 0);
 }
 
+function isOfflineInviteImmediateMode(){
+  var dateField = document.getElementById('offlineInviteDateField');
+  if(dateField && dateField.dataset){
+    return String(dateField.dataset.immediate || '') === '1';
+  }
+  var toggle = document.getElementById('offlineInviteImmediateToggle');
+  return !!(toggle && toggle.checked);
+}
+
+function setOfflineInviteImmediateMode(enabled){
+  var next = !!enabled;
+  var dateField = document.getElementById('offlineInviteDateField');
+  var toggle = document.getElementById('offlineInviteImmediateToggle');
+  if(dateField && dateField.dataset){
+    dateField.dataset.immediate = next ? '1' : '0';
+  }
+  if(toggle) toggle.checked = next;
+  if(next) closeOfflineInviteDatePicker();
+  syncOfflineInviteComposerVisuals();
+}
+
+function toggleOfflineInviteImmediateMode(evt){
+  if(evt && evt.stopPropagation) evt.stopPropagation();
+  setOfflineInviteImmediateMode(!isOfflineInviteImmediateMode());
+}
+
 function syncOfflineInviteComposerVisuals(){
   var locationField = document.getElementById('offlineInviteLocationField');
   var dateField = document.getElementById('offlineInviteDateField');
   var dateDisplay = document.getElementById('offlineInviteDateDisplay');
   var hourWheel = document.getElementById('offlineInviteHourWheel');
   var minuteWheel = document.getElementById('offlineInviteMinuteWheel');
+  var timeField = document.getElementById('offlineInviteTimeField');
+  var dateFieldWrap = document.getElementById('offlineInviteDateFieldWrap');
+  var immediateToggle = document.getElementById('offlineInviteImmediateToggle');
+  var immediate = isOfflineInviteImmediateMode();
   var timeValue = String(dateField && dateField.dataset.time || '').trim();
   var parts = timeValue ? timeValue.split(':') : [];
   var hourValue = String(parts[0] || '19').padStart(2, '0');
   var minuteValue = String(parts[1] || '30').padStart(2, '0');
-  if(dateDisplay) dateDisplay.textContent = formatOfflineInviteComposerDate(dateField && dateField.value || '');
+  if(dateDisplay){
+    dateDisplay.textContent = immediate ? '现在' : formatOfflineInviteComposerDate(dateField && dateField.value || '');
+    dateDisplay.disabled = immediate;
+  }
+  if(immediateToggle) immediateToggle.checked = immediate;
+  if(timeField) timeField.classList.toggle('is-disabled', immediate);
+  if(dateFieldWrap) dateFieldWrap.classList.toggle('is-disabled', immediate);
   syncOfflineInviteInlineWidth(locationField, 9);
   syncOfflineInviteInlineWidth(dateDisplay, 11);
   if(hourWheel && minuteWheel) renderOfflineInviteTimeWheels(hourValue, minuteValue);
-  renderOfflineInviteDatePicker();
+  if(immediate){
+    closeOfflineInviteDatePicker();
+  }else{
+    renderOfflineInviteDatePicker();
+  }
 }
 
 function renderOfflineInviteDatePicker(){
@@ -1177,6 +1224,7 @@ function renderOfflineInviteDatePicker(){
 
 function toggleOfflineInviteDatePicker(evt){
   if(evt && evt.stopPropagation) evt.stopPropagation();
+  if(isOfflineInviteImmediateMode()) return;
   var pop = document.getElementById('offlineInviteDatePop');
   if(!pop) return;
   pop.classList.toggle('open');
@@ -1197,6 +1245,7 @@ function shiftOfflineInviteDatePage(evt, days){
 
 function selectOfflineInviteDate(evt, value){
   if(evt && evt.stopPropagation) evt.stopPropagation();
+  if(isOfflineInviteImmediateMode()) return;
   var dateField = document.getElementById('offlineInviteDateField');
   if(!dateField) return;
   dateField.value = String(value || '').trim();
@@ -1205,6 +1254,7 @@ function selectOfflineInviteDate(evt, value){
 }
 
 function selectOfflineInviteTimePart(type, value){
+  if(isOfflineInviteImmediateMode()) return;
   var dateField = document.getElementById('offlineInviteDateField');
   if(!dateField) return;
   var current = String(dateField.dataset.time || '').trim() || '19:30';
@@ -1312,6 +1362,7 @@ function openOfflineInviteComposer(){
   if(locationField) locationField.value = '';
   if(dateField) dateField.value = schedule.date;
   if(dateField) dateField.dataset.time = schedule.time;
+  if(dateField) dateField.dataset.immediate = '0';
   setOfflineInviteDatePageStart(schedule.date);
   if(stamp) stamp.src = randomPick(OFFLINE_INVITE_STAMP_ASSETS, 'assets/邮票1.jpg');
   hydrateOfflineInviteComposerAvatar();
@@ -1779,11 +1830,12 @@ async function sendOfflineInviteFromUser(){
   var location = String(locationField && locationField.value || '').trim();
   var dateValue = String(dateField && dateField.value || '').trim();
   var timeValue = String(dateField && dateField.dataset.time || '').trim();
+  var immediate = isOfflineInviteImmediateMode();
   if(!location){
     if(typeof toast === 'function') toast('地点也要写上呀');
     return;
   }
-  if(!dateValue || !timeValue){
+  if(!immediate && (!dateValue || !timeValue)){
     if(typeof toast === 'function') toast('把时间定下来再发吧');
     return;
   }
@@ -1794,15 +1846,16 @@ async function sendOfflineInviteFromUser(){
     charName: String((character && (character.nickname || character.name)) || '').trim(),
     weather: userWeather.icon,
     location: location,
-    dateLabel: formatOfflineInviteDraftDateLabel(dateValue),
-    timeLabel: formatOfflineInviteDraftTimeLabel(timeValue),
+    dateLabel: immediate ? '' : formatOfflineInviteDraftDateLabel(dateValue),
+    timeLabel: immediate ? '现在' : formatOfflineInviteDraftTimeLabel(timeValue),
     signatureName: getCurrentUserDisplayName(),
     stampAsset: String(stamp && stamp.getAttribute('src') || '').trim() || randomPick(OFFLINE_INVITE_STAMP_ASSETS, 'assets/邮票1.jpg'),
-    scheduledDate: dateValue,
-    scheduledTime: timeValue
+    scheduledDate: immediate ? '' : dateValue,
+    scheduledTime: immediate ? '' : timeValue,
+    immediate: immediate
   });
-  payload.requestedDate = dateValue;
-  payload.requestedTime = timeValue;
+  payload.requestedDate = immediate ? '' : dateValue;
+  payload.requestedTime = immediate ? '' : timeValue;
   payload.requestedDateLabel = String(payload.dateLabel || '').trim();
   payload.requestedTimeLabel = String(payload.timeLabel || '').trim();
   ensureOfflineInviteRecordId(payload);
@@ -1869,7 +1922,9 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var disabled = status !== 'pending';
   var statusTone = status === 'accepted' ? ' is-accepted' : (status === 'rejected' ? ' is-rejected' : ' is-pending');
   var cleanDateLabel = stripOfflineInviteWeekdayLabel(data.dateLabel || '');
-  var timeText = esc([cleanDateLabel, String(data.timeLabel || '').trim()].filter(Boolean).join(' · ') || '待定时间');
+  var timeText = data.immediate
+    ? '现在'
+    : esc([cleanDateLabel, String(data.timeLabel || '').trim()].filter(Boolean).join(' · ') || '待定时间');
   var locationText = esc(String(data.location || '').trim() || '待定地点');
   if(viewRole === 'user'){
     bubble.innerHTML = '<div class="offline-invite-plain sent">'

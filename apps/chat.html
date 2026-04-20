@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-16T08:32:00Z"></script>
-<script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../assetStore.js?v=2026-03-31T10:28:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-08T03:43:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-08T03:43:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-08T03:43:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-08T03:43:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-18T11:02:31Z"></script>
-<script src="../sunnySupport.js?v=2026-04-16T08:32:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-18T11:02:31Z"></script>
+<script src="../promptManager.js?v=2026-04-20T04:55:35Z"></script>
+<script src="../accountManager.js?v=2026-04-20T04:55:35Z"></script>
+<script src="../assetStore.js?v=2026-04-20T04:55:35Z"></script>
+<script src="../chatStorage.js?v=2026-04-20T04:55:35Z"></script>
+<script src="../metadataStore.js?v=2026-04-20T04:55:35Z"></script>
+<script src="../scheduleShared.js?v=2026-04-20T04:55:35Z"></script>
+<script src="../presenceShared.js?v=2026-04-20T04:55:35Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-20T04:55:35Z"></script>
+<script src="../sunnySupport.js?v=2026-04-20T04:55:35Z"></script>
+<script src="offlineInvite.js?v=2026-04-20T04:55:35Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -995,6 +995,17 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .invite-compose-date-chip{flex:0 0 auto;min-width:76px;padding:10px 10px;border:2px solid #111;border-radius:0;background:#fff;box-shadow:3px 3px 0 #111;font-size:12px;font-weight:900;cursor:pointer;text-align:center;white-space:nowrap;color:#111}
 .invite-compose-date-chip.active{background:#111;color:#fff}
 .invite-compose-time-field{grid-column:1/-1;padding-top:4px}
+.invite-compose-field-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.invite-compose-switch{display:inline-flex;align-items:center;gap:8px;font-family:'ZCOOL KuaiLe','Nunito',sans-serif;font-size:11px;font-weight:900;color:#111;cursor:pointer;user-select:none}
+.invite-compose-switch input{appearance:none;-webkit-appearance:none;width:34px;height:20px;border:2px solid #111;border-radius:999px;background:#fff;box-shadow:2px 2px 0 #111;position:relative;cursor:pointer}
+.invite-compose-switch input::after{content:'';position:absolute;left:2px;top:2px;width:12px;height:12px;border:2px solid #111;border-radius:999px;background:#fff;transition:transform .14s ease}
+.invite-compose-switch input:checked{background:#111;box-shadow:2px 2px 0 #fff,4px 4px 0 #111}
+.invite-compose-switch input:checked::after{transform:translateX(14px);background:#fff}
+.invite-compose-field.is-disabled{opacity:.42}
+.invite-compose-field.is-disabled .invite-compose-inline-btn,
+.invite-compose-field.is-disabled .invite-compose-time-option,
+.invite-compose-field.is-disabled .invite-compose-date-nav,
+.invite-compose-field.is-disabled .invite-compose-date-chip{pointer-events:none}
 .invite-compose-time-wheel-wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
 .invite-compose-time-group{display:flex;flex-direction:column;gap:8px}
 .invite-compose-time-wheel{height:174px;overflow:auto;padding:8px;border:2px solid #111;border-radius:0;background:#fff;box-shadow:4px 4px 0 #111;display:flex;flex-direction:column;gap:8px;scroll-snap-type:y proximity;scrollbar-width:none;min-width:0}
@@ -2231,7 +2242,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
           <input class="invite-compose-inline-input" id="offlineInviteLocationField" type="text" maxlength="40" placeholder="点击写地点" oninput="syncOfflineInviteComposerVisuals()">
         </span>
       </label>
-      <label class="invite-compose-field">
+      <label class="invite-compose-field" id="offlineInviteDateFieldWrap">
         <span class="invite-compose-label">日期</span>
         <span class="invite-compose-underline">
           <button class="invite-compose-inline-btn" id="offlineInviteDateDisplay" type="button" onclick="toggleOfflineInviteDatePicker(event)">Apr 17, 2026</button>
@@ -2248,8 +2259,14 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
           <div class="invite-compose-date-list" id="offlineInviteDateList"></div>
         </div>
       </div>
-      <div class="invite-compose-field invite-compose-time-field">
-        <span class="invite-compose-label">时间</span>
+      <div class="invite-compose-field invite-compose-time-field" id="offlineInviteTimeField">
+        <div class="invite-compose-field-row">
+          <span class="invite-compose-label">时间</span>
+          <label class="invite-compose-switch" for="offlineInviteImmediateToggle">
+            <span>现在</span>
+            <input id="offlineInviteImmediateToggle" type="checkbox" onchange="toggleOfflineInviteImmediateMode(event)">
+          </label>
+        </div>
         <div class="invite-compose-time-wheel-wrap">
           <div class="invite-compose-time-group">
             <div class="invite-compose-time-wheel" id="offlineInviteHourWheel"></div>
@@ -17809,7 +17826,7 @@ function buildChatExtendedFormatPrompt(){
     'narrator：用于动作、环境、声音、镜头感、心理余波，是旁白，不是说出口的话。格式：{"type":"narrator","content":"..."}',
     'narrator 里禁止写“用户”“USER”“user”“角色”“CHAR”“char”这种偷懒指代。涉及双方时，只能直接写名字、昵称，或者自然的第三人称代称。',
     'offline_invite：用于主动约对方见面/出门/赴约。格式：{"type":"offline_invite","location":"地点","mood":"表情/气氛","weather":"天气符号或描述","scheduledDate":"YYYY-MM-DD，可选","scheduledTime":"HH:MM，可选"}。',
-    'offline_invite 对你来说只是正常约对方见面。只要聊天开始脱离纯手机消息，朝现实接触、出门、碰面、赴约、到场、来你这/去她那、面对面相处这些方向走，就鼓励你直接发，让对方自己决定接受还是拒绝；语气要像真人，不要模板腔，不要像系统通知，也不要提卡片、按钮或“邀请”这种系统词。',
+    'offline_invite 对你来说只是正常约对方见面。只要聊天开始脱离纯手机消息，朝现实接触、出门、碰面、赴约、到场、来你这/去她那、面对面相处这些方向走，就鼓励你直接发，让对方自己决定接受还是拒绝；像“门没锁，来不来我卧室”“下来见我”“出来一下”“我去找你”这种，也优先用 offline_invite。主动约人时默认不要自己乱设具体时间，除非对方刚刚就在和你对时间；大多数时候把它当成现在、当下、马上见就够了。语气要像真人，不要模板腔，不要像系统通知，也不要提卡片、按钮或“邀请”这种系统词。',
     'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件，也包括聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、邮箱主页、邮箱收件箱、邮件线程、邮件草稿、银行账户总览、银行账户余额、银行账户明细、影评、药品单、医院开的单子、知乎帖子、小说简介、伪小红书帖子、直播间、抖音样式页、社交媒体主页、社交媒体帖子、社交媒体评论、测评、repo、银行账单、银行流水、法院传票、学签、旅游签、工签、银行卡、PPT页、文档页、名片、便签、周易/八卦、中式算卦、抽签、月老签、简历、说明书、调查问卷、MBTI 测试、测试结果、quiz/test/exam 这类页面或卡片。格式：{"type":"rich_html","summary":"一句概括","html":"...","css":"...","js":"","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}；如果是发一个真的网页链接，也可以用 {"type":"rich_html","summary":"一句概括","url":"https://...","title":"网页标题","text":"提取出来的正文","translation":"卡片全部可见文字的完整译文，可选"}',
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
     'rename_profile：用于改昵称。target 只能是 char 或 user；name 是你要改成的新名字。target=char 表示改你在对方这里的名字，target=user 表示改你给对方存的备注/昵称。格式：{"type":"rename_profile","target":"char","name":"新昵称"} 或 {"type":"rename_profile","target":"user","name":"新备注"}。',
