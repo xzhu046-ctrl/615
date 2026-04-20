@@ -57,6 +57,7 @@
       dateLabel: String(item.dateLabel || '').trim(),
       timeLabel: String(item.timeLabel || '').trim(),
       status: String(item.status || 'pending').trim() || 'pending',
+      meetState: String(item.meetState || '').trim(),
       reminderState: String(item.reminderState || 'pending').trim() || 'pending',
       snoozeUntil: Number(item.snoozeUntil || 0) || 0,
       remindedAt: Number(item.remindedAt || 0) || 0,

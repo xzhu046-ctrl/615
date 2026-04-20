@@ -12,6 +12,7 @@
 <script src="../accountManager.js?v=2026-03-31T10:28:00Z"></script>
 <script src="../scheduleShared.js?v=2026-04-08T03:43:00Z"></script>
 <script src="../presenceShared.js?v=2026-04-08T03:43:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-20T07:58:45Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -836,6 +837,25 @@ function latestOfflineLaunchKey(){
 }
 function offlineLaunchTokenKey(token){
   return scopedKey('offline_launch_token_' + String(token || '').trim());
+}
+function currentOfflineInviteRecordId(){
+  return String(
+    (session && session.invite && (session.invite.recordId || session.invite.id)) ||
+    ''
+  ).trim();
+}
+function patchCurrentOfflineInviteMeetState(meetState){
+  var safeState = String(meetState || '').trim();
+  var recordId = currentOfflineInviteRecordId();
+  if(!safeState || !recordId || !(window.OfflineInviteStore && typeof window.OfflineInviteStore.patchRecord === 'function')) return;
+  try{
+    var patch = {
+      meetState: safeState,
+      updatedAt: Date.now()
+    };
+    if(safeState === 'complete') patch.status = 'completed';
+    window.OfflineInviteStore.patchRecord(recordId, patch);
+  }catch(err){}
 }
 function pendingOfflineResumeKey(charId){
   return scopedKey('offline_resume_' + String(charId || ''));
@@ -1991,6 +2011,7 @@ async function startOfflineLobbyFlow(){
   try{ localStorage.setItem(scopedKey('activeOfflineCharacterId'), desiredOfflineCharId); }catch(e){}
   try{ localStorage.setItem('activeOfflineCharacterId', desiredOfflineCharId); }catch(e){}
   saveSession();
+  patchCurrentOfflineInviteMeetState('ongoing');
   renderStory();
   try{
     await generateOpeningIfNeeded();
@@ -6916,6 +6937,7 @@ async function exitOfflineMeet(){
   }
   try{
     await archiveCurrentOfflineMeet('ended', 'goodbye');
+    patchCurrentOfflineInviteMeetState('complete');
   }catch(err){
     pushOfflineBackendLog('error', 'archive.exit', '正常存档失败，转入兜底退出', err);
     try{
@@ -6956,6 +6978,7 @@ async function minimizeOfflineMeet(){
       session.minimized = false;
       saveSession();
       await archiveCurrentOfflineMeet('pending', 'minimized');
+      patchCurrentOfflineInviteMeetState('continued');
     }
   }catch(e){
     pushOfflineBackendLog('error', 'archive.minimize', '暂时退出正常存档失败，转入兜底', e);
@@ -7255,6 +7278,7 @@ async function init(){
     return syncOfflineStageSummariesToMemoryStore(getOfflineStageSummaries());
   }, 1800);
   bindOfflineDrawerControls();
+  patchCurrentOfflineInviteMeetState('ongoing');
   syncOfflineDrawerControls();
   refreshOfflineAvatarAssets();
   renderStory();

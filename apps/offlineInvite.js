@@ -496,6 +496,7 @@ async function syncOfflineInviteRecord(payload, patch){
     dateLabel: String(payload.dateLabel || '').trim(),
     timeLabel: String(payload.timeLabel || '').trim(),
     status: String(payload.status || 'pending').trim() || 'pending',
+    meetState: String(payload.meetState || '').trim(),
     reminderState: String(payload.reminderState || 'pending').trim() || 'pending',
     arrivalState: String(payload.arrivalState || 'pending').trim() || 'pending',
     arrivedAt: Number(payload.arrivedAt || 0) || 0,
@@ -928,8 +929,10 @@ async function openOfflineSession(payload){
           timeLabel: String(payload.timeLabel || '').trim(),
           sourceRole: String(payload.sourceRole || 'assistant').trim() || 'assistant',
           status: 'accepted',
+          meetState: 'ongoing',
           previewText: String(payload.previewText || payload.location || '赴约已定下').trim(),
-          inviteMessageId: String(payload.inviteMessageId || '').trim()
+          inviteMessageId: String(payload.inviteMessageId || '').trim(),
+          openedAt: Date.now()
         });
       }catch(err){}
     }
@@ -1463,6 +1466,7 @@ async function rejectOfflineInvite(messageId){
     inviteMessageId: String(entry && entry.id || '').trim(),
     sourceRole: 'assistant',
     status: 'rejected',
+    meetState: '',
     previewText: userName + '现在不想出门',
     reminderState: 'pending',
     arrivalState: 'pending',
@@ -1509,6 +1513,7 @@ async function acceptOfflineInvite(messageId){
     timeLabel: String(payload.timeLabel || '').trim(),
     sourceRole: 'assistant',
     status: 'accepted',
+    meetState: 'scheduled',
     previewText: String(payload.previewText || payload.location || '赴约已定下').trim(),
     reminderState: 'pending',
     arrivalState: 'pending',
@@ -1668,6 +1673,7 @@ async function resetOfflineInviteThreadToPending(thread){
     id: recordId,
     sourceRole: 'user',
     status: 'pending',
+    meetState: '',
     replyMessageId: '',
     scheduleEntryId: '',
     previewText: '',
@@ -1794,6 +1800,7 @@ async function handlePendingOfflineInviteReply(){
         timeLabel: String(replyPayload.timeLabel || '').trim(),
         sourceRole: 'assistant',
         status: 'accepted',
+        meetState: 'scheduled',
         previewText: acceptedPreviewText,
         reminderState: 'pending',
         arrivalState: 'pending',
@@ -1823,6 +1830,7 @@ async function handlePendingOfflineInviteReply(){
       id: ensureOfflineInviteRecordId(pending.payload),
       inviteMessageId: String(pending.entry && pending.entry.id || '').trim(),
       status: 'rejected',
+      meetState: '',
       sourceRole: 'user',
       previewText: rejectedFollowups.length ? String(rejectedFollowups[0].content || '').trim() : normalizeOfflineInviteDecisionText((decision && decision.text) || '', ''),
       remindedAt: 0,
@@ -1897,6 +1905,7 @@ async function sendOfflineInviteFromUser(){
     inviteMessageId: String(entry && entry.id || '').trim(),
     sourceRole: 'user',
     status: 'pending',
+    meetState: '',
     reminderState: 'pending'
   });
   clearPendingOfflineInviteReplyTimer();

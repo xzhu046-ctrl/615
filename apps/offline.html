@@ -374,8 +374,11 @@ body{display:flex;justify-content:center}
   background:#111;
 }
 .thread-stage.is-pending .thread-stage-dot{background:#b53b3b}
-.thread-stage.is-accepted .thread-stage-dot{background:#111}
-.thread-stage.is-rejected .thread-stage-dot{background:#fff}
+.thread-stage.is-received .thread-stage-dot{background:#111}
+.thread-stage.is-complete .thread-stage-dot{background:#111}
+.thread-stage.is-continued .thread-stage-dot{background:#fff}
+.thread-stage.is-upcoming .thread-stage-dot{background:#fff}
+.thread-stage.is-ended .thread-stage-dot{background:#fff}
 </style>
 </head>
 <body>
@@ -544,23 +547,73 @@ function getOfflineRecords(){
   });
 }
 
+function isPendingInviteRecord(item){
+  return String(item && item.sourceRole || '').trim() === 'user'
+    && String(item && item.status || 'pending').trim() === 'pending';
+}
+
+function isReceivedInviteRecord(item){
+  return String(item && item.sourceRole || '').trim() === 'assistant'
+    && String(item && item.status || 'pending').trim() === 'pending';
+}
+
+function isCompletedInviteRecord(item){
+  var meetState = String(item && item.meetState || '').trim();
+  var status = String(item && item.status || '').trim();
+  return meetState === 'complete' || status === 'completed';
+}
+
+function isContinuedInviteRecord(item){
+  var meetState = String(item && item.meetState || '').trim();
+  return meetState === 'continued';
+}
+
+function isOngoingInviteRecord(item){
+  var meetState = String(item && item.meetState || '').trim();
+  return meetState === 'ongoing';
+}
+
+function isUpcomingInviteRecord(item){
+  var status = String(item && item.status || '').trim();
+  var meetState = String(item && item.meetState || '').trim();
+  return status === 'accepted' && (!meetState || meetState === 'scheduled');
+}
+
 function getRecordStage(item){
   var status = String(item && item.status || 'pending').trim() || 'pending';
-  if(status === 'accepted'){
-    return { tone:'accepted', label:'Complete', note:'complete', badge:'赴约' };
+  if(isPendingInviteRecord(item)){
+    return { tone:'pending', label:'Pending', note:'pending', badge:'待回复' };
+  }
+  if(isReceivedInviteRecord(item)){
+    return { tone:'received', label:'Received', note:'received', badge:'邀请' };
+  }
+  if(isCompletedInviteRecord(item)){
+    return { tone:'complete', label:'Complete', note:'complete', badge:'结束' };
+  }
+  if(isContinuedInviteRecord(item)){
+    return { tone:'continued', label:'To Be Continued', note:'to be continued', badge:'待续' };
+  }
+  if(isOngoingInviteRecord(item)){
+    return { tone:'continued', label:'On Date', note:'on date', badge:'赴约中' };
+  }
+  if(isUpcomingInviteRecord(item)){
+    return { tone:'upcoming', label:'Upcoming', note:'scheduled', badge:'赴约' };
   }
   if(status === 'rejected'){
-    return { tone:'rejected', label:'To Be Continued', note:'to be continued', badge:'结束' };
+    return { tone:'ended', label:'Ended', note:'declined', badge:'结束' };
   }
-  return { tone:'pending', label:'Pending', note:'pending', badge:'赴约' };
+  return { tone:'pending', label:'Pending', note:'pending', badge:'待回复' };
 }
 
 function getRecordPreview(item){
   var preview = String(item && item.previewText || '').trim();
   if(preview) return preview;
   var stage = getRecordStage(item);
-  if(stage.tone === 'accepted') return '时间和地点已经定下来了，也已经顺手写进日程。';
-  if(stage.tone === 'rejected') return '这次先没有约成，之后也许还能再找个更合适的时间。';
+  if(stage.tone === 'received') return '对方发来了一个见面邀请，现在等你来决定要不要去。';
+  if(stage.tone === 'complete') return '这次见面已经好好收尾，也算认真结束了。';
+  if(stage.tone === 'continued') return '这次见面还没真正结束，只是先暂时离开了一下。';
+  if(stage.tone === 'upcoming') return '时间和地点已经定下来了，现在就等真正赴约。';
+  if(stage.tone === 'ended') return '这次先没有约成，之后也许还能再找个更合适的时间。';
   return '邀约已经发出去，现在就等对方给一个自然的回答。';
 }
 
@@ -665,10 +718,10 @@ function refreshThreadListElasticSpace(){
 
 function filterRecords(records){
   var list = Array.isArray(records) ? records.slice() : [];
-  if(currentFilter === 'received') return list.filter(function(item){ return String(item && item.sourceRole || '').trim() === 'assistant'; });
-  if(currentFilter === 'complete') return list.filter(function(item){ return getRecordStage(item).tone === 'accepted'; });
-  if(currentFilter === 'pending') return list.filter(function(item){ return getRecordStage(item).tone === 'pending'; });
-  if(currentFilter === 'continued') return list.filter(function(item){ return getRecordStage(item).tone === 'rejected'; });
+  if(currentFilter === 'received') return list.filter(isReceivedInviteRecord);
+  if(currentFilter === 'complete') return list.filter(isCompletedInviteRecord);
+  if(currentFilter === 'pending') return list.filter(isPendingInviteRecord);
+  if(currentFilter === 'continued') return list.filter(isContinuedInviteRecord);
   return list;
 }
 
@@ -683,7 +736,9 @@ function pickSelectedRecord(records){
     chosen = list.find(function(item){ return String(item.id || '') === currentSelectedId; }) || null;
   }
   if(!chosen){
-    chosen = list.find(function(item){ return getRecordStage(item).tone === 'accepted'; })
+    chosen = list.find(isOngoingInviteRecord)
+      || list.find(isContinuedInviteRecord)
+      || list.find(isUpcomingInviteRecord)
       || list[0]
       || null;
   }
@@ -742,10 +797,10 @@ function renderFilterTabs(records){
   if(!root) return;
   var counts = {
     all: records.length,
-    received: records.filter(function(item){ return String(item && item.sourceRole || '').trim() === 'assistant'; }).length,
-    complete: records.filter(function(item){ return getRecordStage(item).tone === 'accepted'; }).length,
-    pending: records.filter(function(item){ return getRecordStage(item).tone === 'pending'; }).length,
-    continued: records.filter(function(item){ return getRecordStage(item).tone === 'rejected'; }).length
+    received: records.filter(isReceivedInviteRecord).length,
+    complete: records.filter(isCompletedInviteRecord).length,
+    pending: records.filter(isPendingInviteRecord).length,
+    continued: records.filter(isContinuedInviteRecord).length
   };
   var tabs = [
     { id:'all', label:'All' },
