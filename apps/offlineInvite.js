@@ -378,6 +378,71 @@ function deriveOfflineInviteAcceptedSchedule(userPayload, decision){
   };
 }
 
+function buildOfflineInviteAcceptedTimingPrompt(schedule){
+  var safeSchedule = schedule && typeof schedule === 'object' ? schedule : {};
+  var safeDate = String(safeSchedule.scheduledDate || '').trim();
+  var safeTime = String(safeSchedule.scheduledTime || '').trim();
+  var lines = [];
+  if(isOfflineInviteValidDateKey(safeDate) && isOfflineInviteValidTimeValue(safeTime)){
+    lines.push('最终定下来的赴约时间：' + safeDate + ' ' + safeTime);
+    var localNow = getOfflineInviteLocalClockNow();
+    var todayKey = String(localNow.dateKey || '').trim();
+    var nowMinutes = offlineInviteTimeToMinutes(localNow.nowTime);
+    var meetMinutes = offlineInviteTimeToMinutes(safeTime);
+    if(todayKey && isOfflineInviteValidDateKey(todayKey) && nowMinutes >= 0 && meetMinutes >= 0){
+      if(compareOfflineInviteDateKeys(safeDate, todayKey) > 0){
+        lines.push('这次见面不是现在，是之后的安排。不要写成你已经到了、已经在楼下、已经在门口、马上敲门。');
+      }else if(compareOfflineInviteDateKeys(safeDate, todayKey) === 0){
+        var delta = meetMinutes - nowMinutes;
+        if(delta > 90){
+          lines.push('这次见面离现在还早。只能像正常约好时间那样继续聊，不要写成你已经出现在用户门口、楼下或已经到了。');
+        }else if(delta > 30){
+          lines.push('这次见面还要一阵子。可以说晚点见、到时候见、你先忙，但不要写成你已经到了用户门口或已经在楼下。');
+        }else if(delta > 10){
+          lines.push('这次见面已经比较近了，可以自然说准备出门、等会儿见，但仍然不要直接写成自己已经在用户门口，除非真的已经到点。');
+        }else{
+          lines.push('这次见面已经很近了，可以自然一点，但也要和时间对上，别一边说两小时后见一边下一句就说自己在门口。');
+        }
+      }
+    }
+  }
+  return lines.join('\n').trim();
+}
+
+async function requestCharOfflineInviteAcceptedFollowups(userPayload, acceptedPayload){
+  var safeUserPayload = sanitizeOfflineInvitePayloadForModel(userPayload);
+  var safeAcceptedPayload = sanitizeOfflineInvitePayloadForModel(acceptedPayload);
+  var msgMax = Math.max(1, Math.min(2, Number(character && character.msgMax) || 2));
+  var systemPrompt = [
+    '你是角色本人。',
+    '你已经答应了这次见面，接受状态和时间地点会由单独的小卡片展示。',
+    '现在你只需要补 1 到 ' + msgMax + ' 条普通聊天消息，像真人答应见面后顺手又说了几句。',
+    '这些消息必须和最终定下来的赴约时间完全一致。',
+    '如果见面是更晚一点、几个小时后或改天，就不要写成你已经到了、已经在楼下、已经在门口、马上敲门、现在就在 user 家门口。',
+    '只有时间真的非常近，才可以自然提准备过去、快见到了；就算这样也别突兀。',
+    '不要复述卡片，不要再机械重报时间地点，不要提卡片、按钮或系统提示。',
+    '只返回 JSON 数组，每项格式：{"type":"text","content":"..."}。'
+  ].join('\n');
+  var userPrompt = [
+    buildSystemPrompt(),
+    buildOfflineInviteAcceptedTimingPrompt(safeAcceptedPayload),
+    '用户这次约你的地点：' + (String(safeUserPayload.location || '').trim() || '（未填写）'),
+    '最终定下来的赴约安排：' + JSON.stringify(safeAcceptedPayload),
+    '最近聊天：\n' + formatChatForModel(chatLog.slice(-12))
+  ].filter(Boolean).join('\n\n');
+  var raw = await callAIWithCustomPrompts(systemPrompt, userPrompt);
+  var clean = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+  if(!clean) return [];
+  try{
+    var parsed = JSON.parse(clean);
+    if(Array.isArray(parsed)) return parsed;
+    if(parsed && Array.isArray(parsed.replies)) return parsed.replies;
+    if(parsed && typeof parsed === 'object' && parsed.type === 'text') return [parsed];
+    if(typeof parsed === 'string') return [{ type:'text', content: parsed }];
+  }catch(err){}
+  return [{ type:'text', content: clean }];
+}
+
 async function syncOfflineInviteRecord(payload, patch){
   var store = getOfflineInviteStoreApi();
   if(!store || !(payload && typeof payload === 'object')) return '';
@@ -1508,12 +1573,6 @@ async function handlePendingOfflineInviteReply(){
     hideTyping();
     if(decision && decision.accept){
       var schedule = deriveOfflineInviteAcceptedSchedule(pending.payload, decision);
-      var acceptedFollowups = sanitizeOfflineInviteFollowupItems(decision && decision.followups, '', {
-        limit: Math.max(1, Number(character && character.msgMax) || 3)
-      });
-      var acceptedPreviewText = acceptedFollowups.length ? String(acceptedFollowups[0].content || '').trim() : 'ACCEPTED';
-      pending.payload.status = 'accepted';
-      pending.entry.content = JSON.stringify(pending.payload);
       var charWeather = await resolveOfflineInviteWeather('char', decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'));
       var replyPayload = buildOfflineInvitePayload('assistant', {
         charId: String((character && character.id) || '').trim(),
@@ -1528,6 +1587,18 @@ async function handlePendingOfflineInviteReply(){
         timeLabel: schedule.timeLabel,
         recordId: ensureOfflineInviteRecordId(pending.payload)
       });
+      var acceptedFollowupsRaw = [];
+      try{
+        acceptedFollowupsRaw = await requestCharOfflineInviteAcceptedFollowups(pending.payload, replyPayload);
+      }catch(err){
+        acceptedFollowupsRaw = decision && decision.followups;
+      }
+      var acceptedFollowups = sanitizeOfflineInviteFollowupItems(acceptedFollowupsRaw, '', {
+        limit: Math.max(1, Number(character && character.msgMax) || 3)
+      });
+      var acceptedPreviewText = acceptedFollowups.length ? String(acceptedFollowups[0].content || '').trim() : 'ACCEPTED';
+      pending.payload.status = 'accepted';
+      pending.entry.content = JSON.stringify(pending.payload);
       var replyEntry = await appendOfflineInviteToChat('assistant', replyPayload, true, {
         noticeText: appendOfflineInviteAcceptedNoticeText(replyPayload)
       });
