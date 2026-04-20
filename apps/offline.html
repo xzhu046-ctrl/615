@@ -224,20 +224,54 @@ body{display:flex;justify-content:center}
   min-height:0;
   overflow-y:scroll;
   overflow-x:hidden;
-  padding-right:4px;
+  padding:4px 14px 18px 2px;
   scrollbar-width:none;
   -webkit-overflow-scrolling:touch;
   overscroll-behavior-y:auto;
 }
 .thread-list::-webkit-scrollbar{display:none}
-.thread-card{
+.thread-row{
+  position:relative;
+  min-height:144px;
+  overflow:visible;
+}
+.thread-delete{
+  position:absolute;
+  top:9px;
+  right:0;
+  bottom:9px;
+  width:72px;
+  border:2px solid #111;
+  border-radius:0;
+  background:#111;
+  color:#fff;
+  box-shadow:2px 2px 0 #fff, 5px 5px 0 rgba(17,17,17,.22);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-family:var(--sans);
+  font-size:11px;
+  font-weight:900;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+}
+.thread-delete:active{transform:translate(2px,2px)}
+.thread-item{
+  position:relative;
+  z-index:1;
   padding:12px;
   display:grid;
   grid-template-columns:88px minmax(0,1fr);
   gap:12px;
   align-items:center;
+  will-change:transform;
+  touch-action:pan-y;
+  transition:transform .18s ease;
 }
-.thread-card.is-selected{transform:translateY(-1px)}
+.thread-row.is-dragging .thread-item{transition:none}
+.thread-row.is-open .thread-item{transform:translateX(-72px)}
+.thread-item.is-selected{transform:translateY(-1px)}
+.thread-row.is-open .thread-item.is-selected{transform:translateX(-72px) translateY(-1px)}
 .thread-polaroid{
   position:relative;
   width:88px;
@@ -401,6 +435,7 @@ var currentSelectedId = '';
 var avatarAssetCache = {};
 var offlineRenderVersion = 0;
 var latestOfflineRecords = [];
+var offlineSwipeState = null;
 
 function esc(text){
   return String(text == null ? '' : text)
@@ -549,6 +584,53 @@ function getOfflineRecordsFromStore(){
   return store.listRecords().filter(function(item){
     return item && (String(item.charId || '').trim() || String(item.charName || '').trim());
   });
+}
+
+function getHiddenOfflineRecordKey(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
+      return window.parent.scopedKeyForAccount('offline_invite_hidden_ids_v1', window.parent.getActiveAccountId());
+    }
+  }catch(err){}
+  return 'offline_invite_hidden_ids_v1';
+}
+
+function readHiddenOfflineRecordIds(){
+  var ids = [];
+  try{
+    ids = JSON.parse(localStorage.getItem(getHiddenOfflineRecordKey()) || localStorage.getItem('offline_invite_hidden_ids_v1') || '[]');
+  }catch(err){
+    ids = [];
+  }
+  if(!Array.isArray(ids)) ids = [];
+  return ids.reduce(function(map, value){
+    var safe = String(value || '').trim();
+    if(safe) map[safe] = true;
+    return map;
+  }, Object.create(null));
+}
+
+function writeHiddenOfflineRecordIds(map){
+  var list = Object.keys(map || {}).filter(Boolean);
+  try{ localStorage.setItem(getHiddenOfflineRecordKey(), JSON.stringify(list)); }catch(err){}
+  try{ localStorage.setItem('offline_invite_hidden_ids_v1', JSON.stringify(list)); }catch(err2){}
+}
+
+function removeOfflineRecord(id){
+  var safeId = String(id || '').trim();
+  if(!safeId) return;
+  var hidden = readHiddenOfflineRecordIds();
+  hidden[safeId] = true;
+  writeHiddenOfflineRecordIds(hidden);
+  try{
+    if(window.OfflineInviteStore && typeof window.OfflineInviteStore.removeRecord === 'function'){
+      window.OfflineInviteStore.removeRecord(safeId);
+    }
+  }catch(err){}
+  latestOfflineRecords = (Array.isArray(latestOfflineRecords) ? latestOfflineRecords : []).filter(function(item){
+    return String(item && item.id || '').trim() !== safeId;
+  });
+  if(currentSelectedId === safeId) currentSelectedId = '';
 }
 
 function normalizeStoredChatEntry(raw){
@@ -749,13 +831,15 @@ async function loadOfflineRecordsFromChatsFallback(){
 async function getOfflineRecords(){
   var fromStore = getOfflineRecordsFromStore();
   var map = Object.create(null);
+  var hiddenIds = readHiddenOfflineRecordIds();
   fromStore.forEach(function(item){ mergeOfflineRecordMaps(map, item); });
   var fallback = await loadOfflineRecordsFromChatsFallback();
   fallback.forEach(function(item){ mergeOfflineRecordMaps(map, item); });
   return Object.keys(map).map(function(id){ return map[id]; }).sort(function(a, b){
     return (Number(b.updatedAt || b.createdAt || 0) || 0) - (Number(a.updatedAt || a.createdAt || 0) || 0);
   }).filter(function(item){
-    return item && (String(item.charId || '').trim() || String(item.charName || '').trim());
+    var safeId = String(item && item.id || '').trim();
+    return !!(item && safeId && !hiddenIds[safeId] && (String(item.charId || '').trim() || String(item.charName || '').trim()));
   });
 }
 
@@ -932,6 +1016,41 @@ function refreshThreadListElasticSpace(){
   spacer.style.height = extra + 'px';
 }
 
+function closeOpenThreadRows(exceptRow){
+  var root = document.getElementById('threadList');
+  if(!root) return;
+  var rows = root.querySelectorAll('.thread-row.is-open, .thread-row.is-dragging');
+  rows.forEach(function(row){
+    if(exceptRow && row === exceptRow) return;
+    row.classList.remove('is-open');
+    row.classList.remove('is-dragging');
+    var item = row.querySelector('.thread-item');
+    if(item) item.style.transform = '';
+  });
+}
+
+function applySwipeOffset(row, offset){
+  if(!row) return;
+  var item = row.querySelector('.thread-item');
+  if(!item) return;
+  var clamped = Math.max(-72, Math.min(0, Number(offset || 0) || 0));
+  item.style.transform = clamped ? ('translateX(' + clamped + 'px)') : '';
+}
+
+function finalizeThreadSwipe(row, offset){
+  if(!row) return;
+  row.classList.remove('is-dragging');
+  var item = row.querySelector('.thread-item');
+  if(!item) return;
+  item.style.transform = '';
+  if((Number(offset || 0) || 0) <= -38){
+    closeOpenThreadRows(row);
+    row.classList.add('is-open');
+  }else{
+    row.classList.remove('is-open');
+  }
+}
+
 function filterRecords(records){
   var list = Array.isArray(records) ? records.slice() : [];
   if(currentFilter === 'received') return list.filter(isReceivedInviteRecord);
@@ -1045,7 +1164,9 @@ function renderThreadList(records, selectedRecord){
     var stage = getRecordStage(item);
     var active = selectedRecord && String(selectedRecord.id || '') === String(item.id || '') ? ' is-selected' : '';
     var fallback = esc(String(item.charName || '角').slice(0, 1) || '角');
-    return '<article class="thread-card' + active + '" data-record-id="' + esc(item.id) + '">'
+    return '<div class="thread-row" data-thread-row="' + esc(item.id) + '">'
+      + '<button class="thread-delete" type="button" data-delete-record-id="' + esc(item.id) + '">删除</button>'
+      + '<article class="thread-item' + active + '" data-record-id="' + esc(item.id) + '">'
       + '<div class="thread-polaroid">'
       +   '<button class="thread-avatar" type="button" data-avatar-id="' + esc(item.id) + '"><img alt="' + esc(item.charName || '头像') + '" data-avatar-img="' + esc(item.id) + '">' + fallback + '</button>'
       +   '<div class="thread-polaroid-label">' + esc(item.charName || '未命名角色') + '</div>'
@@ -1058,7 +1179,8 @@ function renderThreadList(records, selectedRecord){
       +     '<div class="thread-stage is-' + esc(stage.tone) + '"><span class="thread-stage-dot"></span><span>' + esc(stage.note) + '</span></div>'
       +   '</div>'
       + '</div>'
-      + '</article>';
+      + '</article>'
+      + '</div>';
   }).join('');
   list.forEach(function(item){
     applyThreadAvatarSource(item.id, getCharAvatarSource(item.charId, item.charName));
@@ -1132,6 +1254,15 @@ function openRecordInOfflineMode(item){
 }
 
 document.addEventListener('click', function(event){
+  var deleteBtn = event.target && event.target.closest ? event.target.closest('[data-delete-record-id]') : null;
+  if(deleteBtn){
+    var deleteId = String(deleteBtn.getAttribute('data-delete-record-id') || '').trim();
+    if(deleteId){
+      removeOfflineRecord(deleteId);
+      renderOfflineApp();
+    }
+    return;
+  }
   var exitBtn = event.target && event.target.closest ? event.target.closest('[data-offline-exit]') : null;
   if(exitBtn){
     try{
@@ -1153,6 +1284,12 @@ document.addEventListener('click', function(event){
   }
   var recordBtn = event.target && event.target.closest ? event.target.closest('[data-record-id]') : null;
   if(recordBtn){
+    var row = recordBtn.closest ? recordBtn.closest('.thread-row') : null;
+    if(row && row.classList.contains('is-open')){
+      row.classList.remove('is-open');
+      return;
+    }
+    closeOpenThreadRows();
     currentSelectedId = String(recordBtn.getAttribute('data-record-id') || '').trim();
     var source = Array.isArray(latestOfflineRecords) ? latestOfflineRecords.slice() : [];
     var hit = source.find(function(item){
@@ -1164,6 +1301,53 @@ document.addEventListener('click', function(event){
     }
     renderOfflineApp();
   }
+});
+
+document.addEventListener('pointerdown', function(event){
+  var item = event.target && event.target.closest ? event.target.closest('.thread-item') : null;
+  if(!item) return;
+  var row = item.closest ? item.closest('.thread-row') : null;
+  if(!row) return;
+  closeOpenThreadRows(row);
+  offlineSwipeState = {
+    row: row,
+    pointerId: event.pointerId,
+    startX: Number(event.clientX || 0),
+    startY: Number(event.clientY || 0),
+    startOffset: row.classList.contains('is-open') ? -72 : 0,
+    offset: row.classList.contains('is-open') ? -72 : 0,
+    dragging: false
+  };
+}, { passive:true });
+
+document.addEventListener('pointermove', function(event){
+  if(!offlineSwipeState || event.pointerId !== offlineSwipeState.pointerId) return;
+  var dx = Number(event.clientX || 0) - offlineSwipeState.startX;
+  var dy = Number(event.clientY || 0) - offlineSwipeState.startY;
+  if(!offlineSwipeState.dragging){
+    if(Math.abs(dx) < 8) return;
+    if(Math.abs(dy) > Math.abs(dx)){
+      offlineSwipeState = null;
+      return;
+    }
+    offlineSwipeState.dragging = true;
+    offlineSwipeState.row.classList.add('is-dragging');
+  }
+  offlineSwipeState.offset = Math.max(-72, Math.min(0, offlineSwipeState.startOffset + dx));
+  applySwipeOffset(offlineSwipeState.row, offlineSwipeState.offset);
+  event.preventDefault();
+}, { passive:false });
+
+document.addEventListener('pointerup', function(event){
+  if(!offlineSwipeState || event.pointerId !== offlineSwipeState.pointerId) return;
+  finalizeThreadSwipe(offlineSwipeState.row, offlineSwipeState.offset);
+  offlineSwipeState = null;
+});
+
+document.addEventListener('pointercancel', function(event){
+  if(!offlineSwipeState || event.pointerId !== offlineSwipeState.pointerId) return;
+  finalizeThreadSwipe(offlineSwipeState.row, offlineSwipeState.offset);
+  offlineSwipeState = null;
 });
 
 window.addEventListener('message', function(e){
