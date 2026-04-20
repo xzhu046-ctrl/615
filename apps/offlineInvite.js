@@ -1255,6 +1255,49 @@ function runOfflineInviteAction(action, msgId){
     });
 }
 
+var pendingOfflineInviteDecisionAction = '';
+var pendingOfflineInviteDecisionMessageId = '';
+
+function closeOfflineInviteDecisionPrompt(){
+  pendingOfflineInviteDecisionAction = '';
+  pendingOfflineInviteDecisionMessageId = '';
+  var overlay = document.getElementById('offlineInviteDecisionOverlay');
+  if(overlay) overlay.classList.remove('open');
+}
+
+function openOfflineInviteDecisionPrompt(msgId, preferredAction){
+  var safeMsgId = String(msgId || '').trim();
+  if(!safeMsgId) return;
+  var entry = getMessageById(safeMsgId);
+  var payload = parseOfflineInvitePayload(entry && entry.content) || null;
+  if(!entry || !payload) return;
+  if(String(payload.status || 'pending') !== 'pending') return;
+  pendingOfflineInviteDecisionMessageId = safeMsgId;
+  pendingOfflineInviteDecisionAction = String(preferredAction || '').trim() === 'reject' ? 'reject' : 'accept';
+  var overlay = document.getElementById('offlineInviteDecisionOverlay');
+  var copy = document.getElementById('offlineInviteDecisionText');
+  if(copy){
+    var bits = [];
+    var dateText = stripOfflineInviteWeekdayLabel(payload.dateLabel || '');
+    var timeText = String(payload.timeLabel || '').trim();
+    var placeText = String(payload.location || '').trim();
+    if(dateText || timeText) bits.push([dateText, timeText].filter(Boolean).join(' · '));
+    if(placeText) bits.push(placeText);
+    copy.textContent = bits.length ? bits.join('\n') : '这次见面你要怎么回？';
+  }
+  if(overlay) overlay.classList.add('open');
+}
+
+function confirmOfflineInviteDecision(accepted){
+  var msgId = String(pendingOfflineInviteDecisionMessageId || '').trim();
+  var chosen = typeof accepted === 'boolean'
+    ? (accepted ? 'accept' : 'reject')
+    : (pendingOfflineInviteDecisionAction === 'reject' ? 'reject' : 'accept');
+  closeOfflineInviteDecisionPrompt();
+  if(!msgId) return;
+  runOfflineInviteAction(chosen, msgId);
+}
+
 function openOfflineInviteComposer(){
   if(!character){
     if(typeof toast === 'function') toast('请先选择角色');
@@ -1886,8 +1929,14 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   if(!canRespond) return;
   bubble.addEventListener('click', function(evt){
     var actionBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-action]') : null;
-    if(!actionBtn || !msgId || actionBtn.disabled) return;
+    if(actionBtn){
+      if(!msgId || actionBtn.disabled) return;
+      evt.stopPropagation();
+      openOfflineInviteDecisionPrompt(msgId, actionBtn.getAttribute('data-offline-action'));
+      return;
+    }
+    if(!msgId || disabled) return;
     evt.stopPropagation();
-    runOfflineInviteAction(actionBtn.getAttribute('data-offline-action'), msgId);
+    openOfflineInviteDecisionPrompt(msgId, 'accept');
   });
 }
