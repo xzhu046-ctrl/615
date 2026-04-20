@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T03:40:43Z';
+const APP_BUILD_ID = '2026-04-20T03:44:28Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -5352,7 +5352,7 @@ function renderBondWidget(character){
   if(charAvatar){
     const applyCharAvatar = (override)=>{
       const safeOverride = normalizeShellAssetSrc(override || '');
-      const safeImage = normalizeShellAssetSrc(c && c.imageData || '');
+      const safeImage = getCharacterAvatarForBg(c || null);
       const baseHtml = isRenderableShellAvatarSrc(safeOverride)
         ? '<span class="bond-avatar-base"><img src="' + safeOverride + '" alt=""></span>'
         : isRenderableShellAvatarSrc(safeImage)
@@ -8486,7 +8486,7 @@ function setWidgetCharacter(c){
   const avEl = document.getElementById('wgt-avatar');
   const userAvEl = document.getElementById('wgt-user-avatar');
   const sideNameEl = document.getElementById('wgt-side-name');
-  var liveAvatarSrc = normalizeShellAssetSrc(c && c.imageData || '');
+  var liveAvatarSrc = getCharacterAvatarForBg(c || null);
   if(c && c.id){
     var userLabel = getBondWidgetUserName(c, getChatUserName(c.id));
     var charRoleEl = document.getElementById('wgt-char-role');
