@@ -224,19 +224,11 @@ body{display:flex;justify-content:center}
   overflow-y:scroll;
   overflow-x:hidden;
   padding-right:4px;
-  padding-bottom:16px;
   scrollbar-width:none;
   -webkit-overflow-scrolling:touch;
   overscroll-behavior-y:auto;
 }
 .thread-list::-webkit-scrollbar{display:none}
-.thread-scroll-spacer{
-  display:block;
-  width:100%;
-  min-height:32vh;
-  flex:0 0 32vh;
-  pointer-events:none;
-}
 .thread-card{
   padding:12px;
   display:grid;
@@ -562,10 +554,23 @@ function buildWeekDays(date){
   return list;
 }
 
-function resolveCharAvatar(charId){
+function resolveCharAvatar(charId, charName){
   var safeId = String(charId || '').trim();
+  var safeName = String(charName || '').trim();
   var chars = getParentCharacters();
-  var match = Array.isArray(chars) ? chars.find(function(item){ return item && String(item.id || '') === safeId; }) : null;
+  var match = null;
+  if(Array.isArray(chars) && safeId){
+    match = chars.find(function(item){ return item && String(item.id || '') === safeId; }) || null;
+  }
+  if(!match && Array.isArray(chars) && safeName){
+    var targetLower = safeName.toLowerCase();
+    match = chars.find(function(item){
+      if(!item) return false;
+      var nick = String(item.nickname || '').trim();
+      var name = String(item.name || '').trim();
+      return (nick && nick.toLowerCase() === targetLower) || (name && name.toLowerCase() === targetLower);
+    }) || null;
+  }
   function finalizeAvatarSrc(src){
     var safe = String(src || '').trim();
     if(!safe) return Promise.resolve('');
@@ -623,6 +628,13 @@ function resolveCharAvatar(charId){
         .catch(function(){ return ''; });
     }
   }catch(err){}
+  try{
+    if(safeName && window.parent && window.parent !== window && typeof window.parent.resolveShellNotificationAvatarByName === 'function'){
+      return Promise.resolve(window.parent.resolveShellNotificationAvatarByName(safeName))
+        .then(function(src){ return finalizeAvatarSrc(src); })
+        .catch(function(){ return ''; });
+    }
+  }catch(err){}
   if(window.assetStore && typeof window.assetStore.load === 'function' && safeId){
     return window.assetStore.load('char_avatar_' + safeId).then(function(src){
       return finalizeAvatarSrc(src);
@@ -641,7 +653,8 @@ function refreshThreadListElasticSpace(){
     spacer.setAttribute('aria-hidden', 'true');
     root.appendChild(spacer);
   }
-  var extra = Math.max(Math.round(root.clientHeight * 0.32), 120);
+  spacer.style.height = '0px';
+  var extra = Math.max(56, root.clientHeight - (root.scrollHeight - spacer.offsetHeight) + 56);
   spacer.style.flex = '0 0 ' + extra + 'px';
   spacer.style.height = extra + 'px';
 }
@@ -771,7 +784,7 @@ function renderThreadList(records, selectedRecord){
       + '</article>';
   }).join('');
   list.forEach(function(item){
-    resolveCharAvatar(item.charId).then(function(src){
+    resolveCharAvatar(item.charId, item.charName).then(function(src){
       var safe = String(src || '').trim();
       if(!safe) return;
       var node = findByDataAttr(root, 'data-avatar-id', item.id);
