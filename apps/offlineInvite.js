@@ -1772,7 +1772,7 @@ async function sendOfflineInviteFromUser(){
     status: 'pending',
     reminderState: 'pending'
   });
-  schedulePendingOfflineInviteReply(1500);
+  clearPendingOfflineInviteReplyTimer();
 }
 
 function importPendingOfflineArtifacts(){
