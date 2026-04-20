@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T05:07:38Z';
+const APP_BUILD_ID = '2026-04-20T05:10:44Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -7511,6 +7511,7 @@ function showShellLoadingOverlay(kind){
   var image = document.getElementById('shell-loading-image');
   var copy = document.getElementById('shell-loading-copy');
   if(!overlay || !image || !copy) return;
+  overlay.classList.toggle('instant', currentApp === 'chat' || String(kind || '').trim() === 'chat');
   if(shellLoadingHideTimer){
     clearTimeout(shellLoadingHideTimer);
     shellLoadingHideTimer = 0;
@@ -7540,6 +7541,7 @@ function hideShellLoadingOverlay(delay){
   }
   shellLoadingHideTimer = setTimeout(function(){
     overlay.classList.remove('show');
+    overlay.classList.remove('instant');
     shellLoadingHideTimer = 0;
   }, Math.max(0, Number(delay) || 0));
 }
