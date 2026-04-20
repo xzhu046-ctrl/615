@@ -24981,6 +24981,58 @@ function clearOfflineInviteRecordsForChar(charId){
     });
   }catch(err){}
 }
+function markOfflineInviteRecordsHiddenForChar(charId){
+  var safeCharId = String(charId || '').trim();
+  var store = getChatOfflineInviteStore();
+  if(!safeCharId || !store || typeof store.listRecords !== 'function') return;
+  function hiddenKey(){
+    try{
+      return accountScopedKey('offline_invite_hidden_ids_v1');
+    }catch(err){
+      return 'offline_invite_hidden_ids_v1';
+    }
+  }
+  var map = Object.create(null);
+  try{
+    var existing = JSON.parse(localStorage.getItem(hiddenKey()) || localStorage.getItem('offline_invite_hidden_ids_v1') || '[]');
+    if(Array.isArray(existing)){
+      existing.forEach(function(id){
+        var safe = String(id || '').trim();
+        if(safe) map[safe] = true;
+      });
+    }
+  }catch(err){}
+  try{
+    store.listRecords().forEach(function(item){
+      if(!item) return;
+      if(String(item.charId || '').trim() !== safeCharId) return;
+      [item.id, item.threadId, item.inviteMessageId, item.replyMessageId].forEach(function(id){
+        var safe = String(id || '').trim();
+        if(safe) map[safe] = true;
+      });
+    });
+  }catch(err2){}
+  var list = Object.keys(map).filter(Boolean);
+  try{ localStorage.setItem(hiddenKey(), JSON.stringify(list)); }catch(err3){}
+  try{ localStorage.setItem('offline_invite_hidden_ids_v1', JSON.stringify(list)); }catch(err4){}
+}
+async function clearAllChatStorageCopies(charId){
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return;
+  var keys = [];
+  try{
+    keys = getChatStorageKeyCandidates(safeCharId);
+  }catch(err){
+    keys = [];
+  }
+  keys = Array.isArray(keys) ? Array.from(new Set(keys.filter(Boolean))) : [];
+  for(var i = 0; i < keys.length; i += 1){
+    var key = String(keys[i] || '').trim();
+    if(!key) continue;
+    try{ localStorage.removeItem(key); }catch(err2){}
+    try{ await removeRecordFromIndexedDb('chats', key); }catch(err3){}
+  }
+}
 function clearOfflineArchiveRecordsForChar(charId){
   var safeCharId = String(charId || '').trim();
   if(!safeCharId) return;
@@ -25061,10 +25113,10 @@ async function clearChatData(opts){
   pendingFamilyFollowupCue = '';
   chatLog = [];
   if (character){
+    markOfflineInviteRecordsHiddenForChar(character.id);
     clearOfflineInviteRecordsForChar(character.id);
     clearOfflineArchiveRecordsForChar(character.id);
-    try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(e){}
-    await removeRecordFromIndexedDb('chats', chatStorageKey(character.id));
+    await clearAllChatStorageCopies(character.id);
     character.nickname = '';
     character.userNicknameNote = '';
     try{

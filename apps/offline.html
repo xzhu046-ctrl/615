@@ -235,27 +235,44 @@ body{display:flex;justify-content:center}
   min-height:144px;
   overflow:visible;
 }
+.thread-row + .thread-row::before{
+  content:"";
+  position:absolute;
+  left:8px;
+  right:18px;
+  top:-7px;
+  border-top:2px dashed rgba(17,17,17,.38);
+}
 .thread-delete{
   position:absolute;
   top:9px;
   right:0;
   bottom:9px;
   width:72px;
-  border:2px solid #111;
+  border:2px solid #7f0f0f;
   border-radius:0;
-  background:#111;
+  background:linear-gradient(180deg,#ff8e8e 0%,#e23434 58%,#9e0f16 100%);
   color:#fff;
   box-shadow:2px 2px 0 #fff, 5px 5px 0 rgba(17,17,17,.22);
   display:flex;
   align-items:center;
   justify-content:center;
+  gap:7px;
   font-family:var(--sans);
   font-size:11px;
   font-weight:900;
   letter-spacing:.16em;
   text-transform:uppercase;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .16s ease;
 }
 .thread-delete:active{transform:translate(2px,2px)}
+.thread-delete svg{width:16px;height:16px;display:block;fill:currentColor;flex:0 0 auto}
+.thread-row.is-open .thread-delete{
+  opacity:1;
+  pointer-events:auto;
+}
 .thread-item{
   position:relative;
   z-index:1;
@@ -415,6 +432,62 @@ body{display:flex;justify-content:center}
 .thread-stage.is-continued .thread-stage-dot{background:#fff}
 .thread-stage.is-upcoming .thread-stage-dot{background:#fff}
 .thread-stage.is-ended .thread-stage-dot{background:#fff}
+.delete-confirm{
+  position:fixed;
+  inset:0;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:rgba(0,0,0,.16);
+  z-index:50;
+}
+.delete-confirm.open{display:flex}
+.delete-confirm-sheet{
+  width:min(320px, 100%);
+  border:2px solid #111;
+  background:#fff;
+  box-shadow:2px 2px 0 #111, 4px 4px 0 #fff, 8px 8px 0 rgba(17,17,17,.2);
+  padding:18px 16px 16px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.delete-confirm-title{
+  font-family:var(--serif);
+  font-size:24px;
+  font-weight:900;
+  line-height:1;
+}
+.delete-confirm-copy{
+  font-size:13px;
+  line-height:1.6;
+  font-weight:800;
+  color:#343434;
+}
+.delete-confirm-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+}
+.delete-confirm-btn{
+  min-height:38px;
+  padding:0 14px;
+  border:2px solid #111;
+  border-radius:0;
+  background:#fff;
+  color:#111;
+  box-shadow:2px 2px 0 #111, 4px 4px 0 #fff;
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.08em;
+}
+.delete-confirm-btn.is-danger{
+  border-color:#7f0f0f;
+  background:#111;
+  color:#fff;
+  box-shadow:2px 2px 0 #7f0f0f, 4px 4px 0 #fff;
+}
 </style>
 </head>
 <body>
@@ -427,6 +500,16 @@ body{display:flex;justify-content:center}
       <section class="thread-list" id="threadList"></section>
     </div>
   </main>
+  <div class="delete-confirm" id="deleteConfirm" aria-hidden="true">
+    <div class="delete-confirm-sheet">
+      <div class="delete-confirm-title">删除邀约</div>
+      <div class="delete-confirm-copy" id="deleteConfirmCopy">这条邀约会从约会 app 里移走。</div>
+      <div class="delete-confirm-actions">
+        <button class="delete-confirm-btn" type="button" data-delete-cancel>取消</button>
+        <button class="delete-confirm-btn is-danger" type="button" data-delete-confirm>删除</button>
+      </div>
+    </div>
+  </div>
 <script src="../assetStore.js"></script>
 <script src="../offlineInviteStore.js"></script>
 <script>
@@ -436,6 +519,7 @@ var avatarAssetCache = {};
 var offlineRenderVersion = 0;
 var latestOfflineRecords = [];
 var offlineSwipeState = null;
+var pendingDeleteRecordId = '';
 
 function esc(text){
   return String(text == null ? '' : text)
@@ -616,12 +700,27 @@ function writeHiddenOfflineRecordIds(map){
   try{ localStorage.setItem('offline_invite_hidden_ids_v1', JSON.stringify(list)); }catch(err2){}
 }
 
+function hideOfflineRecordIds(ids){
+  var hidden = readHiddenOfflineRecordIds();
+  (Array.isArray(ids) ? ids : []).forEach(function(id){
+    var safeId = String(id || '').trim();
+    if(safeId) hidden[safeId] = true;
+  });
+  writeHiddenOfflineRecordIds(hidden);
+}
+
 function removeOfflineRecord(id){
   var safeId = String(id || '').trim();
   if(!safeId) return;
-  var hidden = readHiddenOfflineRecordIds();
-  hidden[safeId] = true;
-  writeHiddenOfflineRecordIds(hidden);
+  var target = (Array.isArray(latestOfflineRecords) ? latestOfflineRecords : []).find(function(item){
+    return String(item && item.id || '').trim() === safeId;
+  }) || null;
+  hideOfflineRecordIds([
+    safeId,
+    target && target.threadId,
+    target && target.inviteMessageId,
+    target && target.replyMessageId
+  ]);
   try{
     if(window.OfflineInviteStore && typeof window.OfflineInviteStore.removeRecord === 'function'){
       window.OfflineInviteStore.removeRecord(safeId);
@@ -631,6 +730,34 @@ function removeOfflineRecord(id){
     return String(item && item.id || '').trim() !== safeId;
   });
   if(currentSelectedId === safeId) currentSelectedId = '';
+}
+
+function openDeleteConfirm(id){
+  var safeId = String(id || '').trim();
+  if(!safeId) return;
+  pendingDeleteRecordId = safeId;
+  var overlay = document.getElementById('deleteConfirm');
+  var copy = document.getElementById('deleteConfirmCopy');
+  var hit = (Array.isArray(latestOfflineRecords) ? latestOfflineRecords : []).find(function(item){
+    return String(item && item.id || '').trim() === safeId;
+  }) || null;
+  if(copy){
+    var name = String(hit && hit.charName || '这条邀约').trim() || '这条邀约';
+    copy.textContent = '要把和 ' + name + ' 的这条邀约删掉吗？';
+  }
+  if(overlay){
+    overlay.classList.add('open');
+    overlay.setAttribute('aria-hidden', 'false');
+  }
+}
+
+function closeDeleteConfirm(){
+  pendingDeleteRecordId = '';
+  var overlay = document.getElementById('deleteConfirm');
+  if(overlay){
+    overlay.classList.remove('open');
+    overlay.setAttribute('aria-hidden', 'true');
+  }
 }
 
 function normalizeStoredChatEntry(raw){
@@ -802,6 +929,7 @@ function buildFallbackRecordFromChatEntry(entry, charMeta){
 
 async function loadOfflineRecordsFromChatsFallback(){
   var chars = getParentCharacters();
+  var hasRoster = Array.isArray(chars) && chars.length > 0;
   var map = Object.create(null);
   var sources = await collectOfflineChatSources();
   if(!sources.length){
@@ -818,6 +946,7 @@ async function loadOfflineRecordsFromChatsFallback(){
     var history = Array.isArray(source && source.history) ? source.history : [];
     if(!charId || !history.length) continue;
     var charMeta = getParentCharByIdOrName(charId, '') || { id: charId };
+    if(hasRoster && !(charMeta && getParentCharByIdOrName(charId, ''))) continue;
     for(var j = 0; j < history.length; j += 1){
       var record = buildFallbackRecordFromChatEntry(history[j], charMeta);
       if(record) mergeOfflineRecordMaps(map, record);
@@ -1165,7 +1294,7 @@ function renderThreadList(records, selectedRecord){
     var active = selectedRecord && String(selectedRecord.id || '') === String(item.id || '') ? ' is-selected' : '';
     var fallback = esc(String(item.charName || '角').slice(0, 1) || '角');
     return '<div class="thread-row" data-thread-row="' + esc(item.id) + '">'
-      + '<button class="thread-delete" type="button" data-delete-record-id="' + esc(item.id) + '">删除</button>'
+      + '<button class="thread-delete" type="button" data-delete-record-id="' + esc(item.id) + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3.5h6l.8 1.5H20a1 1 0 1 1 0 2h-1l-.9 11a2 2 0 0 1-2 1.82H8a2 2 0 0 1-2-1.82L5 7H4a1 1 0 1 1 0-2h4.2L9 3.5Zm-1.99 3 .9 10.92h8.18L17 6.5H7.01ZM10 9a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0v-5a1 1 0 0 1 1-1Zm4 0a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0v-5a1 1 0 0 1 1-1Z"></path></svg><span>删除</span></button>'
       + '<article class="thread-item' + active + '" data-record-id="' + esc(item.id) + '">'
       + '<div class="thread-polaroid">'
       +   '<button class="thread-avatar" type="button" data-avatar-id="' + esc(item.id) + '"><img alt="' + esc(item.charName || '头像') + '" data-avatar-img="' + esc(item.id) + '">' + fallback + '</button>'
@@ -1257,10 +1386,28 @@ document.addEventListener('click', function(event){
   var deleteBtn = event.target && event.target.closest ? event.target.closest('[data-delete-record-id]') : null;
   if(deleteBtn){
     var deleteId = String(deleteBtn.getAttribute('data-delete-record-id') || '').trim();
-    if(deleteId){
-      removeOfflineRecord(deleteId);
+    if(deleteId) openDeleteConfirm(deleteId);
+    return;
+  }
+  var deleteCancelBtn = event.target && event.target.closest ? event.target.closest('[data-delete-cancel]') : null;
+  if(deleteCancelBtn){
+    closeDeleteConfirm();
+    return;
+  }
+  var deleteConfirmBtn = event.target && event.target.closest ? event.target.closest('[data-delete-confirm]') : null;
+  if(deleteConfirmBtn){
+    if(pendingDeleteRecordId){
+      removeOfflineRecord(pendingDeleteRecordId);
+      closeDeleteConfirm();
       renderOfflineApp();
+      return;
     }
+    closeDeleteConfirm();
+    return;
+  }
+  var deleteOverlay = event.target && event.target.closest ? event.target.closest('#deleteConfirm') : null;
+  if(deleteOverlay && event.target === deleteOverlay){
+    closeDeleteConfirm();
     return;
   }
   var exitBtn = event.target && event.target.closest ? event.target.closest('[data-offline-exit]') : null;
