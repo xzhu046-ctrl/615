@@ -542,6 +542,44 @@ function firstOfflineInviteFollowupText(bundle){
   return parts.length ? parts[0] : '';
 }
 
+function sanitizeOfflineInviteFollowupItems(items, fallbackText, options){
+  var opts = options && typeof options === 'object' ? options : {};
+  var limit = Math.max(1, Number(opts.limit) || Math.max(1, Number(character && character.msgMax) || 3));
+  var out = [];
+  var seen = new Set();
+
+  function pushText(text){
+    splitOfflineInviteFollowupText(text).forEach(function(part){
+      var content = sanitizeAssistantTextForChat(String(part || '').trim());
+      if(!content) return;
+      var dedupeKey = content.replace(/\s+/g, ' ');
+      if(seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      out.push({ type:'text', content: content });
+    });
+  }
+
+  if(Array.isArray(items)){
+    items.forEach(function(item){
+      if(item && typeof item === 'object'){
+        var type = normalizeMessageType(item.type || 'text');
+        if(type !== 'text') return;
+        pushText(item.content || item.text || item.reply_content || item.description || '');
+        return;
+      }
+      pushText(item);
+    });
+  }else{
+    pushText(items);
+  }
+
+  if(!out.length && fallbackText){
+    pushText(fallbackText);
+  }
+
+  return out.slice(0, limit);
+}
+
 function makeSystemNoticeEntry(text){
   return makeChatEntry('system', String(text || '').trim(), 'text');
 }
@@ -1277,12 +1315,12 @@ async function requestCharOfflineInviteDecision(userPayload){
     '如果 accept 为 true，不要再单独写一条邀约语。正常聊天内容都放进 followups。',
     '只返回 JSON：{"accept":true|false,"text":"...","followups":["..."],"mood":"...","weather":"...","location":"...","scheduledDate":"YYYY-MM-DD","scheduledTime":"HH:MM"}',
     '如果 accept 为 true，scheduledDate / scheduledTime / location 只是你这次见面安排的时间地点，不要把它们写进解释腔里。',
-    '如果 accept 为 true，followups 里继续补 0 到 2 条正常聊天消息，像答应见面之后顺手又说了几句。每条都要短，一条一个意思，不要复读展示文案。',
+    '如果 accept 为 true，followups 里继续补 1 到 2 条正常聊天消息，像答应见面之后顺手又说了几句。每个数组元素就是单独一条消息，不要把几句塞进同一个字符串里。',
     '如果 accept 为 true，请顺手给出你真的能赴约的时间 scheduledDate / scheduledTime。这个时间必须现实、合理，不能比现在更早，也不要写凌晨四点这种不合常理的时间。',
     '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成通知文案。尽量短一点，别写成长句。',
     '如果 accept 为 false，请像真人聊天一样回复：可以先来一句当下反应，再补一句解释或安抚，语气要有停顿感和生活感。',
-    '如果 accept 为 false，followups 里再补 0 到 2 条自然的后续消息，可以是解释、安抚、改约的意思，但要像聊天，不要像通知。每条都尽量短。',
-    'followups 里的总条数请严格参考当前聊天设置：最少 ' + msgMin + ' 条，最多 ' + msgMax + ' 条；真的一句就够时，也至少给 1 条。',
+    '如果 accept 为 false，followups 里再补 0 到 2 条自然的后续消息，可以是解释、安抚、改约的意思，但要像聊天，不要像通知。每个数组元素就是单独一条消息。',
+    'followups 里的总条数请严格参考当前聊天设置：最少 ' + msgMin + ' 条，最多 ' + msgMax + ' 条；每一条都应该是独立消息。',
     '不要为了分条而硬切，只有真的像聊天那样自然停顿时才分开。',
     '不要 markdown，不要额外解释。'
   ].join('\n');
@@ -1468,10 +1506,10 @@ async function handlePendingOfflineInviteReply(){
     hideTyping();
     if(decision && decision.accept){
       var schedule = deriveOfflineInviteAcceptedSchedule(pending.payload, decision);
-      var acceptedFollowupText = normalizeOfflineInviteFollowups(decision && decision.followups, '', {
+      var acceptedFollowups = sanitizeOfflineInviteFollowupItems(decision && decision.followups, '', {
         limit: Math.max(1, Number(character && character.msgMax) || 3)
       });
-      var acceptedPreviewText = firstOfflineInviteFollowupText(acceptedFollowupText) || 'ACCEPTED';
+      var acceptedPreviewText = acceptedFollowups.length ? String(acceptedFollowups[0].content || '').trim() : 'ACCEPTED';
       pending.payload.status = 'accepted';
       pending.entry.content = JSON.stringify(pending.payload);
       var charWeather = await resolveOfflineInviteWeather('char', decision.weather || randomPick(OFFLINE_WEATHERS, '☀︎'));
@@ -1491,8 +1529,8 @@ async function handlePendingOfflineInviteReply(){
       var replyEntry = await appendOfflineInviteToChat('assistant', replyPayload, true, {
         noticeText: appendOfflineInviteAcceptedNoticeText(replyPayload)
       });
-      if(acceptedFollowupText){
-        await deliverAiReply(acceptedFollowupText, Math.max(1, Number(character && character.msgMax) || 3));
+      if(acceptedFollowups.length){
+        await deliverAiReply(acceptedFollowups, Math.max(1, Number(character && character.msgMax) || 3));
       }
       replyPayload.replyMessageId = replyEntry && replyEntry.id ? String(replyEntry.id) : '';
       var scheduleEntryId = await syncAcceptedOfflineInviteToSchedule(pending.payload, replyPayload);
@@ -1537,7 +1575,7 @@ async function handlePendingOfflineInviteReply(){
     var rejectNotice = makeSystemNoticeEntry(appendOfflineInviteRejectNoticeText());
     chatLog.push(rejectNotice);
     addSystemNotice(rejectNotice.content, true, rejectNotice.id);
-    var rejectedFollowupText = normalizeOfflineInviteFollowups(decision && decision.followups, (decision && decision.text) || '今天先不出门了，不过我有点心动。', {
+    var rejectedFollowups = sanitizeOfflineInviteFollowupItems(decision && decision.followups, String((decision && decision.text) || '').trim(), {
       limit: Math.max(1, Number(character && character.msgMax) || 3)
     });
     await syncOfflineInviteRecord(pending.payload, {
@@ -1545,13 +1583,15 @@ async function handlePendingOfflineInviteReply(){
       inviteMessageId: String(pending.entry && pending.entry.id || '').trim(),
       status: 'rejected',
       sourceRole: 'user',
-      previewText: firstOfflineInviteFollowupText(rejectedFollowupText) || normalizeOfflineInviteDecisionText((decision && decision.text) || '', '今天先不出门了，不过我有点心动。'),
+      previewText: rejectedFollowups.length ? String(rejectedFollowups[0].content || '').trim() : normalizeOfflineInviteDecisionText((decision && decision.text) || '', ''),
       remindedAt: 0,
       reminderState: 'pending',
       arrivalState: 'pending',
       arrivedAt: 0
     });
-    await deliverAiReply(normalizeOfflineInviteRejectText(rejectedFollowupText, '今天先不出门了，不过我有点心动。'), Math.max(1, character && character.msgMax ? character.msgMax : 3));
+    if(rejectedFollowups.length){
+      await deliverAiReply(rejectedFollowups, Math.max(1, character && character.msgMax ? character.msgMax : 3));
+    }
     await saveChat(true);
     rerenderChat();
     return true;
