@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-20T02:56:03Z';
+const APP_BUILD_ID = '2026-04-20T03:00:24Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -2031,6 +2031,31 @@ async function resolveShellNotificationAvatar(charId, preferredAvatar){
     var mirrored = normalizeShellAssetSrc((scopedKey ? localStorage.getItem(scopedKey) : '') || localStorage.getItem('char_avatar_' + id) || '');
     if(isRenderableShellAvatarSrc(mirrored)) return mirrored;
   }catch(err){}
+  return '';
+}
+
+async function resolveShellNotificationAvatarByName(name){
+  var target = String(name || '').trim();
+  if(!target) return '';
+  var candidates = [];
+  var foreground = getCurrentForegroundCharacter();
+  if(foreground) candidates.push(foreground);
+  if(persistedShellActiveCharacter) candidates.push(persistedShellActiveCharacter);
+  getStoredCharactersSnapshot().forEach(function(item){
+    if(item) candidates.push(item);
+  });
+  for(var idx = 0; idx < candidates.length; idx += 1){
+    var candidate = candidates[idx];
+    var candidateName = String((candidate && (candidate.nickname || candidate.name)) || '').trim();
+    if(!candidateName || candidateName !== target) continue;
+    var src = getCharacterAvatarForBg(candidate);
+    if(isRenderableShellAvatarSrc(src)) return src;
+    var candidateId = String((candidate && candidate.id) || '').trim();
+    if(candidateId){
+      var resolved = await resolveShellNotificationAvatar(candidateId, '').catch(function(){ return ''; });
+      if(isRenderableShellAvatarSrc(resolved)) return resolved;
+    }
+  }
   return '';
 }
 
@@ -4321,6 +4346,13 @@ function showAppNotificationCard(payload){
   var renderedAvatar = renderNotificationAvatar(avatarSrc);
   if(!renderedAvatar && payload.charId){
     Promise.resolve(resolveShellNotificationAvatar(payload.charId, ''))
+      .then(function(resolvedAvatar){
+        if(appNotifyPayload !== payload) return;
+        renderNotificationAvatar(resolvedAvatar || '');
+      })
+      .catch(function(){ return null; });
+  }else if(!renderedAvatar && title){
+    Promise.resolve(resolveShellNotificationAvatarByName(title))
       .then(function(resolvedAvatar){
         if(appNotifyPayload !== payload) return;
         renderNotificationAvatar(resolvedAvatar || '');
