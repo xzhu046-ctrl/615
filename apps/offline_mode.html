@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-21T05:46:31Z"></script>
-<script src="../chatStorage.js?v=2026-04-21T05:46:31Z"></script>
-<script src="../metadataStore.js?v=2026-04-21T05:46:31Z"></script>
-<script src="../promptManager.js?v=2026-04-21T05:46:31Z"></script>
-<script src="../accountManager.js?v=2026-04-21T05:46:31Z"></script>
-<script src="../scheduleShared.js?v=2026-04-21T05:46:31Z"></script>
-<script src="../presenceShared.js?v=2026-04-21T05:46:31Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-21T05:46:31Z"></script>
+<script src="../assetStore.js?v=2026-04-21T05:54:20Z"></script>
+<script src="../chatStorage.js?v=2026-04-21T05:54:20Z"></script>
+<script src="../metadataStore.js?v=2026-04-21T05:54:20Z"></script>
+<script src="../promptManager.js?v=2026-04-21T05:54:20Z"></script>
+<script src="../accountManager.js?v=2026-04-21T05:54:20Z"></script>
+<script src="../scheduleShared.js?v=2026-04-21T05:54:20Z"></script>
+<script src="../presenceShared.js?v=2026-04-21T05:54:20Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-21T05:54:20Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -5934,25 +5934,33 @@ function getOfflineRuntimeMeta(requestOptions){
   var provider = localStorage.getItem('provider') || 'openai';
   var model = localStorage.getItem('model_' + provider) || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
   var req = normalizeOfflineRequestOptions(requestOptions);
+  var endpoint = '';
+  if(provider === 'openai') endpoint = 'https://api.openai.com/v1/chat/completions';
+  else if(provider === 'claude') endpoint = 'https://api.anthropic.com/v1/messages';
+  else if(provider === 'gemini') endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent';
+  else if(provider === 'openrouter') endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+  else if(provider === 'custom') endpoint = ((localStorage.getItem('custom_url') || '').replace(/\/$/, '') || '') + '/chat/completions';
   return {
     provider: String(provider || '').trim(),
     model: String(model || '').trim(),
+    endpoint: String(endpoint || '').trim(),
     requestedMaxTokens: Math.max(0, Number(req.maxTokens) || 0),
     contextLimit: getOfflineContextLimitTokens()
   };
 }
 function rememberOfflineError(stage, err, extra){
   var source = err && typeof err === 'object' ? err : {};
+  var runtimeMeta = getOfflineRuntimeMeta();
   var payload = Object.assign({
     stage: String(stage || 'runtime').trim() || 'runtime',
     summary: summarizeOfflineError(err),
     raw: String(source.rawBody || source.responseText || source.detail || source.message || err || '').trim(),
-    provider: String(source.provider || '').trim(),
-    model: String(source.model || '').trim(),
-    endpoint: String(source.endpoint || '').trim(),
+    provider: String(source.provider || runtimeMeta.provider || '').trim(),
+    model: String(source.model || runtimeMeta.model || '').trim(),
+    endpoint: String(source.endpoint || runtimeMeta.endpoint || '').trim(),
     status: Number(source.status) || 0,
-    requestedMaxTokens: Math.max(0, Number(source.requestedMaxTokens) || 0),
-    contextLimit: Math.max(0, Number(source.contextLimit) || 0),
+    requestedMaxTokens: Math.max(0, Number(source.requestedMaxTokens) || Number(runtimeMeta.requestedMaxTokens) || 0),
+    contextLimit: Math.max(0, Number(source.contextLimit) || Number(runtimeMeta.contextLimit) || 0),
     promptTokens: Math.max(0, Number(source.promptTokens) || 0),
     at: Date.now()
   }, extra && typeof extra === 'object' ? extra : {});
@@ -8392,7 +8400,19 @@ async function init(){
   queueOfflineStageSummaryGeneration();
   showFlightIfNeeded();
   runOfflineInitTask(function(){ return hydrateOfflineMemorySnippet(); }, 2200);
-  await generateOpeningIfNeeded();
+  var openingBooted = false;
+  try{
+    openingBooted = await generateOpeningIfNeeded();
+  }catch(openingInitErr){
+    throw rememberOfflineError('startup.opening', openingInitErr, {
+      charId: String((character && character.id) || (session && session.charId) || '').trim()
+    });
+  }
+  if((session && session.pendingOpening) && !openingBooted && session && session.lastErrorDetail){
+    throw rememberOfflineError('startup.opening', session.lastErrorDetail, {
+      charId: String((character && character.id) || (session && session.charId) || '').trim()
+    });
+  }
   renderStory();
   syncOfflineViewport();
   offlineInitCompleted = true;
