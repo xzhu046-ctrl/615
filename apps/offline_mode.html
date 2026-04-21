@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-21T05:54:20Z"></script>
-<script src="../chatStorage.js?v=2026-04-21T05:54:20Z"></script>
-<script src="../metadataStore.js?v=2026-04-21T05:54:20Z"></script>
-<script src="../promptManager.js?v=2026-04-21T05:54:20Z"></script>
-<script src="../accountManager.js?v=2026-04-21T05:54:20Z"></script>
-<script src="../scheduleShared.js?v=2026-04-21T05:54:20Z"></script>
-<script src="../presenceShared.js?v=2026-04-21T05:54:20Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-21T05:54:20Z"></script>
+<script src="../assetStore.js?v=2026-04-21T06:03:26Z"></script>
+<script src="../chatStorage.js?v=2026-04-21T06:03:26Z"></script>
+<script src="../metadataStore.js?v=2026-04-21T06:03:26Z"></script>
+<script src="../promptManager.js?v=2026-04-21T06:03:26Z"></script>
+<script src="../accountManager.js?v=2026-04-21T06:03:26Z"></script>
+<script src="../scheduleShared.js?v=2026-04-21T06:03:26Z"></script>
+<script src="../presenceShared.js?v=2026-04-21T06:03:26Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-21T06:03:26Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -6032,8 +6032,67 @@ function parseOfflinePresetObject(source){
     streamEnabled:!!streaming,
     maxContextTokens:Math.max(1024, Math.min(64000, contextTokens || 8192)),
     maxOutputTokens:Math.max(128, Math.min(6000, outputTokens || estimateOfflineOutputTokensFromChars(maxChars || Math.max(360, minChars || 360)))),
-    temperature:isFinite(temperature) ? Math.max(0, Math.min(2, temperature)) : null
+    temperature:isFinite(temperature) ? Math.max(0, Math.min(2, temperature)) : null,
+    customIncludeHeaders:String(obj.custom_include_headers || obj.customIncludeHeaders || '').trim(),
+    customIncludeBody:String(obj.custom_include_body || obj.customIncludeBody || '').trim(),
+    customExcludeBody:String(obj.custom_exclude_body || obj.customExcludeBody || '').trim()
   };
+}
+function parseOfflineLooseObjectConfig(text){
+  var raw = String(text || '').trim();
+  if(!raw) return {};
+  try{
+    var parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  }catch(e){}
+  var out = {};
+  raw.split(/\r?\n/).forEach(function(line){
+    var clean = String(line || '').trim();
+    if(!clean || clean[0] === '#') return;
+    var idx = clean.indexOf(':');
+    if(idx <= 0) return;
+    var key = clean.slice(0, idx).trim();
+    var value = clean.slice(idx + 1).trim();
+    if(!key) return;
+    if((value[0] === '"' && value[value.length - 1] === '"') || (value[0] === '\'' && value[value.length - 1] === '\'')){
+      value = value.slice(1, -1);
+    }
+    if(/^true|false$/i.test(value)) out[key] = /^true$/i.test(value);
+    else if(/^-?\d+(\.\d+)?$/.test(value)) out[key] = Number(value);
+    else out[key] = value;
+  });
+  return out;
+}
+function parseOfflineLooseArrayConfig(text){
+  var raw = String(text || '').trim();
+  if(!raw) return [];
+  try{
+    var parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(function(item){ return String(item || '').trim(); }).filter(Boolean) : [];
+  }catch(e){}
+  return raw.split(/\r?\n/).map(function(line){
+    return String(line || '').replace(/^-+\s*/, '').trim();
+  }).filter(Boolean);
+}
+function applyOfflineCustomRequestOverrides(headers, body){
+  var nextHeaders = Object.assign({}, headers || {});
+  var nextBody = Object.assign({}, body || {});
+  var headerExtras = parseOfflineLooseObjectConfig(localStorage.getItem('custom_include_headers') || '');
+  var bodyExtras = parseOfflineLooseObjectConfig(localStorage.getItem('custom_include_body') || '');
+  var bodyExcludes = parseOfflineLooseArrayConfig(localStorage.getItem('custom_exclude_body') || '');
+  Object.keys(headerExtras).forEach(function(key){
+    if(headerExtras[key] == null || headerExtras[key] === '') return;
+    nextHeaders[key] = String(headerExtras[key]);
+  });
+  Object.keys(bodyExtras).forEach(function(key){
+    if(bodyExtras[key] === undefined) return;
+    nextBody[key] = bodyExtras[key];
+  });
+  bodyExcludes.forEach(function(key){
+    if(!key) return;
+    try{ delete nextBody[key]; }catch(e){}
+  });
+  return { headers: nextHeaders, body: nextBody };
 }
 async function importOfflinePresetFromFile(file){
   if(!file) return;
@@ -6054,6 +6113,15 @@ async function importOfflinePresetFromFile(file){
   draft.maxOutputTokens = imported.maxOutputTokens;
   if(imported.temperature != null){
     try{ localStorage.setItem('temp_' + getOfflineProvider(), String(imported.temperature)); }catch(tempErr){}
+  }
+  if(imported.customIncludeHeaders){
+    try{ localStorage.setItem('custom_include_headers', imported.customIncludeHeaders); }catch(headerErr){}
+  }
+  if(imported.customIncludeBody){
+    try{ localStorage.setItem('custom_include_body', imported.customIncludeBody); }catch(bodyErr){}
+  }
+  if(imported.customExcludeBody){
+    try{ localStorage.setItem('custom_exclude_body', imported.customExcludeBody); }catch(excludeErr){}
   }
   syncOfflineDrawerControls();
   persistOfflineDrawerSettings({ silent:true });
@@ -6158,12 +6226,19 @@ async function callAI(systemPrompt, userPrompt, requestOptions){
     var headers = { 'Content-Type':'application/json' };
     if(key) headers['Authorization'] = 'Bearer ' + key;
     var customModel = localStorage.getItem('model_custom_manual') || model;
+    var customPayload = {
+      model: customModel,
+      temperature: temperature,
+      max_tokens: req.maxTokens || undefined,
+      messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }]
+    };
+    var customRequest = applyOfflineCustomRequestOverrides(headers, customPayload);
     var resCustom;
     try{
       resCustom = await fetch(baseUrl + '/chat/completions', {
         method:'POST',
-        headers: headers,
-        body: JSON.stringify({ model: customModel, temperature: temperature, max_tokens: req.maxTokens || undefined, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
+        headers: customRequest.headers,
+        body: JSON.stringify(customRequest.body)
       });
     }catch(err){
       throw buildOfflineProviderError('自定义接口这次没有成功返回内容。你可以稍后再试一下。', {
@@ -6277,10 +6352,18 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
     var headers = { 'Content-Type':'application/json' };
     if(key) headers['Authorization'] = 'Bearer ' + key;
     var customModel = localStorage.getItem('model_custom_manual') || model;
+    var customPayload = {
+      model: customModel,
+      temperature: temperature,
+      max_tokens:req.maxTokens || undefined,
+      stream:true,
+      messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }]
+    };
+    var customRequest = applyOfflineCustomRequestOverrides(headers, customPayload);
     var resCustom = await fetch(baseUrl + '/chat/completions', {
       method:'POST',
-      headers: headers,
-      body: JSON.stringify({ model: customModel, temperature: temperature, max_tokens:req.maxTokens || undefined, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
+      headers: customRequest.headers,
+      body: JSON.stringify(customRequest.body)
     });
     if(!resCustom.ok){
       var customStreamText = await resCustom.text();
