@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-21T06:11:16Z"></script>
-<script src="../chatStorage.js?v=2026-04-21T06:11:16Z"></script>
-<script src="../metadataStore.js?v=2026-04-21T06:11:16Z"></script>
-<script src="../promptManager.js?v=2026-04-21T06:11:16Z"></script>
-<script src="../accountManager.js?v=2026-04-21T06:11:16Z"></script>
-<script src="../scheduleShared.js?v=2026-04-21T06:11:16Z"></script>
-<script src="../presenceShared.js?v=2026-04-21T06:11:16Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-21T06:11:16Z"></script>
+<script src="../assetStore.js?v=2026-04-21T06:24:45Z"></script>
+<script src="../chatStorage.js?v=2026-04-21T06:24:45Z"></script>
+<script src="../metadataStore.js?v=2026-04-21T06:24:45Z"></script>
+<script src="../promptManager.js?v=2026-04-21T06:24:45Z"></script>
+<script src="../accountManager.js?v=2026-04-21T06:24:45Z"></script>
+<script src="../scheduleShared.js?v=2026-04-21T06:24:45Z"></script>
+<script src="../presenceShared.js?v=2026-04-21T06:24:45Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-21T06:24:45Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -828,6 +828,74 @@ function removeArchiveJsonFromStorage(key){
   if(!safeKey || !api || typeof api.removeJson !== 'function') return Promise.resolve(false);
   return api.removeJson(safeKey).then(function(){ return true; }).catch(function(){ return false; });
 }
+function isOfflineSessionPayload(value){
+  return !!(
+    value &&
+    typeof value === 'object' &&
+    (
+      Array.isArray(value.entries) ||
+      value.invite ||
+      value.charSnapshot ||
+      value.archiveId ||
+      value.pendingOpening ||
+      value.pendingAnimation
+    )
+  );
+}
+function isOfflineResumePayload(value){
+  if(!value || typeof value !== 'object') return false;
+  if(isOfflineSessionPayload(value)) return true;
+  return !!(value.session && isOfflineSessionPayload(value.session));
+}
+function buildOfflineStorageStub(value){
+  if(!value || typeof value !== 'object') return null;
+  var sessionValue = value.session && typeof value.session === 'object' ? value.session : value;
+  return {
+    charId: String(value.charId || sessionValue.charId || '').trim(),
+    active: sessionValue.active !== false,
+    updatedAt: Number(sessionValue.updatedAt || value.updatedAt || Date.now()) || Date.now(),
+    __offlineStub: true
+  };
+}
+async function loadOfflineJsonRecord(key, validator){
+  var safeKey = String(key || '').trim();
+  if(!safeKey) return null;
+  var check = typeof validator === 'function' ? validator : function(value){ return !!value; };
+  var storageValue = await loadArchiveJsonFromStorage(safeKey);
+  if(check(storageValue)) return storageValue;
+  try{
+    var raw = localStorage.getItem(safeKey) || '';
+    if(!raw) return null;
+    var parsed = JSON.parse(raw);
+    return check(parsed) ? parsed : null;
+  }catch(e){}
+  return null;
+}
+function saveOfflineJsonRecord(key, data, options){
+  var safeKey = String(key || '').trim();
+  if(!safeKey || !data || typeof data !== 'object') return;
+  var opts = options && typeof options === 'object' ? options : {};
+  var storageApi = archiveStorageApi();
+  if(storageApi && typeof storageApi.putJson === 'function'){
+    saveArchiveJsonToStorage(safeKey, data).catch(function(){ return false; });
+    if(opts.localFallback !== false){
+      try{
+        var stub = buildOfflineStorageStub(data);
+        localStorage.setItem(safeKey, JSON.stringify(stub || data));
+      }catch(e){}
+    }
+    return;
+  }
+  try{
+    localStorage.setItem(safeKey, JSON.stringify(data));
+  }catch(e){}
+}
+function removeOfflineJsonRecord(key){
+  var safeKey = String(key || '').trim();
+  if(!safeKey) return;
+  removeArchiveJsonFromStorage(safeKey).catch(function(){ return false; });
+  try{ localStorage.removeItem(safeKey); }catch(e){}
+}
 function activeCharacterKey(){
   return scopedKey('activeCharacter');
 }
@@ -1376,8 +1444,8 @@ async function mergeOfflineStageSummariesIntoOnlineMemoryStore(targetCharId, sna
 }
 function clearLiveOfflineSession(targetCharId){
   if(!targetCharId) return;
-  try{ localStorage.removeItem(offlineSessionKey(targetCharId)); }catch(e){}
-  try{ localStorage.removeItem('offline_meet_session_' + String(targetCharId || '').trim()); }catch(e){}
+  removeOfflineJsonRecord(offlineSessionKey(targetCharId));
+  removeOfflineJsonRecord('offline_meet_session_' + String(targetCharId || '').trim());
 }
 function persistOfflineResumeSnapshot(targetCharId, snapshot){
   var safeId = String(targetCharId || '').trim();
@@ -1386,9 +1454,9 @@ function persistOfflineResumeSnapshot(targetCharId, snapshot){
   if((!nextSnapshot.charSnapshot || !nextSnapshot.charSnapshot.id) && character && String(character.id || '').trim() === safeId){
     nextSnapshot.charSnapshot = buildOfflineCharacterFromSnapshot(character);
   }
-  var payload = JSON.stringify({ charId: safeId, session: nextSnapshot });
-  try{ localStorage.setItem(pendingOfflineResumeKey(safeId), payload); }catch(e){}
-  try{ localStorage.setItem('offline_resume_' + safeId, payload); }catch(e){}
+  var payload = { charId: safeId, session: nextSnapshot, updatedAt: Date.now() };
+  saveOfflineJsonRecord(pendingOfflineResumeKey(safeId), payload);
+  saveOfflineJsonRecord('offline_resume_' + safeId, payload);
 }
 async function syncCurrentSessionToArchive(status, reason){
   if(!session || !character || !character.id) return '';
@@ -2133,8 +2201,9 @@ function selectOfflineLobbyChar(charId){
   offlineLobbyConfirmedCharId = '';
   renderStory();
 }
-function findLatestOfflineSessionRecord(){
+async function findLatestOfflineSessionRecord(){
   var best = null;
+  var seen = new Set();
   try{
     for(var i = 0; i < localStorage.length; i += 1){
       var key = localStorage.key(i);
@@ -2143,10 +2212,15 @@ function findLatestOfflineSessionRecord(){
       if(!raw) continue;
       var parsed = JSON.parse(raw);
       if(!parsed || parsed.active === false) continue;
-      var charId = String(key.split('offline_meet_session_').pop() || '').trim();
+      var charId = String(parsed.charId || key.split('offline_meet_session_').pop() || '').trim();
+      charId = charId.split('__acct_')[0].trim();
       if(!charId) continue;
-      if(!best || Number(parsed.updatedAt || 0) >= Number(best.session && best.session.updatedAt || 0)){
-        best = { charId: charId, session: parsed };
+      if(seen.has(charId)) continue;
+      seen.add(charId);
+      var sessionRecord = await loadSessionByCharId(charId);
+      if(!sessionRecord || sessionRecord.active === false) continue;
+      if(!best || Number(sessionRecord.updatedAt || 0) >= Number(best.session && best.session.updatedAt || 0)){
+        best = { charId: charId, session: sessionRecord };
       }
     }
   }catch(e){}
@@ -2157,20 +2231,8 @@ function saveSession(){
   session.charId = String(character.id || '').trim();
   session.charSnapshot = Object.assign({}, session.charSnapshot || {}, buildOfflineCharacterFromSnapshot(character));
   session.updatedAt = Date.now();
-  var serialized = JSON.stringify(session);
-  try{
-    localStorage.setItem(offlineSessionKey(character.id), serialized);
-  }catch(e){}
-  try{
-    localStorage.setItem('offline_meet_session_' + String(character.id || '').trim(), serialized);
-  }catch(e){}
-  try{
-    var storageApi = archiveStorageApi();
-    if(storageApi && typeof storageApi.putJson === 'function'){
-      storageApi.putJson(offlineSessionKey(character.id), session).catch(function(){});
-      storageApi.putJson('offline_meet_session_' + String(character.id || '').trim(), session).catch(function(){});
-    }
-  }catch(e){}
+  saveOfflineJsonRecord(offlineSessionKey(character.id), session);
+  saveOfflineJsonRecord('offline_meet_session_' + String(character.id || '').trim(), session);
   try{
     var resumeSnap = snapshotOfflineSessionState(session);
     if(hasMeaningfulOfflineSession(resumeSnap)){
@@ -2178,31 +2240,27 @@ function saveSession(){
     }
   }catch(e){}
 }
-function loadSessionByCharId(charId){
+async function loadSessionByCharId(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return null;
   var keys = offlineSessionKeyCandidates(safeId);
   for(var k = 0; k < keys.length; k += 1){
-    var raw = localStorage.getItem(keys[k]) || '';
-    if(!raw) continue;
-    try{
-      var parsed = JSON.parse(raw);
-      if(parsed && typeof parsed === 'object') return parsed;
-    }catch(e){}
+    var parsed = await loadOfflineJsonRecord(keys[k], isOfflineSessionPayload);
+    if(parsed && typeof parsed === 'object') return parsed;
   }
   return null;
 }
-function loadSession(){
+async function loadSession(){
   if(character && character.id){
-    var currentSession = loadSessionByCharId(character.id);
+    var currentSession = await loadSessionByCharId(character.id);
     if(currentSession) return currentSession;
   }
   if(desiredOfflineCharId){
-    var desiredSession = loadSessionByCharId(desiredOfflineCharId);
+    var desiredSession = await loadSessionByCharId(desiredOfflineCharId);
     if(desiredSession) return desiredSession;
     return null;
   }
-  var fallback = findLatestOfflineSessionRecord();
+  var fallback = await findLatestOfflineSessionRecord();
   if(!fallback) return null;
   if(fallback.charId && (!character || !character.id || String(character.id || '').trim() !== String(fallback.charId || '').trim())){
     var matched = findCharacterById(fallback.charId);
@@ -2314,20 +2372,17 @@ function runOfflineInitTask(promiseFactory, timeoutMs){
     });
   });
 }
-function consumePendingOfflineResume(charId){
+async function consumePendingOfflineResume(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return null;
   var keys = [pendingOfflineResumeKey(safeId), 'offline_resume_' + safeId];
   for(var i = 0; i < keys.length; i += 1){
     var key = keys[i];
-    try{
-      var raw = localStorage.getItem(key);
-      if(!raw) continue;
-      localStorage.removeItem(key);
-      var parsed = JSON.parse(raw);
-      var sessionData = parsed && parsed.session ? parsed.session : parsed;
-      if(sessionData && typeof sessionData === 'object') return sessionData;
-    }catch(e){}
+    var parsed = await loadOfflineJsonRecord(key, isOfflineResumePayload);
+    if(!parsed) continue;
+    removeOfflineJsonRecord(key);
+    var sessionData = parsed && parsed.session ? parsed.session : parsed;
+    if(sessionData && typeof sessionData === 'object') return sessionData;
   }
   return null;
 }
@@ -8345,7 +8400,7 @@ async function init(){
   ).trim();
   if(launchCharId && launchCharId !== desiredOfflineCharId) desiredOfflineCharId = launchCharId;
   offlineEntryHome = !hasExplicitLaunch;
-  var resumeSession = (!offlineEntryHome && tokenLaunch && tokenLaunch.session) ? tokenLaunch.session : ((!offlineEntryHome && desiredOfflineCharId) ? consumePendingOfflineResume(desiredOfflineCharId) : null);
+  var resumeSession = (!offlineEntryHome && tokenLaunch && tokenLaunch.session) ? tokenLaunch.session : ((!offlineEntryHome && desiredOfflineCharId) ? await consumePendingOfflineResume(desiredOfflineCharId) : null);
   var bootSession = (!offlineEntryHome && desiredOfflineCharId) ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
   var explicitSnapshot = mergeOfflineArchiveCharacterSnapshots(
     tokenLaunch && tokenLaunch.threadCharSnapshot,
@@ -8384,7 +8439,7 @@ async function init(){
     session = bootSession;
     if(character && character.id) saveSession();
   }else if(!offlineEntryHome){
-    session = loadSession();
+    session = await loadSession();
   }else{
     session = { active:false, entries:[], minimized:false };
   }
@@ -8406,7 +8461,7 @@ async function init(){
     character = buildOfflineCharacterFromSnapshot(explicitSnapshot);
   }
   if((!character || !character.id) && session && session.invite && !desiredOfflineCharId){
-    var fallbackRecord = findLatestOfflineSessionRecord();
+    var fallbackRecord = await findLatestOfflineSessionRecord();
     if(fallbackRecord && fallbackRecord.charId){
       var fallbackChar = findCharacterById(fallbackRecord.charId);
       if(fallbackChar) character = fallbackChar;
