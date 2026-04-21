@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-21T06:50:03Z"></script>
-<script src="../chatStorage.js?v=2026-04-21T06:50:03Z"></script>
-<script src="../metadataStore.js?v=2026-04-21T06:50:03Z"></script>
-<script src="../promptManager.js?v=2026-04-21T06:50:03Z"></script>
-<script src="../accountManager.js?v=2026-04-21T06:50:03Z"></script>
-<script src="../scheduleShared.js?v=2026-04-21T06:50:03Z"></script>
-<script src="../presenceShared.js?v=2026-04-21T06:50:03Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-21T06:50:03Z"></script>
+<script src="../assetStore.js?v=2026-04-21T07:02:58Z"></script>
+<script src="../chatStorage.js?v=2026-04-21T07:02:58Z"></script>
+<script src="../metadataStore.js?v=2026-04-21T07:02:58Z"></script>
+<script src="../promptManager.js?v=2026-04-21T07:02:58Z"></script>
+<script src="../accountManager.js?v=2026-04-21T07:02:58Z"></script>
+<script src="../scheduleShared.js?v=2026-04-21T07:02:58Z"></script>
+<script src="../presenceShared.js?v=2026-04-21T07:02:58Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-21T07:02:58Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -4933,12 +4933,14 @@ async function streamOfflineBodyText(context, options, onUpdate){
   }
   var buffer = '';
   var lastPaintAt = 0;
+  var updateCount = 0;
   var ok = await callAIStreamText(systemPrompt, prompt, function(piece){
     buffer = appendStreamPiece(buffer, piece);
     if(typeof onUpdate === 'function'){
       var now = Date.now();
       if((now - lastPaintAt) >= 70 || String(piece || '').indexOf('\n') >= 0){
         lastPaintAt = now;
+        updateCount += 1;
         onUpdate(String(buffer || '').trim());
       }
     }
@@ -4947,9 +4949,16 @@ async function streamOfflineBodyText(context, options, onUpdate){
     buildOfflineRequestOptions(systemPrompt, prompt, Number(opts.targetChars) || getOfflineReplyMinChars()),
     { timeoutMs: Math.max(12000, Number(opts.timeoutMs) || getOfflineReplyTimeoutMs()) }
   ));
-  if(typeof onUpdate === 'function') onUpdate(String(buffer || '').trim());
   if(!ok) throw new Error('当前接口没有成功进入流式输出');
-  return String(buffer || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+  var finalText = String(buffer || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+  if(typeof onUpdate === 'function'){
+    if(updateCount <= 1){
+      await progressivelyRevealOfflineText(finalText, onUpdate, { tickMs: 18, minStep: 3, maxStep: 10 });
+    }else{
+      onUpdate(finalText);
+    }
+  }
+  return finalText;
 }
 function parseOfflineLabeledStreamFields(buffer, allowedKeys){
   var text = String(buffer || '').replace(/\r/g, '');
@@ -5026,9 +5035,67 @@ function buildOfflineMetaStreamSystemPrompt(options){
     historyText ? ('最近线下记录（压缩）：\n' + historyText) : '最近线下记录：无'
   ].filter(Boolean).join('\n');
 }
+function waitOfflineTypewriterTick(ms){
+  return new Promise(function(resolve){ setTimeout(resolve, Math.max(8, Number(ms) || 16)); });
+}
+async function progressivelyRevealOfflineText(finalText, onUpdate, options){
+  var text = String(finalText || '').trim();
+  if(!text || typeof onUpdate !== 'function') return text;
+  var opts = options && typeof options === 'object' ? options : {};
+  var cursor = 0;
+  var total = text.length;
+  var minStep = Math.max(1, Number(opts.minStep) || 3);
+  var maxStep = Math.max(minStep, Number(opts.maxStep) || 10);
+  var tickMs = Math.max(8, Number(opts.tickMs) || 18);
+  while(cursor < total){
+    var remaining = total - cursor;
+    var progress = cursor / Math.max(1, total);
+    var step = Math.min(
+      remaining,
+      Math.max(minStep, Math.round(minStep + (maxStep - minStep) * progress))
+    );
+    cursor += step;
+    onUpdate(text.slice(0, cursor));
+    if(cursor < total) await waitOfflineTypewriterTick(tickMs);
+  }
+  return text;
+}
+async function progressivelyRevealOfflineMeta(finalMeta, onUpdate, options){
+  var meta = finalMeta && typeof finalMeta === 'object' ? finalMeta : {};
+  var title = String(meta.title || '').trim();
+  var quote = String(meta.quote || '').trim();
+  if(typeof onUpdate !== 'function') return { title:title, quote:quote };
+  var maxLen = Math.max(title.length, quote.length);
+  for(var i = 1; i <= maxLen; i += 1){
+    onUpdate({
+      title: title ? title.slice(0, Math.min(i, title.length)) : '',
+      quote: quote ? quote.slice(0, Math.min(i, quote.length)) : ''
+    });
+    if(i < maxLen) await waitOfflineTypewriterTick(options && options.tickMs || 22);
+  }
+  return { title:title, quote:quote };
+}
+async function progressivelyRevealOfflineThought(finalThought, onUpdate, seedText, options){
+  var thought = normalizeOfflineThoughtChain(finalThought || null, seedText || '');
+  if(typeof onUpdate !== 'function') return thought;
+  var a = String(thought.subtext_perception || '').trim();
+  var b = String(thought.emotional_reaction || '').trim();
+  var c = String(thought.action_strategy || '').trim();
+  var maxLen = Math.max(a.length, b.length, c.length);
+  for(var i = 1; i <= maxLen; i += 1){
+    onUpdate({
+      subtext_perception: a ? a.slice(0, Math.min(i, a.length)) : '',
+      emotional_reaction: b ? b.slice(0, Math.min(i, b.length)) : '',
+      action_strategy: c ? c.slice(0, Math.min(i, c.length)) : ''
+    });
+    if(i < maxLen) await waitOfflineTypewriterTick(options && options.tickMs || 22);
+  }
+  return thought;
+}
 async function streamOfflineThoughtChain(context, options, onUpdate){
   var opts = options || {};
   var buffer = '';
+  var updateCount = 0;
   var chain = {
     subtext_perception: '…',
     emotional_reaction: '…',
@@ -5045,7 +5112,10 @@ async function streamOfflineThoughtChain(context, options, onUpdate){
         emotional_reaction: String(parsed.emotional_reaction || chain.emotional_reaction || '…').trim() || '…',
         action_strategy: String(parsed.action_strategy || chain.action_strategy || '…').trim() || '…'
       };
-      if(typeof onUpdate === 'function') onUpdate(Object.assign({}, chain));
+      if(typeof onUpdate === 'function'){
+        updateCount += 1;
+        onUpdate(Object.assign({}, chain));
+      }
     },
     {
       maxTokens: 220,
@@ -5054,15 +5124,20 @@ async function streamOfflineThoughtChain(context, options, onUpdate){
   );
   if(!ok) throw new Error('thought_chain 流式没有返回内容');
   var finalParsed = parseOfflineLabeledStreamFields(buffer, ['subtext_perception', 'emotional_reaction', 'action_strategy']);
-  return normalizeOfflineThoughtChain({
+  var finalThought = normalizeOfflineThoughtChain({
     subtext_perception: String(finalParsed.subtext_perception || chain.subtext_perception || '').trim(),
     emotional_reaction: String(finalParsed.emotional_reaction || chain.emotional_reaction || '').trim(),
     action_strategy: String(finalParsed.action_strategy || chain.action_strategy || '').trim()
   }, '');
+  if(updateCount <= 1 && typeof onUpdate === 'function'){
+    return await progressivelyRevealOfflineThought(finalThought, onUpdate, '', { tickMs: 20 });
+  }
+  return finalThought;
 }
 async function streamOfflineMetaFields(context, options, onUpdate){
   var opts = options || {};
   var buffer = '';
+  var updateCount = 0;
   var meta = { title:'…', quote:'…' };
   var ok = await callAIStreamText(
     buildOfflineMetaStreamSystemPrompt({
@@ -5077,7 +5152,10 @@ async function streamOfflineMetaFields(context, options, onUpdate){
         title: String(parsed.title || meta.title || '…').trim() || '…',
         quote: String(parsed.quote || meta.quote || '…').trim() || '…'
       };
-      if(typeof onUpdate === 'function') onUpdate(Object.assign({}, meta));
+      if(typeof onUpdate === 'function'){
+        updateCount += 1;
+        onUpdate(Object.assign({}, meta));
+      }
     },
     {
       maxTokens: 180,
@@ -5086,10 +5164,14 @@ async function streamOfflineMetaFields(context, options, onUpdate){
   );
   if(!ok) throw new Error('title/quote 流式没有返回内容');
   var finalParsed = parseOfflineLabeledStreamFields(buffer, ['title', 'quote']);
-  return {
+  var finalMeta = {
     title: String(finalParsed.title || meta.title || '').trim(),
     quote: String(finalParsed.quote || meta.quote || '').trim()
   };
+  if(updateCount <= 1 && typeof onUpdate === 'function'){
+    return await progressivelyRevealOfflineMeta(finalMeta, onUpdate, { tickMs: 20 });
+  }
+  return finalMeta;
 }
 function normalizeOfflineBodyDraftCandidate(draft){
   var source = draft && typeof draft === 'object' ? draft : {};
