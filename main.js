@@ -47,7 +47,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-21T05:30:43Z';
+const APP_BUILD_ID = '2026-04-21T05:36:11Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -7482,7 +7482,7 @@ function buildAppFrameUrl(src){
   try{
     var url = new URL(String(src || ''), window.location.href);
     url.searchParams.set('__appBuild', APP_BUILD_ID);
-    if(/\/apps\/worldbook\.html$/i.test(url.pathname || '')){
+    if(/\/apps\/worldbook\.html$/i.test(url.pathname || '') || /\/apps\/offline_mode\.html$/i.test(url.pathname || '')){
       url.searchParams.set('__ts', String(Date.now()));
     }
     if(/\/apps\/chat\.html$/i.test(url.pathname || '') && pendingOpenChatCharId){
