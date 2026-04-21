@@ -491,6 +491,10 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-invite-debug-title{font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;color:#111;text-transform:uppercase}
 .offline-invite-debug-line{font-size:11px;font-weight:700;line-height:1.45;color:#222;word-break:break-all}
 .offline-invite-debug-line strong{font-family:var(--fontd);font-weight:900}
+.offline-error-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:2px}
+.offline-error-btn{min-height:28px;padding:0 10px;border:2px solid #111;border-radius:10px;background:#fff;color:#111;font:900 11px/1 var(--fontd);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:2px 2px 0 rgba(0,0,0,.14)}
+.offline-error-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(0,0,0,.14)}
+.offline-error-raw{font-size:10px;font-weight:700;line-height:1.5;color:#383838;white-space:pre-wrap;word-break:break-word;background:rgba(245,245,245,.96);border:1.5px solid rgba(17,17,17,.18);border-radius:12px;padding:8px 9px;max-height:160px;overflow:auto}
 .inner-voice-overlay{display:none !important}
 @media (max-width:390px){
   :root{--offline-header-height:78px}
@@ -667,6 +671,17 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="offline-invite-debug" id="offlineInviteDebugCard">
+  <div class="offline-invite-debug-title">Offline Error</div>
+  <div class="offline-invite-debug-line" id="offlineInviteDebugLine1"></div>
+  <div class="offline-invite-debug-line" id="offlineInviteDebugLine2"></div>
+  <div class="offline-invite-debug-line" id="offlineInviteDebugLine3"></div>
+  <div class="offline-error-raw" id="offlineInviteDebugRaw" hidden></div>
+  <div class="offline-error-actions">
+    <button class="offline-error-btn" type="button" onclick="copyOfflineErrorDebug()">复制错误</button>
+    <button class="offline-error-btn" type="button" onclick="closeOfflineErrorDebug()">关闭</button>
+  </div>
+</div>
 <button class="offline-mini-launcher" id="offlineMiniLauncher" type="button" onclick="restoreOfflineMeet()"><img src="assets/线下模式图标.png" alt="线下模式"></button>
 <div class="exit-menu" id="exitMenu">
   <div class="exit-menu-card">
@@ -757,6 +772,7 @@ var offlineMemoryEditingId = '';
 var offlineStageSummaryPreviewOpen = false;
 var offlineInitInProgress = true;
 var offlineInitCompleted = false;
+var offlineLastErrorPayload = null;
 var offlineMoodFaces = {
   soft:['(˶ᵔ ᵕ ᵔ˶)','(◍•ᴗ•◍)','(˵¯͒〰¯͒˵)','(｡•ㅅ•｡)'],
   moody:['(¬_¬ )','(◔_◔)','( －з)','(눈_눈)'],
@@ -3868,6 +3884,7 @@ function renderStory(){
   if(shouldShowOfflineLobby()){
     wrap.innerHTML = renderOfflineLobby();
     wrap.scrollTop = 0;
+    renderOfflineInviteDebugCard();
     return;
   }
   var list = Array.isArray(session && session.entries) ? session.entries : [];
@@ -3884,6 +3901,7 @@ function renderStory(){
       timeLabel: '现在',
       meta: ''
     }, 0, true);
+    renderOfflineInviteDebugCard();
     return;
   }
   wrap.innerHTML = list.map(function(entry, idx){
@@ -3917,6 +3935,7 @@ function renderStory(){
     };
   });
   wrap.scrollTop = wrap.scrollHeight;
+  renderOfflineInviteDebugCard();
 }
 function waitForOfflineStoryPaint(){
   return new Promise(function(resolve){
@@ -5880,6 +5899,65 @@ function buildOfflineRequestOptions(systemPrompt, userPrompt, targetChars){
     maxTokens: Math.max(96, Math.min(cappedPreferred, Math.round(available * 0.92)))
   });
 }
+function buildOfflineProviderError(message, extra){
+  var err = new Error(String(message || '线下请求失败'));
+  if(extra && typeof extra === 'object'){
+    Object.keys(extra).forEach(function(key){
+      try{ err[key] = extra[key]; }catch(e){}
+    });
+  }
+  return err;
+}
+function parseOfflineErrorText(raw){
+  var text = String(raw || '').trim();
+  if(!text) return '';
+  try{
+    var obj = JSON.parse(text);
+    if(obj && obj.error){
+      if(typeof obj.error === 'string') return obj.error;
+      if(typeof obj.error.message === 'string') return obj.error.message;
+      return JSON.stringify(obj.error);
+    }
+    if(typeof obj.message === 'string') return obj.message;
+  }catch(e){}
+  return text;
+}
+function getOfflineRuntimeMeta(requestOptions){
+  var provider = localStorage.getItem('provider') || 'openai';
+  var model = localStorage.getItem('model_' + provider) || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
+  var req = normalizeOfflineRequestOptions(requestOptions);
+  return {
+    provider: String(provider || '').trim(),
+    model: String(model || '').trim(),
+    requestedMaxTokens: Math.max(0, Number(req.maxTokens) || 0),
+    contextLimit: getOfflineContextLimitTokens()
+  };
+}
+function rememberOfflineError(stage, err, extra){
+  var source = err && typeof err === 'object' ? err : {};
+  var payload = Object.assign({
+    stage: String(stage || 'runtime').trim() || 'runtime',
+    summary: summarizeOfflineError(err),
+    raw: String(source.rawBody || source.responseText || source.detail || source.message || err || '').trim(),
+    provider: String(source.provider || '').trim(),
+    model: String(source.model || '').trim(),
+    endpoint: String(source.endpoint || '').trim(),
+    status: Number(source.status) || 0,
+    requestedMaxTokens: Math.max(0, Number(source.requestedMaxTokens) || 0),
+    contextLimit: Math.max(0, Number(source.contextLimit) || 0),
+    promptTokens: Math.max(0, Number(source.promptTokens) || 0),
+    at: Date.now()
+  }, extra && typeof extra === 'object' ? extra : {});
+  offlineLastErrorPayload = payload;
+  try{
+    if(session){
+      session.lastErrorDetail = Object.assign({}, payload);
+      saveSession();
+    }
+  }catch(e){}
+  renderOfflineInviteDebugCard();
+  return payload;
+}
 function getOfflineProvider(){
   return String(localStorage.getItem('provider') || 'openai').trim() || 'openai';
 }
@@ -5966,19 +6044,32 @@ async function importOfflinePresetFromFile(file){
   toast('预设已导入：' + String(imported.name || 'Imported Preset'));
 }
 async function callAI(systemPrompt, userPrompt, requestOptions){
-  var provider = localStorage.getItem('provider') || 'openai';
+  var runtimeMeta = getOfflineRuntimeMeta(requestOptions);
+  var provider = runtimeMeta.provider || 'openai';
   var key = localStorage.getItem('key_' + provider);
-  var model = localStorage.getItem('model_' + provider) || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
+  var model = runtimeMeta.model || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.9');
   var req = normalizeOfflineRequestOptions(requestOptions);
+  var promptTokens = estimateOfflinePromptTokens(systemPrompt, userPrompt);
   if(provider === 'openai'){
     var res = await fetch('https://api.openai.com/v1/chat/completions', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key },
       body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
     });
-    var data = await res.json();
-    if(data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+    var openaiText = await res.text();
+    if(!res.ok){
+      throw buildOfflineProviderError(parseOfflineErrorText(openaiText) || ('HTTP ' + res.status), {
+        provider: provider, model: model, endpoint: 'https://api.openai.com/v1/chat/completions', status: res.status,
+        rawBody: openaiText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+      });
+    }
+    var data = {};
+    try{ data = JSON.parse(openaiText || '{}') || {}; }catch(parseErr){}
+    if(data.error) throw buildOfflineProviderError(data.error.message || JSON.stringify(data.error), {
+      provider: provider, model: model, endpoint: 'https://api.openai.com/v1/chat/completions', status: res.status,
+      rawBody: openaiText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+    });
     return data.choices && data.choices[0] && data.choices[0].message ? data.choices[0].message.content : '';
   }
   if(provider === 'claude'){
@@ -5987,8 +6078,19 @@ async function callAI(systemPrompt, userPrompt, requestOptions){
       headers:{ 'Content-Type':'application/json', 'x-api-key':key, 'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
       body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || 2048, system:systemPrompt, messages:[{ role:'user', content:userPrompt }] })
     });
-    var dc = await resClaude.json();
-    if(dc.error) throw new Error(dc.error.message || JSON.stringify(dc.error));
+    var claudeText = await resClaude.text();
+    if(!resClaude.ok){
+      throw buildOfflineProviderError(parseOfflineErrorText(claudeText) || ('HTTP ' + resClaude.status), {
+        provider: provider, model: model, endpoint: 'https://api.anthropic.com/v1/messages', status: resClaude.status,
+        rawBody: claudeText, requestedMaxTokens: req.maxTokens || 2048, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+      });
+    }
+    var dc = {};
+    try{ dc = JSON.parse(claudeText || '{}') || {}; }catch(parseErr){}
+    if(dc.error) throw buildOfflineProviderError(dc.error.message || JSON.stringify(dc.error), {
+      provider: provider, model: model, endpoint: 'https://api.anthropic.com/v1/messages', status: resClaude.status,
+      rawBody: claudeText, requestedMaxTokens: req.maxTokens || 2048, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+    });
     return dc.content && dc.content[0] ? dc.content[0].text : '';
   }
   if(provider === 'gemini'){
@@ -5998,8 +6100,19 @@ async function callAI(systemPrompt, userPrompt, requestOptions){
       headers:{ 'Content-Type':'application/json' },
       body: JSON.stringify({ contents:[{ role:'user', parts:[{ text:'[系统提示]\\n' + systemPrompt }] }, { role:'model', parts:[{ text:'好的。' }] }, { role:'user', parts:[{ text:userPrompt }] }], generationConfig:{ temperature:temperature, maxOutputTokens:req.maxTokens || undefined } })
     });
-    var dg = await resGemini.json();
-    if(dg.error) throw new Error(dg.error.message || dg.error.status || JSON.stringify(dg.error));
+    var geminiText = await resGemini.text();
+    if(!resGemini.ok){
+      throw buildOfflineProviderError(parseOfflineErrorText(geminiText) || ('HTTP ' + resGemini.status), {
+        provider: provider, model: model, endpoint: url, status: resGemini.status,
+        rawBody: geminiText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+      });
+    }
+    var dg = {};
+    try{ dg = JSON.parse(geminiText || '{}') || {}; }catch(parseErr){}
+    if(dg.error) throw buildOfflineProviderError(dg.error.message || dg.error.status || JSON.stringify(dg.error), {
+      provider: provider, model: model, endpoint: url, status: resGemini.status,
+      rawBody: geminiText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+    });
     return dg.candidates && dg.candidates[0] && dg.candidates[0].content && dg.candidates[0].content.parts && dg.candidates[0].content.parts[0] ? dg.candidates[0].content.parts[0].text : '';
   }
   if(provider === 'openrouter'){
@@ -6008,8 +6121,19 @@ async function callAI(systemPrompt, userPrompt, requestOptions){
       headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key, 'HTTP-Referer':'https://ephone.app', 'X-Title':'Ephone' },
       body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
     });
-    var dor = await resOr.json();
-    if(dor.error) throw new Error(dor.error.message || JSON.stringify(dor.error));
+    var orText = await resOr.text();
+    if(!resOr.ok){
+      throw buildOfflineProviderError(parseOfflineErrorText(orText) || ('HTTP ' + resOr.status), {
+        provider: provider, model: model, endpoint: 'https://openrouter.ai/api/v1/chat/completions', status: resOr.status,
+        rawBody: orText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+      });
+    }
+    var dor = {};
+    try{ dor = JSON.parse(orText || '{}') || {}; }catch(parseErr){}
+    if(dor.error) throw buildOfflineProviderError(dor.error.message || JSON.stringify(dor.error), {
+      provider: provider, model: model, endpoint: 'https://openrouter.ai/api/v1/chat/completions', status: resOr.status,
+      rawBody: orText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+    });
     return dor.choices && dor.choices[0] && dor.choices[0].message ? dor.choices[0].message.content : '';
   }
   if(provider === 'custom'){
@@ -6026,10 +6150,24 @@ async function callAI(systemPrompt, userPrompt, requestOptions){
         body: JSON.stringify({ model: customModel, temperature: temperature, max_tokens: req.maxTokens || undefined, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
       });
     }catch(err){
-      throw new Error('自定义接口这次没有成功返回内容。你可以稍后再试一下。');
+      throw buildOfflineProviderError('自定义接口这次没有成功返回内容。你可以稍后再试一下。', {
+        provider: provider, model: customModel, endpoint: baseUrl + '/chat/completions',
+        rawBody: String(err && (err.message || err) || ''), requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+      });
     }
-    var dCustom = await resCustom.json();
-    if(dCustom.error) throw new Error(dCustom.error.message || JSON.stringify(dCustom.error));
+    var customText = await resCustom.text();
+    if(!resCustom.ok){
+      throw buildOfflineProviderError(parseOfflineErrorText(customText) || ('HTTP ' + resCustom.status), {
+        provider: provider, model: customModel, endpoint: baseUrl + '/chat/completions', status: resCustom.status,
+        rawBody: customText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+      });
+    }
+    var dCustom = {};
+    try{ dCustom = JSON.parse(customText || '{}') || {}; }catch(parseErr){}
+    if(dCustom.error) throw buildOfflineProviderError(dCustom.error.message || JSON.stringify(dCustom.error), {
+      provider: provider, model: customModel, endpoint: baseUrl + '/chat/completions', status: resCustom.status,
+      rawBody: customText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+    });
     return dCustom.choices && dCustom.choices[0] && dCustom.choices[0].message ? dCustom.choices[0].message.content : '';
   }
   throw new Error('当前 provider 暂不支持线下模式');
@@ -6078,18 +6216,26 @@ async function readSseStream(response, onPiece){
   }
 }
 async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOptions){
-  var provider = localStorage.getItem('provider') || 'openai';
+  var runtimeMeta = getOfflineRuntimeMeta(requestOptions);
+  var provider = runtimeMeta.provider || 'openai';
   var key = localStorage.getItem('key_' + provider);
-  var model = localStorage.getItem('model_' + provider) || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
+  var model = runtimeMeta.model || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.9');
   var req = normalizeOfflineRequestOptions(requestOptions);
+  var promptTokens = estimateOfflinePromptTokens(systemPrompt, userPrompt);
   if(provider === 'openai'){
     var res = await fetch('https://api.openai.com/v1/chat/completions', {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key },
       body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
     });
-    if(!res.ok) throw new Error('流式请求失败');
+    if(!res.ok){
+      var openaiStreamText = await res.text();
+      throw buildOfflineProviderError(parseOfflineErrorText(openaiStreamText) || '流式请求失败', {
+        provider: provider, model: model, endpoint: 'https://api.openai.com/v1/chat/completions', status: res.status,
+        rawBody: openaiStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+      });
+    }
     await readSseStream(res, onPiece);
     return true;
   }
@@ -6099,7 +6245,13 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
       headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key, 'HTTP-Referer':'https://ephone.app', 'X-Title':'Ephone' },
       body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
     });
-    if(!resOr.ok) throw new Error('流式请求失败');
+    if(!resOr.ok){
+      var openrouterStreamText = await resOr.text();
+      throw buildOfflineProviderError(parseOfflineErrorText(openrouterStreamText) || '流式请求失败', {
+        provider: provider, model: model, endpoint: 'https://openrouter.ai/api/v1/chat/completions', status: resOr.status,
+        rawBody: openrouterStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+      });
+    }
     await readSseStream(resOr, onPiece);
     return true;
   }
@@ -6114,7 +6266,13 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
       headers: headers,
       body: JSON.stringify({ model: customModel, temperature: temperature, max_tokens:req.maxTokens || undefined, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
     });
-    if(!resCustom.ok) throw new Error('流式请求失败');
+    if(!resCustom.ok){
+      var customStreamText = await resCustom.text();
+      throw buildOfflineProviderError(parseOfflineErrorText(customStreamText) || '流式请求失败', {
+        provider: provider, model: customModel, endpoint: baseUrl + '/chat/completions', status: resCustom.status,
+        rawBody: customStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+      });
+    }
     await readSseStream(resCustom, onPiece);
     return true;
   }
@@ -6851,11 +7009,14 @@ async function generateOpeningIfNeeded(){
         generationMs: Date.now() - openingStartedAt
       }));
       if(!liveOpeningEntry) session.entries.push(leanOpeningEntry);
+      offlineLastErrorPayload = null;
       session.openingFailed = false;
       session.lastOpeningError = '';
+      session.lastErrorDetail = null;
       session.pendingOpening = false;
       saveSession();
       queueOfflineStageSummaryGeneration();
+      renderOfflineInviteDebugCard();
       hideFlightOverlay();
       pushOfflineBackendLog('info', 'opening.success', '线下首幕生成成功(lean)', {
         chars: openingTextLength(leanOpeningEntry.text || ''),
@@ -7153,8 +7314,10 @@ async function generateOpeningIfNeeded(){
       generationMs: Date.now() - openingStartedAt
     }));
     if(!liveOpeningEntry) session.entries.push(openingEntry);
+    offlineLastErrorPayload = null;
     session.openingFailed = false;
     session.lastOpeningError = '';
+    session.lastErrorDetail = null;
     session.pendingOpening = false;
     saveSession();
     queueOfflineInlineTranslationsPrefetch(openingEntry);
@@ -7198,8 +7361,10 @@ async function generateOpeningIfNeeded(){
           generationMs: Date.now() - openingStartedAt
         }));
         session.entries.push(emergencyEntry);
+        offlineLastErrorPayload = null;
         session.openingFailed = false;
         session.lastOpeningError = '';
+        session.lastErrorDetail = null;
         session.pendingOpening = false;
         saveSession();
         queueOfflineInlineTranslationsPrefetch(emergencyEntry);
@@ -7216,6 +7381,9 @@ async function generateOpeningIfNeeded(){
     session.openingFailed = true;
     session.pendingOpening = false;
     session.pendingAnimation = false;
+    rememberOfflineError('opening', e, {
+      charId: String((character && character.id) || (session && session.charId) || '').trim()
+    });
     session.lastOpeningError = summarizeOfflineError(e);
     saveSession();
     renderStory();
@@ -7352,10 +7520,13 @@ async function requestOfflineReply(options){
         generationMs: Date.now() - replyStartedAt
       }));
       if(!liveReplyEntry) session.entries.push(leanEntry);
+      offlineLastErrorPayload = null;
       session.lastReplyError = '';
+      session.lastErrorDetail = null;
       saveSession();
       queueOfflineStageSummaryGeneration();
       renderStory();
+      renderOfflineInviteDebugCard();
       keepOfflineComposerVisible();
       return true;
     }
@@ -7591,7 +7762,9 @@ async function requestOfflineReply(options){
       generationMs: Date.now() - replyStartedAt
     }));
     if(!liveReplyEntry) session.entries.push(replyEntry);
+    offlineLastErrorPayload = null;
     session.lastReplyError = '';
+    session.lastErrorDetail = null;
     saveSession();
     queueOfflineInlineTranslationsPrefetch(replyEntry);
     queueOfflineSummaryGeneration(replyEntry);
@@ -7631,7 +7804,9 @@ async function requestOfflineReply(options){
           generationMs: Date.now() - replyStartedAt
         }));
         session.entries.push(emergencyEntry);
+        offlineLastErrorPayload = null;
         session.lastReplyError = '';
+        session.lastErrorDetail = null;
         saveSession();
         queueOfflineInlineTranslationsPrefetch(emergencyEntry);
         queueOfflineSummaryGeneration(emergencyEntry);
@@ -7645,6 +7820,9 @@ async function requestOfflineReply(options){
         e = emergencyReplyErr;
       }
     }
+    rememberOfflineError('reply', e, {
+      charId: String((character && character.id) || (session && session.charId) || '').trim()
+    });
     session.lastReplyError = summarizeOfflineError(e);
     saveSession();
     toast('线下回复生成失败：' + summarizeOfflineError(e), { sticky:true });
@@ -7870,7 +8048,72 @@ function hideFlightOverlay(){
     saveSession();
   }
 }
-function renderOfflineInviteDebugCard(){ return; }
+function buildOfflineErrorDebugText(payload){
+  var item = payload && typeof payload === 'object' ? payload : offlineLastErrorPayload;
+  if(!item) return '';
+  var lines = [];
+  if(item.stage) lines.push('stage: ' + item.stage);
+  if(item.provider) lines.push('provider: ' + item.provider);
+  if(item.model) lines.push('model: ' + item.model);
+  if(item.endpoint) lines.push('endpoint: ' + item.endpoint);
+  if(item.status) lines.push('status: ' + item.status);
+  if(item.requestedMaxTokens) lines.push('requestedMaxTokens: ' + item.requestedMaxTokens);
+  if(item.contextLimit) lines.push('contextLimit: ' + item.contextLimit);
+  if(item.promptTokens) lines.push('promptTokens(est): ' + item.promptTokens);
+  if(item.summary) lines.push('summary: ' + item.summary);
+  if(item.raw) lines.push('raw:\n' + item.raw);
+  return lines.join('\n');
+}
+function closeOfflineErrorDebug(){
+  var card = document.getElementById('offlineInviteDebugCard');
+  if(card) card.classList.remove('show');
+}
+async function copyOfflineErrorDebug(){
+  var text = buildOfflineErrorDebugText();
+  if(!text) return;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+      toast('错误详情已复制');
+      return;
+    }
+  }catch(e){}
+  try{
+    var area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', 'readonly');
+    area.style.position = 'fixed';
+    area.style.left = '-9999px';
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    document.body.removeChild(area);
+    toast('错误详情已复制');
+  }catch(err){
+    toast('复制失败了');
+  }
+}
+function renderOfflineInviteDebugCard(){
+  var payload = offlineLastErrorPayload || (session && session.lastErrorDetail) || null;
+  var card = document.getElementById('offlineInviteDebugCard');
+  var line1 = document.getElementById('offlineInviteDebugLine1');
+  var line2 = document.getElementById('offlineInviteDebugLine2');
+  var line3 = document.getElementById('offlineInviteDebugLine3');
+  var raw = document.getElementById('offlineInviteDebugRaw');
+  if(!(card && line1 && line2 && line3 && raw)) return;
+  if(!payload){
+    card.classList.remove('show');
+    raw.hidden = true;
+    raw.textContent = '';
+    return;
+  }
+  line1.innerHTML = '<strong>阶段：</strong> ' + esc(String(payload.stage || 'runtime'));
+  line2.innerHTML = '<strong>接口：</strong> ' + esc([payload.provider || '', payload.model || '', payload.status ? ('HTTP ' + payload.status) : ''].filter(Boolean).join(' · '));
+  line3.innerHTML = '<strong>摘要：</strong> ' + esc(String(payload.summary || '未知错误'));
+  raw.hidden = false;
+  raw.textContent = buildOfflineErrorDebugText(payload);
+  card.classList.add('show');
+}
 function pushOfflineBackendLog(level, source, message, detail){
   try{
     if(window.parent && typeof window.parent.postMessage === 'function'){
@@ -7889,22 +8132,11 @@ function pushOfflineBackendLog(level, source, message, detail){
 }
 function reportOfflineStartupFailure(stage, err){
   var message = String(stage || 'startup') + '：' + summarizeOfflineError(err);
+  rememberOfflineError('startup.' + String(stage || 'unknown'), err);
   try{
     console.error('offline startup failed', stage, err);
   }catch(e){}
   pushOfflineBackendLog('error', 'startup.' + String(stage || 'unknown'), message, err);
-  try{
-    var card = document.getElementById('offlineInviteDebugCard');
-    var line1 = document.getElementById('offlineInviteDebugLine1');
-    var line2 = document.getElementById('offlineInviteDebugLine2');
-    var line3 = document.getElementById('offlineInviteDebugLine3');
-    if(card && line1 && line2 && line3){
-      line1.innerHTML = '<strong>启动阶段：</strong> ' + esc(String(stage || 'unknown'));
-      line2.innerHTML = '<strong>当前角色：</strong> ' + esc(String((character && character.id) || desiredOfflineCharId || '(empty)'));
-      line3.innerHTML = '<strong>错误信息：</strong> ' + esc(message);
-      card.classList.add('show');
-    }
-  }catch(e){}
   try{
     toast('线下启动失败：' + summarizeOfflineError(err), { sticky:true });
   }catch(e){}
