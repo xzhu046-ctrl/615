@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-21T05:45:43Z"></script>
-<script src="../chatStorage.js?v=2026-04-21T05:45:43Z"></script>
-<script src="../metadataStore.js?v=2026-04-21T05:45:43Z"></script>
-<script src="../promptManager.js?v=2026-04-21T05:45:43Z"></script>
-<script src="../accountManager.js?v=2026-04-21T05:45:43Z"></script>
-<script src="../scheduleShared.js?v=2026-04-21T05:45:43Z"></script>
-<script src="../presenceShared.js?v=2026-04-21T05:45:43Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-21T05:45:43Z"></script>
+<script src="../assetStore.js?v=2026-04-21T05:46:31Z"></script>
+<script src="../chatStorage.js?v=2026-04-21T05:46:31Z"></script>
+<script src="../metadataStore.js?v=2026-04-21T05:46:31Z"></script>
+<script src="../promptManager.js?v=2026-04-21T05:46:31Z"></script>
+<script src="../accountManager.js?v=2026-04-21T05:46:31Z"></script>
+<script src="../scheduleShared.js?v=2026-04-21T05:46:31Z"></script>
+<script src="../presenceShared.js?v=2026-04-21T05:46:31Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-21T05:46:31Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -5565,9 +5565,16 @@ function offlinePromptLimit(base, compactLevel, min){
   if(level === 1) return Math.max(floor, Math.round(value * 0.62));
   return Math.max(floor, Math.round(value * 0.4));
 }
-function isOfflineQuotaLikeError(err){
+function isOfflineQuotaExceededError(err){
   var text = String(err && (err.message || err) || '').toLowerCase();
-  return /quota|rate limit|context|maximum context|too many tokens|token limit|exceeded|resource exhausted/.test(text);
+  return /insufficient quota|quota has been exceeded|quota exceeded|billing|resource exhausted/.test(text);
+}
+function isOfflineContextLikeError(err){
+  var text = String(err && (err.message || err) || '').toLowerCase();
+  return /maximum context|context length|context window|too many tokens|token limit|max tokens|max context|prompt is too long|input is too long/.test(text);
+}
+function isOfflineQuotaLikeError(err){
+  return isOfflineQuotaExceededError(err) || isOfflineContextLikeError(err) || /rate limit|429/.test(String(err && (err.message || err) || '').toLowerCase());
 }
 function offlineQuotaRetryBudget(base, retryStep, min){
   var floor = Math.max(120, Number(min) || 120);
@@ -6380,15 +6387,17 @@ async function callAIWithTimeout(systemPrompt, userPrompt, timeoutMs, requestOpt
 function summarizeOfflineError(err){
   var text = String(err && (err.message || err) || '').trim();
   if(!text) return '未知错误';
+  var lower = text.toLowerCase();
   if(/自动修过了，但还是没修到合格版本/.test(text)) return text;
   if(/未通过线下正文校验/.test(text)) return '这轮正文我已经试着自动修了，但最后还是没修到合格版本';
   if(/cors/i.test(text)) return '浏览器把这次请求拦住了，通常是接口没有放开跨域';
-  if(/401|unauthorized|invalid api key|incorrect api key|api key/i.test(text.toLowerCase())) return '这次像是密钥不对，或者接口没有授权成功';
-  if(/403|forbidden/i.test(text.toLowerCase())) return '这次接口拒绝了请求，可能是权限或来源限制';
-  if(/429|rate limit/i.test(text.toLowerCase())) return '这次请求太密了，接口在限流，稍等一下再试';
-  if(isOfflineQuotaLikeError(text)) return '这轮线下上下文超额了，我已经会自动改用更轻的版本再试一次';
-  if(/timeout|超时/i.test(text.toLowerCase())) return '这次接口回得太慢，超时了';
-  if(/failed to fetch|networkerror|load failed/i.test(text.toLowerCase())) return '这次网络没有成功连到接口';
+  if(/401|unauthorized|invalid api key|incorrect api key|api key/i.test(lower)) return '这次像是密钥不对，或者接口没有授权成功';
+  if(/403|forbidden/i.test(lower)) return '这次接口拒绝了请求，可能是权限或来源限制';
+  if(/429|rate limit/i.test(lower)) return '这次请求太密了，接口在限流，稍等一下再试';
+  if(isOfflineQuotaExceededError(text)) return '接口原样返回了 quota exceeded，这次先不再把它误判成上下文超额，请以 raw 错误为准';
+  if(isOfflineContextLikeError(text)) return '这轮更像是上下文或 token 超限，我会改用更轻的版本再试一次';
+  if(/timeout|超时/i.test(lower)) return '这次接口回得太慢，超时了';
+  if(/failed to fetch|networkerror|load failed/i.test(lower)) return '这次网络没有成功连到接口';
   if(text.length > 72) text = text.slice(0, 72) + '...';
   return text;
 }
@@ -7372,7 +7381,9 @@ async function generateOpeningIfNeeded(){
         queueOfflineSummaryGeneration(emergencyEntry);
         queueOfflineStageSummaryGeneration();
         hideFlightOverlay();
-        toast('这轮上下文太满了，我已经切成超轻开场重试成功');
+        toast(isOfflineContextLikeError(e)
+          ? '这轮更像是上下文或 token 太满了，我已经切成超轻开场重试成功'
+          : '这轮原接口报了超限类错误，我已经切成超轻开场重试成功');
         pushOfflineBackendLog('warn', 'opening.emergency_retry', '首幕触发超轻重试并成功', e);
         return true;
       }catch(emergencyErr){
@@ -7815,7 +7826,9 @@ async function requestOfflineReply(options){
         queueOfflineStageSummaryGeneration();
         renderStory();
         keepOfflineComposerVisible();
-        toast('这轮线下上下文太满了，我已经切成更轻的续写重试成功');
+        toast(isOfflineContextLikeError(e)
+          ? '这轮更像是上下文或 token 太满了，我已经切成更轻的续写重试成功'
+          : '这轮原接口报了超限类错误，我已经切成更轻的续写重试成功');
         return true;
       }catch(emergencyReplyErr){
         e = emergencyReplyErr;
