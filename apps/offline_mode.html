@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-21T06:24:45Z"></script>
-<script src="../chatStorage.js?v=2026-04-21T06:24:45Z"></script>
-<script src="../metadataStore.js?v=2026-04-21T06:24:45Z"></script>
-<script src="../promptManager.js?v=2026-04-21T06:24:45Z"></script>
-<script src="../accountManager.js?v=2026-04-21T06:24:45Z"></script>
-<script src="../scheduleShared.js?v=2026-04-21T06:24:45Z"></script>
-<script src="../presenceShared.js?v=2026-04-21T06:24:45Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-21T06:24:45Z"></script>
+<script src="../assetStore.js?v=2026-04-21T06:34:08Z"></script>
+<script src="../chatStorage.js?v=2026-04-21T06:34:08Z"></script>
+<script src="../metadataStore.js?v=2026-04-21T06:34:08Z"></script>
+<script src="../promptManager.js?v=2026-04-21T06:34:08Z"></script>
+<script src="../accountManager.js?v=2026-04-21T06:34:08Z"></script>
+<script src="../scheduleShared.js?v=2026-04-21T06:34:08Z"></script>
+<script src="../presenceShared.js?v=2026-04-21T06:34:08Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-21T06:34:08Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -4872,11 +4872,21 @@ async function generateOfflineLeanScene(context, options){
   var timeoutMs = Math.max(12000, Number(opts.timeoutMs) || getOfflineReplyTimeoutMs());
   var text = '';
   if(opts.streaming && supportsOfflineStreaming(getOfflineProvider())){
-    text = await streamOfflineBodyText(String(context || '').trim(), {
-      compactLevel: compactLevel,
-      timeoutMs: timeoutMs,
-      targetChars: targetChars
-    }, opts.onUpdate);
+    try{
+      text = await streamOfflineBodyText(String(context || '').trim(), {
+        compactLevel: compactLevel,
+        timeoutMs: timeoutMs,
+        targetChars: targetChars
+      }, opts.onUpdate);
+    }catch(streamErr){
+      pushOfflineBackendLog('warn', 'offline.stream.fallback', '流式正文失败，自动回退到非流式正文', streamErr);
+      text = await generateOfflineBodyTextOnly(String(context || '').trim(), {
+        compactLevel: compactLevel,
+        timeoutMs: timeoutMs,
+        targetChars: targetChars
+      });
+      if(typeof opts.onUpdate === 'function') opts.onUpdate(String(text || '').trim());
+    }
   }else{
     text = await generateOfflineBodyTextOnly(String(context || '').trim(), {
       compactLevel: compactLevel,
@@ -4932,7 +4942,11 @@ async function streamOfflineBodyText(context, options, onUpdate){
         onUpdate(String(buffer || '').trim());
       }
     }
-  }, buildOfflineRequestOptions(systemPrompt, prompt, Number(opts.targetChars) || getOfflineReplyMinChars()));
+  }, Object.assign(
+    {},
+    buildOfflineRequestOptions(systemPrompt, prompt, Number(opts.targetChars) || getOfflineReplyMinChars()),
+    { timeoutMs: Math.max(12000, Number(opts.timeoutMs) || getOfflineReplyTimeoutMs()) }
+  ));
   if(typeof onUpdate === 'function') onUpdate(String(buffer || '').trim());
   if(!ok) throw new Error('当前接口没有成功进入流式输出');
   return String(buffer || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
@@ -5951,8 +5965,10 @@ function normalizeOfflineRequestOptions(options){
   var opts = options && typeof options === 'object' ? options : {};
   var maxTokens = Math.max(0, Number(opts.maxTokens) || 0);
   if(maxTokens) maxTokens = Math.max(128, Math.min(6000, Math.round(maxTokens)));
+  var timeoutMs = Math.max(0, Number(opts.timeoutMs) || 0);
   return {
-    maxTokens:maxTokens
+    maxTokens:maxTokens,
+    timeoutMs: timeoutMs
   };
 }
 function estimateOfflinePromptTokens(systemPrompt, userPrompt){
@@ -6378,37 +6394,110 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.9');
   var req = normalizeOfflineRequestOptions(requestOptions);
   var promptTokens = estimateOfflinePromptTokens(systemPrompt, userPrompt);
-  if(provider === 'openai'){
-    var res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key },
-      body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
-    });
-    if(!res.ok){
-      var openaiStreamText = await res.text();
-      throw buildOfflineProviderError(parseOfflineErrorText(openaiStreamText) || '流式请求失败', {
-        provider: provider, model: model, endpoint: 'https://api.openai.com/v1/chat/completions', status: res.status,
-        rawBody: openaiStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
-      });
+  var timeoutMs = Math.max(12000, Number(req.timeoutMs) || 0);
+  var firstChunkTimeoutMs = Math.max(4500, Math.min(9000, Math.round(timeoutMs * 0.3)));
+  var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  var totalTimer = 0;
+  var firstChunkTimer = 0;
+  var streamStarted = false;
+  function cleanupStreamTimers(){
+    if(totalTimer){
+      clearTimeout(totalTimer);
+      totalTimer = 0;
     }
-    await readSseStream(res, onPiece);
-    return true;
+    if(firstChunkTimer){
+      clearTimeout(firstChunkTimer);
+      firstChunkTimer = 0;
+    }
+  }
+  function createStreamTimeoutError(fallbackMessage, abortReason, endpoint, currentModel){
+    return buildOfflineProviderError(
+      parseOfflineErrorText((abortReason && abortReason.message) || abortReason || fallbackMessage) || fallbackMessage,
+      {
+        provider: provider,
+        model: currentModel || model,
+        endpoint: endpoint || runtimeMeta.endpoint || '',
+        status: 0,
+        rawBody: String((abortReason && abortReason.message) || abortReason || fallbackMessage || '').trim(),
+        requestedMaxTokens: req.maxTokens,
+        contextLimit: runtimeMeta.contextLimit,
+        promptTokens: promptTokens
+      }
+    );
+  }
+  function armStreamTimers(endpoint, currentModel){
+    if(!controller) return;
+    totalTimer = setTimeout(function(){
+      try{ controller.abort(new Error('流式正文超时（' + Math.round(timeoutMs / 1000) + 's）')); }catch(e){}
+    }, timeoutMs);
+    firstChunkTimer = setTimeout(function(){
+      if(streamStarted) return;
+      try{ controller.abort(new Error('流式首字超时（' + Math.round(firstChunkTimeoutMs / 1000) + 's）')); }catch(e){}
+    }, firstChunkTimeoutMs);
+  }
+  function handleStreamPiece(piece){
+    if(!streamStarted){
+      streamStarted = true;
+      if(firstChunkTimer){
+        clearTimeout(firstChunkTimer);
+        firstChunkTimer = 0;
+      }
+    }
+    onPiece(piece);
+  }
+  if(provider === 'openai'){
+    try{
+      armStreamTimers('https://api.openai.com/v1/chat/completions', model);
+      var res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key },
+        body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] }),
+        signal: controller ? controller.signal : undefined
+      });
+      if(!res.ok){
+        var openaiStreamText = await res.text();
+        throw buildOfflineProviderError(parseOfflineErrorText(openaiStreamText) || '流式请求失败', {
+          provider: provider, model: model, endpoint: 'https://api.openai.com/v1/chat/completions', status: res.status,
+          rawBody: openaiStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+        });
+      }
+      await readSseStream(res, handleStreamPiece);
+      return true;
+    }catch(err){
+      if(controller && controller.signal && controller.signal.aborted){
+        throw createStreamTimeoutError('流式请求超时', controller.signal.reason, 'https://api.openai.com/v1/chat/completions', model);
+      }
+      throw err;
+    }finally{
+      cleanupStreamTimers();
+    }
   }
   if(provider === 'openrouter'){
-    var resOr = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key, 'HTTP-Referer':'https://ephone.app', 'X-Title':'Ephone' },
-      body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] })
-    });
-    if(!resOr.ok){
-      var openrouterStreamText = await resOr.text();
-      throw buildOfflineProviderError(parseOfflineErrorText(openrouterStreamText) || '流式请求失败', {
-        provider: provider, model: model, endpoint: 'https://openrouter.ai/api/v1/chat/completions', status: resOr.status,
-        rawBody: openrouterStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+    try{
+      armStreamTimers('https://openrouter.ai/api/v1/chat/completions', model);
+      var resOr = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key, 'HTTP-Referer':'https://ephone.app', 'X-Title':'Ephone' },
+        body: JSON.stringify({ model:model, temperature:temperature, max_tokens:req.maxTokens || undefined, stream:true, messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }] }),
+        signal: controller ? controller.signal : undefined
       });
+      if(!resOr.ok){
+        var openrouterStreamText = await resOr.text();
+        throw buildOfflineProviderError(parseOfflineErrorText(openrouterStreamText) || '流式请求失败', {
+          provider: provider, model: model, endpoint: 'https://openrouter.ai/api/v1/chat/completions', status: resOr.status,
+          rawBody: openrouterStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+        });
+      }
+      await readSseStream(resOr, handleStreamPiece);
+      return true;
+    }catch(err){
+      if(controller && controller.signal && controller.signal.aborted){
+        throw createStreamTimeoutError('流式请求超时', controller.signal.reason, 'https://openrouter.ai/api/v1/chat/completions', model);
+      }
+      throw err;
+    }finally{
+      cleanupStreamTimers();
     }
-    await readSseStream(resOr, onPiece);
-    return true;
   }
   if(provider === 'custom'){
     var baseUrl = (localStorage.getItem('custom_url') || '').replace(/\/$/, '');
@@ -6424,21 +6513,33 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
       messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }]
     };
     var customRequest = applyOfflineCustomRequestOverrides(headers, customPayload);
-    var resCustom = await fetch(baseUrl + '/chat/completions', {
-      method:'POST',
-      headers: customRequest.headers,
-      body: JSON.stringify(customRequest.body)
-    });
-    if(!resCustom.ok){
-      var customStreamText = await resCustom.text();
-      throw buildOfflineProviderError(parseOfflineErrorText(customStreamText) || '流式请求失败', {
-        provider: provider, model: customModel, endpoint: baseUrl + '/chat/completions', status: resCustom.status,
-        rawBody: customStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+    try{
+      armStreamTimers(baseUrl + '/chat/completions', customModel);
+      var resCustom = await fetch(baseUrl + '/chat/completions', {
+        method:'POST',
+        headers: customRequest.headers,
+        body: JSON.stringify(customRequest.body),
+        signal: controller ? controller.signal : undefined
       });
+      if(!resCustom.ok){
+        var customStreamText = await resCustom.text();
+        throw buildOfflineProviderError(parseOfflineErrorText(customStreamText) || '流式请求失败', {
+          provider: provider, model: customModel, endpoint: baseUrl + '/chat/completions', status: resCustom.status,
+          rawBody: customStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
+        });
+      }
+      await readSseStream(resCustom, handleStreamPiece);
+      return true;
+    }catch(err){
+      if(controller && controller.signal && controller.signal.aborted){
+        throw createStreamTimeoutError('流式请求超时', controller.signal.reason, baseUrl + '/chat/completions', customModel);
+      }
+      throw err;
+    }finally{
+      cleanupStreamTimers();
     }
-    await readSseStream(resCustom, onPiece);
-    return true;
   }
+  cleanupStreamTimers();
   return false;
 }
 function parseOfflineReply(raw){
