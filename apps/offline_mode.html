@@ -2472,7 +2472,11 @@ function buildOfflineStageSummaryLines(startScene, endScene){
     if(entry.role === 'assistant'){
       assistantScene += 1;
       if(assistantScene < startScene || assistantScene > endScene) continue;
-      lines.push('第' + String(assistantScene) + '幕摘要：' + String(entry.summaryText || '').trim());
+      var summaryText = String(entry.summaryText || '').trim();
+      if(!summaryText){
+        summaryText = clipOfflinePromptText(String(entry.text || '').replace(/\s+/g, ' ').trim(), 180);
+      }
+      lines.push('第' + String(assistantScene) + '幕内容：' + summaryText);
       continue;
     }
     var targetScene = assistantScene + 1;
@@ -2502,9 +2506,11 @@ async function generateOfflineStageSummary(force, overrideCount){
   if((uptoCount - startFloor + 1) < Math.min(cadence, uptoCount) && !force) return null;
   var sourceEntries = assistantEntries.slice(Math.max(0, startFloor - 1), uptoCount);
   if(!sourceEntries.length) return null;
-  for(var i = 0; i < sourceEntries.length; i += 1){
-    if(!String(sourceEntries[i].summaryText || '').trim()){
-      try{ await ensureOfflineSummaryForEntry(sourceEntries[i]); }catch(e){}
+  if(!shouldUseOfflineLeanMode()){
+    for(var i = 0; i < sourceEntries.length; i += 1){
+      if(!String(sourceEntries[i].summaryText || '').trim()){
+        try{ await ensureOfflineSummaryForEntry(sourceEntries[i]); }catch(e){}
+      }
     }
   }
   var summaryLines = buildOfflineStageSummaryLines(startFloor, uptoCount);
@@ -2685,6 +2691,7 @@ async function ensureOfflineStatusCardForEntry(entry){
   throw lastStatusError || new Error(profile.label + '没有成功生成');
 }
 function queueOfflineSummaryGeneration(entry){
+  if(shouldUseOfflineLeanMode()) return;
   if(!entry || entry.role === 'user' || String(entry.summaryText || '').trim()) return;
   var key = offlineStatusEntryKey(entry) + '::summary';
   if(!key || offlineSummaryQueue[key]) return;
@@ -2698,6 +2705,7 @@ function queueOfflineSummaryGeneration(entry){
   });
 }
 function queueOfflineStatusCardGeneration(entry, options){
+  if(shouldUseOfflineLeanMode()) return;
   if(!entry || entry.role === 'user' || entry.statusCard) return;
   var opts = options || {};
   var key = offlineStatusEntryKey(entry);
@@ -2730,6 +2738,7 @@ function queueOfflineStatusCardGeneration(entry, options){
   });
 }
 function primeOfflineStatusCards(){
+  if(shouldUseOfflineLeanMode()) return;
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   var recentAssistantEntries = list.filter(function(entry){
     return entry && entry.role === 'assistant' && String(entry.text || '').trim();
@@ -4434,6 +4443,9 @@ function getOfflineStoryPrefs(){
     presetName:presetName
   };
 }
+function shouldUseOfflineLeanMode(){
+  return true;
+}
 function getOfflineSoftMaxChars(){
   var prefs = getOfflineStoryPrefs();
   return Math.max(prefs.maxChars, prefs.maxChars + Math.max(120, Math.round(prefs.maxChars * 0.12)));
@@ -4759,6 +4771,56 @@ async function generateOfflineBodyTextOnly(context, options){
     )
   );
   return String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+}
+function buildOfflineLeanContinueContext(baseContext, existingText, missingChars){
+  return [
+    String(baseContext || '').trim(),
+    '这是同一幕线下面对面场景的继续，不要重复前文，不要重新开新场景。',
+    '已经写好的正文：\n' + String(existingText || '').trim(),
+    '现在还差至少 ' + Math.max(0, Number(missingChars) || 0) + ' 个字符，请只补新增正文。',
+    '继续保持同一幕的动作、停顿、语气和对话，只返回纯正文。'
+  ].filter(Boolean).join('\n\n');
+}
+async function generateOfflineLeanScene(context, options){
+  var opts = options || {};
+  var targetChars = Math.max(120, Number(opts.targetChars) || getOfflineReplyMinChars());
+  var compactLevel = Math.max(0, Number(opts.compactLevel) || 0);
+  var timeoutMs = Math.max(12000, Number(opts.timeoutMs) || getOfflineReplyTimeoutMs());
+  var text = '';
+  if(opts.streaming && supportsOfflineStreaming(getOfflineProvider())){
+    text = await streamOfflineBodyText(String(context || '').trim(), {
+      compactLevel: compactLevel,
+      timeoutMs: timeoutMs,
+      targetChars: targetChars
+    }, opts.onUpdate);
+  }else{
+    text = await generateOfflineBodyTextOnly(String(context || '').trim(), {
+      compactLevel: compactLevel,
+      timeoutMs: timeoutMs,
+      targetChars: targetChars
+    });
+    if(typeof opts.onUpdate === 'function') opts.onUpdate(String(text || '').trim());
+  }
+  text = ensureOfflineSpeechPresence(String(text || '').trim());
+  for(var extendAttempt = 0; extendAttempt < 2; extendAttempt += 1){
+    if(openingTextLength(text) >= targetChars) break;
+    var missing = targetChars - openingTextLength(text);
+    var extra = await generateOfflineBodyTextOnly(buildOfflineLeanContinueContext(context, text, missing), {
+      compactLevel: Math.min(2, compactLevel + 1),
+      timeoutMs: Math.min(timeoutMs, getOfflineReplyTimeoutMs()),
+      targetChars: Math.max(120, missing)
+    });
+    extra = String(extra || '').trim();
+    if(!extra) break;
+    text = ensureOfflineSpeechPresence(mergeOfflineOpeningText(text, extra));
+    if(typeof opts.onUpdate === 'function') opts.onUpdate(text);
+  }
+  return {
+    text: String(text || '').trim(),
+    title: buildOfflineTitleFallback(),
+    quote: buildOfflineQuoteFallback(),
+    asides: []
+  };
 }
 async function streamOfflineBodyText(context, options, onUpdate){
   var opts = options || {};
@@ -5811,11 +5873,11 @@ function buildOfflineRequestOptions(systemPrompt, userPrompt, targetChars){
   var preferred = Math.max(128, Number(prefs.maxOutputTokens) || estimateOfflineOutputTokensFromChars(targetChars || prefs.maxChars));
   var promptTokens = estimateOfflinePromptTokens(systemPrompt, userPrompt);
   var contextLimit = Math.max(1024, Number(prefs.maxContextTokens || 8192));
-  var reserve = Math.max(720, Math.round(contextLimit * 0.12));
+  var reserve = Math.max(420, Math.round(contextLimit * 0.07));
   var available = Math.max(96, contextLimit - promptTokens - reserve);
-  var cappedPreferred = Math.min(preferred, Math.max(128, Math.round(contextLimit * 0.34)));
+  var cappedPreferred = Math.min(preferred, Math.max(256, Math.round(contextLimit * 0.62)));
   return normalizeOfflineRequestOptions({
-    maxTokens: Math.max(96, Math.min(cappedPreferred, Math.round(available * 0.78)))
+    maxTokens: Math.max(96, Math.min(cappedPreferred, Math.round(available * 0.92)))
   });
 }
 function getOfflineProvider(){
@@ -6718,6 +6780,89 @@ async function generateOpeningIfNeeded(){
       '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 680 : 1080) || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
+    if(shouldUseOfflineLeanMode()){
+      liveOpeningLabels = nowLabels();
+      if(shouldUseOfflineStreaming()){
+        liveOpeningEntry = {
+          role:'assistant',
+          text:'',
+          title:'',
+          quote:'',
+          asides:[],
+          heart:'♥',
+          thoughtChain: normalizeOfflineThoughtChain(null, ''),
+          statusCard:null,
+          statusPending:false,
+          statusPendingAt:0,
+          summaryText:'',
+          bubbles:['……'],
+          timeLabel:liveOpeningLabels.timeLabel,
+          meta:liveOpeningLabels.meta,
+          fullLabel: liveOpeningLabels.fullLabel,
+          createdAt: liveOpeningLabels.createdAt
+        };
+        Object.assign(liveOpeningEntry, buildOfflineEntryMeta(liveOpeningEntry, 'assistant', liveOpeningLabels, { generationMs: 0 }));
+        session.entries.push(liveOpeningEntry);
+        saveSession();
+        renderStory();
+        keepOfflineComposerVisible();
+      }
+      var leanOpening = await generateOfflineLeanScene(openingContext, {
+        streaming: shouldUseOfflineStreaming(),
+        compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+        timeoutMs: Math.min(plan.mainTimeout, 100000),
+        targetChars: openingMinChars,
+        onUpdate: function(partialText){
+          if(!liveOpeningEntry) return;
+          liveOpeningEntry.text = ensureOfflineSpeechPresence(String(partialText || '').trim());
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        }
+      });
+      if(!String(leanOpening && leanOpening.text || '').trim()){
+        throw new Error('首幕正文为空');
+      }
+      var leanLabels = liveOpeningLabels || nowLabels();
+      var leanOpeningEntry = liveOpeningEntry || {
+        role:'assistant',
+        heart:'♥',
+        bubbles:['终于见到你','过来一点'],
+        timeLabel:leanLabels.timeLabel,
+        meta:leanLabels.meta,
+        fullLabel: leanLabels.fullLabel,
+        createdAt: leanLabels.createdAt
+      };
+      leanOpeningEntry.text = String(leanOpening.text || '').trim();
+      leanOpeningEntry.title = String(leanOpening.title || buildOfflineTitleFallback()).trim();
+      leanOpeningEntry.quote = String(leanOpening.quote || buildOfflineQuoteFallback()).trim();
+      leanOpeningEntry.asides = Array.isArray(leanOpening.asides) ? leanOpening.asides.slice(0, 2) : [];
+      leanOpeningEntry.thoughtChain = normalizeOfflineThoughtChain(null, leanOpeningEntry.text);
+      leanOpeningEntry.statusCard = null;
+      leanOpeningEntry.statusPending = false;
+      leanOpeningEntry.statusPendingAt = 0;
+      leanOpeningEntry.summaryText = String(leanOpeningEntry.summaryText || '').trim();
+      leanOpeningEntry.bubbles = ['终于见到你','过来一点'];
+      leanOpeningEntry.timeLabel = leanLabels.timeLabel;
+      leanOpeningEntry.meta = leanLabels.meta;
+      leanOpeningEntry.fullLabel = leanLabels.fullLabel;
+      leanOpeningEntry.createdAt = leanLabels.createdAt;
+      Object.assign(leanOpeningEntry, buildOfflineEntryMeta(leanOpeningEntry, 'assistant', leanLabels, {
+        generationMs: Date.now() - openingStartedAt
+      }));
+      if(!liveOpeningEntry) session.entries.push(leanOpeningEntry);
+      session.openingFailed = false;
+      session.lastOpeningError = '';
+      session.pendingOpening = false;
+      saveSession();
+      queueOfflineStageSummaryGeneration();
+      hideFlightOverlay();
+      pushOfflineBackendLog('info', 'opening.success', '线下首幕生成成功(lean)', {
+        chars: openingTextLength(leanOpeningEntry.text || ''),
+        title: String(leanOpeningEntry.title || '').trim()
+      });
+      return true;
+    }
     if(shouldUseOfflineStreaming()){
       try{
         var openingThoughtRaw = await callAIWithTimeout(
@@ -7124,6 +7269,96 @@ async function requestOfflineReply(options){
     await hydrateOfflineMemorySnippet();
     var prefs = getOfflineStoryPrefs();
     var minChars = getOfflineReplyMinChars();
+    var liveReplyLabels = null;
+    var liveReplyEntry = null;
+    if(shouldUseOfflineLeanMode()){
+      var leanLastUserEntry = Array.isArray(session.entries) ? session.entries[session.entries.length - 1] : null;
+      var leanReplyContext = options.fromUserSend && leanLastUserEntry && leanLastUserEntry.role === 'user'
+        ? buildOfflineUserPrompt(String(leanLastUserEntry.text || '').trim(), isMobileOfflineRuntime() ? 1 : 0)
+        : [
+            '这是一次已经开始的线下见面，请顺着当前氛围继续。',
+            buildOfflineInvitePromptLine('见面起点：'),
+            '最近线上聊天（压缩）：\n' + (getOfflineRecentOnlineSnippetByBudget(isMobileOfflineRuntime() ? 520 : 760) || '无'),
+            '最近线下记录（压缩）：\n' + (clipOfflinePromptText(formatOfflineHistoryForPrompt(3, 5) || '无', isMobileOfflineRuntime() ? 720 : 980) || '无'),
+            '用户此刻没有说新话，请角色自己顺着当前氛围继续这一幕，并且直接写够完整长度。'
+          ].filter(Boolean).join('\n\n');
+      if(shouldUseOfflineStreaming()){
+        liveReplyLabels = nowLabels();
+        liveReplyEntry = {
+          role:'assistant',
+          text:'',
+          title:'',
+          quote:'',
+          asides:[],
+          heart:'♥',
+          thoughtChain: normalizeOfflineThoughtChain(null, ''),
+          statusCard:null,
+          statusPending:false,
+          statusPendingAt:0,
+          summaryText:'',
+          bubbles:['……'],
+          timeLabel:liveReplyLabels.timeLabel,
+          meta:liveReplyLabels.meta,
+          fullLabel: liveReplyLabels.fullLabel,
+          createdAt: liveReplyLabels.createdAt
+        };
+        Object.assign(liveReplyEntry, buildOfflineEntryMeta(liveReplyEntry, 'assistant', liveReplyLabels, { generationMs: 0 }));
+        session.entries.push(liveReplyEntry);
+        saveSession();
+        renderStory();
+        keepOfflineComposerVisible();
+      }
+      var leanReply = await generateOfflineLeanScene(leanReplyContext, {
+        streaming: shouldUseOfflineStreaming(),
+        compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+        timeoutMs: getOfflineReplyTimeoutMs(),
+        targetChars: minChars,
+        onUpdate: function(partialText){
+          if(!liveReplyEntry) return;
+          liveReplyEntry.text = ensureOfflineSpeechPresence(String(partialText || '').trim());
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        }
+      });
+      if(!String(leanReply && leanReply.text || '').trim()){
+        throw new Error('正文生成失败');
+      }
+      var leanNextLabels = liveReplyLabels || nowLabels();
+      var leanEntry = liveReplyEntry || {
+        role:'assistant',
+        heart:'♥',
+        bubbles:[],
+        timeLabel:leanNextLabels.timeLabel,
+        meta:leanNextLabels.meta,
+        fullLabel: leanNextLabels.fullLabel,
+        createdAt: leanNextLabels.createdAt
+      };
+      leanEntry.text = String(leanReply.text || '').trim();
+      leanEntry.title = String(leanReply.title || buildOfflineTitleFallback()).trim();
+      leanEntry.quote = String(leanReply.quote || buildOfflineQuoteFallback()).trim();
+      leanEntry.asides = Array.isArray(leanReply.asides) ? leanReply.asides.slice(0, 2) : [];
+      leanEntry.thoughtChain = normalizeOfflineThoughtChain(null, leanEntry.text);
+      leanEntry.statusCard = null;
+      leanEntry.statusPending = false;
+      leanEntry.statusPendingAt = 0;
+      leanEntry.summaryText = String(leanEntry.summaryText || '').trim();
+      leanEntry.bubbles = [];
+      leanEntry.timeLabel = leanNextLabels.timeLabel;
+      leanEntry.meta = leanNextLabels.meta;
+      leanEntry.fullLabel = leanNextLabels.fullLabel;
+      leanEntry.createdAt = leanNextLabels.createdAt;
+      Object.assign(leanEntry, buildOfflineEntryMeta(leanEntry, 'assistant', leanNextLabels, {
+        generationMs: Date.now() - replyStartedAt
+      }));
+      if(!liveReplyEntry) session.entries.push(leanEntry);
+      session.lastReplyError = '';
+      saveSession();
+      queueOfflineStageSummaryGeneration();
+      renderStory();
+      keepOfflineComposerVisible();
+      return true;
+    }
     var sceneDepth = Array.isArray(session && session.entries) ? session.entries.length : 0;
     var compactBase = sceneDepth >= 10 ? 2 : (sceneDepth >= 4 ? 1 : 0);
     var retryCompactBase = compactBase;
@@ -7179,8 +7414,6 @@ async function requestOfflineReply(options){
     var bodyPayload = null;
     var bestBodyPayload = null;
     var bodyError = null;
-    var liveReplyEntry = null;
-    var liveReplyLabels = null;
     if(shouldUseOfflineStreaming()){
       try{
         liveReplyLabels = nowLabels();
