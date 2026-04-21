@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-21T07:12:41Z"></script>
-<script src="../chatStorage.js?v=2026-04-21T07:12:41Z"></script>
-<script src="../metadataStore.js?v=2026-04-21T07:12:41Z"></script>
-<script src="../promptManager.js?v=2026-04-21T07:12:41Z"></script>
-<script src="../accountManager.js?v=2026-04-21T07:12:41Z"></script>
-<script src="../scheduleShared.js?v=2026-04-21T07:12:41Z"></script>
-<script src="../presenceShared.js?v=2026-04-21T07:12:41Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-21T07:12:41Z"></script>
+<script src="../assetStore.js?v=2026-04-21T07:28:24Z"></script>
+<script src="../chatStorage.js?v=2026-04-21T07:28:24Z"></script>
+<script src="../metadataStore.js?v=2026-04-21T07:28:24Z"></script>
+<script src="../promptManager.js?v=2026-04-21T07:28:24Z"></script>
+<script src="../accountManager.js?v=2026-04-21T07:28:24Z"></script>
+<script src="../scheduleShared.js?v=2026-04-21T07:28:24Z"></script>
+<script src="../presenceShared.js?v=2026-04-21T07:28:24Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-21T07:28:24Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -4844,7 +4844,7 @@ async function generateOfflineBodyTextOnly(context, options){
       thoughtChain: opts.thoughtChain || null
     }),
     prompt,
-    Math.min(isMobileOfflineRuntime() ? 70000 : 56000, Number(opts.timeoutMs) || 56000),
+    Math.min(isMobileOfflineRuntime() ? 48000 : 44000, Number(opts.timeoutMs) || 44000),
     buildOfflineRequestOptions(
       buildOfflineBodyTextSystemPrompt({
         compactLevel: Math.max(0, Number(opts.compactLevel) || 0),
@@ -4868,22 +4868,26 @@ function buildOfflineLeanContinueContext(baseContext, existingText, missingChars
 async function generateOfflineLeanScene(context, options){
   var opts = options || {};
   var targetChars = Math.max(120, Number(opts.targetChars) || getOfflineReplyMinChars());
+  var fastWholeMode = opts.fastWholeMode !== false;
   var compactLevel = Math.max(0, Number(opts.compactLevel) || 0);
   var timeoutMs = Math.max(12000, Number(opts.timeoutMs) || getOfflineReplyTimeoutMs());
+  var primaryTargetChars = fastWholeMode
+    ? Math.max(targetChars, Math.round(targetChars + Math.max(120, targetChars * 0.08)))
+    : targetChars;
   var text = '';
   if(opts.streaming && supportsOfflineStreaming(getOfflineProvider())){
     try{
       text = await streamOfflineBodyText(String(context || '').trim(), {
         compactLevel: compactLevel,
         timeoutMs: timeoutMs,
-        targetChars: targetChars
+        targetChars: primaryTargetChars
       }, opts.onUpdate);
     }catch(streamErr){
       pushOfflineBackendLog('warn', 'offline.stream.fallback', '流式正文失败，自动回退到非流式正文', streamErr);
       text = await generateOfflineBodyTextOnly(String(context || '').trim(), {
         compactLevel: compactLevel,
         timeoutMs: timeoutMs,
-        targetChars: targetChars
+        targetChars: primaryTargetChars
       });
       if(typeof opts.onUpdate === 'function') opts.onUpdate(String(text || '').trim());
     }
@@ -4891,17 +4895,17 @@ async function generateOfflineLeanScene(context, options){
     text = await generateOfflineBodyTextOnly(String(context || '').trim(), {
       compactLevel: compactLevel,
       timeoutMs: timeoutMs,
-      targetChars: targetChars
+      targetChars: primaryTargetChars
     });
     if(typeof opts.onUpdate === 'function') opts.onUpdate(String(text || '').trim());
   }
   text = ensureOfflineSpeechPresence(String(text || '').trim());
-  for(var extendAttempt = 0; extendAttempt < 2; extendAttempt += 1){
+  for(var extendAttempt = 0; extendAttempt < (fastWholeMode ? 1 : 2); extendAttempt += 1){
     if(openingTextLength(text) >= targetChars) break;
     var missing = targetChars - openingTextLength(text);
     var extra = await generateOfflineBodyTextOnly(buildOfflineLeanContinueContext(context, text, missing), {
       compactLevel: Math.min(2, compactLevel + 1),
-      timeoutMs: Math.min(timeoutMs, getOfflineReplyTimeoutMs()),
+      timeoutMs: Math.min(timeoutMs, fastWholeMode ? 18000 : getOfflineReplyTimeoutMs()),
       targetChars: Math.max(120, missing)
     });
     extra = String(extra || '').trim();
@@ -6286,6 +6290,9 @@ function supportsOfflineStreaming(provider){
 function wantsOfflineStreaming(){
   return !!getOfflineStoryPrefs().streamEnabled;
 }
+function shouldPreferOfflineWholeOutput(){
+  return true;
+}
 function shouldUseOfflineStreaming(){
   return wantsOfflineStreaming() && supportsOfflineStreaming(getOfflineProvider());
 }
@@ -7059,23 +7066,23 @@ function isMobileOfflineRuntime(){
 function getOfflineOpeningAttemptPlan(){
   if(isMobileOfflineRuntime()){
     return {
-      mainTimeout: 55000,
-      continueTimeout: 24000,
-      repairTimeout: 28000,
+      mainTimeout: 48000,
+      continueTimeout: 18000,
+      repairTimeout: 22000,
       attempts: 2,
       extendAttempts: 1
     };
   }
   return {
     mainTimeout: 42000,
-    continueTimeout: 20000,
-    repairTimeout: 24000,
+    continueTimeout: 16000,
+    repairTimeout: 20000,
     attempts: 2,
     extendAttempts: 1
   };
 }
 function getOfflineReplyTimeoutMs(){
-  return isMobileOfflineRuntime() ? 45000 : 32000;
+  return isMobileOfflineRuntime() ? 48000 : 40000;
 }
 function buildOfflineEmergencyOpeningSystemPrompt(){
   var storyPrefs = getOfflineStoryPrefs();
@@ -7499,17 +7506,19 @@ async function generateOpeningIfNeeded(){
   var bestDraft = null;
   try{
     var openingStartedAt = Date.now();
+    var preferWholeOutput = shouldPreferOfflineWholeOutput();
+    var allowOpeningStreaming = shouldUseOfflineStreaming() && !preferWholeOutput;
     var openingContext = [
       '请写这场线下见面的第一个场景。',
       buildOfflineInvitePromptLine('见面起点：'),
-      '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 680 : 1080) || '无'),
+      '最近线上聊天：' + (clipOfflinePromptText(session.chatHistory || '无', isMobileOfflineRuntime() ? 360 : 560) || '无'),
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
     if(shouldUseOfflineLeanMode()){
       var streamedOpeningThoughtChain = null;
       var streamedOpeningMeta = null;
       liveOpeningLabels = nowLabels();
-      if(shouldUseOfflineStreaming()){
+      if(allowOpeningStreaming){
         liveOpeningEntry = {
           role:'assistant',
           text:'',
@@ -7572,10 +7581,11 @@ async function generateOpeningIfNeeded(){
         }
       }
       var leanOpening = await generateOfflineLeanScene(openingContext, {
-        streaming: shouldUseOfflineStreaming(),
+        streaming: allowOpeningStreaming,
         compactLevel: isMobileOfflineRuntime() ? 1 : 0,
-        timeoutMs: Math.min(plan.mainTimeout, 100000),
+        timeoutMs: plan.mainTimeout,
         targetChars: openingMinChars,
+        fastWholeMode: preferWholeOutput,
         onUpdate: function(partialText){
           if(!liveOpeningEntry) return;
           liveOpeningEntry.text = ensureOfflineSpeechPresence(String(partialText || '').trim());
@@ -8055,6 +8065,8 @@ async function requestOfflineReply(options){
     await hydrateOfflineMemorySnippet();
     var prefs = getOfflineStoryPrefs();
     var minChars = getOfflineReplyMinChars();
+    var preferWholeOutput = shouldPreferOfflineWholeOutput();
+    var allowReplyStreaming = shouldUseOfflineStreaming() && !preferWholeOutput;
     var liveReplyLabels = null;
     var liveReplyEntry = null;
     if(shouldUseOfflineLeanMode()){
@@ -8066,11 +8078,11 @@ async function requestOfflineReply(options){
         : [
             '这是一次已经开始的线下见面，请顺着当前氛围继续。',
             buildOfflineInvitePromptLine('见面起点：'),
-            '最近线上聊天（压缩）：\n' + (getOfflineRecentOnlineSnippetByBudget(isMobileOfflineRuntime() ? 520 : 760) || '无'),
-            '最近线下记录（压缩）：\n' + (clipOfflinePromptText(formatOfflineHistoryForPrompt(3, 5) || '无', isMobileOfflineRuntime() ? 720 : 980) || '无'),
+            '最近线上聊天（压缩）：\n' + (getOfflineRecentOnlineSnippetByBudget(isMobileOfflineRuntime() ? 300 : 420) || '无'),
+            '最近线下记录（压缩）：\n' + (clipOfflinePromptText(formatOfflineHistoryForPrompt(2, 3) || '无', isMobileOfflineRuntime() ? 420 : 620) || '无'),
             '用户此刻没有说新话，请角色自己顺着当前氛围继续这一幕，并且直接写够完整长度。'
           ].filter(Boolean).join('\n\n');
-      if(shouldUseOfflineStreaming()){
+      if(allowReplyStreaming){
         liveReplyLabels = nowLabels();
         liveReplyEntry = {
           role:'assistant',
@@ -8134,10 +8146,11 @@ async function requestOfflineReply(options){
         }
       }
       var leanReply = await generateOfflineLeanScene(leanReplyContext, {
-        streaming: shouldUseOfflineStreaming(),
+        streaming: allowReplyStreaming,
         compactLevel: isMobileOfflineRuntime() ? 1 : 0,
         timeoutMs: getOfflineReplyTimeoutMs(),
         targetChars: minChars,
+        fastWholeMode: preferWholeOutput,
         onUpdate: function(partialText){
           if(!liveReplyEntry) return;
           liveReplyEntry.text = ensureOfflineSpeechPresence(String(partialText || '').trim());
