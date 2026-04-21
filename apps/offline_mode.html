@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-21T05:18:54Z"></script>
-<script src="../chatStorage.js?v=2026-04-21T05:18:54Z"></script>
-<script src="../metadataStore.js?v=2026-04-21T05:18:54Z"></script>
-<script src="../promptManager.js?v=2026-04-21T05:18:54Z"></script>
-<script src="../accountManager.js?v=2026-04-21T05:18:54Z"></script>
-<script src="../scheduleShared.js?v=2026-04-21T05:18:54Z"></script>
-<script src="../presenceShared.js?v=2026-04-21T05:18:54Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-21T05:18:54Z"></script>
+<script src="../assetStore.js?v=2026-04-21T05:45:43Z"></script>
+<script src="../chatStorage.js?v=2026-04-21T05:45:43Z"></script>
+<script src="../metadataStore.js?v=2026-04-21T05:45:43Z"></script>
+<script src="../promptManager.js?v=2026-04-21T05:45:43Z"></script>
+<script src="../accountManager.js?v=2026-04-21T05:45:43Z"></script>
+<script src="../scheduleShared.js?v=2026-04-21T05:45:43Z"></script>
+<script src="../presenceShared.js?v=2026-04-21T05:45:43Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-21T05:45:43Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -488,6 +488,7 @@ box-shadow:0 0 0 1px rgba(255,255,255,.97) inset,0 14px 28px rgba(0,0,0,.06);pad
 .offline-status-history-empty{font-size:12px;font-weight:800;line-height:1.7;color:#666;padding:8px 2px}
 .offline-invite-debug{position:fixed;left:12px;right:12px;top:calc(54px + var(--safe-top));z-index:9999;padding:10px 12px;border:2px solid #111;border-radius:18px;background:rgba(255,255,255,.97);box-shadow:0 10px 24px rgba(0,0,0,.12);display:none;flex-direction:column;gap:5px;max-height:132px;overflow:auto}
 .offline-invite-debug.show{display:flex}
+.offline-invite-debug.startup{left:18px;right:18px;top:50%;transform:translateY(-50%);padding:14px 14px 12px;max-height:min(62vh,440px);border-radius:24px;background:rgba(255,255,255,.995);box-shadow:0 0 0 9999px rgba(0,0,0,.22),0 20px 48px rgba(0,0,0,.24)}
 .offline-invite-debug-title{font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.08em;color:#111;text-transform:uppercase}
 .offline-invite-debug-line{font-size:11px;font-weight:700;line-height:1.45;color:#222;word-break:break-all}
 .offline-invite-debug-line strong{font-family:var(--fontd);font-weight:900}
@@ -8066,7 +8067,10 @@ function buildOfflineErrorDebugText(payload){
 }
 function closeOfflineErrorDebug(){
   var card = document.getElementById('offlineInviteDebugCard');
-  if(card) card.classList.remove('show');
+  if(card){
+    card.classList.remove('show');
+    card.classList.remove('startup');
+  }
 }
 async function copyOfflineErrorDebug(){
   var text = buildOfflineErrorDebugText();
@@ -8103,15 +8107,18 @@ function renderOfflineInviteDebugCard(){
   if(!(card && line1 && line2 && line3 && raw)) return;
   if(!payload){
     card.classList.remove('show');
+    card.classList.remove('startup');
     raw.hidden = true;
     raw.textContent = '';
     return;
   }
+  var startupMode = /^startup\./.test(String(payload.stage || '').trim());
   line1.innerHTML = '<strong>阶段：</strong> ' + esc(String(payload.stage || 'runtime'));
   line2.innerHTML = '<strong>接口：</strong> ' + esc([payload.provider || '', payload.model || '', payload.status ? ('HTTP ' + payload.status) : ''].filter(Boolean).join(' · '));
   line3.innerHTML = '<strong>摘要：</strong> ' + esc(String(payload.summary || '未知错误'));
   raw.hidden = false;
   raw.textContent = buildOfflineErrorDebugText(payload);
+  card.classList.toggle('startup', startupMode);
   card.classList.add('show');
 }
 function pushOfflineBackendLog(level, source, message, detail){
@@ -8131,14 +8138,18 @@ function pushOfflineBackendLog(level, source, message, detail){
   }catch(err){}
 }
 function reportOfflineStartupFailure(stage, err){
-  var message = String(stage || 'startup') + '：' + summarizeOfflineError(err);
-  rememberOfflineError('startup.' + String(stage || 'unknown'), err);
+  var safeStage = String(stage || 'startup').trim() || 'startup';
+  var payload = rememberOfflineError('startup.' + String(safeStage || 'unknown'), err);
+  var summary = String((payload && payload.summary) || summarizeOfflineError(err) || '未知错误').trim();
+  var rawText = parseOfflineErrorText((payload && payload.raw) || (err && (err.rawBody || err.responseText || err.message || err)) || '');
+  var message = safeStage + '：' + summary;
   try{
     console.error('offline startup failed', stage, err);
   }catch(e){}
   pushOfflineBackendLog('error', 'startup.' + String(stage || 'unknown'), message, err);
   try{
-    toast('线下启动失败：' + summarizeOfflineError(err), { sticky:true });
+    renderOfflineInviteDebugCard();
+    toast('线下启动失败：' + summary + (rawText && rawText !== summary ? ('\n' + rawText.slice(0, 220)) : ''), { sticky:true });
   }catch(e){}
 }
 async function init(){
