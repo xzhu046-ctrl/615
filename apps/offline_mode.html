@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-21T06:34:08Z"></script>
-<script src="../chatStorage.js?v=2026-04-21T06:34:08Z"></script>
-<script src="../metadataStore.js?v=2026-04-21T06:34:08Z"></script>
-<script src="../promptManager.js?v=2026-04-21T06:34:08Z"></script>
-<script src="../accountManager.js?v=2026-04-21T06:34:08Z"></script>
-<script src="../scheduleShared.js?v=2026-04-21T06:34:08Z"></script>
-<script src="../presenceShared.js?v=2026-04-21T06:34:08Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-21T06:34:08Z"></script>
+<script src="../assetStore.js?v=2026-04-21T06:40:12Z"></script>
+<script src="../chatStorage.js?v=2026-04-21T06:40:12Z"></script>
+<script src="../metadataStore.js?v=2026-04-21T06:40:12Z"></script>
+<script src="../promptManager.js?v=2026-04-21T06:40:12Z"></script>
+<script src="../accountManager.js?v=2026-04-21T06:40:12Z"></script>
+<script src="../scheduleShared.js?v=2026-04-21T06:40:12Z"></script>
+<script src="../presenceShared.js?v=2026-04-21T06:40:12Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-21T06:40:12Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -6347,44 +6347,96 @@ function appendStreamPiece(buffer, piece){
   var next = String(buffer || '') + String(piece || '');
   return next.replace(/\r/g, '');
 }
+function extractStreamPayloadText(parsed){
+  if(!parsed || typeof parsed !== 'object') return '';
+  if(parsed.choices && parsed.choices[0]){
+    var choice = parsed.choices[0];
+    if(choice.delta){
+      var delta = choice.delta;
+      if(typeof delta.content === 'string') return delta.content;
+      if(Array.isArray(delta.content)){
+        return delta.content.map(function(part){ return String((part && (part.text || part.content)) || ''); }).join('');
+      }
+    }
+    if(choice.message){
+      if(typeof choice.message.content === 'string') return choice.message.content;
+      if(Array.isArray(choice.message.content)){
+        return choice.message.content.map(function(part){ return String((part && (part.text || part.content)) || ''); }).join('');
+      }
+    }
+    if(typeof choice.text === 'string') return choice.text;
+  }
+  if(parsed.type === 'content_block_delta' && parsed.delta && typeof parsed.delta.text === 'string'){
+    return parsed.delta.text;
+  }
+  if(parsed.candidates && parsed.candidates[0] && parsed.candidates[0].content && parsed.candidates[0].content.parts){
+    return parsed.candidates[0].content.parts.map(function(part){ return String((part && part.text) || ''); }).join('');
+  }
+  return '';
+}
 async function readSseStream(response, onPiece){
   if(!response || !response.body || !response.body.getReader) throw new Error('当前接口不支持流式读取');
   var reader = response.body.getReader();
   var decoder = new TextDecoder();
-  var buffer = '';
+  var lineBuffer = '';
+  var rawBuffer = '';
+  var emittedAny = false;
+  function emitPiece(piece){
+    var safePiece = String(piece || '');
+    if(!safePiece) return;
+    emittedAny = true;
+    onPiece(safePiece);
+  }
+  function processLine(line){
+    var safeLine = String(line || '').trim();
+    if(!safeLine) return;
+    if(safeLine.indexOf('data:') === 0){
+      var payload = safeLine.slice(5).trim();
+      if(!payload || payload === '[DONE]') return;
+      try{
+        var parsed = JSON.parse(payload);
+        var piece = extractStreamPayloadText(parsed);
+        if(piece) emitPiece(piece);
+      }catch(e){}
+      return;
+    }
+    if(safeLine[0] === '{' || safeLine[0] === '['){
+      try{
+        var parsedLoose = JSON.parse(safeLine);
+        var loosePiece = extractStreamPayloadText(parsedLoose);
+        if(loosePiece) emitPiece(loosePiece);
+      }catch(e){}
+    }
+  }
   while(true){
     var next = await reader.read();
     if(next.done) break;
-    buffer += decoder.decode(next.value, { stream:true });
-    var parts = buffer.split(/\n\n/);
-    buffer = parts.pop() || '';
-    for(var i = 0; i < parts.length; i += 1){
-      var block = parts[i];
-      var lines = String(block || '').split('\n');
-      for(var j = 0; j < lines.length; j += 1){
-        var line = String(lines[j] || '').trim();
-        if(!line || line.indexOf('data:') !== 0) continue;
-        var payload = line.slice(5).trim();
-        if(!payload || payload === '[DONE]') continue;
-        try{
-          var parsed = JSON.parse(payload);
-          var piece = '';
-          if(parsed && parsed.choices && parsed.choices[0] && parsed.choices[0].delta){
-            var delta = parsed.choices[0].delta;
-            if(typeof delta.content === 'string') piece = delta.content;
-            else if(Array.isArray(delta.content)){
-              piece = delta.content.map(function(part){ return String((part && (part.text || part.content)) || ''); }).join('');
-            }
-          }else if(parsed && parsed.type === 'content_block_delta' && parsed.delta && typeof parsed.delta.text === 'string'){
-            piece = parsed.delta.text;
-          }else if(parsed && parsed.candidates && parsed.candidates[0] && parsed.candidates[0].content && parsed.candidates[0].content.parts){
-            piece = parsed.candidates[0].content.parts.map(function(part){ return String((part && part.text) || ''); }).join('');
-          }
-          if(piece) onPiece(piece);
-        }catch(e){}
+    var chunkText = decoder.decode(next.value, { stream:true });
+    rawBuffer += chunkText;
+    lineBuffer += chunkText;
+    var lines = lineBuffer.split(/\r?\n/);
+    lineBuffer = lines.pop() || '';
+    for(var i = 0; i < lines.length; i += 1){
+      processLine(lines[i]);
+    }
+  }
+  lineBuffer += decoder.decode();
+  if(lineBuffer.trim()) processLine(lineBuffer);
+  if(!emittedAny){
+    var rawText = String(rawBuffer || '').trim();
+    if(rawText){
+      try{
+        var parsedRaw = JSON.parse(rawText);
+        var fallbackPiece = extractStreamPayloadText(parsedRaw);
+        if(fallbackPiece) emitPiece(fallbackPiece);
+      }catch(e){
+        if(rawText.indexOf('data:') !== 0 && rawText[0] !== '{' && rawText[0] !== '['){
+          emitPiece(rawText);
+        }
       }
     }
   }
+  return emittedAny;
 }
 async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOptions){
   var runtimeMeta = getOfflineRuntimeMeta(requestOptions);
@@ -6461,8 +6513,8 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
           rawBody: openaiStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
         });
       }
-      await readSseStream(res, handleStreamPiece);
-      return true;
+      var openaiStreamed = await readSseStream(res, handleStreamPiece);
+      return !!openaiStreamed;
     }catch(err){
       if(controller && controller.signal && controller.signal.aborted){
         throw createStreamTimeoutError('流式请求超时', controller.signal.reason, 'https://api.openai.com/v1/chat/completions', model);
@@ -6488,8 +6540,8 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
           rawBody: openrouterStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
         });
       }
-      await readSseStream(resOr, handleStreamPiece);
-      return true;
+      var openrouterStreamed = await readSseStream(resOr, handleStreamPiece);
+      return !!openrouterStreamed;
     }catch(err){
       if(controller && controller.signal && controller.signal.aborted){
         throw createStreamTimeoutError('流式请求超时', controller.signal.reason, 'https://openrouter.ai/api/v1/chat/completions', model);
@@ -6528,8 +6580,8 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
           rawBody: customStreamText, requestedMaxTokens: req.maxTokens, contextLimit: runtimeMeta.contextLimit, promptTokens: promptTokens
         });
       }
-      await readSseStream(resCustom, handleStreamPiece);
-      return true;
+      var customStreamed = await readSseStream(resCustom, handleStreamPiece);
+      return !!customStreamed;
     }catch(err){
       if(controller && controller.signal && controller.signal.aborted){
         throw createStreamTimeoutError('流式请求超时', controller.signal.reason, baseUrl + '/chat/completions', customModel);
