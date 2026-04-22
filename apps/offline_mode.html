@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-22T05:29:43Z"></script>
-<script src="../chatStorage.js?v=2026-04-22T05:29:43Z"></script>
-<script src="../metadataStore.js?v=2026-04-22T05:29:43Z"></script>
-<script src="../promptManager.js?v=2026-04-22T05:29:43Z"></script>
-<script src="../accountManager.js?v=2026-04-22T05:29:43Z"></script>
-<script src="../scheduleShared.js?v=2026-04-22T05:29:43Z"></script>
-<script src="../presenceShared.js?v=2026-04-22T05:29:43Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-22T05:29:43Z"></script>
+<script src="../assetStore.js?v=2026-04-22T06:49:12Z"></script>
+<script src="../chatStorage.js?v=2026-04-22T06:49:12Z"></script>
+<script src="../metadataStore.js?v=2026-04-22T06:49:12Z"></script>
+<script src="../promptManager.js?v=2026-04-22T06:49:12Z"></script>
+<script src="../accountManager.js?v=2026-04-22T06:49:12Z"></script>
+<script src="../scheduleShared.js?v=2026-04-22T06:49:12Z"></script>
+<script src="../presenceShared.js?v=2026-04-22T06:49:12Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-22T06:49:12Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -2472,6 +2472,23 @@ function normalizeOfflineStatusCard(raw, seedText){
     artifactLabel: artifactLabel
   };
 }
+function normalizeOfflineInlineArtifact(raw){
+  var source = raw && typeof raw === 'object' ? raw : null;
+  if(!source) return null;
+  var artifactHtml = sanitizeOfflineArtifactHtml(source.artifact_html || source.artifactHtml || '');
+  var artifactLabel = String(source.artifact_label || source.artifactLabel || '').trim();
+  if(!artifactHtml && !artifactLabel) return null;
+  if(!artifactHtml || !artifactLabel) return null;
+  if(containsOfflineStyleViolation(artifactLabel) || containsOfflineStyleViolation(artifactHtml)) return null;
+  if(violatesOfflineStatusCardLanguage({
+    artifact_label: artifactLabel,
+    artifact_html: artifactHtml
+  })) return null;
+  return {
+    artifactHtml: artifactHtml,
+    artifactLabel: artifactLabel
+  };
+}
 function sanitizeOfflineArtifactHtml(raw){
   var html = String(raw || '').trim();
   if(!html) return '';
@@ -3915,6 +3932,10 @@ function renderPaperStoryCard(entry, idx, isChar){
   var thoughtToggle = isChar ? ('<div class="offline-story-thought-row">' + renderOfflineThoughtChain(entry) + '</div>') : '';
   var summaryToggle = isChar ? renderOfflineSummary(entry) : '';
   var statusChip = isChar ? renderOfflineStatusChip(entry, idx) : '';
+  var inlineArtifact = isChar ? normalizeOfflineInlineArtifact(entry) : null;
+  var artifactBlock = inlineArtifact
+    ? ('<div class="offline-artifact-card"><div class="offline-artifact-label">' + esc(String(inlineArtifact.artifactLabel || '小物件')) + '</div><div class="offline-artifact-preview">' + String(inlineArtifact.artifactHtml || '') + '</div></div>')
+    : '';
   var toolsRow = isChar ? ('<div class="offline-story-tools"><div class="offline-story-tools-left">' + thoughtToggle + '</div><button class="offline-story-editbtn" type="button" onclick="editOfflineEntryText(' + idx + ')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></button></div>') : '';
   var userEdit = isChar ? '' : ('<div class="offline-story-actions-left"><button class="offline-story-editbtn" type="button" onclick="editOfflineEntryText(' + idx + ')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></button></div>');
   var avatarHtml = '<div class="offline-story-avatar' + (isChar ? ' is-char' : '') + '"' + (isChar ? ' onclick="openOfflineStatusModal(' + idx + ')"' : '') + '>' + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : esc(displayName.slice(0, 2) || (isChar ? 'C' : 'U'))) + '</div>';
@@ -3946,6 +3967,7 @@ function renderPaperStoryCard(entry, idx, isChar){
       '</div>' +
       '<div class="offline-story-divider"></div>' +
       '<div class="offline-story-body">' + renderCharSheetBody(entry.text || '', entry.asides || (entry.aside ? [entry.aside] : []), idx, entry) + '</div>' +
+      artifactBlock +
       (isChar ? ('<div class="offline-story-postcards">' + statusChip + summaryToggle + '</div>') : '') +
       bottomActions +
     '</div>' +
@@ -4579,7 +4601,11 @@ function containsOfflineChineseOnlyMetaViolation(text){
 }
 function normalizeOfflineBodyDisplayPayload(payload){
   if(!(payload && typeof payload === 'object')) return payload;
-  return Object.assign({}, payload);
+  var next = Object.assign({}, payload);
+  var inlineArtifact = normalizeOfflineInlineArtifact(next);
+  next.artifactHtml = inlineArtifact ? inlineArtifact.artifactHtml : '';
+  next.artifactLabel = inlineArtifact ? inlineArtifact.artifactLabel : '';
+  return next;
 }
 function violatesOfflineBodyDisplayLanguage(payload){
   if(!(payload && typeof payload === 'object')) return false;
@@ -4732,9 +4758,20 @@ function collectOfflineBodyValidationIssues(payload, options){
   var text = String(payload.text || '').trim();
   var title = String(payload.title || '').trim();
   var quote = String(payload.quote || '').trim();
+  var artifactHtml = String(payload.artifactHtml || payload.artifact_html || '').trim();
+  var artifactLabel = String(payload.artifactLabel || payload.artifact_label || '').trim();
   if(!text) reasons.push('正文为空');
   if(!title) reasons.push('标题为空');
   if(!quote) reasons.push('顶部语录为空');
+  if((artifactHtml && !artifactLabel) || (artifactLabel && !artifactHtml)){
+    reasons.push('正文小卡片结构不完整');
+  }
+  if((artifactHtml || artifactLabel) && !normalizeOfflineInlineArtifact({
+    artifact_html: artifactHtml,
+    artifact_label: artifactLabel
+  })){
+    reasons.push('正文小卡片不合法');
+  }
   if(Number(opts.minChars) > 0 && openingTextLength(text) < Number(opts.minChars)){
     reasons.push('正文长度不足');
   }
@@ -4764,7 +4801,7 @@ async function repairOfflineBodyPayload(draft, options){
   var langOption = getReplyLanguageOption(lang);
   var systemPrompt = [
     '你是“线下正文修正文案器”。',
-    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."]}。',
+    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."],"artifact_label":"...","artifact_html":"..."}。',
     '不要解释，不要代码块，不要 thought_chain，不要 status_card。',
     '保持原草稿这幕的情境、关系、推进和情绪，不要重写成另一场戏。',
     'title 与 quote 必须是简体中文。',
@@ -4773,6 +4810,8 @@ async function repairOfflineBodyPayload(draft, options){
       ? ('只有蓝字心声 asides 和引号里的角色台词使用' + (langOption.nativeLabel || langOption.label || lang) + '原文。')
       : '蓝字心声和引号里的角色台词默认使用简体中文。',
     '正文里必须至少保留 1 句角色真正说出口的引号台词。',
+    '如果原草稿里已经有 artifact_label / artifact_html，就尽量保住这张正文小卡片；如果这幕不需要小卡片，就把 artifact_label 和 artifact_html 都留空字符串。',
+    'artifact_html 若存在，只能用简单安全的 HTML/CSS 做一张小卡片、小票据、小页面、小物件，不许 script，不许外链，不许 iframe，不许事件属性。',
     '不要使用占位句，不要写 fallback，不要偷懒写成模板句。'
   ].join('\n');
   var userPrompt = JSON.stringify({
@@ -4785,7 +4824,9 @@ async function repairOfflineBodyPayload(draft, options){
       title: String(source.title || '').trim(),
       quote: String(source.quote || '').trim(),
       text: String(source.text || '').trim(),
-      asides: Array.isArray(source.asides) ? source.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : []
+      asides: Array.isArray(source.asides) ? source.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [],
+      artifact_label: String(source.artifactLabel || source.artifact_label || '').trim(),
+      artifact_html: String(source.artifactHtml || source.artifact_html || '').trim()
     }
   });
   var raw = await callAIWithTimeout(systemPrompt, userPrompt, Math.min(isMobileOfflineRuntime() ? 65000 : 50000, Number(opts.timeoutMs) || 50000));
@@ -4795,7 +4836,9 @@ async function repairOfflineBodyPayload(draft, options){
     title: String(parsed.title || '').trim(),
     quote: String(parsed.quote || '').trim(),
     text: String(parsed.text || '').trim(),
-    asides: normalizeOfflineAsides(parsed.asides)
+    asides: normalizeOfflineAsides(parsed.asides),
+    artifactLabel: String(parsed.artifactLabel || parsed.artifact_label || '').trim(),
+    artifactHtml: String(parsed.artifactHtml || parsed.artifact_html || '').trim()
   };
 }
 async function rewriteOfflineBodyPayload(draft, options){
@@ -4806,7 +4849,7 @@ async function rewriteOfflineBodyPayload(draft, options){
   var systemPrompt = [
     '你是“线下正文终审改稿器”。',
     '你收到的是一版不合格草稿，你的任务不是判断它哪里错，而是直接把它改成最终可用版本。',
-    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."]}。',
+    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."],"artifact_label":"...","artifact_html":"..."}。',
     '不要解释，不要代码块，不要 thought_chain，不要 status_card。',
     '如果草稿里踩中了禁词、禁用句式、外语旁白、错误视角、缺少引号台词、长度不够，你必须主动改写到合格，不能把问题原样留下。',
     'title 与 quote 必须是简体中文。',
@@ -4816,6 +4859,7 @@ async function rewriteOfflineBodyPayload(draft, options){
       : '蓝字心声和引号里的角色台词默认使用简体中文。',
     '正文里必须至少保留 1 句角色真正说出口的引号台词。',
     'asides 只保留 1 到 2 句，语气自然，不能是总结句。',
+    '如果这幕天然提到了信、纸条、票据、截图、搜索页、证件、记录页、小物件这类能被拿出来看的东西，可以保留或补一张正文小卡片：artifact_label 写名字，artifact_html 写简单安全的 HTML/CSS；如果这幕不需要，就把 artifact_label 和 artifact_html 都留空字符串。',
     '绝对不要说“我不能这样写”“不合规”“请修改后再试”，你要直接给出修好的成稿。'
   ].join('\n');
   var userPrompt = JSON.stringify({
@@ -4833,7 +4877,9 @@ async function rewriteOfflineBodyPayload(draft, options){
       title: String(source.title || '').trim(),
       quote: String(source.quote || '').trim(),
       text: String(source.text || '').trim(),
-      asides: Array.isArray(source.asides) ? source.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : []
+      asides: Array.isArray(source.asides) ? source.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [],
+      artifact_label: String(source.artifactLabel || source.artifact_label || '').trim(),
+      artifact_html: String(source.artifactHtml || source.artifact_html || '').trim()
     }
   });
   var raw = await callAIWithTimeout(systemPrompt, userPrompt, Math.min(isMobileOfflineRuntime() ? 70000 : 56000, Number(opts.timeoutMs) || 56000));
@@ -4843,7 +4889,9 @@ async function rewriteOfflineBodyPayload(draft, options){
     title: String(parsed.title || '').trim(),
     quote: String(parsed.quote || '').trim(),
     text: String(parsed.text || '').trim(),
-    asides: normalizeOfflineAsides(parsed.asides)
+    asides: normalizeOfflineAsides(parsed.asides),
+    artifactLabel: String(parsed.artifactLabel || parsed.artifact_label || '').trim(),
+    artifactHtml: String(parsed.artifactHtml || parsed.artifact_html || '').trim()
   };
 }
 async function generateOfflineBodyTextOnly(context, options){
@@ -5265,11 +5313,14 @@ function isMountedOfflineLiveEntry(entry){
 }
 function normalizeOfflineBodyDraftCandidate(draft){
   var source = draft && typeof draft === 'object' ? draft : {};
+  var inlineArtifact = normalizeOfflineInlineArtifact(source);
   return {
     title: String(source.title || '').trim(),
     quote: String(source.quote || '').trim(),
     text: String(source.text || '').trim(),
-    asides: normalizeOfflineAsides(source.asides)
+    asides: normalizeOfflineAsides(source.asides),
+    artifactLabel: inlineArtifact ? inlineArtifact.artifactLabel : '',
+    artifactHtml: inlineArtifact ? inlineArtifact.artifactHtml : ''
   };
 }
 function scoreOfflineBodyDraft(payload, issues){
@@ -6015,7 +6066,7 @@ function buildOfflineBodySystemPrompt(options){
   var storyPrefs = getOfflineStoryPrefs();
   return [
     '你现在只负责生成线下模式这一幕的正文内容。',
-    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"..."}',
+    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"...","artifact_label":"...","artifact_html":"..."}',
     '不要 thought_chain，不要 status_card，不要解释。',
     'title 是这一幕标题，6-16 个简体中文字符左右；要搞笑、有网感、像会被拿来当小标题吐槽的那种，允许轻微口语化和坏笑感，但必须贴人设。',
     'quote 是顶部 char 语录，12-30 个简体中文字符左右；要可爱圆润但贴人设。',
@@ -6031,6 +6082,10 @@ function buildOfflineBodySystemPrompt(options){
     'asides 是 2 句第一人称心声，分别适合插在第一段后和第二段后。',
     '这两句心声要像活人脑子里一闪而过的小反应、小嘴硬或小失控，不要写总结、解释、分析、抒情排比，更不要写成 AI 读后感。',
     'asides 不要加括号、书名号、方括号、破折号或任何前后缀，只返回干净的一句原文。',
+    '如果这幕正文里自然提到了白名单风格的小东西，比如信、纸条、便签、聊天截图、票据、收据、搜索页、记录页、证件、作业页、海报、小网页、小卡片、小物件，你可以额外返回 artifact_label 和 artifact_html，把它做成一张能直接展示的 HTML/CSS 小卡片。',
+    'artifact_label 写这张小卡片的名字；artifact_html 只能用简单安全的 HTML/CSS，不许 script，不许外链，不许 iframe，不许事件属性。',
+    '正文仍然必须完整成立，artifact 只是加戏，不许为了做小卡片把正文写空。没有自然对应的小东西时，就把 artifact_label 和 artifact_html 留空字符串。',
+    '不要每一幕都硬塞 artifact，只有在这幕真的出现或提到那种可被“拿出来看”的东西时才生成。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '用户名字：' + resolveUserName(),
     '用户 persona：' + (userPersona || '未提供'),
@@ -6228,7 +6283,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
   return [
     '你在生成“线下见面模式”的第一幕正文。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."]}，不要代码块，不要解释。',
+    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."],"artifact_label":"...","artifact_html":"..."}，不要代码块，不要解释。',
     '这次直接写完整第一幕正文，长度尽量写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间。',
     '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；title、quote 和正文旁白固定简体中文；status_card 严格使用当前语言设置；只有 asides 和引号里的台词严格使用当前语言设置。',
     '不要把整段正文旁白切成外语；title、quote 和外层旁白也绝对不许变成外语。',
@@ -6250,6 +6305,9 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '正文里必须至少出现 1 句 char 真正说出口的直接引语，用引号包起来，不要整段都只写动作和旁白。',
     'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
     '蓝字心声要像活人脑内瞬间闪过的欲言又止、嘴硬、自我警告、心里发烫或一秒露馅，不要总结局面，不要讲大道理，不要复述正文。',
+    '如果首幕里自然出现了信、纸条、便签、票据、收据、搜索页、聊天截图、记录页、证件、网页、小海报、小物件这些白名单风格的东西，可以额外返回 artifact_label 和 artifact_html。',
+    'artifact_html 只能是简单安全的 HTML/CSS 小卡片，不许 script，不许外链，不许 iframe，不许事件属性；artifact_label 写这张卡片的名字。',
+    '正文必须仍然完整成立，artifact 只是额外增强代入感；没有自然对应的小东西时，把 artifact_label 和 artifact_html 留空字符串。',
     '下笔前必须先读并吸收这些信息，再决定 char 的开场方式：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、见面起点信息、scenario、system prompt。',
     '角色 persona 决定 char 的气质、说话方式和推进节奏；用户 persona 决定 char 对 user 的理解、称呼、互动分寸和照顾方式。',
     '最近线上聊天、世界书、记忆总结、人设、scenario、system prompt 优先级极高，必须先读懂再写；不要脱离上下文瞎写，不要 OOC，也不要偷偷无视这些规矩。',
@@ -7135,6 +7193,8 @@ function hasOfflineBannedContentInPayload(payload){
   texts.push(String(payload.text || ''));
   texts.push(String(payload.title || ''));
   texts.push(String(payload.quote || ''));
+  texts.push(String(payload.artifact_label || payload.artifactLabel || ''));
+  texts.push(String(payload.artifact_html || payload.artifactHtml || ''));
   if(Array.isArray(payload.asides)) texts = texts.concat(payload.asides.map(function(it){ return String(it || ''); }));
   if(payload.thought_chain && typeof payload.thought_chain === 'object'){
     texts.push(String(payload.thought_chain.subtext_perception || ''));
@@ -7845,7 +7905,9 @@ async function generateOpeningIfNeeded(){
           title:'',
           quote:'',
           text:openingText,
-          asides:[]
+          asides:[],
+          artifactLabel:'',
+          artifactHtml:''
         };
       }catch(streamOpeningErr){
         lastError = streamOpeningErr;
@@ -7872,7 +7934,9 @@ async function generateOpeningIfNeeded(){
           title: openingTitle,
           quote: openingQuote,
           text: openingText,
-          asides: openingAsides.slice()
+          asides: openingAsides.slice(),
+          artifactLabel:'',
+          artifactHtml:''
         };
       }catch(emergencyWarmupErr){
         lastError = emergencyWarmupErr;
@@ -7896,7 +7960,9 @@ async function generateOpeningIfNeeded(){
             title: openingTitle,
             quote: openingQuote,
             text: openingText,
-            asides: openingAsides.slice()
+            asides: openingAsides.slice(),
+            artifactLabel: String(fastCombinedObj.artifactLabel || fastCombinedObj.artifact_label || '').trim(),
+            artifactHtml: String(fastCombinedObj.artifactHtml || fastCombinedObj.artifact_html || '').trim()
           };
         }
       }catch(fastCombinedErr){
@@ -7922,7 +7988,9 @@ async function generateOpeningIfNeeded(){
             title: openingTitle,
             quote: openingQuote,
             text: openingText,
-            asides: openingAsides.slice()
+            asides: openingAsides.slice(),
+            artifactLabel: String(bodyObj.artifactLabel || bodyObj.artifact_label || '').trim(),
+            artifactHtml: String(bodyObj.artifactHtml || bodyObj.artifact_html || '').trim()
           };
         }
         for(var extendAttempt = 0; extendAttempt < plan.extendAttempts; extendAttempt += 1){
@@ -7952,7 +8020,9 @@ async function generateOpeningIfNeeded(){
                 title: openingTitle,
                 quote: openingQuote,
                 text: openingText,
-                asides: openingAsides.slice()
+                asides: openingAsides.slice(),
+                artifactLabel: String(continueObj.artifactLabel || continueObj.artifact_label || '').trim(),
+                artifactHtml: String(continueObj.artifactHtml || continueObj.artifact_html || '').trim()
               };
             }
           }catch(continueErr){
@@ -8005,7 +8075,9 @@ async function generateOpeningIfNeeded(){
             title: openingTitle,
             quote: openingQuote,
             text: openingText,
-            asides: openingAsides.slice()
+            asides: openingAsides.slice(),
+            artifactLabel: String(combinedObj.artifactLabel || combinedObj.artifact_label || '').trim(),
+            artifactHtml: String(combinedObj.artifactHtml || combinedObj.artifact_html || '').trim()
           };
         }
       }catch(combinedErr){
@@ -8020,7 +8092,9 @@ async function generateOpeningIfNeeded(){
       title: openingTitle,
       quote: openingQuote,
       text: openingText,
-      asides: openingAsides
+      asides: openingAsides,
+      artifactLabel:'',
+      artifactHtml:''
     }, {
       opening: true,
       minChars: openingMinChars,
@@ -8035,6 +8109,7 @@ async function generateOpeningIfNeeded(){
     openingQuote = String(openingFinalize && openingFinalize.payload && openingFinalize.payload.quote || openingQuote || '').trim();
     openingText = String(openingFinalize && openingFinalize.payload && openingFinalize.payload.text || openingText || '').trim();
     openingAsides = normalizeOfflineAsides(openingFinalize && openingFinalize.payload ? openingFinalize.payload.asides : openingAsides);
+    var openingArtifact = normalizeOfflineInlineArtifact(openingFinalize && openingFinalize.payload ? openingFinalize.payload : bestDraft);
     var openingIssues = Array.isArray(openingFinalize && openingFinalize.issues) ? openingFinalize.issues : [];
     if(openingIssues.length){
       throw lastError || new Error('首幕我已经自动修过了，但还是没修到合格版本：' + openingIssues.join('、'));
@@ -8062,6 +8137,8 @@ async function generateOpeningIfNeeded(){
     openingEntry.quote = openingQuote;
     openingEntry.asides = openingAsides.length ? openingAsides : [];
     openingEntry.thoughtChain = normalizeOfflineThoughtChain(openingThoughtChain, openingText);
+    openingEntry.artifactLabel = openingArtifact ? openingArtifact.artifactLabel : '';
+    openingEntry.artifactHtml = openingArtifact ? openingArtifact.artifactHtml : '';
     openingEntry.statusCard = normalizedOpeningStatus;
     openingEntry.statusPending = !normalizedOpeningStatus;
     openingEntry.statusPendingAt = !normalizedOpeningStatus ? Date.now() : 0;
@@ -8371,6 +8448,8 @@ async function requestOfflineReply(options){
       ).trim();
       leanEntry.asides = Array.isArray(leanReply.asides) ? leanReply.asides.slice(0, 2) : [];
       leanEntry.thoughtChain = normalizeOfflineThoughtChain(streamedReplyThoughtChain || leanEntry.thoughtChain || null, leanEntry.text);
+      leanEntry.artifactLabel = '';
+      leanEntry.artifactHtml = '';
       leanEntry.statusCard = null;
       leanEntry.statusPending = false;
       leanEntry.statusPendingAt = 0;
@@ -8492,7 +8571,9 @@ async function requestOfflineReply(options){
           title:'',
           quote:'',
           text:String(streamedReplyText || '').trim(),
-          asides:[]
+          asides:[],
+          artifactLabel:'',
+          artifactHtml:''
         };
       }catch(streamReplyErr){
         bodyError = streamReplyErr;
@@ -8539,7 +8620,9 @@ async function requestOfflineReply(options){
             title: '',
             quote: '',
             text: String(textOnlyReply || '').trim(),
-            asides: []
+            asides: [],
+            artifactLabel:'',
+            artifactHtml:''
           };
         }
       }catch(textOnlyReplyErr){
@@ -8576,7 +8659,9 @@ async function requestOfflineReply(options){
       text: replyText,
       title: replyTitle,
       quote: replyQuote,
-      asides: replyAsides
+      asides: replyAsides,
+      artifactLabel: String(bodyPayload.artifactLabel || bodyPayload.artifact_label || '').trim(),
+      artifactHtml: String(bodyPayload.artifactHtml || bodyPayload.artifact_html || '').trim()
     }, {
       opening: false,
       minChars: minChars,
@@ -8591,6 +8676,7 @@ async function requestOfflineReply(options){
     replyTitle = String(replyFinalize && replyFinalize.payload && replyFinalize.payload.title || replyTitle || '').trim();
     replyQuote = String(replyFinalize && replyFinalize.payload && replyFinalize.payload.quote || replyQuote || '').trim();
     replyAsides = normalizeOfflineAsides(replyFinalize && replyFinalize.payload ? replyFinalize.payload.asides : replyAsides);
+    var replyArtifact = normalizeOfflineInlineArtifact(replyFinalize && replyFinalize.payload ? replyFinalize.payload : bodyPayload);
     var replyIssues = Array.isArray(replyFinalize && replyFinalize.issues) ? replyFinalize.issues : [];
     if(replyIssues.length){
       var replyLen = openingTextLength(replyText);
@@ -8615,6 +8701,8 @@ async function requestOfflineReply(options){
     replyEntry.quote = replyQuote;
     replyEntry.asides = replyAsides;
     replyEntry.thoughtChain = normalizeOfflineThoughtChain(thoughtChain, replyText);
+    replyEntry.artifactLabel = replyArtifact ? replyArtifact.artifactLabel : '';
+    replyEntry.artifactHtml = replyArtifact ? replyArtifact.artifactHtml : '';
     replyEntry.statusCard = null;
     replyEntry.statusPending = true;
     replyEntry.statusPendingAt = Date.now();
@@ -8657,6 +8745,8 @@ async function requestOfflineReply(options){
           title:String(emergencyReply.title || '').trim(),
           quote:String(emergencyReply.quote || '').trim(),
           asides:normalizeOfflineAsides(emergencyReply.asides),
+          artifactLabel:'',
+          artifactHtml:'',
           heart:'♥',
           thoughtChain: normalizeOfflineThoughtChain(thoughtChain, emergencyReply.text),
           statusCard:null,
