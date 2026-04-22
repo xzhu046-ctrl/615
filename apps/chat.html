@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-20T04:55:35Z"></script>
-<script src="../accountManager.js?v=2026-04-20T04:55:35Z"></script>
-<script src="../assetStore.js?v=2026-04-20T04:55:35Z"></script>
-<script src="../chatStorage.js?v=2026-04-20T04:55:35Z"></script>
-<script src="../metadataStore.js?v=2026-04-20T04:55:35Z"></script>
-<script src="../scheduleShared.js?v=2026-04-20T04:55:35Z"></script>
-<script src="../presenceShared.js?v=2026-04-20T04:55:35Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-20T04:55:35Z"></script>
-<script src="../sunnySupport.js?v=2026-04-20T04:55:35Z"></script>
-<script src="offlineInvite.js?v=2026-04-20T04:55:35Z"></script>
+<script src="../promptManager.js?v=2026-04-22T05:53:11Z"></script>
+<script src="../accountManager.js?v=2026-04-22T05:53:11Z"></script>
+<script src="../assetStore.js?v=2026-04-22T05:53:11Z"></script>
+<script src="../chatStorage.js?v=2026-04-22T05:53:11Z"></script>
+<script src="../metadataStore.js?v=2026-04-22T05:53:11Z"></script>
+<script src="../scheduleShared.js?v=2026-04-22T05:53:11Z"></script>
+<script src="../presenceShared.js?v=2026-04-22T05:53:11Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-22T05:53:11Z"></script>
+<script src="../sunnySupport.js?v=2026-04-22T05:53:11Z"></script>
+<script src="offlineInvite.js?v=2026-04-22T05:53:11Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -12718,8 +12718,28 @@ function compactChatEntryForStorage(entry){
   ];
 }
 function normalizeChatEntry(m){
+  var buildDirectRichHtmlEntry = function(role, payload, id){
+    if(!payload || typeof payload !== 'object' || !isLikelyRichHtmlObject(payload)) return null;
+    return makeChatEntry(role || 'assistant', coerceRichHtmlPayload(payload, {
+      html: payload.html || '',
+      css: payload.css || '',
+      js: payload.js || '',
+      url: payload.url || '',
+      title: payload.title || '',
+      cover: payload.cover || payload.coverUrl || '',
+      summary: payload.summary || payload.text || payload.content || '',
+      text: payload.text || payload.content || payload.reply_content || payload.description || ''
+    }), 'richhtml', id);
+  };
   if(Array.isArray(m)){
     var compact = makeChatEntry(m[1] || 'assistant', m[3] || '', normalizeMessageType(m[2] || 'text'), m[0] || '');
+    if(normalizeMessageType(compact.type || 'text') === 'text'){
+      try{
+        var compactParsed = JSON.parse(String(compact.content || ''));
+        var compactRich = buildDirectRichHtmlEntry(compact.role || 'assistant', compactParsed, compact.id);
+        if(compactRich) compact = compactRich;
+      }catch(e){}
+    }
     if(normalizeMessageType(compact.type || 'text') === 'text'){
       var compactMeme = parseMemeMarker(compact.content || '');
       if(compactMeme){
@@ -12764,8 +12784,12 @@ function normalizeChatEntry(m){
     if (!m.type && typeof m.content === 'string') {
       try{
         var parsedPayload = JSON.parse(m.content);
-        if(parsedPayload && typeof parsedPayload === 'object' && parsedPayload.type && parsedPayload.content){
-          return applyLegacyMeta(makeChatEntry(m.role || 'assistant', parsedPayload.content, parsedPayload.type, m.id));
+        if(parsedPayload && typeof parsedPayload === 'object'){
+          if(parsedPayload.type && parsedPayload.content){
+            return applyLegacyMeta(makeChatEntry(m.role || 'assistant', parsedPayload.content, parsedPayload.type, m.id));
+          }
+          var parsedRichEntry = buildDirectRichHtmlEntry(m.role || 'assistant', parsedPayload, m.id);
+          if(parsedRichEntry) return applyLegacyMeta(parsedRichEntry);
         }
       }catch(e){}
     }
@@ -12782,8 +12806,12 @@ function normalizeChatEntry(m){
   var txt = String(m || '');
   try{
     var obj = JSON.parse(txt);
-    if(obj && typeof obj === 'object' && obj.type && obj.content){
-      return makeChatEntry('assistant', obj.content, obj.type);
+    if(obj && typeof obj === 'object'){
+      if(obj.type && obj.content){
+        return makeChatEntry('assistant', obj.content, obj.type);
+      }
+      var txtRichEntry = buildDirectRichHtmlEntry('assistant', obj, '');
+      if(txtRichEntry) return txtRichEntry;
     }
   }catch(e){}
   var fallback = makeChatEntry('assistant', txt, 'text');
@@ -19535,6 +19563,21 @@ function addMessage(role, content, doScroll, msgType, msgId) {
       if(o && o.type && o.content){
         msgType = normalizeMessageType(o.type);
         safeText = o.content;
+      }else if(o && typeof o === 'object' && isLikelyRichHtmlObject(o)){
+        msgType = 'richhtml';
+        safeText = coerceRichHtmlPayload(o, {
+          html: o.html || '',
+          css: o.css || '',
+          js: o.js || '',
+          url: o.url || '',
+          title: o.title || '',
+          cover: o.cover || o.coverUrl || '',
+          summary: o.summary || o.text || o.content || '',
+          text: o.text || o.content || o.reply_content || o.description || ''
+        });
+        isRichHtml = true;
+        div.classList.add('richhtml-msg');
+        bubble.classList.add('richhtml-shell');
       }else if(o && normalizeMessageType(o.type || '') === 'moneypacket'){
         msgType = 'moneypacket';
         safeText = JSON.stringify(o);
