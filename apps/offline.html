@@ -801,7 +801,106 @@ async function removeOfflineRecord(id){
   latestOfflineRecords = (Array.isArray(latestOfflineRecords) ? latestOfflineRecords : []).filter(function(item){
     return String(item && item.id || '').trim() !== safeId;
   });
+  await cleanupOfflineStorageAfterRecordRemoval(target || { id: safeId }, latestOfflineRecords);
   if(currentSelectedId === safeId) currentSelectedId = '';
+}
+
+function getScopedOfflineStorageKey(raw){
+  var safeRaw = String(raw || '').trim();
+  if(!safeRaw) return '';
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
+      return window.parent.scopedKeyForAccount(safeRaw, window.parent.getActiveAccountId());
+    }
+  }catch(err){}
+  return safeRaw;
+}
+
+async function removeOfflineJsonKeyEverywhere(rawKey){
+  var safeRaw = String(rawKey || '').trim();
+  if(!safeRaw) return;
+  var keys = [getScopedOfflineStorageKey(safeRaw), safeRaw].filter(Boolean);
+  for(var i = 0; i < keys.length; i += 1){
+    var key = keys[i];
+    try{ localStorage.removeItem(key); }catch(err){}
+    try{
+      if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.removeJson === 'function'){
+        await window.parent.PhoneStorage.removeJson(key);
+      }
+    }catch(ignoreErr){}
+  }
+}
+
+async function cleanupOfflineArchiveRecordsForChar(charId){
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return;
+  var listKeys = [getScopedOfflineStorageKey('offline_meet_archives'), 'offline_meet_archives'].filter(Boolean);
+  var removedIds = [];
+  for(var i = 0; i < listKeys.length; i += 1){
+    var key = listKeys[i];
+    var parsed = [];
+    try{
+      parsed = JSON.parse(localStorage.getItem(key) || '[]');
+      if(!Array.isArray(parsed)) parsed = [];
+    }catch(err){
+      parsed = [];
+    }
+    parsed.forEach(function(item){
+      if(item && String(item.charId || '').trim() === safeCharId){
+        removedIds.push(String(item.id || '').trim());
+      }
+    });
+    var nextList = parsed.filter(function(item){
+      return !(item && String(item.charId || '').trim() === safeCharId);
+    });
+    try{ localStorage.setItem(key, JSON.stringify(nextList)); }catch(err){}
+    try{
+      if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.putJson === 'function'){
+        await window.parent.PhoneStorage.putJson(key, nextList);
+      }
+    }catch(ignoreErr){}
+  }
+  for(var r = 0; r < removedIds.length; r += 1){
+    var archiveId = String(removedIds[r] || '').trim();
+    if(!archiveId) continue;
+    await removeOfflineJsonKeyEverywhere('offline_meet_archive_record_' + archiveId);
+  }
+}
+
+async function cleanupOfflineStorageAfterRecordRemoval(record, remainingRecords){
+  var safeCharId = String(record && record.charId || '').trim();
+  if(!safeCharId) return;
+  var rest = Array.isArray(remainingRecords) ? remainingRecords : [];
+  var stillHasCharRecords = rest.some(function(item){
+    return String(item && item.charId || '').trim() === safeCharId;
+  });
+  if(stillHasCharRecords) return;
+  await cleanupOfflineArchiveRecordsForChar(safeCharId);
+  var baseKeys = [
+    'offline_meet_session_' + safeCharId,
+    'offline_resume_' + safeCharId,
+    'offline_bootstrap_' + safeCharId,
+    'offline_launch_' + safeCharId
+  ];
+  for(var i = 0; i < baseKeys.length; i += 1){
+    await removeOfflineJsonKeyEverywhere(baseKeys[i]);
+  }
+  try{
+    var activeOffline = String(localStorage.getItem(getScopedOfflineStorageKey('activeOfflineCharacterId')) || localStorage.getItem('activeOfflineCharacterId') || '').trim();
+    if(activeOffline === safeCharId){
+      try{ localStorage.removeItem(getScopedOfflineStorageKey('activeOfflineCharacterId')); }catch(err){}
+      try{ localStorage.removeItem('activeOfflineCharacterId'); }catch(err2){}
+    }
+  }catch(err){}
+  try{
+    var latestRaw = localStorage.getItem(getScopedOfflineStorageKey('offline_launch_latest')) || localStorage.getItem('offline_launch_latest') || '';
+    var latest = latestRaw ? JSON.parse(latestRaw) : null;
+    if(latest && String(latest.charId || '').trim() === safeCharId){
+      var launchToken = String(latest.launchToken || '').trim();
+      await removeOfflineJsonKeyEverywhere('offline_launch_latest');
+      if(launchToken) await removeOfflineJsonKeyEverywhere('offline_launch_token_' + launchToken);
+    }
+  }catch(err){}
 }
 
 function openDeleteConfirm(id){
