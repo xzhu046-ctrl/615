@@ -10288,6 +10288,7 @@ function buildRichHtmlSrcdoc(payload){
   var initialState = payload && typeof payload === 'object' && payload.__initialChatState && typeof payload.__initialChatState === 'object'
     ? payload.__initialChatState
     : null;
+  var enableGreetingBridge = !!(payload && typeof payload === 'object' && payload.__enableGreetingBridge);
   var normalizedInitialState = {
     mes: String(initialState && initialState.mes || '').trim(),
     swipes: Array.isArray(initialState && initialState.swipes)
@@ -10300,6 +10301,9 @@ function buildRichHtmlSrcdoc(payload){
   }
   if(!(normalizedInitialState.swipe_id >= 0) || normalizedInitialState.swipe_id >= normalizedInitialState.swipes.length){
     normalizedInitialState.swipe_id = normalizedInitialState.swipes.length ? 0 : 0;
+  }
+  if(!enableGreetingBridge && (normalizedInitialState.mes || normalizedInitialState.swipes.length)){
+    enableGreetingBridge = true;
   }
   function escapeInlineScriptText(text){
     return String(text || '')
@@ -10316,7 +10320,7 @@ function buildRichHtmlSrcdoc(payload){
     var baseCss = 'html,body{margin:0;padding:0;background:#fff;color:#111;overflow:auto}*,*:before,*:after{box-sizing:border-box}';
     var headBits = [
       /<meta[^>]+name=["']viewport["']/i.test(doc) ? '' : '<meta name="viewport" content="width=device-width,initial-scale=1">',
-      '<script>' + bridgeJs + '<\/script>',
+      String(bridgeJs || '').trim() ? ('<script>' + bridgeJs + '<\/script>') : '',
       '<style>' + baseCss + String(inlineCss || '') + '</style>'
     ].filter(Boolean).join('');
     if(/<head\b[^>]*>/i.test(doc)){
@@ -10339,7 +10343,7 @@ function buildRichHtmlSrcdoc(payload){
     }
     return doc;
   }
-  var bridgeJs = [
+  var bridgeJs = enableGreetingBridge ? [
     '(function(){',
     'if(window.__PHONE_RICH_BRIDGE_READY__) return;',
     'window.__PHONE_RICH_BRIDGE_READY__ = true;',
@@ -10477,7 +10481,7 @@ function buildRichHtmlSrcdoc(payload){
     '});',
     'window.__PHONE_GREETING_BRIDGE__ = { rpc: rpc };',
     '})();'
-  ].join('');
+  ].join('') : '';
   var inlineCss = String(data.css || '');
   var inlineJs = String(data.js || '').trim();
   var htmlSource = String(data.html || '').trim();
@@ -10489,7 +10493,7 @@ function buildRichHtmlSrcdoc(payload){
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
     '<style>html,body{margin:0;padding:0;background:#fff;color:#111;font-family:-apple-system,BlinkMacSystemFont,\"SF Pro Text\",\"PingFang SC\",sans-serif;overflow:auto}*,*:before,*:after{box-sizing:border-box}' + inlineCss + '</style>',
     '</head><body>',
-    '<script>' + bridgeJs + '<\/script>',
+    bridgeJs ? ('<script>' + bridgeJs + '<\/script>') : '',
     htmlSource,
     inlineJs ? ('<script>' + inlineJs + '<\/script>') : '',
     '</body></html>'
@@ -10580,8 +10584,7 @@ function buildRichHtmlVisibleDoc(data){
   if(!html){
     html = '<article class="card-fallback"><div class="card-fallback-copy">' + esc(fallback) + '</div></article>';
   }
-  var sourcePayload = String(safe.text || '').trim() || String(safe.summary || '').trim() || fallback;
-  return buildRichHtmlSrcdoc({
+  var payload = {
     html: html,
     css: [
       'body{padding:0;margin:0;background:#fff;color:#111}',
@@ -10593,13 +10596,13 @@ function buildRichHtmlVisibleDoc(data){
     ].join(''),
     js: js,
     summary: String(safe.summary || '').trim(),
-    text: fallback,
-    __initialChatState: {
-      mes: sourcePayload,
-      swipes: [sourcePayload],
-      swipe_id: 0
-    }
-  });
+    text: fallback
+  };
+  if(data && typeof data === 'object' && data.__initialChatState && typeof data.__initialChatState === 'object'){
+    payload.__initialChatState = data.__initialChatState;
+    payload.__enableGreetingBridge = true;
+  }
+  return buildRichHtmlSrcdoc(payload);
 }
 
 var activeRichHtmlFullscreenData = null;
