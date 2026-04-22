@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-21T07:37:12Z"></script>
-<script src="../chatStorage.js?v=2026-04-21T07:37:12Z"></script>
-<script src="../metadataStore.js?v=2026-04-21T07:37:12Z"></script>
-<script src="../promptManager.js?v=2026-04-21T07:37:12Z"></script>
-<script src="../accountManager.js?v=2026-04-21T07:37:12Z"></script>
-<script src="../scheduleShared.js?v=2026-04-21T07:37:12Z"></script>
-<script src="../presenceShared.js?v=2026-04-21T07:37:12Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-21T07:37:12Z"></script>
+<script src="../assetStore.js?v=2026-04-21T07:49:33Z"></script>
+<script src="../chatStorage.js?v=2026-04-21T07:49:33Z"></script>
+<script src="../metadataStore.js?v=2026-04-21T07:49:33Z"></script>
+<script src="../promptManager.js?v=2026-04-21T07:49:33Z"></script>
+<script src="../accountManager.js?v=2026-04-21T07:49:33Z"></script>
+<script src="../scheduleShared.js?v=2026-04-21T07:49:33Z"></script>
+<script src="../presenceShared.js?v=2026-04-21T07:49:33Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-21T07:49:33Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -4905,7 +4905,13 @@ async function generateOfflineLeanScene(context, options){
         timeoutMs: timeoutMs,
         targetChars: primaryTargetChars
       });
-      if(typeof opts.onUpdate === 'function') opts.onUpdate(String(text || '').trim());
+      if(typeof opts.onUpdate === 'function'){
+        await progressivelyRevealOfflineText(String(text || '').trim(), opts.onUpdate, {
+          tickMs: 18,
+          minStep: 3,
+          maxStep: 10
+        });
+      }
     }
   }else{
     text = await generateOfflineBodyTextOnly(String(context || '').trim(), {
@@ -4913,12 +4919,19 @@ async function generateOfflineLeanScene(context, options){
       timeoutMs: timeoutMs,
       targetChars: primaryTargetChars
     });
-    if(typeof opts.onUpdate === 'function') opts.onUpdate(String(text || '').trim());
+    if(typeof opts.onUpdate === 'function'){
+      await progressivelyRevealOfflineText(String(text || '').trim(), opts.onUpdate, {
+        tickMs: 18,
+        minStep: 3,
+        maxStep: 10
+      });
+    }
   }
   text = ensureOfflineSpeechPresence(String(text || '').trim());
   for(var extendAttempt = 0; extendAttempt < (fastWholeMode ? 1 : 2); extendAttempt += 1){
     if(openingTextLength(text) >= targetChars) break;
     var missing = targetChars - openingTextLength(text);
+    var previousText = String(text || '').trim();
     var extra = await generateOfflineBodyTextOnly(buildOfflineLeanContinueContext(context, text, missing), {
       compactLevel: Math.min(2, compactLevel + 1),
       timeoutMs: Math.min(timeoutMs, fastWholeMode ? 18000 : getOfflineReplyTimeoutMs()),
@@ -4927,7 +4940,14 @@ async function generateOfflineLeanScene(context, options){
     extra = String(extra || '').trim();
     if(!extra) break;
     text = ensureOfflineSpeechPresence(mergeOfflineOpeningText(text, extra));
-    if(typeof opts.onUpdate === 'function') opts.onUpdate(text);
+    if(typeof opts.onUpdate === 'function'){
+      await progressivelyRevealOfflineText(text, opts.onUpdate, {
+        tickMs: 18,
+        minStep: 3,
+        maxStep: 10,
+        fromLength: previousText.length
+      });
+    }
   }
   return {
     text: String(text || '').trim(),
@@ -5062,11 +5082,12 @@ async function progressivelyRevealOfflineText(finalText, onUpdate, options){
   var text = String(finalText || '').trim();
   if(!text || typeof onUpdate !== 'function') return text;
   var opts = options && typeof options === 'object' ? options : {};
-  var cursor = 0;
+  var cursor = Math.max(0, Math.min(text.length, Number(opts.fromLength) || 0));
   var total = text.length;
   var minStep = Math.max(1, Number(opts.minStep) || 3);
   var maxStep = Math.max(minStep, Number(opts.maxStep) || 10);
   var tickMs = Math.max(8, Number(opts.tickMs) || 18);
+  if(cursor > 0) onUpdate(text.slice(0, cursor));
   while(cursor < total){
     var remaining = total - cursor;
     var progress = cursor / Math.max(1, total);
@@ -5154,6 +5175,26 @@ async function streamOfflineThoughtChain(context, options, onUpdate){
   }
   return finalThought;
 }
+async function generateOfflineThoughtChainBuffered(context, options, onUpdate){
+  var opts = options || {};
+  var prompt = String(context || '').trim();
+  var systemPrompt = buildOfflineThoughtSystemPrompt({
+    compactLevel: Math.max(0, Number(opts.compactLevel) || 0)
+  });
+  var raw = await callAIWithTimeout(
+    systemPrompt,
+    prompt,
+    Math.max(12000, Number(opts.timeoutMs) || Math.min(getOfflineReplyTimeoutMs(), 22000)),
+    buildOfflineRequestOptions(systemPrompt, prompt, 220)
+  );
+  var parsed = parseOfflineJsonObject(raw);
+  if(!hasValidOfflineThoughtPayload(parsed)) throw new Error('thought_chain 结果无效');
+  var finalThought = normalizeOfflineThoughtChain(parsed.thought_chain || null, '');
+  if(typeof onUpdate === 'function'){
+    await progressivelyRevealOfflineThought(finalThought, onUpdate, '', { tickMs: 20 });
+  }
+  return finalThought;
+}
 async function streamOfflineMetaFields(context, options, onUpdate){
   var opts = options || {};
   var buffer = '';
@@ -5192,6 +5233,34 @@ async function streamOfflineMetaFields(context, options, onUpdate){
     return await progressivelyRevealOfflineMeta(finalMeta, onUpdate, { tickMs: 20 });
   }
   return finalMeta;
+}
+async function generateOfflineMetaFieldsBuffered(context, options, onUpdate){
+  var opts = options || {};
+  var prompt = String(context || '').trim();
+  var systemPrompt = buildOfflineMetaStreamSystemPrompt({
+    compactLevel: Math.max(0, Number(opts.compactLevel) || 0),
+    thoughtChain: opts.thoughtChain || null
+  });
+  var raw = await callAIWithTimeout(
+    systemPrompt,
+    prompt,
+    Math.max(12000, Number(opts.timeoutMs) || Math.min(getOfflineReplyTimeoutMs(), 20000)),
+    buildOfflineRequestOptions(systemPrompt, prompt, 180)
+  );
+  var parsed = parseOfflineLabeledStreamFields(raw, ['title', 'quote']);
+  var fallbackObj = parseOfflineJsonObject(raw) || {};
+  var finalMeta = {
+    title: String(parsed.title || fallbackObj.title || '').trim(),
+    quote: String(parsed.quote || fallbackObj.quote || '').trim()
+  };
+  if(!finalMeta.title || !finalMeta.quote) throw new Error('title/quote 结果无效');
+  if(typeof onUpdate === 'function'){
+    await progressivelyRevealOfflineMeta(finalMeta, onUpdate, { tickMs: 20 });
+  }
+  return finalMeta;
+}
+function isMountedOfflineLiveEntry(entry){
+  return !!(entry && session && Array.isArray(session.entries) && session.entries.indexOf(entry) >= 0);
 }
 function normalizeOfflineBodyDraftCandidate(draft){
   var source = draft && typeof draft === 'object' ? draft : {};
@@ -7533,69 +7602,111 @@ async function generateOpeningIfNeeded(){
     if(shouldUseOfflineLeanMode()){
       var streamedOpeningThoughtChain = null;
       var streamedOpeningMeta = null;
+      var openingThoughtPromise = null;
+      var openingMetaPromise = null;
       liveOpeningLabels = nowLabels();
+      liveOpeningEntry = {
+        role:'assistant',
+        isTyping:true,
+        text:'',
+        title:'…',
+        quote:'…',
+        asides:[],
+        heart:'♥',
+        thoughtChain: {
+          subtext_perception:'…',
+          emotional_reaction:'…',
+          action_strategy:'…'
+        },
+        statusCard:null,
+        statusPending:false,
+        statusPendingAt:0,
+        summaryText:'',
+        bubbles:['……'],
+        timeLabel:liveOpeningLabels.timeLabel,
+        meta:liveOpeningLabels.meta,
+        fullLabel: liveOpeningLabels.fullLabel,
+        createdAt: liveOpeningLabels.createdAt
+      };
+      Object.assign(liveOpeningEntry, buildOfflineEntryMeta(liveOpeningEntry, 'assistant', liveOpeningLabels, { generationMs: 0 }));
+      session.entries.push(liveOpeningEntry);
+      saveSession();
+      renderStory();
+      keepOfflineComposerVisible();
       if(allowOpeningStreaming){
-        liveOpeningEntry = {
-          role:'assistant',
-          isTyping:true,
-          text:'',
-          title:'…',
-          quote:'…',
-          asides:[],
-          heart:'♥',
-          thoughtChain: {
-            subtext_perception:'…',
-            emotional_reaction:'…',
-            action_strategy:'…'
-          },
-          statusCard:null,
-          statusPending:false,
-          statusPendingAt:0,
-          summaryText:'',
-          bubbles:['……'],
-          timeLabel:liveOpeningLabels.timeLabel,
-          meta:liveOpeningLabels.meta,
-          fullLabel: liveOpeningLabels.fullLabel,
-          createdAt: liveOpeningLabels.createdAt
-        };
-        Object.assign(liveOpeningEntry, buildOfflineEntryMeta(liveOpeningEntry, 'assistant', liveOpeningLabels, { generationMs: 0 }));
-        session.entries.push(liveOpeningEntry);
-        saveSession();
-        renderStory();
-        keepOfflineComposerVisible();
-        try{
-          streamedOpeningThoughtChain = await streamOfflineThoughtChain([
-            openingContext,
-            '先只补一份 thought_chain，帮助你稳住这一幕的情绪和推进，不要写正文。'
-          ].join('\n\n'), {
-            compactLevel: isMobileOfflineRuntime() ? 1 : 0,
-            timeoutMs: Math.min(plan.mainTimeout, 26000)
-          }, function(nextThought){
-            if(!liveOpeningEntry) return;
-            liveOpeningEntry.thoughtChain = Object.assign({}, nextThought || {});
-            saveSession();
-            renderStory();
-            keepOfflineComposerVisible();
-          });
-        }catch(streamThoughtErr){
+        openingThoughtPromise = streamOfflineThoughtChain([
+          openingContext,
+          '先只补一份 thought_chain，帮助你稳住这一幕的情绪和推进，不要写正文。'
+        ].join('\n\n'), {
+          compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+          timeoutMs: Math.min(plan.mainTimeout, 26000)
+        }, function(nextThought){
+          if(!isMountedOfflineLiveEntry(liveOpeningEntry)) return;
+          liveOpeningEntry.thoughtChain = Object.assign({}, nextThought || {});
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        }).then(function(finalThought){
+          streamedOpeningThoughtChain = finalThought;
+          return finalThought;
+        }).catch(function(streamThoughtErr){
           lastError = streamThoughtErr;
-        }
-        try{
-          streamedOpeningMeta = await streamOfflineMetaFields(openingContext, {
-            compactLevel: isMobileOfflineRuntime() ? 1 : 0,
-            timeoutMs: Math.min(plan.mainTimeout, 22000),
-            thoughtChain: streamedOpeningThoughtChain
-          }, function(nextMeta){
-            if(!liveOpeningEntry) return;
-            liveOpeningEntry.title = String(nextMeta && nextMeta.title || liveOpeningEntry.title || '…').trim() || '…';
-            liveOpeningEntry.quote = String(nextMeta && nextMeta.quote || liveOpeningEntry.quote || '…').trim() || '…';
-            saveSession();
-            renderStory();
-            keepOfflineComposerVisible();
-          });
-        }catch(streamMetaErr){
+          return null;
+        });
+        openingMetaPromise = streamOfflineMetaFields(openingContext, {
+          compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+          timeoutMs: Math.min(plan.mainTimeout, 22000)
+        }, function(nextMeta){
+          if(!isMountedOfflineLiveEntry(liveOpeningEntry)) return;
+          liveOpeningEntry.title = String(nextMeta && nextMeta.title || liveOpeningEntry.title || '…').trim() || '…';
+          liveOpeningEntry.quote = String(nextMeta && nextMeta.quote || liveOpeningEntry.quote || '…').trim() || '…';
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        }).then(function(finalMeta){
+          streamedOpeningMeta = finalMeta;
+          return finalMeta;
+        }).catch(function(streamMetaErr){
           lastError = lastError || streamMetaErr;
-        }
+          return null;
+        });
+      }else{
+        openingThoughtPromise = generateOfflineThoughtChainBuffered([
+          openingContext,
+          '先只补一份 thought_chain，帮助你稳住这一幕的情绪和推进，不要写正文。'
+        ].join('\n\n'), {
+          compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+          timeoutMs: Math.min(plan.mainTimeout, 18000)
+        }, function(nextThought){
+          if(!isMountedOfflineLiveEntry(liveOpeningEntry)) return;
+          liveOpeningEntry.thoughtChain = Object.assign({}, nextThought || {});
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        }).then(function(finalThought){
+          streamedOpeningThoughtChain = finalThought;
+          return finalThought;
+        }).catch(function(thoughtErr){
+          lastError = lastError || thoughtErr;
+          return null;
+        });
+        openingMetaPromise = generateOfflineMetaFieldsBuffered(openingContext, {
+          compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+          timeoutMs: Math.min(plan.mainTimeout, 16000)
+        }, function(nextMeta){
+          if(!isMountedOfflineLiveEntry(liveOpeningEntry)) return;
+          liveOpeningEntry.title = String(nextMeta && nextMeta.title || liveOpeningEntry.title || '…').trim() || '…';
+          liveOpeningEntry.quote = String(nextMeta && nextMeta.quote || liveOpeningEntry.quote || '…').trim() || '…';
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        }).then(function(finalMeta){
+          streamedOpeningMeta = finalMeta;
+          return finalMeta;
+        }).catch(function(metaErr){
+          lastError = lastError || metaErr;
+          return null;
+        });
       }
       var leanOpening = await generateOfflineLeanScene(openingContext, {
         streaming: allowOpeningStreaming,
@@ -7614,6 +7725,8 @@ async function generateOpeningIfNeeded(){
       if(!String(leanOpening && leanOpening.text || '').trim()){
         throw new Error('首幕正文为空');
       }
+      if(openingThoughtPromise) openingThoughtPromise.catch(function(){});
+      if(openingMetaPromise) openingMetaPromise.catch(function(){});
       var leanLabels = liveOpeningLabels || nowLabels();
       var leanOpeningEntry = liveOpeningEntry || {
         role:'assistant',
@@ -8093,6 +8206,8 @@ async function requestOfflineReply(options){
     if(shouldUseOfflineLeanMode()){
       var streamedReplyThoughtChain = null;
       var streamedReplyMeta = null;
+      var replyThoughtPromise = null;
+      var replyMetaPromise = null;
       var leanLastUserEntry = Array.isArray(session.entries) ? session.entries[session.entries.length - 1] : null;
       var leanReplyContext = options.fromUserSend && leanLastUserEntry && leanLastUserEntry.role === 'user'
         ? buildOfflineUserPrompt(String(leanLastUserEntry.text || '').trim(), isMobileOfflineRuntime() ? 1 : 0)
@@ -8103,69 +8218,109 @@ async function requestOfflineReply(options){
             '最近线下记录（压缩）：\n' + (clipOfflinePromptText(formatOfflineHistoryForPrompt(2, 3) || '无', isMobileOfflineRuntime() ? 420 : 620) || '无'),
             '用户此刻没有说新话，请角色自己顺着当前氛围继续这一幕，并且直接写够完整长度。'
           ].filter(Boolean).join('\n\n');
+      liveReplyLabels = nowLabels();
+      liveReplyEntry = {
+        role:'assistant',
+        isTyping:true,
+        text:'',
+        title:'…',
+        quote:'…',
+        asides:[],
+        heart:'♥',
+        thoughtChain: {
+          subtext_perception:'…',
+          emotional_reaction:'…',
+          action_strategy:'…'
+        },
+        statusCard:null,
+        statusPending:false,
+        statusPendingAt:0,
+        summaryText:'',
+        bubbles:['……'],
+        timeLabel:liveReplyLabels.timeLabel,
+        meta:liveReplyLabels.meta,
+        fullLabel: liveReplyLabels.fullLabel,
+        createdAt: liveReplyLabels.createdAt
+      };
+      Object.assign(liveReplyEntry, buildOfflineEntryMeta(liveReplyEntry, 'assistant', liveReplyLabels, { generationMs: 0 }));
+      session.entries.push(liveReplyEntry);
+      saveSession();
+      renderStory();
+      keepOfflineComposerVisible();
       if(allowReplyStreaming){
-        liveReplyLabels = nowLabels();
-        liveReplyEntry = {
-          role:'assistant',
-          isTyping:true,
-          text:'',
-          title:'…',
-          quote:'…',
-          asides:[],
-          heart:'♥',
-          thoughtChain: {
-            subtext_perception:'…',
-            emotional_reaction:'…',
-            action_strategy:'…'
-          },
-          statusCard:null,
-          statusPending:false,
-          statusPendingAt:0,
-          summaryText:'',
-          bubbles:['……'],
-          timeLabel:liveReplyLabels.timeLabel,
-          meta:liveReplyLabels.meta,
-          fullLabel: liveReplyLabels.fullLabel,
-          createdAt: liveReplyLabels.createdAt
-        };
-        Object.assign(liveReplyEntry, buildOfflineEntryMeta(liveReplyEntry, 'assistant', liveReplyLabels, { generationMs: 0 }));
-        session.entries.push(liveReplyEntry);
-        saveSession();
-        renderStory();
-        keepOfflineComposerVisible();
-        try{
-          streamedReplyThoughtChain = await streamOfflineThoughtChain([
-            leanReplyContext,
-            '先只补一份 thought_chain，帮助你稳住这一幕的情绪和推进，不要写正文。'
-          ].join('\n\n'), {
-            compactLevel: isMobileOfflineRuntime() ? 1 : 0,
-            timeoutMs: Math.min(getOfflineReplyTimeoutMs(), 24000)
-          }, function(nextThought){
-            if(!liveReplyEntry) return;
-            liveReplyEntry.thoughtChain = Object.assign({}, nextThought || {});
-            saveSession();
-            renderStory();
-            keepOfflineComposerVisible();
-          });
-        }catch(streamThoughtErr){
+        replyThoughtPromise = streamOfflineThoughtChain([
+          leanReplyContext,
+          '先只补一份 thought_chain，帮助你稳住这一幕的情绪和推进，不要写正文。'
+        ].join('\n\n'), {
+          compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+          timeoutMs: Math.min(getOfflineReplyTimeoutMs(), 24000)
+        }, function(nextThought){
+          if(!isMountedOfflineLiveEntry(liveReplyEntry)) return;
+          liveReplyEntry.thoughtChain = Object.assign({}, nextThought || {});
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        }).then(function(finalThought){
+          streamedReplyThoughtChain = finalThought;
+          return finalThought;
+        }).catch(function(streamThoughtErr){
           pushOfflineBackendLog('warn', 'offline.reply.thought_stream', '线下续写 thought_chain 流式失败', streamThoughtErr);
-        }
-        try{
-          streamedReplyMeta = await streamOfflineMetaFields(leanReplyContext, {
-            compactLevel: isMobileOfflineRuntime() ? 1 : 0,
-            timeoutMs: Math.min(getOfflineReplyTimeoutMs(), 22000),
-            thoughtChain: streamedReplyThoughtChain
-          }, function(nextMeta){
-            if(!liveReplyEntry) return;
-            liveReplyEntry.title = String(nextMeta && nextMeta.title || liveReplyEntry.title || '…').trim() || '…';
-            liveReplyEntry.quote = String(nextMeta && nextMeta.quote || liveReplyEntry.quote || '…').trim() || '…';
-            saveSession();
-            renderStory();
-            keepOfflineComposerVisible();
-          });
-        }catch(streamMetaErr){
+          return null;
+        });
+        replyMetaPromise = streamOfflineMetaFields(leanReplyContext, {
+          compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+          timeoutMs: Math.min(getOfflineReplyTimeoutMs(), 22000)
+        }, function(nextMeta){
+          if(!isMountedOfflineLiveEntry(liveReplyEntry)) return;
+          liveReplyEntry.title = String(nextMeta && nextMeta.title || liveReplyEntry.title || '…').trim() || '…';
+          liveReplyEntry.quote = String(nextMeta && nextMeta.quote || liveReplyEntry.quote || '…').trim() || '…';
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        }).then(function(finalMeta){
+          streamedReplyMeta = finalMeta;
+          return finalMeta;
+        }).catch(function(streamMetaErr){
           pushOfflineBackendLog('warn', 'offline.reply.meta_stream', '线下续写标题语录流式失败', streamMetaErr);
-        }
+          return null;
+        });
+      }else{
+        replyThoughtPromise = generateOfflineThoughtChainBuffered([
+          leanReplyContext,
+          '先只补一份 thought_chain，帮助你稳住这一幕的情绪和推进，不要写正文。'
+        ].join('\n\n'), {
+          compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+          timeoutMs: Math.min(getOfflineReplyTimeoutMs(), 18000)
+        }, function(nextThought){
+          if(!isMountedOfflineLiveEntry(liveReplyEntry)) return;
+          liveReplyEntry.thoughtChain = Object.assign({}, nextThought || {});
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        }).then(function(finalThought){
+          streamedReplyThoughtChain = finalThought;
+          return finalThought;
+        }).catch(function(thoughtErr){
+          pushOfflineBackendLog('warn', 'offline.reply.thought_buffered', '线下续写 thought_chain 并行生成失败', thoughtErr);
+          return null;
+        });
+        replyMetaPromise = generateOfflineMetaFieldsBuffered(leanReplyContext, {
+          compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+          timeoutMs: Math.min(getOfflineReplyTimeoutMs(), 16000)
+        }, function(nextMeta){
+          if(!isMountedOfflineLiveEntry(liveReplyEntry)) return;
+          liveReplyEntry.title = String(nextMeta && nextMeta.title || liveReplyEntry.title || '…').trim() || '…';
+          liveReplyEntry.quote = String(nextMeta && nextMeta.quote || liveReplyEntry.quote || '…').trim() || '…';
+          saveSession();
+          renderStory();
+          keepOfflineComposerVisible();
+        }).then(function(finalMeta){
+          streamedReplyMeta = finalMeta;
+          return finalMeta;
+        }).catch(function(metaErr){
+          pushOfflineBackendLog('warn', 'offline.reply.meta_buffered', '线下续写标题语录并行生成失败', metaErr);
+          return null;
+        });
       }
       var leanReply = await generateOfflineLeanScene(leanReplyContext, {
         streaming: allowReplyStreaming,
@@ -8184,6 +8339,8 @@ async function requestOfflineReply(options){
       if(!String(leanReply && leanReply.text || '').trim()){
         throw new Error('正文生成失败');
       }
+      if(replyThoughtPromise) replyThoughtPromise.catch(function(){});
+      if(replyMetaPromise) replyMetaPromise.catch(function(){});
       var leanNextLabels = liveReplyLabels || nowLabels();
       var leanEntry = liveReplyEntry || {
         role:'assistant',
