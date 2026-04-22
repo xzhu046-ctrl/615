@@ -10063,9 +10063,38 @@ function parseTaggedRichHtmlPayload(raw){
 }
 
 function parseRichHtmlPayload(raw){
-  if(raw && typeof raw === 'object') return raw;
-  var source = String(raw || '');
-  var blockPayload = parseRichHtmlBlocks(source);
+  var source = raw;
+  for(var depth = 0; depth < 3; depth += 1){
+    if(source && typeof source === 'object') return source;
+    var sourceText = String(source || '');
+    try{
+      var directParsed = JSON.parse(sourceText || '{}');
+      if(directParsed && typeof directParsed === 'object') return directParsed;
+      if(typeof directParsed === 'string' && directParsed.trim() && directParsed !== sourceText){
+        source = directParsed;
+        continue;
+      }
+    }catch(err){}
+    try{
+      var normalizedText = sourceText
+        .replace(/[｛﹛]/g, '{')
+        .replace(/[｝﹜]/g, '}')
+        .replace(/[“”„‟＂]/g, '"')
+        .replace(/[‘’‚‛＇]/g, "'")
+        .replace(/[：﹕]/g, ':')
+        .replace(/[，﹐]/g, ',');
+      var normalizedParsed = JSON.parse(normalizedText || '{}');
+      if(normalizedParsed && typeof normalizedParsed === 'object') return normalizedParsed;
+      if(typeof normalizedParsed === 'string' && normalizedParsed.trim() && normalizedParsed !== sourceText){
+        source = normalizedParsed;
+        continue;
+      }
+    }catch(err){}
+    source = sourceText;
+    break;
+  }
+  var sourceText = String(source || '');
+  var blockPayload = parseRichHtmlBlocks(sourceText);
   if(blockPayload){
     return {
       html: String(blockPayload.html || '').trim(),
@@ -10078,23 +10107,8 @@ function parseRichHtmlPayload(raw){
       text: extractPlainTextFromHtmlMarkup(String(blockPayload.html || '').trim()) || String(blockPayload.summary || '').trim()
     };
   }
-  var taggedPayload = parseTaggedRichHtmlPayload(source);
+  var taggedPayload = parseTaggedRichHtmlPayload(sourceText);
   if(taggedPayload) return taggedPayload;
-  try{
-    var obj = JSON.parse(source || '{}');
-    if(obj && typeof obj === 'object') return obj;
-  }catch(err){}
-  try{
-    var normalized = source
-      .replace(/[｛﹛]/g, '{')
-      .replace(/[｝﹜]/g, '}')
-      .replace(/[“”„‟＂]/g, '"')
-      .replace(/[‘’‚‛＇]/g, "'")
-      .replace(/[：﹕]/g, ':')
-      .replace(/[，﹐]/g, ',');
-    var normalizedObj = JSON.parse(normalized || '{}');
-    if(normalizedObj && typeof normalizedObj === 'object') return normalizedObj;
-  }catch(err){}
   return { html:'', css:'', js:'', url:'', title:'', cover:'', summary:'' };
 }
 
