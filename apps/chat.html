@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-23T01:38:50Z"></script>
-<script src="../accountManager.js?v=2026-04-23T01:38:50Z"></script>
-<script src="../assetStore.js?v=2026-04-23T01:38:50Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T01:38:50Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T01:38:50Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T01:38:50Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T01:38:50Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T01:38:50Z"></script>
-<script src="../sunnySupport.js?v=2026-04-23T01:38:50Z"></script>
-<script src="offlineInvite.js?v=2026-04-23T01:38:50Z"></script>
+<script src="../promptManager.js?v=2026-04-23T03:27:38Z"></script>
+<script src="../accountManager.js?v=2026-04-23T03:27:38Z"></script>
+<script src="../assetStore.js?v=2026-04-23T03:27:38Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T03:27:38Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T03:27:38Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T03:27:38Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T03:27:38Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T03:27:38Z"></script>
+<script src="../sunnySupport.js?v=2026-04-23T03:27:38Z"></script>
+<script src="offlineInvite.js?v=2026-04-23T03:27:38Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -2649,29 +2649,8 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
               <select class="cs-input" id="csMemoryMode" onchange="renderMemoryModeSettingsUi()">
                 <option value="diary">日记记忆（原版）</option>
                 <option value="structured">结构化记忆</option>
-                <option value="vector">向量记忆</option>
               </select>
               <div class="toggle-sub">切换模式会自动基于完整聊天记录迁移记忆，避免记忆丢失。</div>
-            </div>
-            <div id="csVectorSettings" style="display:none">
-              <div class="cs-stack">
-                <div>
-                  <span class="cs-label">向量检索注入条数（Top N）</span>
-                  <input class="cs-input cs-number-underline" id="csVectorTopN" type="number" min="1" max="20" step="1" placeholder="8" oninput="syncChatSettingsFieldWidths()">
-                </div>
-                <div>
-                  <span class="cs-label">向量检索策略</span>
-                  <select class="cs-input" id="csVectorStrategy">
-                    <option value="user-only">仅用户消息（推荐）</option>
-                    <option value="user-weighted">用户优先</option>
-                    <option value="mixed">混合模式</option>
-                  </select>
-                </div>
-                <div>
-                  <span class="cs-label">检索使用用户最近消息条数</span>
-                  <input class="cs-input cs-number-underline" id="csVectorUserMsgCount" type="number" min="1" max="10" step="1" placeholder="3" oninput="syncChatSettingsFieldWidths()">
-                </div>
-              </div>
             </div>
             <div class="cs-memory-row">
               <div>
@@ -4180,7 +4159,6 @@ function formatTok(n){
 function normalizeMemoryMode(mode){
   var v = String(mode || '').trim().toLowerCase();
   if(v === MEMORY_MODE_STRUCTURED) return MEMORY_MODE_STRUCTURED;
-  if(v === MEMORY_MODE_VECTOR) return MEMORY_MODE_VECTOR;
   return MEMORY_MODE_DIARY;
 }
 function defaultStructuredMemoryState(){
@@ -4284,6 +4262,42 @@ function normalizeVectorMemoryState(raw){
   } : { query:'', resultIds:[], timestamp:0, msgCount:0 };
   return next;
 }
+function buildLegacyVectorDiaryItems(items, vectorState){
+  var sourceItems = Array.isArray(items) ? items : [];
+  var vector = normalizeVectorMemoryState(vectorState || null);
+  var existingIds = Object.create(null);
+  sourceItems.forEach(function(item){
+    existingIds[String(item && item.id || '')] = true;
+  });
+  var next = [];
+  function pushLegacy(id, text, createdAt, label){
+    var safeText = String(text || '').trim();
+    var safeId = String(id || '').trim();
+    if(!safeText || !safeId || existingIds[safeId]) return;
+    existingIds[safeId] = true;
+    var at = Math.max(0, Number(createdAt || Date.now()) || Date.now());
+    next.push({
+      id: safeId,
+      from: 0,
+      to: 0,
+      text: safeText,
+      tokens: approxTokenCount(safeText),
+      createdAt: at,
+      updatedAt: at,
+      manual: true,
+      pinned: true,
+      label: String(label || '').trim(),
+      sourceType: 'legacy_vector'
+    });
+  }
+  (Array.isArray(vector.coreMemories) ? vector.coreMemories : []).forEach(function(item, idx){
+    pushLegacy('legacy_vector_core_' + String(item && item.id || idx), String(item && item.content || '').trim(), Number(item && item.createdAt || Date.now()) || Date.now(), '旧核心记忆');
+  });
+  (Array.isArray(vector.fragments) ? vector.fragments : []).forEach(function(item, idx){
+    pushLegacy('legacy_vector_fragment_' + String(item && item.id || idx), String(item && item.content || '').trim(), Number(item && (item.lastRecalled || item.createdAt) || Date.now()) || Date.now(), '旧向量记忆');
+  });
+  return next;
+}
 function defaultAdvancedMemoryState(){
   return {
     mode: DEFAULT_MEMORY_MODE,
@@ -4317,17 +4331,26 @@ function parseLegacyMemorySummaryStore(rawText){
         text: text,
         tokens: Number((it && it.tokens) || 0) || approxTokenCount(text),
         createdAt: Number((it && it.createdAt) || Date.now()) || Date.now(),
+        updatedAt: Number((it && (it.updatedAt || it.createdAt) || Date.now())) || Date.now(),
         manual: !!(it && it.manual),
-        pinned: !!(it && it.pinned)
+        pinned: !!(it && it.pinned),
+        label: String((it && it.label) || '').trim(),
+        sourceType: String((it && it.sourceType) || '').trim()
       };
     }).filter(function(it){ return !!it.text; });
     var covered = computeMemoryCoveredFromItems(items);
     var progressRaw = Math.max(0, Number(raw.progress || raw.covered || 0) || 0);
+    var advancedMemory = normalizeAdvancedMemoryState(raw.advancedMemory || null);
+    var legacyVectorItems = buildLegacyVectorDiaryItems(items, advancedMemory.vector);
+    if(legacyVectorItems.length) items = items.concat(legacyVectorItems);
     return {
-      covered: covered,
-      progress: Math.max(covered, progressRaw),
+      covered: computeMemoryCoveredFromItems(items),
+      progress: Math.max(computeMemoryCoveredFromItems(items), progressRaw),
       items: items,
-      advancedMemory: normalizeAdvancedMemoryState(raw.advancedMemory || null)
+      advancedMemory: Object.assign({}, advancedMemory, {
+        mode: advancedMemory.mode === MEMORY_MODE_STRUCTURED ? MEMORY_MODE_STRUCTURED : MEMORY_MODE_DIARY,
+        vector: defaultVectorMemoryState()
+      })
     };
   }catch(e){
     return defaultMemorySummaryStore();
@@ -4345,13 +4368,20 @@ function normalizeMemorySummaryStore(store){
       text: text,
       tokens: Number((it && it.tokens) || 0) || approxTokenCount(text),
       createdAt: Number((it && it.createdAt) || Date.now()) || Date.now(),
+      updatedAt: Number((it && (it.updatedAt || it.createdAt) || Date.now())) || Date.now(),
       manual: !!(it && it.manual),
-      pinned: !!(it && it.pinned)
+      pinned: !!(it && it.pinned),
+      label: String((it && it.label) || '').trim(),
+      sourceType: String((it && it.sourceType) || '').trim()
     };
   }).filter(function(it){ return !!it.text; }) : [];
+  next.advancedMemory = normalizeAdvancedMemoryState(next.advancedMemory || null);
+  var legacyVectorItems = buildLegacyVectorDiaryItems(next.items, next.advancedMemory.vector);
+  if(legacyVectorItems.length) next.items = next.items.concat(legacyVectorItems);
   next.covered = computeMemoryCoveredFromItems(next.items);
   next.progress = Math.max(next.covered, Number(next.progress || 0) || 0);
-  next.advancedMemory = normalizeAdvancedMemoryState(next.advancedMemory || null);
+  next.advancedMemory.mode = next.advancedMemory.mode === MEMORY_MODE_STRUCTURED ? MEMORY_MODE_STRUCTURED : MEMORY_MODE_DIARY;
+  next.advancedMemory.vector = defaultVectorMemoryState();
   return next;
 }
 
@@ -5334,10 +5364,6 @@ function buildMemoryPromptText(store){
   if(mode === MEMORY_MODE_STRUCTURED){
     return appendSupplementalMemoryPromptText(serializeStructuredMemoryForPrompt(safe), extra);
   }
-  if(mode === MEMORY_MODE_VECTOR){
-    if(vectorMemoryPromptCache) return appendSupplementalMemoryPromptText(vectorMemoryPromptCache, extra);
-    return appendSupplementalMemoryPromptText(serializeVectorMemoryForPrompt(safe, []), extra);
-  }
   return buildDiaryMemoryPromptText(safe.items || []);
 }
 async function maybeCreateDiaryMemorySummaries(store, summaryEvery){
@@ -5423,9 +5449,7 @@ async function maybeCreateMemorySummaries(){
   var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
   var mode = getMemoryModeFromStore(store);
   var hasPending = false;
-  if(mode === MEMORY_MODE_VECTOR){
-    hasPending = chatLog.length - Math.max(0, Math.min(Number(store.advancedMemory.vector.covered || 0) || 0, chatLog.length)) >= summaryEvery;
-  }else if(mode === MEMORY_MODE_STRUCTURED){
+  if(mode === MEMORY_MODE_STRUCTURED){
     hasPending = chatLog.length - Math.max(0, Math.min(Number(store.advancedMemory.structured.covered || 0) || 0, chatLog.length)) >= summaryEvery;
   }else{
     hasPending = chatLog.length - Math.max(0, Math.min(store.covered || 0, chatLog.length)) >= summaryEvery;
@@ -5433,9 +5457,7 @@ async function maybeCreateMemorySummaries(){
   if(!hasPending) return;
   memorySummaryBusy = true;
   try{
-    if(mode === MEMORY_MODE_VECTOR){
-      store = await maybeCreateVectorMemorySummaries(store, summaryEvery);
-    }else if(mode === MEMORY_MODE_STRUCTURED){
+    if(mode === MEMORY_MODE_STRUCTURED){
       // 与老师版本一致：结构化模式同时保留日记总结
       store = await maybeCreateDiaryMemorySummaries(store, summaryEvery);
       store = await maybeCreateStructuredMemorySummaries(store, summaryEvery);
@@ -5532,7 +5554,7 @@ async function migrateMemoryModeIfNeeded(fromMode, toMode){
     store.advancedMemory.mode = to;
     saveMemorySummaryStore(store);
     refreshMemoryUi();
-    toast('记忆模式已切换为：' + (to === MEMORY_MODE_DIARY ? '日记记忆' : to === MEMORY_MODE_STRUCTURED ? '结构化记忆' : '向量记忆'));
+    toast('记忆模式已切换为：' + (to === MEMORY_MODE_STRUCTURED ? '结构化记忆' : '日记记忆'));
   }finally{
     memorySummaryBusy = false;
   }
@@ -11159,10 +11181,8 @@ function renderAutoSummaryToggle(){
 }
 function renderMemoryModeSettingsUi(){
   var modeSelect = document.getElementById('csMemoryMode');
-  var vectorWrap = document.getElementById('csVectorSettings');
   var mode = normalizeMemoryMode((modeSelect && modeSelect.value) || loadMemoryMode());
   if(modeSelect) modeSelect.value = mode;
-  if(vectorWrap) vectorWrap.style.display = (mode === MEMORY_MODE_VECTOR) ? '' : 'none';
 }
 
 function refreshSummaryStatsUi(){
@@ -11377,9 +11397,7 @@ async function runManualSummaryNow(){
   var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
   var mode = getMemoryModeFromStore(store);
   var covered = 0;
-  if(mode === MEMORY_MODE_VECTOR){
-    covered = Math.max(0, Math.min(Number(store.advancedMemory.vector.covered || 0) || 0, chatLog.length));
-  }else if(mode === MEMORY_MODE_STRUCTURED){
+  if(mode === MEMORY_MODE_STRUCTURED){
     covered = Math.max(0, Math.min(Number(store.advancedMemory.structured.covered || 0) || 0, chatLog.length));
   }else{
     covered = Math.max(0, Math.min(store.covered || 0, chatLog.length));
@@ -11398,19 +11416,7 @@ async function runManualSummaryNow(){
   }
   memorySummaryBusy = true;
   try{
-    if(mode === MEMORY_MODE_VECTOR){
-      var vectorPrompt = buildVectorExtractionPrompt(slice);
-      var vectorRaw = await callAIWithCustomPrompts(vectorPrompt, '请开始提取。');
-      var vectorExtracted = parseVectorExtractionResult(String(vectorRaw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,''));
-      var vectorAdded = 0;
-      if(vectorExtracted.length){
-        vectorAdded = await mergeVectorExtractedMemories(store, vectorExtracted);
-      }
-      store.advancedMemory.vector.covered = to;
-      store.advancedMemory.vector.lastExtractionAt = Date.now();
-      saveMemorySummaryStore(store);
-      toast(vectorAdded > 0 ? ('已手动提取 ' + vectorAdded + ' 条向量记忆') : '这段对话没有提取到新的向量记忆');
-    }else if(mode === MEMORY_MODE_STRUCTURED){
+    if(mode === MEMORY_MODE_STRUCTURED){
       var text = await generateMemorySummary(slice);
       store.items.push({
         id: 'ms_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
@@ -23451,19 +23457,15 @@ function getCurrentMemoryEntryCount(store, mode){
   if(mode === MEMORY_MODE_STRUCTURED){
     return getStructuredMemoryEntryCount(store.advancedMemory.structured);
   }
-  if(mode === MEMORY_MODE_VECTOR){
-    return getVectorMemoryEntryCount(store.advancedMemory.vector);
-  }
   return Array.isArray(store.items) ? store.items.length : 0;
 }
 function getMemoryModeLabel(mode){
   if(mode === MEMORY_MODE_STRUCTURED) return '结构化记忆';
-  if(mode === MEMORY_MODE_VECTOR) return '向量记忆';
   return '日记记忆';
 }
 function setMemoryPanelView(view){
   memoryPanelView = String(view || 'all');
-  if(memoryPanelView !== 'all' && memoryPanelView !== 'diary' && memoryPanelView !== 'structured' && memoryPanelView !== 'vector'){
+  if(memoryPanelView !== 'all' && memoryPanelView !== 'diary' && memoryPanelView !== 'structured'){
     memoryPanelView = 'all';
   }
   refreshMemoryUi();
@@ -23473,8 +23475,7 @@ function buildMemoryPanelTabs(activeView, mode){
   var tabs = [
     { id:'all', label:'全部' },
     { id:'diary', label:'日记' },
-    { id:'structured', label:'结构' },
-    { id:'vector', label:'向量' }
+    { id:'structured', label:'结构' }
   ];
   return '<div class="memory-mode-tabs">' + tabs.map(function(tab){
     var active = safeView === tab.id;
@@ -23739,9 +23740,6 @@ function buildMemoryPanelContentHtml(store, mode, view){
   if(safeView === 'all' || safeView === 'structured'){
     sections.push('<div class="memory-section-title"><span>结构化记忆</span><strong>' + getStructuredMemoryEntryCount(store.advancedMemory.structured) + '</strong></div>' + buildStructuredMemoryCardsHtml(store.advancedMemory.structured));
   }
-  if(safeView === 'all' || safeView === 'vector'){
-    sections.push('<div class="memory-section-title"><span>向量记忆</span><strong>' + getVectorMemoryEntryCount(store.advancedMemory.vector) + '</strong></div>' + buildVectorMemoryCardsHtml(store.advancedMemory.vector));
-  }
   return buildMemoryPanelTabs(safeView, mode) + sections.join('');
 }
 function refreshMemoryUi(){
@@ -23756,10 +23754,6 @@ function refreshMemoryUi(){
     if(mode === MEMORY_MODE_STRUCTURED){
       var sm = store.advancedMemory.structured;
       preview.innerHTML = '<div class="mem-item"><div class="mem-item-title"><span>结构化记忆概览</span><span>' + getStructuredMemoryEntryCount(sm) + ' 条</span></div><div class="mem-item-body">事实 ' + Object.keys(sm.facts || {}).length + ' · 事件 ' + Object.keys(sm.events || {}).length + ' · 计划 ' + (sm.plans || []).length + ' · 情绪 ' + (sm.emotions || []).length + '</div></div>';
-    }else if(mode === MEMORY_MODE_VECTOR){
-      var vm = store.advancedMemory.vector;
-      var sample = (vm.fragments || []).slice(-2).map(function(item){ return String(item && item.content || '').trim(); }).filter(Boolean).join(' / ');
-      preview.innerHTML = '<div class="mem-item"><div class="mem-item-title"><span>向量记忆概览</span><span>' + getVectorMemoryEntryCount(vm) + ' 条</span></div><div class="mem-item-body">' + esc(sample || '核心记忆与向量片段会在这里显示。') + '</div></div>';
     }else{
       var items = store.items || [];
       if(!items.length){
