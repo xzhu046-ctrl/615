@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T07:09:14Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T07:09:14Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T07:09:14Z"></script>
-<script src="../promptManager.js?v=2026-04-23T07:09:14Z"></script>
-<script src="../accountManager.js?v=2026-04-23T07:09:14Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T07:09:14Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T07:09:14Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T07:09:14Z"></script>
+<script src="../assetStore.js?v=2026-04-23T07:22:41Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T07:22:41Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T07:22:41Z"></script>
+<script src="../promptManager.js?v=2026-04-23T07:22:41Z"></script>
+<script src="../accountManager.js?v=2026-04-23T07:22:41Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T07:22:41Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T07:22:41Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T07:22:41Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -6332,12 +6332,13 @@ function buildOfflineDiaryMemoryCardsHtml(items){
     var updatedAt = Number(item && (item.updatedAt || item.createdAt) || 0);
     var meta = updatedAt ? ((function(d){ return (d.getMonth() + 1) + '.' + d.getDate() + '.' + String(d.getFullYear()).slice(-2); })(new Date(updatedAt))) : '已保存';
     var copy = String(item && item.text || '').trim();
+    var safeItemId = escAttr(itemId);
     return '<div class="offline-memory-item">' +
       '<div class="offline-memory-item-head">' +
-        '<div class="offline-memory-item-title"><button class="offline-memory-mini-btn pin" type="button" onclick="promoteOfflineDiaryMemoryItem(\'' + esc(itemId) + '\')" aria-label="转为长期"><img src="./assets/Pin.png" alt=""></button><span>' + esc(label) + ' · ' + esc(meta) + '</span></div>' +
+        '<div class="offline-memory-item-title"><button class="offline-memory-mini-btn pin" type="button" data-offline-memory-action="promote-short" data-memory-id="' + safeItemId + '" aria-label="转为长期"><img src="./assets/Pin.png" alt=""></button><span>' + esc(label) + ' · ' + esc(meta) + '</span></div>' +
         '<div class="offline-memory-item-actions">' +
           '<button class="offline-memory-mini-btn" type="button" onclick="openOfflineMemoryEditor(\'' + esc(itemId) + '\')">编辑</button>' +
-          '<button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineMemoryItem(\'' + esc(itemId) + '\')">×</button>' +
+          '<button class="offline-memory-mini-btn icon" type="button" data-offline-memory-action="delete-short" data-memory-id="' + safeItemId + '">×</button>' +
         '</div>' +
       '</div>' +
       '<div class="offline-memory-item-body">' + esc(copy) + '</div>' +
@@ -6367,6 +6368,27 @@ async function openOfflineMemoryPanel(){
   document.getElementById('offlineMemoryOverlay')?.classList.add('open');
   await refreshOfflineMemoryUi();
 }
+async function handleOfflineMemoryPanelActionClick(event){
+  var btn = event.target && event.target.closest ? event.target.closest('[data-offline-memory-action]') : null;
+  if(!btn) return;
+  var action = String(btn.getAttribute('data-offline-memory-action') || '').trim();
+  if(!action) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if(action === 'promote-short') return promoteOfflineDiaryMemoryItem(String(btn.getAttribute('data-memory-id') || ''));
+  if(action === 'delete-short') return deleteOfflineMemoryItem(String(btn.getAttribute('data-memory-id') || ''));
+  if(action === 'demote-fact') return deleteOfflineStructuredFactAt(Number(btn.getAttribute('data-memory-idx') || 0));
+  if(action === 'demote-event-month') return deleteOfflineStructuredEventMonthAt(Number(btn.getAttribute('data-memory-idx') || 0));
+  if(action === 'demote-relationship') return deleteOfflineStructuredRelationship();
+  if(action === 'demote-list-item') return deleteOfflineStructuredListItem(String(btn.getAttribute('data-memory-kind') || ''), Number(btn.getAttribute('data-memory-idx') || 0));
+  if(action === 'demote-custom-item') return deleteOfflineStructuredCustomItem(String(btn.getAttribute('data-memory-code') || ''), Number(btn.getAttribute('data-memory-idx') || 0));
+}
+document.getElementById('offlineMemoryBody')?.addEventListener('click', function(event){
+  handleOfflineMemoryPanelActionClick(event).catch(function(err){
+    console.error('offline memory panel action failed', err);
+    toast('这次操作没执行成功');
+  });
+});
 function getOfflineStructuredMemoryEntryCount(raw){
   var mem = normalizeOfflineAdvancedMemoryState(raw).structured;
   var total = 0;
@@ -6425,7 +6447,8 @@ function buildOfflineLittleBrainShortRows(items){
   return list.slice().reverse().map(function(item, idx){
     var itemId = String(item && item.id || '');
     var label = getOfflineMemoryItemLabel(item, idx, list.length);
-    return '<div class="offline-memory-subrow"><div class="offline-memory-subrow-head"><span class="offline-memory-item-title"><button class="offline-memory-mini-btn pin" type="button" onclick="promoteOfflineDiaryMemoryItem(\'' + esc(itemId) + '\')" aria-label="转为长期"><img src="./assets/Pin.png" alt=""></button><span class="offline-memory-subrow-label">' + esc(label) + '</span></span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineMemoryEditor(\'' + esc(itemId) + '\')">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineMemoryItem(\'' + esc(itemId) + '\')">×</button></div></div><div class="offline-memory-item-body">' + esc(String(item && item.text || '').trim()) + '</div></div>';
+    var safeItemId = escAttr(itemId);
+    return '<div class="offline-memory-subrow"><div class="offline-memory-subrow-head"><span class="offline-memory-item-title"><button class="offline-memory-mini-btn pin" type="button" data-offline-memory-action="promote-short" data-memory-id="' + safeItemId + '" aria-label="转为长期"><img src="./assets/Pin.png" alt=""></button><span class="offline-memory-subrow-label">' + esc(label) + '</span></span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineMemoryEditor(\'' + esc(itemId) + '\')">编辑</button><button class="offline-memory-mini-btn icon" type="button" data-offline-memory-action="delete-short" data-memory-id="' + safeItemId + '">×</button></div></div><div class="offline-memory-item-body">' + esc(String(item && item.text || '').trim()) + '</div></div>';
   }).join('');
 }
 function buildOfflineLittleBrainSectionCard(title, shortRowsHtml, longRowsHtml, totalCount){
@@ -6438,23 +6461,23 @@ function buildOfflineStructuredMemoryCardsHtml(raw, diaryItems){
   var factKeys = Object.keys(mem.facts || {});
   if(factKeys.length || shortBuckets.facts.length){
     blocks.push(buildOfflineLittleBrainSectionCard('人物底稿', buildOfflineLittleBrainShortRows(shortBuckets.facts), factKeys.length ? factKeys.map(function(key, idx){
-        return '<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">人物底稿</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'fact\',' + idx + ')">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredFactAt(' + idx + ')" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body"><strong>' + esc(key) + '</strong>：' + esc(String(mem.facts[key] || '')) + '</div></div>';
+        return '<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">人物底稿</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'fact\',' + idx + ')">编辑</button><button class="offline-memory-mini-btn icon" type="button" data-offline-memory-action="demote-fact" data-memory-idx="' + idx + '" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body"><strong>' + esc(key) + '</strong>：' + esc(String(mem.facts[key] || '')) + '</div></div>';
       }).join('') : '<div class="offline-memory-subempty">这里暂时还没有长期内容。</div>', factKeys.length + shortBuckets.facts.length));
   }
   var eventMonths = Object.keys(mem.events || {}).sort();
   if(eventMonths.length || shortBuckets.events.length){
     blocks.push(buildOfflineLittleBrainSectionCard('已经发生', buildOfflineLittleBrainShortRows(shortBuckets.events), eventMonths.length ? eventMonths.map(function(ym, idx){
         var entries = String(mem.events[ym] || '').split('|').filter(Boolean).join(' · ');
-        return '<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">' + esc(ym) + '</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'event-month\',' + idx + ')">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredEventMonthAt(' + idx + ')" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body">' + esc(entries) + '</div></div>';
+        return '<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">' + esc(ym) + '</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'event-month\',' + idx + ')">编辑</button><button class="offline-memory-mini-btn icon" type="button" data-offline-memory-action="demote-event-month" data-memory-idx="' + idx + '" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body">' + esc(entries) + '</div></div>';
       }).join('') : '<div class="offline-memory-subempty">这里暂时还没有长期内容。</div>', eventMonths.length + shortBuckets.events.length));
   }
   var relationshipRows = [];
   if(mem.relationship){
-    relationshipRows.push('<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">关系温度</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'relationship\',0)">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredRelationship()" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body">' + esc(mem.relationship) + '</div></div>');
+    relationshipRows.push('<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">关系温度</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'relationship\',0)">编辑</button><button class="offline-memory-mini-btn icon" type="button" data-offline-memory-action="demote-relationship" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body">' + esc(mem.relationship) + '</div></div>');
   }
   if(Array.isArray(mem.emotions) && mem.emotions.length){
     mem.emotions.forEach(function(row, idx){
-      relationshipRows.push('<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">情绪节点</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'list-item\',' + idx + ',\'emotions\')">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredListItem(\'emotions\',' + idx + ')" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body">' + esc(String(row || '')) + '</div></div>');
+      relationshipRows.push('<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">情绪节点</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'list-item\',' + idx + ',\'emotions\')">编辑</button><button class="offline-memory-mini-btn icon" type="button" data-offline-memory-action="demote-list-item" data-memory-kind="emotions" data-memory-idx="' + idx + '" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body">' + esc(String(row || '')) + '</div></div>');
     });
   }
   if(relationshipRows.length || shortBuckets.relationship.length){
@@ -6468,7 +6491,7 @@ function buildOfflineStructuredMemoryCardsHtml(raw, diaryItems){
     var shortRows = shortBuckets[kind.key] || [];
     if(!rows.length && !shortRows.length) return;
     blocks.push(buildOfflineLittleBrainSectionCard(kind.label, buildOfflineLittleBrainShortRows(shortRows), rows.length ? rows.map(function(row, idx){
-        return '<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">' + esc(kind.label) + '</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'list-item\',' + idx + ',\'' + esc(kind.key) + '\')">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredListItem(\'' + esc(kind.key) + '\',' + idx + ')" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body">' + esc(String(row || '')) + '</div></div>';
+        return '<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">' + esc(kind.label) + '</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'list-item\',' + idx + ',\'' + esc(kind.key) + '\')">编辑</button><button class="offline-memory-mini-btn icon" type="button" data-offline-memory-action="demote-list-item" data-memory-kind="' + escAttr(kind.key) + '" data-memory-idx="' + idx + '" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body">' + esc(String(row || '')) + '</div></div>';
       }).join('') : '<div class="offline-memory-subempty">这里暂时还没有长期内容。</div>', rows.length + shortRows.length));
   });
   if(mem.custom && typeof mem.custom === 'object'){
@@ -6478,7 +6501,7 @@ function buildOfflineStructuredMemoryCardsHtml(raw, diaryItems){
       if(!rows.length && !shortRows.length) return;
       var customName = String((mem.customCategories && mem.customCategories[code] && mem.customCategories[code].name) || code);
       blocks.push(buildOfflineLittleBrainSectionCard(customName, buildOfflineLittleBrainShortRows(shortRows), rows.length ? rows.map(function(row, idx){
-            return '<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">' + esc(customName) + '</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'custom-item\',' + idx + ',\'' + esc(code) + '\')">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredCustomItem(\'' + esc(code) + '\',' + idx + ')" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body">' + esc(String(row || '')) + '</div></div>';
+            return '<div class="offline-memory-subrow muted"><div class="offline-memory-subrow-head"><span class="offline-memory-subrow-label">' + esc(customName) + '</span><div class="offline-memory-subrow-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'custom-item\',' + idx + ',\'' + esc(code) + '\')">编辑</button><button class="offline-memory-mini-btn icon" type="button" data-offline-memory-action="demote-custom-item" data-memory-code="' + escAttr(code) + '" data-memory-idx="' + idx + '" aria-label="降级为短期">×</button></div></div><div class="offline-memory-item-body">' + esc(String(row || '')) + '</div></div>';
         }).join('') : '<div class="offline-memory-subempty">这里暂时还没有长期内容。</div>', rows.length + shortRows.length));
     });
   }
