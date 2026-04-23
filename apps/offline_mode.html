@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T01:44:30Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T01:44:30Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T01:44:30Z"></script>
-<script src="../promptManager.js?v=2026-04-23T01:44:30Z"></script>
-<script src="../accountManager.js?v=2026-04-23T01:44:30Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T01:44:30Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T01:44:30Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T01:44:30Z"></script>
+<script src="../assetStore.js?v=2026-04-23T01:46:40Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T01:46:40Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T01:46:40Z"></script>
+<script src="../promptManager.js?v=2026-04-23T01:46:40Z"></script>
+<script src="../accountManager.js?v=2026-04-23T01:46:40Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T01:46:40Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T01:46:40Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T01:46:40Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -6586,6 +6586,9 @@ function parseOfflineLooseArrayConfig(text){
     return String(line || '').replace(/^-+\s*/, '').trim();
   }).filter(Boolean);
 }
+function shouldDisableOfflineLocalTimeout(){
+  return true;
+}
 function applyOfflineCustomRequestOverrides(headers, body){
   var nextHeaders = Object.assign({}, headers || {});
   var nextBody = Object.assign({}, body || {});
@@ -6903,6 +6906,7 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.9');
   var req = normalizeOfflineRequestOptions(requestOptions);
   var promptTokens = estimateOfflinePromptTokens(systemPrompt, userPrompt);
+  var disableLocalTimeout = shouldDisableOfflineLocalTimeout();
   var timeoutMs = Math.max(12000, Number(req.timeoutMs) || 0);
   var firstChunkTimeoutMs = Math.max(4500, Math.min(9000, Math.round(timeoutMs * 0.3)));
   var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -6935,7 +6939,7 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
     );
   }
   function armStreamTimers(endpoint, currentModel){
-    if(!controller) return;
+    if(!controller || disableLocalTimeout) return;
     totalTimer = setTimeout(function(){
       try{ controller.abort(new Error('流式正文超时（' + Math.round(timeoutMs / 1000) + 's）')); }catch(e){}
     }, timeoutMs);
@@ -6973,7 +6977,7 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
       var openaiStreamed = await readSseStream(res, handleStreamPiece);
       return !!openaiStreamed;
     }catch(err){
-      if(controller && controller.signal && controller.signal.aborted){
+      if(!disableLocalTimeout && controller && controller.signal && controller.signal.aborted){
         throw createStreamTimeoutError('流式请求超时', controller.signal.reason, 'https://api.openai.com/v1/chat/completions', model);
       }
       throw err;
@@ -7000,7 +7004,7 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
       var openrouterStreamed = await readSseStream(resOr, handleStreamPiece);
       return !!openrouterStreamed;
     }catch(err){
-      if(controller && controller.signal && controller.signal.aborted){
+      if(!disableLocalTimeout && controller && controller.signal && controller.signal.aborted){
         throw createStreamTimeoutError('流式请求超时', controller.signal.reason, 'https://openrouter.ai/api/v1/chat/completions', model);
       }
       throw err;
@@ -7040,7 +7044,7 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
       var customStreamed = await readSseStream(resCustom, handleStreamPiece);
       return !!customStreamed;
     }catch(err){
-      if(controller && controller.signal && controller.signal.aborted){
+      if(!disableLocalTimeout && controller && controller.signal && controller.signal.aborted){
         throw createStreamTimeoutError('流式请求超时', controller.signal.reason, baseUrl + '/chat/completions', customModel);
       }
       throw err;
@@ -7141,6 +7145,9 @@ async function generateOfflineThoughtPair(seedText){
   return fallbackOfflineThoughtPair(seedText);
 }
 async function callAIWithTimeout(systemPrompt, userPrompt, timeoutMs, requestOptions){
+  if(shouldDisableOfflineLocalTimeout()){
+    return await callAI(systemPrompt, userPrompt, requestOptions);
+  }
   var ms = Math.max(5000, Number(timeoutMs) || 30000);
   return await Promise.race([
     callAI(systemPrompt, userPrompt, requestOptions),
