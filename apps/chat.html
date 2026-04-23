@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-23T22:57:44Z"></script>
-<script src="../accountManager.js?v=2026-04-23T22:57:44Z"></script>
-<script src="../assetStore.js?v=2026-04-23T22:57:44Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T22:57:44Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T22:57:44Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T22:57:44Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T22:57:44Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T22:57:44Z"></script>
-<script src="../sunnySupport.js?v=2026-04-23T22:57:44Z"></script>
-<script src="offlineInvite.js?v=2026-04-23T22:57:44Z"></script>
+<script src="../promptManager.js?v=2026-04-23T23:08:03Z"></script>
+<script src="../accountManager.js?v=2026-04-23T23:08:03Z"></script>
+<script src="../assetStore.js?v=2026-04-23T23:08:03Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T23:08:03Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T23:08:03Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T23:08:03Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T23:08:03Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T23:08:03Z"></script>
+<script src="../sunnySupport.js?v=2026-04-23T23:08:03Z"></script>
+<script src="offlineInvite.js?v=2026-04-23T23:08:03Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -14917,12 +14917,101 @@ function expandRichHtmlExportScrollAreas(sourceRoot, cloneRoot, doc){
     }
   }catch(err){}
 }
+function temporarilyExpandRichHtmlDocumentForExport(doc){
+  var restores = [];
+  function remember(node, props){
+    if(!node || !node.style) return;
+    var old = {};
+    props.forEach(function(prop){ old[prop] = node.style[prop]; });
+    var oldScrollTop = typeof node.scrollTop === 'number' ? node.scrollTop : null;
+    var oldScrollLeft = typeof node.scrollLeft === 'number' ? node.scrollLeft : null;
+    restores.push(function(){
+      props.forEach(function(prop){ node.style[prop] = old[prop] || ''; });
+      try{
+        if(oldScrollTop !== null) node.scrollTop = oldScrollTop;
+        if(oldScrollLeft !== null) node.scrollLeft = oldScrollLeft;
+      }catch(err){}
+    });
+  }
+  function unlockAncestors(node, stopAt){
+    var current = node && node.parentElement;
+    while(current && current !== stopAt){
+      remember(current, ['maxHeight','height','minHeight','overflow','overflowY','overflowX']);
+      current.style.maxHeight = 'none';
+      current.style.height = 'auto';
+      current.style.overflow = 'visible';
+      current.style.overflowY = 'visible';
+      current.style.overflowX = 'visible';
+      if(current === doc.body) break;
+      current = current.parentElement;
+    }
+  }
+  try{
+    if(!doc || !doc.body) return function(){};
+    var nodes = [doc.body].concat(Array.prototype.slice.call(doc.body.querySelectorAll('*')));
+    nodes.forEach(function(node){
+      try{
+        if(!node || !node.style) return;
+        var computed = doc.defaultView && doc.defaultView.getComputedStyle ? doc.defaultView.getComputedStyle(node) : null;
+        var overflowY = computed ? String(computed.overflowY || computed.overflow || '') : '';
+        var overflowX = computed ? String(computed.overflowX || computed.overflow || '') : '';
+        var scrollH = Math.ceil(Number(node.scrollHeight) || 0);
+        var scrollW = Math.ceil(Number(node.scrollWidth) || 0);
+        var clientH = Math.ceil(Number(node.clientHeight) || 0);
+        var clientW = Math.ceil(Number(node.clientWidth) || 0);
+        var needsY = scrollH > clientH + 2 && /(auto|scroll|hidden|clip)/i.test(overflowY);
+        var needsX = scrollW > clientW + 2 && /(auto|scroll|hidden|clip)/i.test(overflowX);
+        if(!needsY && !needsX) return;
+        remember(node, ['maxHeight','height','minHeight','maxWidth','width','minWidth','overflow','overflowY','overflowX']);
+        if(needsY){
+          node.style.maxHeight = 'none';
+          node.style.height = scrollH + 'px';
+          node.style.minHeight = scrollH + 'px';
+          node.style.overflowY = 'visible';
+          try{ node.scrollTop = 0; }catch(err){}
+        }
+        if(needsX){
+          node.style.maxWidth = 'none';
+          node.style.width = scrollW + 'px';
+          node.style.minWidth = scrollW + 'px';
+          node.style.overflowX = 'visible';
+          try{ node.scrollLeft = 0; }catch(err){}
+        }
+        node.style.overflow = 'visible';
+        unlockAncestors(node, null);
+      }catch(err){}
+    });
+    [doc.documentElement, doc.body].forEach(function(node){
+      if(!node || !node.style) return;
+      remember(node, ['maxHeight','height','minHeight','overflow','overflowY','overflowX']);
+      node.style.maxHeight = 'none';
+      node.style.height = 'auto';
+      node.style.minHeight = Math.max(
+        120,
+        Math.ceil(Number(node.scrollHeight) || 0),
+        Math.ceil(Number(doc.body && doc.body.scrollHeight) || 0)
+      ) + 'px';
+      node.style.overflow = 'visible';
+      node.style.overflowY = 'visible';
+      node.style.overflowX = 'visible';
+    });
+  }catch(err){}
+  return function(){
+    for(var i = restores.length - 1; i >= 0; i--){
+      try{ restores[i](); }catch(err){}
+    }
+  };
+}
 async function snapshotRichHtmlFrame(frame){
   if(!frame) return '';
   try{
     await waitForIframeDocumentImages(frame);
     var doc = frame.contentDocument;
     if(!doc || !doc.body) return '';
+    var restoreExpandedDocument = temporarilyExpandRichHtmlDocumentForExport(doc);
+    await new Promise(function(resolve){
+      requestAnimationFrame(function(){ requestAnimationFrame(resolve); });
+    });
     var rect = frame.getBoundingClientRect();
     var frameWidth = Math.max(220, Math.ceil(rect.width || frame.clientWidth || frame.offsetWidth || 220));
     var measuredSize = measureRichHtmlDocumentSize(doc, frameWidth, Math.ceil(rect.height || frame.clientHeight || frame.offsetHeight || 120));
@@ -14983,20 +15072,37 @@ async function snapshotRichHtmlFrame(frame){
       await waitForNodeImages(stageHost);
       var renderer = await ensureHtml2CanvasReady();
       var scale = 2;
-      var canvas = await renderer(stage, {
-        backgroundColor: null,
-        scale: scale,
-        useCORS: true,
-        logging: false,
-        width: width,
-        height: height,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: width,
-        windowHeight: height
-      });
+      var canvas = null;
+      try{
+        canvas = await renderer(doc.body, {
+          backgroundColor: null,
+          scale: scale,
+          useCORS: true,
+          logging: false,
+          width: width,
+          height: height,
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: width,
+          windowHeight: height
+        });
+      }catch(directErr){
+        canvas = await renderer(stage, {
+          backgroundColor: null,
+          scale: scale,
+          useCORS: true,
+          logging: false,
+          width: width,
+          height: height,
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: width,
+          windowHeight: height
+        });
+      }
       return canvas.toDataURL('image/png');
     } finally {
+      try{ restoreExpandedDocument(); }catch(err){}
       if(stageHost.parentNode) stageHost.parentNode.removeChild(stageHost);
     }
   }catch(err){
