@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T07:43:12Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T07:43:12Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T07:43:12Z"></script>
-<script src="../promptManager.js?v=2026-04-23T07:43:12Z"></script>
-<script src="../accountManager.js?v=2026-04-23T07:43:12Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T07:43:12Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T07:43:12Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../assetStore.js?v=2026-04-23T08:01:37Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T08:01:37Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T08:01:37Z"></script>
+<script src="../promptManager.js?v=2026-04-23T08:01:37Z"></script>
+<script src="../accountManager.js?v=2026-04-23T08:01:37Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T08:01:37Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T08:01:37Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T08:01:37Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -2544,11 +2544,26 @@ async function loadSessionByCharId(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return null;
   var keys = offlineSessionKeyCandidates(safeId);
+  var best = null;
   for(var k = 0; k < keys.length; k += 1){
     var parsed = await loadOfflineJsonRecord(keys[k], isOfflineSessionPayload);
-    if(parsed && typeof parsed === 'object') return parsed;
+    if(!parsed || typeof parsed !== 'object') continue;
+    if(!best){
+      best = parsed;
+      continue;
+    }
+    var bestUpdatedAt = Number(best.updatedAt || 0) || 0;
+    var parsedUpdatedAt = Number(parsed.updatedAt || 0) || 0;
+    var bestEntryCount = Array.isArray(best.entries) ? best.entries.length : 0;
+    var parsedEntryCount = Array.isArray(parsed.entries) ? parsed.entries.length : 0;
+    if(
+      parsedUpdatedAt > bestUpdatedAt ||
+      (parsedUpdatedAt === bestUpdatedAt && parsedEntryCount > bestEntryCount)
+    ){
+      best = parsed;
+    }
   }
-  return null;
+  return best;
 }
 async function loadSession(){
   if(character && character.id){
@@ -4472,7 +4487,7 @@ function renderPaperStoryCard(entry, idx, isChar){
   var statusChip = isChar ? renderOfflineStatusChip(entry, idx) : '';
   var toolsRow = isChar ? ('<div class="offline-story-tools"><div class="offline-story-tools-left">' + thoughtToggle + '</div><button class="offline-story-editbtn" type="button" onclick="editOfflineEntryText(' + idx + ')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></button></div>') : '';
   var userEdit = isChar ? '' : ('<div class="offline-story-actions-left"><button class="offline-story-editbtn" type="button" onclick="editOfflineEntryText(' + idx + ')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></button></div>');
-  var avatarHtml = '<div class="offline-story-avatar' + (isChar ? ' is-char' : '') + '"' + (isChar ? ' onclick="openOfflineStatusModal(' + idx + ')"' : '') + '>' + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : esc(displayName.slice(0, 2) || (isChar ? 'C' : 'U'))) + '<div class="offline-story-avatar-label">' + esc(displayName || (isChar ? 'char' : 'user')) + '</div></div>';
+  var avatarHtml = '<div class="offline-story-avatar' + (isChar ? ' is-char' : '') + '">' + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : esc(displayName.slice(0, 2) || (isChar ? 'C' : 'U'))) + '<div class="offline-story-avatar-label">' + esc(displayName || (isChar ? 'char' : 'user')) + '</div></div>';
   var stripShellHtml = '<div class="offline-story-strip-shell">' +
         '<div class="offline-story-stats">' +
           '<div class="offline-story-stat-slot is-left"><span class="offline-story-stat"><span class="offline-story-stat-icon">☀︎</span><span>' + esc(floorLabel) + '</span></span></div>' +
