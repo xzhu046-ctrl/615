@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T03:27:38Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T03:27:38Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T03:27:38Z"></script>
-<script src="../promptManager.js?v=2026-04-23T03:27:38Z"></script>
-<script src="../accountManager.js?v=2026-04-23T03:27:38Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T03:27:38Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T03:27:38Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T03:27:38Z"></script>
+<script src="../assetStore.js?v=2026-04-23T03:33:01Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T03:33:01Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T03:33:01Z"></script>
+<script src="../promptManager.js?v=2026-04-23T03:33:01Z"></script>
+<script src="../accountManager.js?v=2026-04-23T03:33:01Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T03:33:01Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T03:33:01Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T03:33:01Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -818,6 +818,8 @@ var offlineDrawerPageBgPendingAsset = '';
 var offlineDrawerPageBgResolvedSource = '';
 var offlineDrawerCardBgPendingAsset = '';
 var offlineDrawerCardBgResolvedSource = '';
+var offlineDrawerPageBgDirty = false;
+var offlineDrawerCardBgDirty = false;
 var offlineMemoryEditingId = '';
 var offlineStageSummaryPreviewOpen = false;
 var offlineInitInProgress = true;
@@ -1717,6 +1719,8 @@ async function syncOfflineBackgroundControls(){
 async function refreshOfflineBackgroundFromSettings(){
   offlineDrawerPageBgPendingAsset = '';
   offlineDrawerCardBgPendingAsset = '';
+  offlineDrawerPageBgDirty = false;
+  offlineDrawerCardBgDirty = false;
   offlineDrawerPageBgResolvedSource = String(await resolveOfflinePageBackgroundSource(character).catch(function(){ return ''; }) || '').trim();
   offlineDrawerCardBgResolvedSource = String(await resolveOfflineCardBackgroundSource(character).catch(function(){ return ''; }) || '').trim();
   applyOfflinePageBackgroundSource(offlineDrawerPageBgResolvedSource);
@@ -1730,8 +1734,9 @@ async function persistOfflineBackgroundSelection(options){
   if(!character || !character.id) return false;
   var opts = options || {};
   var scope = String(opts.scope || 'both');
-  var savePage = scope === 'both' || scope === 'page';
-  var saveCard = scope === 'both' || scope === 'card';
+  var dirtyOnly = !!opts.dirtyOnly;
+  var savePage = (scope === 'both' || scope === 'page') && (!dirtyOnly || offlineDrawerPageBgDirty);
+  var saveCard = (scope === 'both' || scope === 'card') && (!dirtyOnly || offlineDrawerCardBgDirty);
   var draft = getOfflineDrawerDraft();
   var nextPageUrl = String(draft.backgroundUrl || '').trim();
   var nextCardUrl = String(draft.cardBackgroundUrl || '').trim();
@@ -1752,6 +1757,7 @@ async function persistOfflineBackgroundSelection(options){
       character.offlineBackgroundUrl = '';
       offlineDrawerPageBgResolvedSource = '';
     }
+    offlineDrawerPageBgDirty = false;
   }
   if(saveCard){
     if(offlineDrawerCardBgPendingAsset){
@@ -1768,6 +1774,7 @@ async function persistOfflineBackgroundSelection(options){
       character.offlineCardBackgroundUrl = '';
       offlineDrawerCardBgResolvedSource = '';
     }
+    offlineDrawerCardBgDirty = false;
   }
   applyOfflinePageBackgroundSource(offlineDrawerPageBgResolvedSource);
   applyOfflineCardBackgroundSource(offlineDrawerCardBgResolvedSource);
@@ -3359,7 +3366,7 @@ function applyOfflineDrawerDraftToCharacter(){
   character.offlineCardBackgroundUrl = String(draft.cardBackgroundUrl || '').trim();
 }
 async function saveOfflineDrawerSettings(){
-  await persistOfflineBackgroundSelection({ silent:true }).catch(function(){});
+  await persistOfflineBackgroundSelection({ silent:true, dirtyOnly:true }).catch(function(){});
   persistOfflineDrawerSettings();
 }
 function persistOfflineDrawerSettings(options){
@@ -3696,6 +3703,7 @@ function bindOfflineDrawerControls(){
       if(!file) return;
       fileToDataUrl(file).then(function(dataUrl){
         offlineDrawerPageBgPendingAsset = String(dataUrl || '').trim();
+        offlineDrawerPageBgDirty = true;
         getOfflineDrawerDraft().backgroundUrl = '';
         if(pageBgUrl) pageBgUrl.value = '';
         offlineDrawerPageBgResolvedSource = offlineDrawerPageBgPendingAsset;
@@ -3712,6 +3720,7 @@ function bindOfflineDrawerControls(){
       var next = String(pageBgUrl.value || '').trim();
       getOfflineDrawerDraft().backgroundUrl = next;
       offlineDrawerPageBgPendingAsset = '';
+      offlineDrawerPageBgDirty = true;
       offlineDrawerPageBgResolvedSource = next;
       renderOfflineBackgroundPreview('offlineDrawerPageBgPreview', offlineDrawerPageBgResolvedSource);
     });
@@ -3728,6 +3737,7 @@ function bindOfflineDrawerControls(){
       var draft = getOfflineDrawerDraft();
       draft.backgroundUrl = '';
       offlineDrawerPageBgPendingAsset = '';
+      offlineDrawerPageBgDirty = false;
       offlineDrawerPageBgResolvedSource = '';
       if(character) character.offlineBackgroundUrl = '';
       removeStoredAsset(offlinePageBackgroundAssetKey(character && character.id)).catch(function(){}).then(function(){
@@ -3748,6 +3758,7 @@ function bindOfflineDrawerControls(){
       if(!file) return;
       fileToDataUrl(file).then(function(dataUrl){
         offlineDrawerCardBgPendingAsset = String(dataUrl || '').trim();
+        offlineDrawerCardBgDirty = true;
         getOfflineDrawerDraft().cardBackgroundUrl = '';
         if(cardBgUrl) cardBgUrl.value = '';
         offlineDrawerCardBgResolvedSource = offlineDrawerCardBgPendingAsset;
@@ -3764,6 +3775,7 @@ function bindOfflineDrawerControls(){
       var next = String(cardBgUrl.value || '').trim();
       getOfflineDrawerDraft().cardBackgroundUrl = next;
       offlineDrawerCardBgPendingAsset = '';
+      offlineDrawerCardBgDirty = true;
       offlineDrawerCardBgResolvedSource = next;
       renderOfflineBackgroundPreview('offlineDrawerCardBgPreview', offlineDrawerCardBgResolvedSource);
     });
@@ -3780,6 +3792,7 @@ function bindOfflineDrawerControls(){
       var draft = getOfflineDrawerDraft();
       draft.cardBackgroundUrl = '';
       offlineDrawerCardBgPendingAsset = '';
+      offlineDrawerCardBgDirty = false;
       offlineDrawerCardBgResolvedSource = '';
       if(character) character.offlineCardBackgroundUrl = '';
       removeStoredAsset(offlineCardBackgroundAssetKey(character && character.id)).catch(function(){}).then(function(){
