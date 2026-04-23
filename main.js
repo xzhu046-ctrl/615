@@ -21,6 +21,8 @@ const HOME_ICON_DEFAULTS = {
   schedule: '日程',
   backend: '后台',
   map6: '地图',
+  char: 'CHAR',
+  user: 'USER',
 };
 const PHONE_FRAME_STORAGE_KEY = 'phone_frame_visible';
 const LIVE_DANMAKU_DEFAULTS = {
@@ -47,7 +49,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-23T08:27:54Z';
+const APP_BUILD_ID = '2026-04-23T08:39:24Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -5086,7 +5088,7 @@ function openPlaceholderMiniApp(idx){
     showHomeToast('档案馆正在重新制作');
     return;
   }
-  showHomeToast('占位' + idx + ' 暂未设置');
+  showHomeToast(Number(idx) === 1 ? 'CHAR 暂未设置' : (Number(idx) === 2 ? 'USER 暂未设置' : ('占位' + idx + ' 暂未设置')));
 }
 
 function resolveShellCharacterById(charId, fallback){
