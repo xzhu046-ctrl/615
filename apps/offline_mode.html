@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T01:46:40Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T01:46:40Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T01:46:40Z"></script>
-<script src="../promptManager.js?v=2026-04-23T01:46:40Z"></script>
-<script src="../accountManager.js?v=2026-04-23T01:46:40Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T01:46:40Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T01:46:40Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T01:46:40Z"></script>
+<script src="../assetStore.js?v=2026-04-23T01:48:59Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T01:48:59Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T01:48:59Z"></script>
+<script src="../promptManager.js?v=2026-04-23T01:48:59Z"></script>
+<script src="../accountManager.js?v=2026-04-23T01:48:59Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T01:48:59Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T01:48:59Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T01:48:59Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -565,10 +565,6 @@ box-shadow:0 0 0 2px rgba(255,255,255,.97) inset,6px 6px 0 rgba(17,17,17,.94);pa
                 <span class="offline-setting-note" style="font-size:12px">~</span>
                 <input class="offline-setting-input" id="offlineDrawerMaxChars" type="number" min="80" max="4200" step="10" style="width:96px">
               </div>
-            </div>
-            <div class="offline-setting-row">
-              <span class="offline-setting-label">流式输出</span>
-              <button class="offline-setting-toggle" id="offlineDrawerStreamEnabled" type="button" aria-pressed="false"></button>
             </div>
             <div class="offline-setting-actions">
               <button class="offline-setting-btn" id="offlineDrawerPresetImportBtn" type="button">导入预设</button>
@@ -3080,7 +3076,6 @@ function describeOfflinePresetMeta(source){
   if(name) bits.push(name);
   if(ctx) bits.push('ctx ' + ctx);
   if(out) bits.push('out ' + out);
-  bits.push(preset.streamEnabled ? 'stream' : 'plain');
   return bits.join(' · ');
 }
 function buildOfflineDrawerDraft(){
@@ -3091,7 +3086,6 @@ function buildOfflineDrawerDraft(){
     maxChars: prefs.maxChars,
     perspective: prefs.perspective,
     style: prefs.style,
-    streamEnabled: !!prefs.streamEnabled,
     presetName: String(prefs.presetName || '').trim(),
     maxContextTokens: Math.max(1024, Math.min(64000, Number(prefs.maxContextTokens) || 8192)),
     maxOutputTokens: Math.max(128, Math.min(6000, Number(prefs.maxOutputTokens) || estimateOfflineOutputTokensFromChars(prefs.maxChars))),
@@ -3115,7 +3109,7 @@ function applyOfflineDrawerDraftToCharacter(){
   character.offlineInviteMax = Math.max(character.offlineInviteMin, Number(draft.maxChars) || 360);
   character.offlineInvitePerspective = String(draft.perspective || 'first');
   character.offlineInviteStyle = String(draft.style || '').trim();
-  character.offlineStreamEnabled = !!draft.streamEnabled;
+  character.offlineStreamEnabled = false;
   character.offlinePresetName = String(draft.presetName || '').trim();
   character.offlineMaxContextTokens = Math.max(1024, Math.min(64000, Number(draft.maxContextTokens) || 8192));
   character.offlineMaxOutputTokens = Math.max(128, Math.min(6000, Number(draft.maxOutputTokens) || estimateOfflineOutputTokensFromChars(draft.maxChars)));
@@ -3317,7 +3311,6 @@ function syncOfflineDrawerControls(){
   var maxChars = document.getElementById('offlineDrawerMaxChars');
   var perspective = document.getElementById('offlineDrawerPerspective');
   var style = document.getElementById('offlineDrawerStyle');
-  var streamEnabled = document.getElementById('offlineDrawerStreamEnabled');
   var presetMeta = document.getElementById('offlineDrawerPresetMeta');
   var summaryEvery = document.getElementById('offlineDrawerSummaryEvery');
   var summaryAuto = document.getElementById('offlineDrawerSummaryAuto');
@@ -3332,10 +3325,6 @@ function syncOfflineDrawerControls(){
   if(maxChars && document.activeElement !== maxChars) maxChars.value = String(draft.maxChars);
   if(perspective) perspective.value = draft.perspective;
   if(style && document.activeElement !== style) style.value = draft.style;
-  if(streamEnabled){
-    streamEnabled.classList.toggle('is-on', !!draft.streamEnabled);
-    streamEnabled.setAttribute('aria-pressed', draft.streamEnabled ? 'true' : 'false');
-  }
   if(presetMeta) presetMeta.textContent = describeOfflinePresetMeta(draft);
   if(summaryEvery && document.activeElement !== summaryEvery) summaryEvery.value = String(draft.summaryEvery);
   if(memoryReadCount && document.activeElement !== memoryReadCount) memoryReadCount.value = String(draft.memoryReadCount);
@@ -3377,7 +3366,6 @@ function bindOfflineDrawerControls(){
   var style = document.getElementById('offlineDrawerStyle');
   var minChars = document.getElementById('offlineDrawerMinChars');
   var maxChars = document.getElementById('offlineDrawerMaxChars');
-  var streamEnabled = document.getElementById('offlineDrawerStreamEnabled');
   var presetImportBtn = document.getElementById('offlineDrawerPresetImportBtn');
   var presetFile = document.getElementById('offlineDrawerPresetFile');
   var summaryEvery = document.getElementById('offlineDrawerSummaryEvery');
@@ -3425,13 +3413,6 @@ function bindOfflineDrawerControls(){
       var nextMax = Math.max(currentMin, Number(maxChars.value) || 360);
       draft.maxChars = nextMax;
       draft.maxOutputTokens = estimateOfflineOutputTokensFromChars(nextMax);
-    });
-  }
-  if(streamEnabled){
-    streamEnabled.addEventListener('click', function(){
-      var draft = getOfflineDrawerDraft();
-      draft.streamEnabled = !draft.streamEnabled;
-      syncOfflineDrawerControls();
     });
   }
   if(presetImportBtn && presetFile){
@@ -4557,7 +4538,6 @@ function getOfflineStoryPrefs(){
   var maxChars = Math.max(minChars, Number(character && character.offlineInviteMax) || 360);
   var perspective = String(character && character.offlineInvitePerspective || 'first');
   var style = String(character && character.offlineInviteStyle || '').trim();
-  var streamEnabled = getOfflineStreamEnabled();
   var maxContextTokens = getOfflineContextLimitTokens();
   var maxOutputTokens = getOfflineMaxOutputTokens();
   var presetName = getOfflinePresetName();
@@ -4567,7 +4547,6 @@ function getOfflineStoryPrefs(){
     maxChars:maxChars,
     perspective:perspective,
     style:style,
-    streamEnabled:streamEnabled,
     maxContextTokens:maxContextTokens,
     maxOutputTokens:maxOutputTokens,
     presetName:presetName
@@ -6481,7 +6460,7 @@ function supportsOfflineStreaming(provider){
   return safe === 'openai' || safe === 'openrouter' || safe === 'custom';
 }
 function wantsOfflineStreaming(){
-  return !!getOfflineStoryPrefs().streamEnabled;
+  return false;
 }
 function shouldUseOfflineSinglePassMode(){
   return true;
@@ -6529,19 +6508,11 @@ function parseOfflinePresetObject(source){
   var maxChars = Math.max(0, Number(obj.offlineMaxChars || obj.max_chars || obj.maxChars || 0) || 0);
   if(!maxChars && outputTokens) maxChars = estimateOfflineCharsFromTokens(outputTokens);
   if(!minChars && maxChars) minChars = Math.max(60, Math.round(maxChars * 0.82));
-  var streaming = false;
-  if(typeof obj.offlineStreamEnabled === 'boolean') streaming = obj.offlineStreamEnabled;
-  else if(typeof obj.stream_openai === 'boolean') streaming = obj.stream_openai;
-  else if(typeof obj.streaming === 'boolean') streaming = obj.streaming;
-  else if(typeof obj.streaming_textgenerationwebui === 'boolean') streaming = obj.streaming_textgenerationwebui;
-  else if(typeof obj.streaming_kobold === 'boolean') streaming = obj.streaming_kobold;
-  else if(typeof obj.streaming_novel === 'boolean') streaming = obj.streaming_novel;
   var temperature = Number(obj.temperature);
   return {
     name:name,
     minChars:Math.max(60, Math.min(3600, minChars || 300)),
     maxChars:Math.max(80, Math.min(4200, maxChars || Math.max(360, minChars || 360))),
-    streamEnabled:!!streaming,
     maxContextTokens:Math.max(1024, Math.min(64000, contextTokens || 8192)),
     maxOutputTokens:Math.max(128, Math.min(6000, outputTokens || estimateOfflineOutputTokensFromChars(maxChars || Math.max(360, minChars || 360)))),
     temperature:isFinite(temperature) ? Math.max(0, Math.min(2, temperature)) : null,
@@ -6622,7 +6593,6 @@ async function importOfflinePresetFromFile(file){
   var draft = getOfflineDrawerDraft();
   draft.minChars = imported.minChars;
   draft.maxChars = Math.max(imported.minChars, imported.maxChars);
-  draft.streamEnabled = !!imported.streamEnabled;
   draft.presetName = String(imported.name || '').trim();
   draft.maxContextTokens = imported.maxContextTokens;
   draft.maxOutputTokens = imported.maxOutputTokens;
