@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T05:12:18Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T05:12:18Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T05:12:18Z"></script>
-<script src="../promptManager.js?v=2026-04-23T05:12:18Z"></script>
-<script src="../accountManager.js?v=2026-04-23T05:12:18Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T05:12:18Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T05:12:18Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T05:12:18Z"></script>
+<script src="../assetStore.js?v=2026-04-23T05:19:44Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T05:19:44Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T05:19:44Z"></script>
+<script src="../promptManager.js?v=2026-04-23T05:19:44Z"></script>
+<script src="../accountManager.js?v=2026-04-23T05:19:44Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T05:19:44Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T05:19:44Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T05:19:44Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -4283,6 +4283,12 @@ function renderCharSheetBody(text, asides, entryIndex, entry){
   if(!parts.length){
     parts = ['这场线下见面还没正式开始。'];
   }
+  var inlineArtifact = sourceEntry ? normalizeOfflineInlineArtifact(sourceEntry) : null;
+  var artifactAfterParagraph = Math.max(1, Math.min(parts.length, Number(sourceEntry && sourceEntry.artifactAfterParagraph) || parts.length));
+  function renderInlineArtifactCard(){
+    if(!inlineArtifact) return '';
+    return '<div class="offline-artifact-card"><div class="offline-artifact-label">' + esc(String(inlineArtifact.artifactLabel || '小物件')) + '</div><div class="offline-artifact-preview">' + String(inlineArtifact.artifactHtml || '') + '</div></div>';
+  }
   var insertSlots = [];
   if(notes.length === 1){
     insertSlots = [0];
@@ -4339,6 +4345,9 @@ function renderCharSheetBody(text, asides, entryIndex, entry){
     var trimmedPart = String(part || '').trim();
     var rendered = renderQuotedInline(trimmedPart, entryIndex);
     html += '<div class="offline-inline-fragment"><p>' + rendered.textHtml + '</p>' + rendered.controlsHtml + rendered.cardsHtml + '</div>';
+    if(inlineArtifact && idx === artifactAfterParagraph - 1){
+      html += renderInlineArtifactCard();
+    }
     insertSlots.forEach(function(slot, noteIdx){
       if(idx === slot && notes[noteIdx]){
         var asideKey = buildOfflineInlineTranslationKey('aside', notes[noteIdx], noteIdx);
@@ -4447,10 +4456,6 @@ function renderPaperStoryCard(entry, idx, isChar){
   var thoughtToggle = isChar ? ('<div class="offline-story-thought-row">' + renderOfflineThoughtChain(entry) + '</div>') : '';
   var summaryToggle = isChar ? renderOfflineSummary(entry) : '';
   var statusChip = isChar ? renderOfflineStatusChip(entry, idx) : '';
-  var inlineArtifact = isChar ? normalizeOfflineInlineArtifact(entry) : null;
-  var artifactBlock = inlineArtifact
-    ? ('<div class="offline-artifact-card"><div class="offline-artifact-label">' + esc(String(inlineArtifact.artifactLabel || '小物件')) + '</div><div class="offline-artifact-preview">' + String(inlineArtifact.artifactHtml || '') + '</div></div>')
-    : '';
   var toolsRow = isChar ? ('<div class="offline-story-tools"><div class="offline-story-tools-left">' + thoughtToggle + '</div><button class="offline-story-editbtn" type="button" onclick="editOfflineEntryText(' + idx + ')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></button></div>') : '';
   var userEdit = isChar ? '' : ('<div class="offline-story-actions-left"><button class="offline-story-editbtn" type="button" onclick="editOfflineEntryText(' + idx + ')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></button></div>');
   var avatarHtml = '<div class="offline-story-avatar' + (isChar ? ' is-char' : '') + '"' + (isChar ? ' onclick="openOfflineStatusModal(' + idx + ')"' : '') + '>' + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : esc(displayName.slice(0, 2) || (isChar ? 'C' : 'U'))) + '<div class="offline-story-avatar-label">' + esc(displayName || (isChar ? 'char' : 'user')) + '</div></div>';
@@ -4482,7 +4487,6 @@ function renderPaperStoryCard(entry, idx, isChar){
       '</div>' +
       '<div class="offline-story-divider"></div>' +
       '<div class="offline-story-body">' + renderCharSheetBody(entry.text || '', entry.asides || (entry.aside ? [entry.aside] : []), idx, entry) + '</div>' +
-      artifactBlock +
       (isChar ? ('<div class="offline-story-postcards">' + statusChip + summaryToggle + '</div>') : '') +
       bottomActions +
     '</div>' +
@@ -5125,6 +5129,7 @@ function normalizeOfflineBodyDisplayPayload(payload){
   var inlineArtifact = normalizeOfflineInlineArtifact(next);
   next.artifactHtml = inlineArtifact ? inlineArtifact.artifactHtml : '';
   next.artifactLabel = inlineArtifact ? inlineArtifact.artifactLabel : '';
+  next.artifactAfterParagraph = Math.max(1, Number(next.artifactAfterParagraph || next.artifact_after_paragraph || 0) || 0);
   return next;
 }
 function violatesOfflineBodyDisplayLanguage(payload){
@@ -5552,6 +5557,7 @@ async function generateOfflineUnifiedScene(context, options){
     heart: String(parsed.heart || '').trim(),
     artifactLabel: String(parsed.artifactLabel || parsed.artifact_label || '').trim(),
     artifactHtml: String(parsed.artifactHtml || parsed.artifact_html || '').trim(),
+    artifactAfterParagraph: Math.max(0, Number(parsed.artifactAfterParagraph || parsed.artifact_after_paragraph || 0) || 0),
     statusCard: hasValidOfflineStatusPayload(parsed) ? normalizeOfflineStatusCard(parsed.status_card, finalText) : null,
     sceneSummary: normalizeOfflineSummaryText(parsed.scene_summary || parsed.summary || '', finalText)
   };
@@ -7070,7 +7076,7 @@ function buildOfflineSystemPrompt(options){
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"...","artifact_label":"...","artifact_html":"...","scene_summary":"..."}',
+    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"...","artifact_label":"...","artifact_html":"...","artifact_after_paragraph":0,"scene_summary":"..."}',
     'text 必须写成足量的线下面对面正文，细节感更强，不要写成短回复，不要写成一小段，也不要写成小说章节标题。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个简体中文字符左右，不要太正经，但必须贴人设。',
@@ -7107,7 +7113,8 @@ function buildOfflineSystemPrompt(options){
     'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
     '蓝字心声要像活人脑内瞬间闪过的欲言又止、嘴硬、自我警告、心里发烫或一秒露馅，不要总结局面，不要讲大道理，不要复述正文。',
     'heart 是右上角爱心里的短心声，2-10 个字。',
-    '如果这一幕里自然出现了信、纸条、票据、截图、搜索页、证件、小网页、小物件这些白名单风格的东西，可以额外返回 artifact_label 和 artifact_html，把它做成正文附带的小卡片；没有就留空字符串。',
+    '如果这一幕里自然出现了信、纸条、票据、截图、搜索页、证件、小网页、小物件这些白名单风格的东西，你可以额外返回 artifact_label 和 artifact_html，把它做成正文附带的小卡片；没有就留空字符串，不要硬塞。',
+    '如果返回了正文小卡片，可以额外返回 artifact_after_paragraph，表示把它插在第几段后面；不写或写 0 就默认放在正文最后。',
     'scene_summary 是这一幕的幕摘要，固定使用简体中文，控制在 28-90 个中文字符之间，像会被收进记忆里的压缩摘要。',
     '这一轮要一次性把 thought_chain、正文、番外 status_card、幕摘要、正文附带小卡片都一起生成，不要分步骤，不要说待会再补。',
     '下笔前必须先读并吸收这些信息，再决定怎么回复：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、最近线下记录、scenario、system prompt。',
@@ -7151,7 +7158,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
   return [
     '你在生成“线下见面模式”的第一幕正文。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."],"artifact_label":"...","artifact_html":"..."}，不要代码块，不要解释。',
+    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."],"artifact_label":"...","artifact_html":"...","artifact_after_paragraph":0}，不要代码块，不要解释。',
     '这次直接写完整第一幕正文，长度尽量写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间。',
     '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；title、quote 和正文旁白固定简体中文；status_card 严格使用当前语言设置；只有 asides 和引号里的台词严格使用当前语言设置。',
     '不要把整段正文旁白切成外语；title、quote 和外层旁白也绝对不许变成外语。',
@@ -7173,8 +7180,9 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '正文里必须至少出现 1 句 char 真正说出口的直接引语，用引号包起来，不要整段都只写动作和旁白。',
     'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
     '蓝字心声要像活人脑内瞬间闪过的欲言又止、嘴硬、自我警告、心里发烫或一秒露馅，不要总结局面，不要讲大道理，不要复述正文。',
-    '如果首幕里自然出现了信、纸条、便签、票据、收据、搜索页、聊天截图、记录页、证件、网页、小海报、小物件这些白名单风格的东西，可以额外返回 artifact_label 和 artifact_html。',
+    '如果首幕里自然出现了信、纸条、便签、票据、收据、搜索页、聊天截图、记录页、证件、网页、小海报、小物件这些白名单风格的东西，可以额外返回 artifact_label 和 artifact_html；没有自然提到就留空，不要硬做。',
     'artifact_html 只能是简单安全的 HTML/CSS 小卡片，不许 script，不许外链，不许 iframe，不许事件属性；artifact_label 写这张卡片的名字。',
+    '如果返回了正文小卡片，可以额外返回 artifact_after_paragraph，表示把它插在第几段后面；不写或写 0 就默认放在正文最后。',
     '正文必须仍然完整成立，artifact 只是额外增强代入感；没有自然对应的小东西时，把 artifact_label 和 artifact_html 留空字符串。',
     '下笔前必须先读并吸收这些信息，再决定 char 的开场方式：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、见面起点信息、scenario、system prompt。',
     '角色 persona 决定 char 的气质、说话方式和推进节奏；用户 persona 决定 char 对 user 的理解、称呼、互动分寸和照顾方式。',
@@ -8617,6 +8625,7 @@ async function generateOpeningIfNeeded(){
         liveOpeningEntry.thoughtChain = normalizeOfflineThoughtChain(unifiedOpening.thoughtChain || null, unifiedOpening.text);
         liveOpeningEntry.artifactLabel = String(unifiedOpening.artifactLabel || '').trim();
         liveOpeningEntry.artifactHtml = String(unifiedOpening.artifactHtml || '').trim();
+        liveOpeningEntry.artifactAfterParagraph = Math.max(0, Number(unifiedOpening.artifactAfterParagraph || 0) || 0);
         liveOpeningEntry.statusCard = unifiedOpening.statusCard || null;
         liveOpeningEntry.statusPending = false;
         liveOpeningEntry.statusPendingAt = 0;
@@ -8943,7 +8952,8 @@ async function generateOpeningIfNeeded(){
             text: openingText,
             asides: openingAsides.slice(),
             artifactLabel: String(fastCombinedObj.artifactLabel || fastCombinedObj.artifact_label || '').trim(),
-            artifactHtml: String(fastCombinedObj.artifactHtml || fastCombinedObj.artifact_html || '').trim()
+            artifactHtml: String(fastCombinedObj.artifactHtml || fastCombinedObj.artifact_html || '').trim(),
+            artifactAfterParagraph: Math.max(0, Number(fastCombinedObj.artifactAfterParagraph || fastCombinedObj.artifact_after_paragraph || 0) || 0)
           };
         }
       }catch(fastCombinedErr){
@@ -8971,7 +8981,8 @@ async function generateOpeningIfNeeded(){
             text: openingText,
             asides: openingAsides.slice(),
             artifactLabel: String(bodyObj.artifactLabel || bodyObj.artifact_label || '').trim(),
-            artifactHtml: String(bodyObj.artifactHtml || bodyObj.artifact_html || '').trim()
+            artifactHtml: String(bodyObj.artifactHtml || bodyObj.artifact_html || '').trim(),
+            artifactAfterParagraph: Math.max(0, Number(bodyObj.artifactAfterParagraph || bodyObj.artifact_after_paragraph || 0) || 0)
           };
         }
         for(var extendAttempt = 0; extendAttempt < plan.extendAttempts; extendAttempt += 1){
@@ -9003,7 +9014,8 @@ async function generateOpeningIfNeeded(){
                 text: openingText,
                 asides: openingAsides.slice(),
                 artifactLabel: String(continueObj.artifactLabel || continueObj.artifact_label || '').trim(),
-                artifactHtml: String(continueObj.artifactHtml || continueObj.artifact_html || '').trim()
+                artifactHtml: String(continueObj.artifactHtml || continueObj.artifact_html || '').trim(),
+                artifactAfterParagraph: Math.max(0, Number(continueObj.artifactAfterParagraph || continueObj.artifact_after_paragraph || 0) || 0)
               };
             }
           }catch(continueErr){
@@ -9058,7 +9070,8 @@ async function generateOpeningIfNeeded(){
             text: openingText,
             asides: openingAsides.slice(),
             artifactLabel: String(combinedObj.artifactLabel || combinedObj.artifact_label || '').trim(),
-            artifactHtml: String(combinedObj.artifactHtml || combinedObj.artifact_html || '').trim()
+            artifactHtml: String(combinedObj.artifactHtml || combinedObj.artifact_html || '').trim(),
+            artifactAfterParagraph: Math.max(0, Number(combinedObj.artifactAfterParagraph || combinedObj.artifact_after_paragraph || 0) || 0)
           };
         }
       }catch(combinedErr){
@@ -9120,6 +9133,7 @@ async function generateOpeningIfNeeded(){
     openingEntry.thoughtChain = normalizeOfflineThoughtChain(openingThoughtChain, openingText);
     openingEntry.artifactLabel = openingArtifact ? openingArtifact.artifactLabel : '';
     openingEntry.artifactHtml = openingArtifact ? openingArtifact.artifactHtml : '';
+    openingEntry.artifactAfterParagraph = openingArtifact ? Math.max(0, Number(openingBody && openingBody.artifactAfterParagraph || openingBody && openingBody.artifact_after_paragraph || 0) || 0) : 0;
     openingEntry.statusCard = normalizedOpeningStatus;
     openingEntry.statusPending = !normalizedOpeningStatus;
     openingEntry.statusPendingAt = !normalizedOpeningStatus ? Date.now() : 0;
@@ -9330,6 +9344,7 @@ async function requestOfflineReply(options){
         liveReplyEntry.thoughtChain = normalizeOfflineThoughtChain(unifiedReply.thoughtChain || null, unifiedReply.text);
         liveReplyEntry.artifactLabel = String(unifiedReply.artifactLabel || '').trim();
         liveReplyEntry.artifactHtml = String(unifiedReply.artifactHtml || '').trim();
+        liveReplyEntry.artifactAfterParagraph = Math.max(0, Number(unifiedReply.artifactAfterParagraph || 0) || 0);
         liveReplyEntry.statusCard = unifiedReply.statusCard || null;
         liveReplyEntry.statusPending = false;
         liveReplyEntry.statusPendingAt = 0;
@@ -9732,7 +9747,8 @@ async function requestOfflineReply(options){
       quote: replyQuote,
       asides: replyAsides,
       artifactLabel: String(bodyPayload.artifactLabel || bodyPayload.artifact_label || '').trim(),
-      artifactHtml: String(bodyPayload.artifactHtml || bodyPayload.artifact_html || '').trim()
+      artifactHtml: String(bodyPayload.artifactHtml || bodyPayload.artifact_html || '').trim(),
+      artifactAfterParagraph: Math.max(0, Number(bodyPayload.artifactAfterParagraph || bodyPayload.artifact_after_paragraph || 0) || 0)
     }, {
       opening: false,
       minChars: minChars,
@@ -9774,6 +9790,7 @@ async function requestOfflineReply(options){
     replyEntry.thoughtChain = normalizeOfflineThoughtChain(thoughtChain, replyText);
     replyEntry.artifactLabel = replyArtifact ? replyArtifact.artifactLabel : '';
     replyEntry.artifactHtml = replyArtifact ? replyArtifact.artifactHtml : '';
+    replyEntry.artifactAfterParagraph = replyArtifact ? Math.max(0, Number(replyBody && replyBody.artifactAfterParagraph || replyBody && replyBody.artifact_after_paragraph || 0) || 0) : 0;
     replyEntry.statusCard = null;
     replyEntry.statusPending = true;
     replyEntry.statusPendingAt = Date.now();
