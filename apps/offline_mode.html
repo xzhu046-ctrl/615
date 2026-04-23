@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T01:40:31Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T01:40:31Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T01:40:31Z"></script>
-<script src="../promptManager.js?v=2026-04-23T01:40:31Z"></script>
-<script src="../accountManager.js?v=2026-04-23T01:40:31Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T01:40:31Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T01:40:31Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T01:40:31Z"></script>
+<script src="../assetStore.js?v=2026-04-23T01:44:30Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T01:44:30Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T01:44:30Z"></script>
+<script src="../promptManager.js?v=2026-04-23T01:44:30Z"></script>
+<script src="../accountManager.js?v=2026-04-23T01:44:30Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T01:44:30Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T01:44:30Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T01:44:30Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -7267,6 +7267,20 @@ function isMobileOfflineRuntime(){
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '') || window.innerWidth <= 820;
 }
 function getOfflineOpeningAttemptPlan(){
+  var provider = getOfflineProvider();
+  var prefs = getOfflineStoryPrefs();
+  var desiredChars = Math.max(240, Number(prefs.maxChars || prefs.minChars || 0) || 0);
+  if(shouldUseOfflineSinglePassMode()){
+    var unifiedMainTimeout = desiredChars >= 2600 ? 120000 : (desiredChars >= 1800 ? 95000 : 78000);
+    if(provider === 'custom') unifiedMainTimeout += 15000;
+    return {
+      mainTimeout: unifiedMainTimeout,
+      continueTimeout: Math.min(26000, Math.round(unifiedMainTimeout * 0.28)),
+      repairTimeout: Math.min(32000, Math.round(unifiedMainTimeout * 0.32)),
+      attempts: 1,
+      extendAttempts: 0
+    };
+  }
   if(isMobileOfflineRuntime()){
     return {
       mainTimeout: 48000,
@@ -7285,6 +7299,14 @@ function getOfflineOpeningAttemptPlan(){
   };
 }
 function getOfflineReplyTimeoutMs(){
+  if(shouldUseOfflineSinglePassMode()){
+    var provider = getOfflineProvider();
+    var prefs = getOfflineStoryPrefs();
+    var desiredChars = Math.max(240, Number(prefs.maxChars || prefs.minChars || 0) || 0);
+    var base = desiredChars >= 2600 ? 120000 : (desiredChars >= 1800 ? 95000 : 78000);
+    if(provider === 'custom') base += 15000;
+    return base;
+  }
   return isMobileOfflineRuntime() ? 48000 : 40000;
 }
 function buildOfflineEmergencyOpeningSystemPrompt(){
