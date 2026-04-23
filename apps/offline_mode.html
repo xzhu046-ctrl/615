@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T03:12:48Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T03:12:48Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T03:12:48Z"></script>
-<script src="../promptManager.js?v=2026-04-23T03:12:48Z"></script>
-<script src="../accountManager.js?v=2026-04-23T03:12:48Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T03:12:48Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T03:12:48Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T03:12:48Z"></script>
+<script src="../assetStore.js?v=2026-04-23T03:15:53Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T03:15:53Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T03:15:53Z"></script>
+<script src="../promptManager.js?v=2026-04-23T03:15:53Z"></script>
+<script src="../accountManager.js?v=2026-04-23T03:15:53Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T03:15:53Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T03:15:53Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T03:15:53Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1720,38 +1720,45 @@ async function refreshOfflineBackgroundFromSettings(){
 async function persistOfflineBackgroundSelection(options){
   if(!character || !character.id) return false;
   var opts = options || {};
+  var scope = String(opts.scope || 'both');
+  var savePage = scope === 'both' || scope === 'page';
+  var saveCard = scope === 'both' || scope === 'card';
   var draft = getOfflineDrawerDraft();
   var nextPageUrl = String(draft.backgroundUrl || '').trim();
   var nextCardUrl = String(draft.cardBackgroundUrl || '').trim();
   var pageAssetKey = offlinePageBackgroundAssetKey(character.id);
   var cardAssetKey = offlineCardBackgroundAssetKey(character.id);
-  if(offlineDrawerPageBgPendingAsset){
-    await saveStoredAsset(pageAssetKey, offlineDrawerPageBgPendingAsset);
-    character.offlineBackgroundUrl = '';
-    offlineDrawerPageBgResolvedSource = offlineDrawerPageBgPendingAsset;
-    offlineDrawerPageBgPendingAsset = '';
-  }else if(nextPageUrl){
-    await removeStoredAsset(pageAssetKey);
-    character.offlineBackgroundUrl = nextPageUrl;
-    offlineDrawerPageBgResolvedSource = nextPageUrl;
-  }else{
-    await removeStoredAsset(pageAssetKey);
-    character.offlineBackgroundUrl = '';
-    offlineDrawerPageBgResolvedSource = '';
+  if(savePage){
+    if(offlineDrawerPageBgPendingAsset){
+      await saveStoredAsset(pageAssetKey, offlineDrawerPageBgPendingAsset);
+      character.offlineBackgroundUrl = '';
+      offlineDrawerPageBgResolvedSource = offlineDrawerPageBgPendingAsset;
+      offlineDrawerPageBgPendingAsset = '';
+    }else if(nextPageUrl){
+      await removeStoredAsset(pageAssetKey);
+      character.offlineBackgroundUrl = nextPageUrl;
+      offlineDrawerPageBgResolvedSource = nextPageUrl;
+    }else{
+      await removeStoredAsset(pageAssetKey);
+      character.offlineBackgroundUrl = '';
+      offlineDrawerPageBgResolvedSource = '';
+    }
   }
-  if(offlineDrawerCardBgPendingAsset){
-    await saveStoredAsset(cardAssetKey, offlineDrawerCardBgPendingAsset);
-    character.offlineCardBackgroundUrl = '';
-    offlineDrawerCardBgResolvedSource = offlineDrawerCardBgPendingAsset;
-    offlineDrawerCardBgPendingAsset = '';
-  }else if(nextCardUrl){
-    await removeStoredAsset(cardAssetKey);
-    character.offlineCardBackgroundUrl = nextCardUrl;
-    offlineDrawerCardBgResolvedSource = nextCardUrl;
-  }else{
-    await removeStoredAsset(cardAssetKey);
-    character.offlineCardBackgroundUrl = '';
-    offlineDrawerCardBgResolvedSource = '';
+  if(saveCard){
+    if(offlineDrawerCardBgPendingAsset){
+      await saveStoredAsset(cardAssetKey, offlineDrawerCardBgPendingAsset);
+      character.offlineCardBackgroundUrl = '';
+      offlineDrawerCardBgResolvedSource = offlineDrawerCardBgPendingAsset;
+      offlineDrawerCardBgPendingAsset = '';
+    }else if(nextCardUrl){
+      await removeStoredAsset(cardAssetKey);
+      character.offlineCardBackgroundUrl = nextCardUrl;
+      offlineDrawerCardBgResolvedSource = nextCardUrl;
+    }else{
+      await removeStoredAsset(cardAssetKey);
+      character.offlineCardBackgroundUrl = '';
+      offlineDrawerCardBgResolvedSource = '';
+    }
   }
   applyOfflinePageBackgroundSource(offlineDrawerPageBgResolvedSource);
   applyOfflineCardBackgroundSource(offlineDrawerCardBgResolvedSource);
@@ -3702,7 +3709,7 @@ function bindOfflineDrawerControls(){
   }
   if(pageBgSaveBtn){
     pageBgSaveBtn.addEventListener('click', function(){
-      persistOfflineBackgroundSelection().catch(function(err){
+      persistOfflineBackgroundSelection({ scope:'page' }).catch(function(err){
         toast('保存背景失败：' + summarizeOfflineError(err), { sticky:true });
       });
     });
@@ -3754,7 +3761,7 @@ function bindOfflineDrawerControls(){
   }
   if(cardBgSaveBtn){
     cardBgSaveBtn.addEventListener('click', function(){
-      persistOfflineBackgroundSelection().catch(function(err){
+      persistOfflineBackgroundSelection({ scope:'card' }).catch(function(err){
         toast('保存标题背景失败：' + summarizeOfflineError(err), { sticky:true });
       });
     });
