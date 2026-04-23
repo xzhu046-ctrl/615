@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../accountManager.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../assetStore.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../sunnySupport.js?v=2026-04-23T07:22:41Z"></script>
-<script src="offlineInvite.js?v=2026-04-23T07:22:41Z"></script>
+<script src="../promptManager.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../accountManager.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../assetStore.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../sunnySupport.js?v=2026-04-23T07:38:24Z"></script>
+<script src="offlineInvite.js?v=2026-04-23T07:38:24Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -4184,11 +4184,31 @@ function defaultStructuredMemoryState(){
     plans: [],
     relationship: '',
     emotions: [],
+    shortTerm: [],
     customCategories: {},
     custom: {},
     covered: 0,
     lastUpdated: 0
   };
+}
+function normalizeLittleBrainShortTermItems(items){
+  return Array.isArray(items) ? items.map(function(it){
+    var text = String((it && it.text) || '').trim();
+    return {
+      id: String((it && it.id) || ('st_' + Date.now())),
+      from: Number((it && it.from) || 0) || 0,
+      to: Number((it && it.to) || 0) || 0,
+      text: text,
+      tokens: Number((it && it.tokens) || 0) || approxTokenCount(text),
+      createdAt: Number((it && it.createdAt) || Date.now()) || Date.now(),
+      updatedAt: Number((it && (it.updatedAt || it.createdAt) || Date.now())) || Date.now(),
+      manual: !!(it && it.manual),
+      pinned: !!(it && it.pinned),
+      label: String((it && it.label) || '').trim(),
+      sourceType: String((it && it.sourceType) || '').trim(),
+      memoryCategory: String((it && it.memoryCategory) || '').trim()
+    };
+  }).filter(function(it){ return !!it.text; }) : [];
 }
 function defaultVectorMemoryState(){
   return {
@@ -4215,6 +4235,7 @@ function normalizeStructuredMemoryState(raw){
   next.plans = Array.isArray(src.plans) ? src.plans.map(function(v){ return String(v || '').trim(); }).filter(Boolean) : [];
   next.relationship = String(src.relationship || '').trim();
   next.emotions = Array.isArray(src.emotions) ? src.emotions.map(function(v){ return String(v || '').trim(); }).filter(Boolean) : [];
+  next.shortTerm = normalizeLittleBrainShortTermItems(src.shortTerm);
   next.customCategories = src.customCategories && typeof src.customCategories === 'object' ? cloneJsonSafe(src.customCategories, {}) : {};
   next.custom = src.custom && typeof src.custom === 'object' ? cloneJsonSafe(src.custom, {}) : {};
   next.covered = Math.max(0, Number(src.covered || 0) || 0);
@@ -4930,16 +4951,49 @@ function pruneDiaryMemoryForLittleBrain(store){
   if(getMemoryModeFromStore(safe) !== MEMORY_MODE_STRUCTURED){
     return safe;
   }
-  var list = Array.isArray(safe.items) ? safe.items.slice() : [];
+  var list = Array.isArray(safe.advancedMemory.structured.shortTerm) ? safe.advancedMemory.structured.shortTerm.slice() : [];
   if(!list.length) return safe;
   var pinned = list.filter(isPinnedMemoryItem);
   var auto = list.filter(function(it){ return !isPinnedMemoryItem(it); });
   var keptAuto = auto.slice(-4);
-  safe.items = pinned.concat(keptAuto).sort(function(a, b){
+  safe.advancedMemory.structured.shortTerm = pinned.concat(keptAuto).sort(function(a, b){
     var aAt = Number(a && (a.updatedAt || a.createdAt) || 0) || 0;
     var bAt = Number(b && (b.updatedAt || b.createdAt) || 0) || 0;
     return aAt - bAt;
   });
+  saveMemorySummaryStore(safe);
+  return safe;
+}
+function isLittleBrainShortTermLegacyItem(item){
+  var category = String(item && item.memoryCategory || '').trim();
+  var label = String(item && item.label || '').trim();
+  return !!category || label.indexOf('短期记忆') !== -1;
+}
+function migrateLittleBrainShortTermItems(store){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  if(getMemoryModeFromStore(safe) !== MEMORY_MODE_STRUCTURED) return safe;
+  var items = Array.isArray(safe.items) ? safe.items.slice() : [];
+  if(!items.length) return safe;
+  var shortTerm = Array.isArray(safe.advancedMemory.structured.shortTerm) ? safe.advancedMemory.structured.shortTerm.slice() : [];
+  var existingIds = Object.create(null);
+  shortTerm.forEach(function(item){ existingIds[String(item && item.id || '')] = true; });
+  var moved = false;
+  var kept = [];
+  items.forEach(function(item){
+    if(isLittleBrainShortTermLegacyItem(item)){
+      var id = String(item && item.id || '').trim();
+      if(id && !existingIds[id]){
+        existingIds[id] = true;
+        shortTerm.push(Object.assign({}, item || {}, { pinned:true, manual:true }));
+      }
+      moved = true;
+      return;
+    }
+    kept.push(item);
+  });
+  if(!moved) return safe;
+  safe.items = kept;
+  safe.advancedMemory.structured.shortTerm = normalizeLittleBrainShortTermItems(shortTerm);
   saveMemorySummaryStore(safe);
   return safe;
 }
@@ -23506,7 +23560,10 @@ function getVectorMemoryEntryCount(mem){
 }
 function getCurrentMemoryEntryCount(store, mode){
   if(mode === MEMORY_MODE_STRUCTURED){
-    return (Array.isArray(store.items) ? store.items.length : 0) + getStructuredMemoryEntryCount(store.advancedMemory.structured);
+    var shortTerm = Array.isArray(store && store.advancedMemory && store.advancedMemory.structured && store.advancedMemory.structured.shortTerm)
+      ? store.advancedMemory.structured.shortTerm
+      : [];
+    return shortTerm.length + getStructuredMemoryEntryCount(store.advancedMemory.structured);
   }
   return Array.isArray(store.items) ? store.items.length : 0;
 }
@@ -23733,12 +23790,34 @@ function appendDiaryMemoryItem(store, text, label, category){
   });
   return store;
 }
+function appendLittleBrainShortTermItem(store, text, label, category){
+  var safeText = String(text || '').trim();
+  if(!safeText) return store;
+  var shortList = Array.isArray(store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.slice() : [];
+  shortList.push({
+    id: 'st_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+    from: 0,
+    to: 0,
+    text: safeText,
+    tokens: approxTokenCount(safeText),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    manual: true,
+    pinned: true,
+    label: String(label || '转回短期记忆').trim(),
+    sourceType: 'manual',
+    memoryCategory: String(category || '').trim()
+  });
+  store.advancedMemory.structured.shortTerm = normalizeLittleBrainShortTermItems(shortList);
+  return store;
+}
 function promoteDiaryMemoryItem(id){
   var safeId = String(id || '').trim();
   if(!safeId || !character) return;
-  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var store = migrateLittleBrainShortTermItems(ensureAdvancedMemoryOnStore(loadMemorySummaryStore()));
+  var shortList = Array.isArray(store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.slice() : [];
   var items = Array.isArray(store.items) ? store.items.slice() : [];
-  var hit = items.find(function(it){ return String(it && it.id || '') === safeId; });
+  var hit = shortList.find(function(it){ return String(it && it.id || '') === safeId; }) || items.find(function(it){ return String(it && it.id || '') === safeId; });
   if(!hit || !String(hit.text || '').trim()) return;
   var sm = store.advancedMemory.structured;
   var category = inferLittleBrainDiaryCategory(hit, sm);
@@ -23775,6 +23854,7 @@ function promoteDiaryMemoryItem(id){
     existing.push(text);
     sm.events[month] = existing.join('|');
   }
+  store.advancedMemory.structured.shortTerm = normalizeLittleBrainShortTermItems(shortList.filter(function(it){ return String(it && it.id || '') !== safeId; }));
   store.items = items.filter(function(it){ return String(it && it.id || '') !== safeId; });
   saveMemorySummaryStore(store);
   refreshMemoryUi();
@@ -23783,7 +23863,7 @@ function promoteDiaryMemoryItem(id){
 function demoteStructuredMemoryToDiary(store, text, label, category){
   var safeText = String(text || '').trim();
   if(!safeText || !character || !store) return store;
-  appendDiaryMemoryItem(store, safeText, label || '转回短期记忆', category || '');
+  appendLittleBrainShortTermItem(store, safeText, label || '转回短期记忆', category || '');
   return store;
 }
 function deleteStructuredFactAt(idx){
@@ -23936,16 +24016,16 @@ function buildMemoryPanelContentHtml(store, mode, view){
   var showDiary = safeView === 'diary' || safeView === 'all' || (mode !== MEMORY_MODE_STRUCTURED && safeView !== 'structured');
   var showStructured = safeView === 'structured' || (mode === MEMORY_MODE_STRUCTURED && safeView === 'all');
   if(showDiary){
-    sections.push((mode === MEMORY_MODE_STRUCTURED ? '<div class="memory-band-divider"><span>短期记忆</span></div>' : '') + '<div class="memory-section-title"><span>' + (mode === MEMORY_MODE_STRUCTURED ? '短期记忆' : '日记模式') + '</span><strong>' + ((store.items || []).length || 0) + '</strong></div>' + buildDiaryMemoryCardsHtml(store.items || []));
+    sections.push((mode === MEMORY_MODE_STRUCTURED ? '<div class="memory-band-divider"><span>日记模式</span></div>' : '') + '<div class="memory-section-title"><span>日记模式</span><strong>' + ((store.items || []).length || 0) + '</strong></div>' + buildDiaryMemoryCardsHtml(store.items || []));
   }
   if(showStructured){
-    sections.push('<div class="memory-section-title"><span>' + esc((getCurrentCharDisplayName() || '角色') + '的小脑瓜') + '</span><strong>' + getCurrentMemoryEntryCount(store, MEMORY_MODE_STRUCTURED) + '</strong></div>' + buildStructuredMemoryCardsHtml(store.advancedMemory.structured, store.items || []));
+    sections.push('<div class="memory-section-title"><span>' + esc((getCurrentCharDisplayName() || '角色') + '的小脑瓜') + '</span><strong>' + getCurrentMemoryEntryCount(store, MEMORY_MODE_STRUCTURED) + '</strong></div>' + buildStructuredMemoryCardsHtml(store.advancedMemory.structured, (store.advancedMemory.structured && store.advancedMemory.structured.shortTerm) || []));
   }
   return buildMemoryPanelTabs(safeView, mode) + sections.join('');
 }
 function refreshMemoryUi(){
   refreshSummaryStatsUi();
-  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var store = migrateLittleBrainShortTermItems(ensureAdvancedMemoryOnStore(loadMemorySummaryStore()));
   var mode = getMemoryModeFromStore(store);
   var count = getCurrentMemoryEntryCount(store, mode);
   var btn = document.getElementById('memoryBtn');
@@ -23954,7 +24034,7 @@ function refreshMemoryUi(){
   if(preview){
     if(mode === MEMORY_MODE_STRUCTURED){
       var sm = store.advancedMemory.structured;
-      preview.innerHTML = '<div class="mem-item"><div class="mem-item-title"><span>' + esc((getCurrentCharDisplayName() || '角色') + '的小脑瓜概览') + '</span><span>' + getCurrentMemoryEntryCount(store, mode) + ' 条</span></div><div class="mem-item-body">日记 ' + ((store.items || []).length || 0) + ' · 人物底稿 ' + Object.keys(sm.facts || {}).length + ' · 已经发生 ' + Object.keys(sm.events || {}).length + ' · 正在推进 ' + (sm.plans || []).length + ' · 关系温度 ' + ((sm.relationship ? 1 : 0) + (sm.emotions || []).length) + ' · 未来挂念 ' + (sm.decisions || []).length + '</div></div>';
+      preview.innerHTML = '<div class="mem-item"><div class="mem-item-title"><span>' + esc((getCurrentCharDisplayName() || '角色') + '的小脑瓜概览') + '</span><span>' + getCurrentMemoryEntryCount(store, mode) + ' 条</span></div><div class="mem-item-body">短期 ' + (((sm.shortTerm || []).length) || 0) + ' · 人物底稿 ' + Object.keys(sm.facts || {}).length + ' · 已经发生 ' + Object.keys(sm.events || {}).length + ' · 正在推进 ' + (sm.plans || []).length + ' · 关系温度 ' + ((sm.relationship ? 1 : 0) + (sm.emotions || []).length) + ' · 未来挂念 ' + (sm.decisions || []).length + '</div></div>';
     }else{
       var items = store.items || [];
       if(!items.length){
@@ -24659,7 +24739,7 @@ function openMemoryEditor(id){
   var input = document.getElementById('memEditorInput');
   var overlay = document.getElementById('memEditorOverlay');
   if(!title || !input || !overlay) return;
-  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var store = migrateLittleBrainShortTermItems(ensureAdvancedMemoryOnStore(loadMemorySummaryStore()));
   if(memoryEditingId){
     var items = Array.isArray(store.items) ? store.items : [];
     var hit = items.find(function(it){ return String(it.id) === String(memoryEditingId); });
@@ -24668,6 +24748,12 @@ function openMemoryEditor(id){
       input.value = String(hit.text || '');
       title.textContent = '编辑短期记忆';
     }else{
+      var shortHit = (store.advancedMemory && store.advancedMemory.structured && Array.isArray(store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm : []).find(function(it){ return String(it && it.id || '') === String(memoryEditingId); });
+      if(shortHit){
+        memoryEditingType = 'structured-short';
+        input.value = String(shortHit.text || '');
+        title.textContent = '编辑短期记忆';
+      }else{
       var core = (store.advancedMemory.vector && Array.isArray(store.advancedMemory.vector.coreMemories))
         ? store.advancedMemory.vector.coreMemories.find(function(it){ return String(it && it.id || '') === String(memoryEditingId); })
         : null;
@@ -24679,6 +24765,7 @@ function openMemoryEditor(id){
         input.value = '';
         title.textContent = '新建记忆';
       }
+      }
     }
   }else{
     input.value = '';
@@ -24686,6 +24773,9 @@ function openMemoryEditor(id){
     if(mode === MEMORY_MODE_VECTOR){
       memoryEditingType = 'vector-core';
       title.textContent = '新增核心记忆';
+    }else if(mode === MEMORY_MODE_STRUCTURED){
+      memoryEditingType = 'structured-short';
+      title.textContent = '新建短期记忆';
     }else{
       memoryEditingType = 'diary';
       title.textContent = '新建短期记忆';
@@ -24708,7 +24798,7 @@ async function confirmMemoryEditor(){
     toast('记忆内容不能为空');
     return;
   }
-  var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
+  var store = migrateLittleBrainShortTermItems(ensureAdvancedMemoryOnStore(loadMemorySummaryStore()));
   if(memoryEditingType === 'vector-core'){
     var vm = store.advancedMemory.vector;
     if(memoryEditingId){
@@ -24769,6 +24859,37 @@ async function confirmMemoryEditor(){
       toast('暂不支持这种结构化编辑');
       return;
     }
+  }else if(memoryEditingType === 'structured-short'){
+    var shortList = Array.isArray(store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.slice() : [];
+    var shortNow = Date.now();
+    if(memoryEditingId){
+      var shortIdx = shortList.findIndex(function(it){ return String(it && it.id || '') === String(memoryEditingId); });
+      if(shortIdx >= 0){
+        shortList[shortIdx] = Object.assign({}, shortList[shortIdx] || {}, {
+          text: text,
+          tokens: approxTokenCount(text),
+          updatedAt: shortNow,
+          manual: true,
+          pinned: true
+        });
+      }
+    }else{
+      shortList.push({
+        id: 'st_' + shortNow.toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+        from: 0,
+        to: 0,
+        text: text,
+        tokens: approxTokenCount(text),
+        createdAt: shortNow,
+        updatedAt: shortNow,
+        manual: true,
+        pinned: true,
+        label: '手动短期记忆',
+        sourceType: 'manual',
+        memoryCategory: ''
+      });
+    }
+    store.advancedMemory.structured.shortTerm = normalizeLittleBrainShortTermItems(shortList);
   }else{
     if(memoryEditingId){
       var idx = store.items.findIndex(function(it){ return String(it.id) === String(memoryEditingId); });
@@ -24799,7 +24920,16 @@ async function confirmMemoryEditor(){
 }
 function deleteMemoryItem(id){
   if(!character || !id) return;
-  var store = loadMemorySummaryStore();
+  var store = migrateLittleBrainShortTermItems(ensureAdvancedMemoryOnStore(loadMemorySummaryStore()));
+  var shortList = Array.isArray(store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.slice() : [];
+  var shortNext = shortList.filter(function(it){ return String(it && it.id || '') !== String(id); });
+  if(shortNext.length !== shortList.length){
+    store.advancedMemory.structured.shortTerm = normalizeLittleBrainShortTermItems(shortNext);
+    saveMemorySummaryStore(store);
+    refreshMemoryUi();
+    toast('短期记忆已删除');
+    return;
+  }
   var before = store.items.length;
   store.items = store.items.filter(function(it){ return String(it.id) !== String(id); });
   if(store.items.length === before) return;

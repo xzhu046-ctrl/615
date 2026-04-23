@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../promptManager.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../accountManager.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T07:22:41Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T07:22:41Z"></script>
+<script src="../assetStore.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../promptManager.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../accountManager.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T07:38:24Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -5994,6 +5994,7 @@ function defaultOfflineAdvancedMemoryState(){
       decisions:[],
       plans:[],
       emotions:[],
+      shortTerm:[],
       custom:{},
       customCategories:{}
     },
@@ -6004,6 +6005,25 @@ function defaultOfflineAdvancedMemoryState(){
       settings:{}
     }
   };
+}
+function normalizeOfflineLittleBrainShortTermItems(items){
+  return Array.isArray(items) ? items.map(function(it){
+    var text = String((it && it.text) || '').trim();
+    return {
+      id: String((it && it.id) || ('st_' + Date.now())),
+      from: Number((it && it.from) || 0) || 0,
+      to: Number((it && it.to) || 0) || 0,
+      text: text,
+      tokens: Number((it && it.tokens) || 0) || approxOfflineTokenCount(text),
+      createdAt: Number((it && it.createdAt) || Date.now()) || Date.now(),
+      updatedAt: Number((it && (it.updatedAt || it.createdAt) || Date.now())) || Date.now(),
+      manual: !!(it && it.manual),
+      pinned: !!(it && it.pinned),
+      label: String((it && it.label) || '').trim(),
+      sourceType: String((it && it.sourceType) || '').trim(),
+      memoryCategory: String((it && it.memoryCategory) || '').trim()
+    };
+  }).filter(function(it){ return !!it.text; }) : [];
 }
 function buildOfflineLegacyVectorDiaryItems(items, vectorState){
   var sourceItems = Array.isArray(items) ? items : [];
@@ -6053,6 +6073,7 @@ function normalizeOfflineAdvancedMemoryState(raw){
     decisions: Array.isArray(structured.decisions) ? structured.decisions : [],
     plans: Array.isArray(structured.plans) ? structured.plans : [],
     emotions: Array.isArray(structured.emotions) ? structured.emotions : [],
+    shortTerm: normalizeOfflineLittleBrainShortTermItems(structured.shortTerm),
     custom: structured.custom && typeof structured.custom === 'object' ? structured.custom : {},
     customCategories: structured.customCategories && typeof structured.customCategories === 'object' ? structured.customCategories : {}
   };
@@ -6090,6 +6111,40 @@ function getOfflineMemoryModeFromStore(store){
     });
   }
   return hasStructuredContent ? 'structured' : storeMode;
+}
+function isOfflineLittleBrainShortTermLegacyItem(item){
+  var category = String(item && item.memoryCategory || '').trim();
+  var label = String(item && item.label || '').trim();
+  return !!category || label.indexOf('短期记忆') !== -1;
+}
+async function migrateOfflineLittleBrainShortTermItems(store){
+  var safe = normalizeOnlineMemorySummaryStore(store || defaultOnlineMemorySummaryStore());
+  safe.advancedMemory = normalizeOfflineAdvancedMemoryState(safe.advancedMemory);
+  if(getOfflineMemoryModeFromStore(safe) !== 'structured') return safe;
+  var items = Array.isArray(safe.items) ? safe.items.slice() : [];
+  if(!items.length) return safe;
+  var shortTerm = Array.isArray(safe.advancedMemory.structured.shortTerm) ? safe.advancedMemory.structured.shortTerm.slice() : [];
+  var existingIds = Object.create(null);
+  shortTerm.forEach(function(item){ existingIds[String(item && item.id || '')] = true; });
+  var moved = false;
+  var kept = [];
+  items.forEach(function(item){
+    if(isOfflineLittleBrainShortTermLegacyItem(item)){
+      var id = String(item && item.id || '').trim();
+      if(id && !existingIds[id]){
+        existingIds[id] = true;
+        shortTerm.push(Object.assign({}, item || {}, { pinned:true, manual:true }));
+      }
+      moved = true;
+      return;
+    }
+    kept.push(item);
+  });
+  if(!moved) return safe;
+  safe.items = kept;
+  safe.advancedMemory.structured.shortTerm = normalizeOfflineLittleBrainShortTermItems(shortTerm);
+  await saveOfflineMemoryStore(safe);
+  return safe;
 }
 function buildOfflineDiaryMemoryPromptText(items){
   var list = sortOfflineMemoryItemsForPrompt(items).map(function(it){
@@ -6298,6 +6353,7 @@ async function refreshOfflineMemoryButton(){
   var btn = document.getElementById('offlineMemoryBtn');
   if(!btn) return;
   var store = await loadOfflineMemoryStore().catch(function(){ return defaultOnlineMemorySummaryStore(); });
+  store = await migrateOfflineLittleBrainShortTermItems(store);
   var mode = getOfflineMemoryModeFromStore(store);
   var count = mode === 'structured'
     ? (function(mem){
@@ -6316,7 +6372,7 @@ async function refreshOfflineMemoryButton(){
             total += Array.isArray(mem.custom[code]) ? mem.custom[code].length : 0;
           });
         }
-        return total + ((store && Array.isArray(store.items)) ? store.items.length : 0);
+        return total + ((mem && Array.isArray(mem.structured && mem.structured.shortTerm)) ? mem.structured.shortTerm.length : 0);
       })(store && store.advancedMemory)
     : ((store && Array.isArray(store.items)) ? store.items.length : 0);
   btn.textContent = '★ ' + count;
@@ -6350,16 +6406,16 @@ async function refreshOfflineMemoryUi(){
   var title = document.getElementById('offlineMemoryTitle');
   if(!body || !title) return;
   title.textContent = (getCharDisplayName() || '线下') + ' · 聊天记忆';
-  var store = await loadOfflineMemoryStore();
+  var store = await migrateOfflineLittleBrainShortTermItems(await loadOfflineMemoryStore());
   var mode = getOfflineMemoryModeFromStore(store);
   var addBtn = document.querySelector('#offlineMemoryOverlay .offline-memory-close');
   if(addBtn) addBtn.style.display = '';
   refreshOfflineMemoryButton();
   if(mode === 'structured'){
-    var diaryCount = Array.isArray(store && store.items) ? store.items.length : 0;
+    var diaryCount = Array.isArray(store && store.advancedMemory && store.advancedMemory.structured && store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.length : 0;
     var structuredCount = getOfflineStructuredMemoryEntryCount(store && store.advancedMemory);
     body.innerHTML = '<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">' + esc((getCharDisplayName() || '角色') + '的小脑瓜') + ' · ' + (diaryCount + structuredCount) + '</div></div><div class="offline-memory-item-body">这里会一起显示短期内容和沉淀下来的小脑瓜记忆。</div></div>'
-      + buildOfflineStructuredMemoryCardsHtml(store && store.advancedMemory, store && store.items);
+      + buildOfflineStructuredMemoryCardsHtml(store && store.advancedMemory, store && store.advancedMemory && store.advancedMemory.structured && store.advancedMemory.structured.shortTerm);
     return;
   }
   body.innerHTML = buildOfflineDiaryMemoryCardsHtml(store && store.items);
@@ -6518,10 +6574,20 @@ async function openOfflineMemoryEditor(id){
   var input = document.getElementById('offlineMemoryEditorInput');
   if(!title || !input) return;
   var copy = '';
+  var store = await migrateOfflineLittleBrainShortTermItems(await loadOfflineMemoryStore());
   if(safeId){
-    var store = await loadOfflineMemoryStore();
     var item = (Array.isArray(store && store.items) ? store.items : []).find(function(it){ return String(it && it.id || '') === safeId; });
-    copy = String(item && item.text || '').trim();
+    if(item){
+      copy = String(item && item.text || '').trim();
+    }else{
+      var shortItem = (Array.isArray(store && store.advancedMemory && store.advancedMemory.structured && store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm : []).find(function(it){ return String(it && it.id || '') === safeId; });
+      if(shortItem){
+        offlineMemoryEditingMeta = { type:'structured-short' };
+        copy = String(shortItem && shortItem.text || '').trim();
+      }
+    }
+  }else if(getOfflineMemoryModeFromStore(store) === 'structured'){
+    offlineMemoryEditingMeta = { type:'structured-short' };
   }
   title.textContent = safeId ? '编辑短期记忆' : '新建短期记忆';
   input.value = copy;
@@ -6586,7 +6652,7 @@ async function confirmOfflineMemoryEditor(){
     toast('记忆内容还空着');
     return;
   }
-  var store = await loadOfflineMemoryStore();
+  var store = await migrateOfflineLittleBrainShortTermItems(await loadOfflineMemoryStore());
   if(offlineMemoryEditingMeta && offlineMemoryEditingMeta.type === 'structured'){
     var mem = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
     var meta = offlineMemoryEditingMeta;
@@ -6611,6 +6677,34 @@ async function confirmOfflineMemoryEditor(){
     await refreshOfflineMemoryUi();
     refreshOfflineMemoryButton();
     toast('小脑瓜记忆已经保存好了');
+    return;
+  }
+  if(offlineMemoryEditingMeta && offlineMemoryEditingMeta.type === 'structured-short'){
+    var shortList = Array.isArray(store && store.advancedMemory && store.advancedMemory.structured && store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.slice() : [];
+    var now = Date.now();
+    if(offlineMemoryEditingId){
+      shortList = shortList.map(function(item){
+        if(String(item && item.id || '') !== offlineMemoryEditingId) return item;
+        return Object.assign({}, item || {}, { text:text, tokens:approxOfflineTokenCount(text), updatedAt:now, manual:true, sourceType:'manual' });
+      });
+    }else{
+      shortList.push({
+        id: 'offline_short_memory_' + now + '_' + Math.random().toString(36).slice(2, 7),
+        label: '手动短期记忆',
+        text: text,
+        createdAt: now,
+        updatedAt: now,
+        manual: true,
+        pinned: true,
+        sourceType: 'manual',
+        memoryCategory: ''
+      });
+    }
+    await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured, { shortTerm: normalizeOfflineLittleBrainShortTermItems(shortList) }) }) });
+    closeOfflineMemoryEditor();
+    await refreshOfflineMemoryUi();
+    refreshOfflineMemoryButton();
+    toast('短期记忆已经保存好了');
     return;
   }
   var items = Array.isArray(store && store.items) ? store.items.slice() : [];
@@ -6640,7 +6734,16 @@ async function confirmOfflineMemoryEditor(){
 async function deleteOfflineMemoryItem(id){
   var safeId = String(id || '').trim();
   if(!safeId || !character || !character.id) return;
-  var store = await loadOfflineMemoryStore();
+  var store = await migrateOfflineLittleBrainShortTermItems(await loadOfflineMemoryStore());
+  var shortList = Array.isArray(store && store.advancedMemory && store.advancedMemory.structured && store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.slice() : [];
+  var shortNext = shortList.filter(function(item){ return String(item && item.id || '') !== safeId; });
+  if(shortNext.length !== shortList.length){
+    await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured, { shortTerm: normalizeOfflineLittleBrainShortTermItems(shortNext) }) }) });
+    await refreshOfflineMemoryUi();
+    renderOfflineStageSummaryList();
+    toast('这条短期记忆已经删掉了');
+    return;
+  }
   var items = Array.isArray(store && store.items) ? store.items.slice() : [];
   var next = items.filter(function(item){ return String(item && item.id || '') !== safeId; });
   await saveOfflineMemoryStore({ items: next });
@@ -6666,12 +6769,33 @@ function appendOfflineDiaryMemoryItem(store, text, label, category){
   store.items = items;
   return store;
 }
+function appendOfflineLittleBrainShortTermItem(store, text, label, category){
+  var safeText = String(text || '').trim();
+  if(!safeText) return store;
+  var shortList = Array.isArray(store && store.advancedMemory && store.advancedMemory.structured && store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.slice() : [];
+  var now = Date.now();
+  shortList.push({
+    id: 'offline_short_memory_' + now + '_' + Math.random().toString(36).slice(2, 7),
+    label: String(label || '转回短期记忆').trim(),
+    text: safeText,
+    createdAt: now,
+    updatedAt: now,
+    manual: true,
+    pinned: true,
+    sourceType: 'manual',
+    memoryCategory: String(category || '').trim()
+  });
+  store.advancedMemory = normalizeOfflineAdvancedMemoryState(store.advancedMemory);
+  store.advancedMemory.structured.shortTerm = normalizeOfflineLittleBrainShortTermItems(shortList);
+  return store;
+}
 async function promoteOfflineDiaryMemoryItem(id){
   var safeId = String(id || '').trim();
   if(!safeId || !character || !character.id) return;
-  var store = await loadOfflineMemoryStore();
+  var store = await migrateOfflineLittleBrainShortTermItems(await loadOfflineMemoryStore());
+  var shortList = Array.isArray(store && store.advancedMemory && store.advancedMemory.structured && store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.slice() : [];
   var items = Array.isArray(store && store.items) ? store.items.slice() : [];
-  var hit = items.find(function(item){ return String(item && item.id || '') === safeId; });
+  var hit = shortList.find(function(item){ return String(item && item.id || '') === safeId; }) || items.find(function(item){ return String(item && item.id || '') === safeId; });
   if(!hit || !String(hit.text || '').trim()) return;
   var mem = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
   var category = inferOfflineLittleBrainDiaryCategory(hit, mem);
@@ -6709,7 +6833,9 @@ async function promoteOfflineDiaryMemoryItem(id){
     mem.events[month] = existing.join('|');
   }
   store.items = items.filter(function(item){ return String(item && item.id || '') !== safeId; });
-  await saveOfflineMemoryStore({ items: store.items, advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+  store.advancedMemory = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory);
+  store.advancedMemory.structured = Object.assign({}, mem, { shortTerm: normalizeOfflineLittleBrainShortTermItems(shortList.filter(function(item){ return String(item && item.id || '') !== safeId; })) });
+  await saveOfflineMemoryStore({ items: store.items, advancedMemory: store.advancedMemory });
   await refreshOfflineMemoryUi();
   refreshOfflineMemoryButton();
   toast('已转为小脑瓜记忆');
@@ -6717,7 +6843,7 @@ async function promoteOfflineDiaryMemoryItem(id){
 async function demoteOfflineStructuredMemoryToDiary(store, text, label, category){
   var safeText = String(text || '').trim();
   if(!safeText || !character || !character.id || !store) return store;
-  appendOfflineDiaryMemoryItem(store, safeText, label || '转回短期记忆', category || '');
+  appendOfflineLittleBrainShortTermItem(store, safeText, label || '转回短期记忆', category || '');
   return store;
 }
 async function deleteOfflineStructuredFactAt(idx){
@@ -6727,7 +6853,9 @@ async function deleteOfflineStructuredFactAt(idx){
   if(!factKey) return;
   await demoteOfflineStructuredMemoryToDiary(store, factKey + '：' + String(mem.facts[factKey] || '').trim(), '转回短期记忆', 'facts');
   delete mem.facts[factKey];
-  await saveOfflineMemoryStore({ items: store.items, advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+  store.advancedMemory = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory);
+  store.advancedMemory.structured = Object.assign({}, mem, { shortTerm: store.advancedMemory.structured.shortTerm });
+  await saveOfflineMemoryStore({ items: store.items, advancedMemory: store.advancedMemory });
   await refreshOfflineMemoryUi();
   refreshOfflineMemoryButton();
   toast('已降级为短期记忆');
@@ -6739,7 +6867,9 @@ async function deleteOfflineStructuredEventMonthAt(idx){
   if(!month) return;
   await demoteOfflineStructuredMemoryToDiary(store, month + '：' + String(mem.events[month] || '').split('|').filter(Boolean).join(' · '), '转回短期记忆', 'events');
   delete mem.events[month];
-  await saveOfflineMemoryStore({ items: store.items, advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+  store.advancedMemory = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory);
+  store.advancedMemory.structured = Object.assign({}, mem, { shortTerm: store.advancedMemory.structured.shortTerm });
+  await saveOfflineMemoryStore({ items: store.items, advancedMemory: store.advancedMemory });
   await refreshOfflineMemoryUi();
   refreshOfflineMemoryButton();
   toast('已降级为短期记忆');
@@ -6750,7 +6880,9 @@ async function deleteOfflineStructuredRelationship(){
   if(!String(mem.relationship || '').trim()) return;
   await demoteOfflineStructuredMemoryToDiary(store, '关系温度：' + String(mem.relationship || '').trim(), '转回短期记忆', 'relationship');
   mem.relationship = '';
-  await saveOfflineMemoryStore({ items: store.items, advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+  store.advancedMemory = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory);
+  store.advancedMemory.structured = Object.assign({}, mem, { shortTerm: store.advancedMemory.structured.shortTerm });
+  await saveOfflineMemoryStore({ items: store.items, advancedMemory: store.advancedMemory });
   await refreshOfflineMemoryUi();
   refreshOfflineMemoryButton();
   toast('已降级为短期记忆');
@@ -6765,7 +6897,9 @@ async function deleteOfflineStructuredListItem(kind, idx){
   await demoteOfflineStructuredMemoryToDiary(store, String(list[index] || '').trim(), '转回短期记忆', listKey);
   list.splice(index, 1);
   mem[listKey] = list;
-  await saveOfflineMemoryStore({ items: store.items, advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+  store.advancedMemory = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory);
+  store.advancedMemory.structured = Object.assign({}, mem, { shortTerm: store.advancedMemory.structured.shortTerm });
+  await saveOfflineMemoryStore({ items: store.items, advancedMemory: store.advancedMemory });
   await refreshOfflineMemoryUi();
   refreshOfflineMemoryButton();
   toast('已降级为短期记忆');
@@ -6780,7 +6914,9 @@ async function deleteOfflineStructuredCustomItem(code, idx){
   await demoteOfflineStructuredMemoryToDiary(store, String(rows[index] || '').trim(), '转回短期记忆', 'custom:' + safeCode);
   rows.splice(index, 1);
   mem.custom[safeCode] = rows;
-  await saveOfflineMemoryStore({ items: store.items, advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+  store.advancedMemory = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory);
+  store.advancedMemory.structured = Object.assign({}, mem, { shortTerm: store.advancedMemory.structured.shortTerm });
+  await saveOfflineMemoryStore({ items: store.items, advancedMemory: store.advancedMemory });
   await refreshOfflineMemoryUi();
   refreshOfflineMemoryButton();
   toast('已降级为短期记忆');
