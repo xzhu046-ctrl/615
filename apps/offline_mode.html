@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T05:19:44Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T05:19:44Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T05:19:44Z"></script>
-<script src="../promptManager.js?v=2026-04-23T05:19:44Z"></script>
-<script src="../accountManager.js?v=2026-04-23T05:19:44Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T05:19:44Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T05:19:44Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T05:19:44Z"></script>
+<script src="../assetStore.js?v=2026-04-23T05:31:24Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T05:31:24Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T05:31:24Z"></script>
+<script src="../promptManager.js?v=2026-04-23T05:31:24Z"></script>
+<script src="../accountManager.js?v=2026-04-23T05:31:24Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T05:31:24Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T05:31:24Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T05:31:24Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -635,8 +635,8 @@ box-shadow:0 0 0 2px rgba(255,255,255,.97),6px 6px 0 rgba(17,17,17,.94);padding:
             <div>
               <label class="offline-setting-label" for="offlineDrawerMemoryMode">记忆模式</label>
               <select class="offline-setting-select" id="offlineDrawerMemoryMode">
-                <option value="diary">日记记忆（原版）</option>
-                <option value="structured">结构化记忆</option>
+                <option value="diary">短期记忆池</option>
+                <option value="structured">长期记忆档案</option>
               </select>
             </div>
             <div class="offline-setting-meta-row">
@@ -6053,7 +6053,29 @@ function normalizeOfflineAdvancedMemoryState(raw){
 }
 function getOfflineMemoryModeFromStore(store){
   var safe = normalizeOnlineMemorySummaryStore(store || defaultOnlineMemorySummaryStore());
-  return normalizeOfflineAdvancedMemoryState(safe.advancedMemory).mode;
+  var advanced = normalizeOfflineAdvancedMemoryState(safe.advancedMemory);
+  var storeMode = advanced.mode === 'structured' ? 'structured' : 'diary';
+  var mirrorMode = '';
+  try{
+    mirrorMode = character && character.id ? readOfflineSharedMemoryModeMirror(character.id) : '';
+  }catch(e){ mirrorMode = ''; }
+  if(mirrorMode === 'structured' || mirrorMode === 'diary') return mirrorMode;
+  var charMode = String(character && character.memoryMode || '').trim() === 'structured' ? 'structured' : '';
+  if(charMode) return charMode;
+  if(storeMode === 'structured') return 'structured';
+  var hasStructuredContent = false;
+  if(String(advanced.structured.relationship || '').trim()) hasStructuredContent = true;
+  if(!hasStructuredContent && Object.keys(advanced.structured.facts || {}).length) hasStructuredContent = true;
+  if(!hasStructuredContent && Object.keys(advanced.structured.events || {}).length) hasStructuredContent = true;
+  if(!hasStructuredContent && Array.isArray(advanced.structured.decisions) && advanced.structured.decisions.length) hasStructuredContent = true;
+  if(!hasStructuredContent && Array.isArray(advanced.structured.plans) && advanced.structured.plans.length) hasStructuredContent = true;
+  if(!hasStructuredContent && Array.isArray(advanced.structured.emotions) && advanced.structured.emotions.length) hasStructuredContent = true;
+  if(!hasStructuredContent && advanced.structured.custom && typeof advanced.structured.custom === 'object'){
+    hasStructuredContent = Object.keys(advanced.structured.custom).some(function(code){
+      return Array.isArray(advanced.structured.custom[code]) && advanced.structured.custom[code].length;
+    });
+  }
+  return hasStructuredContent ? 'structured' : storeMode;
 }
 function buildOfflineDiaryMemoryPromptText(items){
   var list = sortOfflineMemoryItemsForPrompt(items).map(function(it){
@@ -6068,24 +6090,36 @@ function buildOfflineStructuredMemoryPromptText(store){
   var lines = [];
   var factKeys = Object.keys(mem.facts || {});
   if(factKeys.length){
-    lines.push('## 结构化记忆');
+    lines.push('## 长期记忆档案');
     factKeys.slice(0, 12).forEach(function(key){
-      lines.push('- ' + key + '：' + String(mem.facts[key] || '').replace(/\(\d{6}\)$/,'').trim());
+      lines.push('- 人物底稿：' + key + '：' + String(mem.facts[key] || '').replace(/\(\d{6}\)$/,'').trim());
     });
   }
   if(mem.relationship){
-    lines.push(lines.length ? '' : '## 结构化记忆');
-    lines.push('- 关系推进：' + mem.relationship);
+    lines.push(lines.length ? '' : '## 长期记忆档案');
+    lines.push('- 关系温度：' + mem.relationship);
+  }
+  var eventMonths = Object.keys(mem.events || {}).sort();
+  if(eventMonths.length){
+    lines.push(lines.length ? '' : '## 长期记忆档案');
+    eventMonths.slice(-4).forEach(function(ym){
+      lines.push('- 已经发生：' + ym + ' ' + String(mem.events[ym] || '').split('|').filter(Boolean).join(' · '));
+    });
   }
   var planList = Array.isArray(mem.plans) ? mem.plans.slice(-6) : [];
   if(planList.length){
-    lines.push(lines.length ? '' : '## 结构化记忆');
-    planList.forEach(function(item){ lines.push('- 计划：' + String(item || '').trim()); });
+    lines.push(lines.length ? '' : '## 长期记忆档案');
+    planList.forEach(function(item){ lines.push('- 正在推进：' + String(item || '').trim()); });
+  }
+  var decisionList = Array.isArray(mem.decisions) ? mem.decisions.slice(-6) : [];
+  if(decisionList.length){
+    lines.push(lines.length ? '' : '## 长期记忆档案');
+    decisionList.forEach(function(item){ lines.push('- 未来挂念：' + String(item || '').trim()); });
   }
   var emotionList = Array.isArray(mem.emotions) ? mem.emotions.slice(-4) : [];
   if(emotionList.length){
-    lines.push(lines.length ? '' : '## 结构化记忆');
-    emotionList.forEach(function(item){ lines.push('- 情绪：' + String(item || '').trim()); });
+    lines.push(lines.length ? '' : '## 长期记忆档案');
+    emotionList.forEach(function(item){ lines.push('- 关系温度：' + String(item || '').trim()); });
   }
   return lines.join('\n').trim();
 }
@@ -6334,7 +6368,7 @@ function buildOfflineStructuredMemoryCardsHtml(raw){
   var blocks = [];
   var factKeys = Object.keys(mem.facts || {});
   if(factKeys.length){
-    blocks.push('<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">事实 / 偏好 · ' + factKeys.length + '</div></div>' +
+    blocks.push('<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">人物底稿 · ' + factKeys.length + '</div></div>' +
       factKeys.map(function(key, idx){
         return '<div class="offline-memory-item-body"><strong>' + esc(key) + '</strong>：' + esc(String(mem.facts[key] || '')) +
           '<span class="offline-memory-item-actions" style="float:right"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'fact\',' + idx + ')">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredFactAt(' + idx + ')">×</button></span></div>';
@@ -6342,7 +6376,7 @@ function buildOfflineStructuredMemoryCardsHtml(raw){
   }
   var eventMonths = Object.keys(mem.events || {}).sort();
   if(eventMonths.length){
-    blocks.push('<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">事件时间线 · ' + eventMonths.length + '</div></div>' +
+    blocks.push('<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">已经发生 · ' + eventMonths.length + '</div></div>' +
       eventMonths.map(function(ym, idx){
         var entries = String(mem.events[ym] || '').split('|').filter(Boolean).join(' · ');
         return '<div class="offline-memory-item-body"><strong>' + esc(ym) + '</strong>：' + esc(entries) +
@@ -6350,12 +6384,12 @@ function buildOfflineStructuredMemoryCardsHtml(raw){
       }).join('') + '</div>');
   }
   if(mem.relationship){
-    blocks.push('<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">关系变化 · 1</div><div class="offline-memory-item-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'relationship\',0)">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredRelationship()">×</button></div></div><div class="offline-memory-item-body">' + esc(mem.relationship) + '</div></div>');
+    blocks.push('<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">关系温度 · 1</div><div class="offline-memory-item-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'relationship\',0)">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredRelationship()">×</button></div></div><div class="offline-memory-item-body">' + esc(mem.relationship) + '</div></div>');
   }
   [
-    { key:'decisions', label:'决定' },
-    { key:'plans', label:'计划' },
-    { key:'emotions', label:'情绪节点' }
+    { key:'decisions', label:'未来挂念' },
+    { key:'plans', label:'正在推进' },
+    { key:'emotions', label:'关系温度' }
   ].forEach(function(kind){
     var rows = Array.isArray(mem[kind.key]) ? mem[kind.key] : [];
     if(!rows.length) return;
@@ -6378,9 +6412,9 @@ function buildOfflineStructuredMemoryCardsHtml(raw){
     });
   }
   if(!blocks.length){
-    return '<div class="offline-memory-empty">结构化记忆暂时为空，达到设定条数后会自动提取。</div>';
+    return '<div class="offline-memory-empty">长期记忆档案暂时为空，短期记忆满足条件后会慢慢沉淀到这里。</div>';
   }
-  return '<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">结构化记忆 · ' + getOfflineStructuredMemoryEntryCount(raw) + '</div></div><div class="offline-memory-item-body">这里显示的是和线上互通的结构化记忆。</div></div>' + blocks.join('');
+  return '<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">长期记忆档案 · ' + getOfflineStructuredMemoryEntryCount(raw) + '</div></div><div class="offline-memory-item-body">这里显示的是和线上互通的长期记忆。</div></div>' + blocks.join('');
 }
 async function openOfflineMemoryEditor(id){
   var safeId = String(id || '').trim();
@@ -6395,7 +6429,7 @@ async function openOfflineMemoryEditor(id){
     var item = (Array.isArray(store && store.items) ? store.items : []).find(function(it){ return String(it && it.id || '') === safeId; });
     copy = String(item && item.text || '').trim();
   }
-  title.textContent = safeId ? '编辑记忆总结' : '新建记忆总结';
+  title.textContent = safeId ? '编辑短期记忆' : '新建短期记忆';
   input.value = copy;
   document.getElementById('offlineMemoryEditorOverlay')?.classList.add('open');
   setTimeout(function(){ try{ input.focus(); input.setSelectionRange(input.value.length, input.value.length); }catch(e){} }, 30);
@@ -6416,31 +6450,31 @@ async function openOfflineStructuredMemoryEditor(kind, idx, extra){
     if(!factKey) return;
     meta.key = factKey;
     preset = String(structured.facts[factKey] || '');
-    title.textContent = '编辑结构化记忆 · 事实';
+    title.textContent = '编辑长期记忆 · 人物底稿';
   }else if(mode === 'event-month'){
     var months = Object.keys(structured.events || {}).sort();
     var month = months[index];
     if(!month) return;
     meta.month = month;
     preset = String(structured.events[month] || '').split('|').filter(Boolean).join(' · ');
-    title.textContent = '编辑结构化记忆 · 事件';
+    title.textContent = '编辑长期记忆 · 已经发生';
   }else if(mode === 'relationship'){
     preset = String(structured.relationship || '');
-    title.textContent = '编辑结构化记忆 · 关系';
+    title.textContent = '编辑长期记忆 · 关系温度';
   }else if(mode === 'list-item'){
     var listKey = String(extra || '').trim();
     var list = Array.isArray(structured[listKey]) ? structured[listKey] : null;
     if(!list || index >= list.length) return;
     meta.listKey = listKey;
     preset = String(list[index] || '');
-    title.textContent = '编辑结构化记忆';
+    title.textContent = '编辑长期记忆';
   }else if(mode === 'custom-item'){
     var code = String(extra || '').trim();
     var rows = structured.custom && Array.isArray(structured.custom[code]) ? structured.custom[code] : null;
     if(!rows || index >= rows.length) return;
     meta.code = code;
     preset = String(rows[index] || '');
-    title.textContent = '编辑结构化记忆';
+    title.textContent = '编辑长期记忆';
   }else{
     return;
   }
@@ -6482,7 +6516,7 @@ async function confirmOfflineMemoryEditor(){
     closeOfflineMemoryEditor();
     await refreshOfflineMemoryUi();
     refreshOfflineMemoryButton();
-    toast('结构化记忆已经保存好了');
+    toast('长期记忆已经保存好了');
     return;
   }
   var items = Array.isArray(store && store.items) ? store.items.slice() : [];
@@ -6529,7 +6563,7 @@ async function deleteOfflineStructuredFactAt(idx){
   await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
   await refreshOfflineMemoryUi();
   refreshOfflineMemoryButton();
-  toast('已删除结构化记忆');
+  toast('已删除长期记忆');
 }
 async function deleteOfflineStructuredEventMonthAt(idx){
   var store = await loadOfflineMemoryStore();
@@ -6540,7 +6574,7 @@ async function deleteOfflineStructuredEventMonthAt(idx){
   await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
   await refreshOfflineMemoryUi();
   refreshOfflineMemoryButton();
-  toast('已删除结构化记忆');
+  toast('已删除长期记忆');
 }
 async function deleteOfflineStructuredRelationship(){
   var store = await loadOfflineMemoryStore();
@@ -6550,7 +6584,7 @@ async function deleteOfflineStructuredRelationship(){
   await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
   await refreshOfflineMemoryUi();
   refreshOfflineMemoryButton();
-  toast('已删除结构化记忆');
+  toast('已删除长期记忆');
 }
 async function deleteOfflineStructuredListItem(kind, idx){
   var store = await loadOfflineMemoryStore();
@@ -6564,7 +6598,7 @@ async function deleteOfflineStructuredListItem(kind, idx){
   await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
   await refreshOfflineMemoryUi();
   refreshOfflineMemoryButton();
-  toast('已删除结构化记忆');
+  toast('已删除长期记忆');
 }
 async function deleteOfflineStructuredCustomItem(code, idx){
   var store = await loadOfflineMemoryStore();
@@ -6578,7 +6612,7 @@ async function deleteOfflineStructuredCustomItem(code, idx){
   await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
   await refreshOfflineMemoryUi();
   refreshOfflineMemoryButton();
-  toast('已删除结构化记忆');
+  toast('已删除长期记忆');
 }
 function getOfflineRecentOnlineSnippet(){
   return clipOfflinePromptText(session && session.chatHistory ? session.chatHistory : '', isMobileOfflineRuntime() ? 1800 : 2800);

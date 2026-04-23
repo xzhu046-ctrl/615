@@ -1435,9 +1435,7 @@ function notifyShellAboutOfflineInvite(text){
 async function appendOfflineInviteToChat(role, payload, doScroll, options){
   var safeOptions = options && typeof options === 'object' ? options : {};
   var noticeText = '';
-  var safeRole = payload && typeof payload === 'object' && payload.sourceRole === 'user'
-    ? 'user'
-    : (role === 'user' ? 'user' : 'assistant');
+  var safeRole = role === 'user' ? 'user' : 'assistant';
   if(safeOptions.skipNotice !== true){
     noticeText = String(safeOptions.noticeText || appendOfflineInviteNoticeText(safeRole)).trim();
   }
