@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T02:10:04Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T02:10:04Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T02:10:04Z"></script>
-<script src="../promptManager.js?v=2026-04-23T02:10:04Z"></script>
-<script src="../accountManager.js?v=2026-04-23T02:10:04Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T02:10:04Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T02:10:04Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T02:10:04Z"></script>
+<script src="../assetStore.js?v=2026-04-23T02:18:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T02:18:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T02:18:00Z"></script>
+<script src="../promptManager.js?v=2026-04-23T02:18:00Z"></script>
+<script src="../accountManager.js?v=2026-04-23T02:18:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T02:18:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T02:18:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T02:18:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -7399,6 +7399,16 @@ function loadPendingOfflineResumeSnapshot(charId){
   }
   return null;
 }
+function getOfflineInviteRecordIdFromSource(source){
+  return String(
+    source && (
+      source.recordId ||
+      source.inviteRecordId ||
+      source.id ||
+      (source.invite && (source.invite.recordId || source.invite.inviteRecordId || source.invite.id))
+    ) || ''
+  ).trim();
+}
 function hasAssistantOpeningEntry(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   return list.some(function(entry){
@@ -9414,12 +9424,23 @@ async function init(){
   ).trim();
   if(launchCharId && launchCharId !== desiredOfflineCharId) desiredOfflineCharId = launchCharId;
   offlineEntryHome = !hasExplicitLaunch;
+  var existingSession = (!offlineEntryHome && desiredOfflineCharId) ? await loadSessionByCharId(desiredOfflineCharId) : null;
   var resumeSession = (!offlineEntryHome && tokenLaunch && tokenLaunch.session) ? tokenLaunch.session : ((!offlineEntryHome && desiredOfflineCharId) ? await consumePendingOfflineResume(desiredOfflineCharId) : null);
   var bootSession = (!offlineEntryHome && desiredOfflineCharId) ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
+  var launchInviteRecordId = getOfflineInviteRecordIdFromSource(launchSeed && launchSeed.payload ? launchSeed.payload : launchSeed);
+  function pickMatchingInviteSession(candidate){
+    if(!(candidate && typeof candidate === 'object')) return null;
+    if(!hasMeaningfulOfflineSession(candidate)) return null;
+    if(String(candidate.charId || '').trim() !== String(launchCharId || desiredOfflineCharId || '').trim()) return null;
+    if(launchInviteRecordId && getOfflineInviteRecordIdFromSource(candidate) !== launchInviteRecordId) return null;
+    return candidate;
+  }
+  var reusableInviteSession = pickMatchingInviteSession(resumeSession) || pickMatchingInviteSession(existingSession) || pickMatchingInviteSession(bootSession);
   var explicitSnapshot = mergeOfflineArchiveCharacterSnapshots(
     tokenLaunch && tokenLaunch.threadCharSnapshot,
     launchSeed && launchSeed.payload && launchSeed.payload.charSnapshot,
     launchSeed && launchSeed.charSnapshot,
+    existingSession && existingSession.charSnapshot,
     resumeSession && resumeSession.charSnapshot,
     bootSession && bootSession.charSnapshot
   );
@@ -9434,21 +9455,40 @@ async function init(){
     character = Object.assign({}, character || {}, rosterResolvedCharacter);
   }
   if(launchSeed && launchSeed.payload){
-    session = {
-      charId: String(launchCharId || desiredOfflineCharId || '').trim(),
-      charSnapshot: explicitSnapshot || launchSeed.charSnapshot || null,
-      active: true,
-      invite: launchSeed.payload || null,
-      entries: [],
-      pendingAnimation: false,
-      pendingOpening: false,
-      chatHistory: String(launchSeed.chatHistory || ''),
-      updatedAt: Date.now()
-    };
-    session.openingFailed = false;
-    if(character && character.id) saveSession();
+    if(reusableInviteSession){
+      session = reusableInviteSession;
+      session.charId = String(launchCharId || desiredOfflineCharId || session.charId || '').trim();
+      session.charSnapshot = explicitSnapshot || session.charSnapshot || launchSeed.charSnapshot || null;
+      session.invite = Object.assign({}, session.invite || {}, launchSeed.payload || {});
+      session.active = true;
+      session.pendingAnimation = false;
+      session.pendingOpening = false;
+      session.updatedAt = Date.now();
+      pushOfflineBackendLog('info', 'init.reuse_invite_session', '检测到同一条邀约已有线下记录，直接复用', {
+        charId: String(session.charId || '').trim(),
+        inviteRecordId: launchInviteRecordId,
+        entryCount: Array.isArray(session.entries) ? session.entries.length : 0
+      });
+      if(character && character.id) saveSession();
+    }else{
+      session = {
+        charId: String(launchCharId || desiredOfflineCharId || '').trim(),
+        charSnapshot: explicitSnapshot || launchSeed.charSnapshot || null,
+        active: true,
+        invite: launchSeed.payload || null,
+        entries: [],
+        pendingAnimation: false,
+        pendingOpening: false,
+        chatHistory: String(launchSeed.chatHistory || ''),
+        updatedAt: Date.now()
+      };
+      session.openingFailed = false;
+      if(character && character.id) saveSession();
+    }
   }else if(resumeSession && hasMeaningfulOfflineSession(resumeSession)){
     session = resumeSession;
+  }else if(existingSession && hasMeaningfulOfflineSession(existingSession)){
+    session = existingSession;
   }else if(bootSession && (hasMeaningfulOfflineSession(bootSession) || (bootSession.invite && bootSession.active !== false))){
     session = bootSession;
     if(character && character.id) saveSession();
@@ -9490,16 +9530,32 @@ async function init(){
     (bootSession && bootSession.pendingOpening)
   );
   if(hasFreshInviteLaunch && session && session.invite){
+    var currentInviteRecordId = getOfflineInviteRecordIdFromSource(session);
+    var shouldPreserveExistingEntries = !!(
+      launchInviteRecordId &&
+      currentInviteRecordId &&
+      launchInviteRecordId === currentInviteRecordId &&
+      Array.isArray(session.entries) &&
+      session.entries.length
+    );
     session.active = true;
     session.openingFailed = false;
     session.lastOpeningError = '';
     session.pendingOpening = false;
     session.pendingAnimation = false;
-    session.entries = [];
-    pushOfflineBackendLog('info', 'init.fresh_invite', '检测到 fresh invite，已重置旧首幕状态', {
-      charId: String((character && character.id) || desiredOfflineCharId || '').trim(),
-      launchSource: String(offlineLaunchSource || '').trim() || 'invite'
-    });
+    if(shouldPreserveExistingEntries){
+      pushOfflineBackendLog('info', 'init.keep_existing_entries', '同一邀约重复打开，保留已有线下记录', {
+        charId: String((character && character.id) || desiredOfflineCharId || '').trim(),
+        inviteRecordId: launchInviteRecordId,
+        entryCount: session.entries.length
+      });
+    }else{
+      session.entries = [];
+      pushOfflineBackendLog('info', 'init.fresh_invite', '检测到 fresh invite，已重置旧首幕状态', {
+        charId: String((character && character.id) || desiredOfflineCharId || '').trim(),
+        launchSource: String(offlineLaunchSource || '').trim() || 'invite'
+      });
+    }
     if(character && character.id) saveSession();
   }
   if(!session){
