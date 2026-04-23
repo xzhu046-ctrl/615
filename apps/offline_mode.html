@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T04:49:56Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T04:49:56Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T04:49:56Z"></script>
-<script src="../promptManager.js?v=2026-04-23T04:49:56Z"></script>
-<script src="../accountManager.js?v=2026-04-23T04:49:56Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T04:49:56Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T04:49:56Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T04:49:56Z"></script>
+<script src="../assetStore.js?v=2026-04-23T05:03:42Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T05:03:42Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T05:03:42Z"></script>
+<script src="../promptManager.js?v=2026-04-23T05:03:42Z"></script>
+<script src="../accountManager.js?v=2026-04-23T05:03:42Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T05:03:42Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T05:03:42Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T05:03:42Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -3427,8 +3427,26 @@ function persistOfflineDrawerSettings(options){
     toast('线下设置已保存');
   }
 }
+function offlineSharedMemoryModeKey(charId){
+  return scopedKey('memory_mode_' + String(charId || '').trim());
+}
+function readOfflineSharedMemoryModeMirror(charId){
+  try{
+    var raw = String(localStorage.getItem(offlineSharedMemoryModeKey(charId)) || '').trim();
+    if(raw === 'structured' || raw === 'diary') return raw;
+  }catch(e){}
+  return '';
+}
+function writeOfflineSharedMemoryModeMirror(charId, mode){
+  if(!charId) return;
+  try{
+    localStorage.setItem(offlineSharedMemoryModeKey(charId), String(mode || '').trim() === 'structured' ? 'structured' : 'diary');
+  }catch(e){}
+}
 function loadOfflineSharedMemoryModeSync(){
   if(!character || !character.id) return 'diary';
+  var mirrorMode = readOfflineSharedMemoryModeMirror(character.id);
+  if(mirrorMode) return mirrorMode;
   return String(character && character.memoryMode || '').trim() === 'structured' ? 'structured' : 'diary';
 }
 function getOfflineDrawerMessageCount(){
@@ -3441,6 +3459,7 @@ async function persistOfflineDrawerMemoryMode(options){
   store.advancedMemory = normalizeOfflineAdvancedMemoryState(store.advancedMemory);
   store.advancedMemory.mode = nextMode;
   await persistOnlineMemorySummaryStoreByCharId(character.id, store);
+  writeOfflineSharedMemoryModeMirror(character.id, nextMode);
   character.memoryMode = nextMode;
   offlineMemorySnippetCache = '';
   await hydrateOfflineMemorySnippet();
@@ -3454,8 +3473,18 @@ async function persistOfflineDrawerMemoryMode(options){
 }
 async function refreshOfflineDrawerMemoryModeFromStore(){
   if(!character || !character.id) return;
+  var mirrorMode = readOfflineSharedMemoryModeMirror(character.id);
   var store = await loadOnlineMemorySummaryStoreByCharId(character.id);
-  var nextMode = getOfflineMemoryModeFromStore(store);
+  var storeMode = getOfflineMemoryModeFromStore(store);
+  var nextMode = mirrorMode || storeMode || (String(character && character.memoryMode || '').trim() === 'structured' ? 'structured' : 'diary');
+  if(storeMode !== nextMode){
+    try{
+      store.advancedMemory = normalizeOfflineAdvancedMemoryState(store.advancedMemory);
+      store.advancedMemory.mode = nextMode;
+      await persistOnlineMemorySummaryStoreByCharId(character.id, store);
+    }catch(e){}
+  }
+  writeOfflineSharedMemoryModeMirror(character.id, nextMode);
   character.memoryMode = nextMode;
   getOfflineDrawerDraft().memoryMode = nextMode;
   syncOfflineDrawerControls();
