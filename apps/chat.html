@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-23T05:50:11Z"></script>
-<script src="../accountManager.js?v=2026-04-23T05:50:11Z"></script>
-<script src="../assetStore.js?v=2026-04-23T05:50:11Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T05:50:11Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T05:50:11Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T05:50:11Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T05:50:11Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T05:50:11Z"></script>
-<script src="../sunnySupport.js?v=2026-04-23T05:50:11Z"></script>
-<script src="offlineInvite.js?v=2026-04-23T05:50:11Z"></script>
+<script src="../promptManager.js?v=2026-04-23T06:02:33Z"></script>
+<script src="../accountManager.js?v=2026-04-23T06:02:33Z"></script>
+<script src="../assetStore.js?v=2026-04-23T06:02:33Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T06:02:33Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T06:02:33Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T06:02:33Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T06:02:33Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T06:02:33Z"></script>
+<script src="../sunnySupport.js?v=2026-04-23T06:02:33Z"></script>
+<script src="offlineInvite.js?v=2026-04-23T06:02:33Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -4903,6 +4903,31 @@ function buildDiaryMemoryPromptText(items){
   }
   return lines.join('\n').trim();
 }
+function formatMemoryMiniDate(timestamp){
+  var at = Number(timestamp || 0) || 0;
+  if(!at) return '已保存';
+  var d = new Date(at);
+  if(Number.isNaN(d.getTime())) return '已保存';
+  return (d.getMonth() + 1) + '.' + d.getDate() + '.' + String(d.getFullYear()).slice(-2);
+}
+function pruneDiaryMemoryForLittleBrain(store){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  if(getMemoryModeFromStore(safe) !== MEMORY_MODE_STRUCTURED){
+    return safe;
+  }
+  var list = Array.isArray(safe.items) ? safe.items.slice() : [];
+  if(!list.length) return safe;
+  var pinned = list.filter(isPinnedMemoryItem);
+  var auto = list.filter(function(it){ return !isPinnedMemoryItem(it); });
+  var keptAuto = auto.slice(-4);
+  safe.items = pinned.concat(keptAuto).sort(function(a, b){
+    var aAt = Number(a && (a.updatedAt || a.createdAt) || 0) || 0;
+    var bAt = Number(b && (b.updatedAt || b.createdAt) || 0) || 0;
+    return aAt - bAt;
+  });
+  saveMemorySummaryStore(safe);
+  return safe;
+}
 function toMemoryYYMMDD(ts){
   var d = ts ? new Date(ts) : new Date();
   if(!d || Number.isNaN(d.getTime())) d = new Date();
@@ -5391,6 +5416,7 @@ async function maybeCreateDiaryMemorySummaries(store, summaryEvery){
     saveMemorySummaryStore(safe);
   }
   safe = await maybeCompactMemorySummaries(safe);
+  safe = pruneDiaryMemoryForLittleBrain(safe);
   return safe;
 }
 async function maybeCreateStructuredMemorySummaries(store, summaryEvery){
@@ -11430,6 +11456,7 @@ async function runManualSummaryNow(){
       });
       store.progress = Math.max(store.progress || 0, to);
       await maybeCompactMemorySummaries(store);
+      store = pruneDiaryMemoryForLittleBrain(store);
       var structuredPrompt = buildStructuredSummaryPrompt(slice, store);
       var structuredRaw = await callAIWithCustomPrompts(structuredPrompt, '请沉淀小脑瓜记忆。');
       var structuredEntries = parseStructuredMemoryEntries(String(structuredRaw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,''), store);
