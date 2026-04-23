@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-22T07:01:48Z"></script>
-<script src="../chatStorage.js?v=2026-04-22T07:01:48Z"></script>
-<script src="../metadataStore.js?v=2026-04-22T07:01:48Z"></script>
-<script src="../promptManager.js?v=2026-04-22T07:01:48Z"></script>
-<script src="../accountManager.js?v=2026-04-22T07:01:48Z"></script>
-<script src="../scheduleShared.js?v=2026-04-22T07:01:48Z"></script>
-<script src="../presenceShared.js?v=2026-04-22T07:01:48Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-22T07:01:48Z"></script>
+<script src="../assetStore.js?v=2026-04-23T00:10:26Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T00:10:26Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T00:10:26Z"></script>
+<script src="../promptManager.js?v=2026-04-23T00:10:26Z"></script>
+<script src="../accountManager.js?v=2026-04-23T00:10:26Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T00:10:26Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T00:10:26Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T00:10:26Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -2645,8 +2645,6 @@ async function generateOfflineStageSummary(force, overrideCount){
 }
 function queueOfflineStageSummaryGeneration(){
   if(!session) return;
-  if(shouldUseOfflineSinglePassMode()) return;
-  if(shouldUseOfflineCustomThinMode()) return;
   var ui = getOfflineUiPrefs();
   if(!ui.summaryAuto) return;
   var cadence = Math.max(3, Number(ui.summaryEvery) || 5);
@@ -4265,6 +4263,13 @@ function hasValidOfflineOpeningCombinedPayload(obj){
     hasValidOfflineBodyPayload(obj)
   );
 }
+function hasValidOfflineUnifiedScenePayload(obj){
+  return !!(
+    obj &&
+    hasValidOfflineThoughtPayload(obj) &&
+    hasValidOfflineBodyPayload(obj)
+  );
+}
 function normalizeOfflineThoughtChain(raw, seedText){
   var source = raw && typeof raw === 'object' ? raw : {};
   var fallback = {
@@ -5006,6 +5011,44 @@ async function generateOfflineLeanScene(context, options){
     title: buildOfflineTitleFallback(),
     quote: buildOfflineQuoteFallback(),
     asides: []
+  };
+}
+async function generateOfflineUnifiedScene(context, options){
+  var opts = options || {};
+  var compactLevel = Math.max(0, Number(opts.compactLevel) || 0);
+  var targetChars = Math.max(120, Number(opts.targetChars) || getOfflineReplyMinChars());
+  var timeoutMs = Math.max(12000, Number(opts.timeoutMs) || getOfflineReplyTimeoutMs());
+  var systemPrompt = buildOfflineSystemPrompt({
+    compactLevel: compactLevel,
+    opening: !!opts.opening
+  });
+  var raw = await callAIWithTimeout(
+    systemPrompt,
+    String(context || '').trim(),
+    timeoutMs,
+    buildOfflineRequestOptions(systemPrompt, String(context || '').trim(), targetChars)
+  );
+  var parsed = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(raw) || {});
+  if(!hasValidOfflineUnifiedScenePayload(parsed)) throw new Error('线下 unified 结果不完整');
+  var finalText = ensureOfflineSpeechPresence(String(parsed.text || '').trim());
+  if(typeof opts.onUpdate === 'function'){
+    await progressivelyRevealOfflineText(finalText, opts.onUpdate, {
+      tickMs: 18,
+      minStep: 3,
+      maxStep: 10
+    });
+  }
+  return {
+    thoughtChain: normalizeOfflineThoughtChain(parsed.thought_chain || null, finalText),
+    title: String(parsed.title || '').trim(),
+    quote: String(parsed.quote || '').trim(),
+    text: finalText,
+    asides: normalizeOfflineAsides(parsed.asides),
+    heart: String(parsed.heart || '').trim(),
+    artifactLabel: String(parsed.artifactLabel || parsed.artifact_label || '').trim(),
+    artifactHtml: String(parsed.artifactHtml || parsed.artifact_html || '').trim(),
+    statusCard: hasValidOfflineStatusPayload(parsed) ? normalizeOfflineStatusCard(parsed.status_card, finalText) : null,
+    sceneSummary: normalizeOfflineSummaryText(parsed.scene_summary || parsed.summary || '', finalText)
   };
 }
 async function streamOfflineBodyText(context, options, onUpdate){
@@ -6211,7 +6254,7 @@ function buildOfflineSystemPrompt(options){
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"..."}',
+    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"...","artifact_label":"...","artifact_html":"...","scene_summary":"..."}',
     'text 必须写成足量的线下面对面正文，细节感更强，不要写成短回复，不要写成一小段，也不要写成小说章节标题。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个简体中文字符左右，不要太正经，但必须贴人设。',
@@ -6246,6 +6289,9 @@ function buildOfflineSystemPrompt(options){
     'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
     '蓝字心声要像活人脑内瞬间闪过的欲言又止、嘴硬、自我警告、心里发烫或一秒露馅，不要总结局面，不要讲大道理，不要复述正文。',
     'heart 是右上角爱心里的短心声，2-10 个字。',
+    '如果这一幕里自然出现了信、纸条、票据、截图、搜索页、证件、小网页、小物件这些白名单风格的东西，可以额外返回 artifact_label 和 artifact_html，把它做成正文附带的小卡片；没有就留空字符串。',
+    'scene_summary 是这一幕的幕摘要，固定使用简体中文，控制在 28-90 个中文字符之间，像会被收进记忆里的压缩摘要。',
+    '这一轮要一次性把 thought_chain、正文、番外 status_card、幕摘要、正文附带小卡片都一起生成，不要分步骤，不要说待会再补。',
     '下笔前必须先读并吸收这些信息，再决定怎么回复：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、最近线下记录、scenario、system prompt。',
     '这已经是一场自然开始的线下见面，不要提“邀请/赴约/约会申请/你邀请我”这种元叙事说法。',
     '角色 persona 决定 char 的语气、习惯、亲密方式和反应逻辑；用户 persona 决定 char 对 user 的理解、称呼、照顾方式和互动边界。',
@@ -7667,6 +7713,85 @@ async function generateOpeningIfNeeded(){
       '请一次性直接写完整第一幕正文，不要分段返回。'
     ].filter(Boolean).join('\n\n');
     if(shouldUseOfflineLeanMode()){
+      if(shouldUseOfflineSinglePassMode()){
+        liveOpeningLabels = nowLabels();
+        liveOpeningEntry = {
+          role:'assistant',
+          isTyping:true,
+          text:'',
+          title:'…',
+          quote:'…',
+          asides:[],
+          heart:'♥',
+          thoughtChain: {
+            subtext_perception:'…',
+            emotional_reaction:'…',
+            action_strategy:'…'
+          },
+          artifactLabel:'',
+          artifactHtml:'',
+          statusCard:null,
+          statusPending:false,
+          statusPendingAt:0,
+          summaryText:'',
+          bubbles:['……'],
+          timeLabel:liveOpeningLabels.timeLabel,
+          meta:liveOpeningLabels.meta,
+          fullLabel: liveOpeningLabels.fullLabel,
+          createdAt: liveOpeningLabels.createdAt
+        };
+        Object.assign(liveOpeningEntry, buildOfflineEntryMeta(liveOpeningEntry, 'assistant', liveOpeningLabels, { generationMs: 0 }));
+        session.entries.push(liveOpeningEntry);
+        saveSession();
+        renderStory();
+        keepOfflineComposerVisible();
+        var unifiedOpening = await generateOfflineUnifiedScene(openingContext, {
+          opening: true,
+          compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+          timeoutMs: plan.mainTimeout,
+          targetChars: openingMinChars,
+          onUpdate: function(partialText){
+            if(!liveOpeningEntry) return;
+            liveOpeningEntry.text = String(partialText || '').trim();
+            saveSession();
+            renderStory();
+            keepOfflineComposerVisible();
+          }
+        });
+        var unifiedOpeningLabels = liveOpeningLabels || nowLabels();
+        liveOpeningEntry.text = String(unifiedOpening.text || '').trim();
+        liveOpeningEntry.isTyping = false;
+        liveOpeningEntry.title = String(unifiedOpening.title || buildOfflineTitleFallback()).trim();
+        liveOpeningEntry.quote = String(unifiedOpening.quote || buildOfflineQuoteFallback()).trim();
+        liveOpeningEntry.asides = Array.isArray(unifiedOpening.asides) ? unifiedOpening.asides.slice(0, 2) : [];
+        liveOpeningEntry.heart = String(unifiedOpening.heart || liveOpeningEntry.heart || '♥').trim() || '♥';
+        liveOpeningEntry.thoughtChain = normalizeOfflineThoughtChain(unifiedOpening.thoughtChain || null, unifiedOpening.text);
+        liveOpeningEntry.artifactLabel = String(unifiedOpening.artifactLabel || '').trim();
+        liveOpeningEntry.artifactHtml = String(unifiedOpening.artifactHtml || '').trim();
+        liveOpeningEntry.statusCard = unifiedOpening.statusCard || null;
+        liveOpeningEntry.statusPending = false;
+        liveOpeningEntry.statusPendingAt = 0;
+        liveOpeningEntry.summaryText = String(unifiedOpening.sceneSummary || '').trim();
+        liveOpeningEntry.bubbles = ['终于见到你','过来一点'];
+        liveOpeningEntry.timeLabel = unifiedOpeningLabels.timeLabel;
+        liveOpeningEntry.meta = unifiedOpeningLabels.meta;
+        liveOpeningEntry.fullLabel = unifiedOpeningLabels.fullLabel;
+        liveOpeningEntry.createdAt = unifiedOpeningLabels.createdAt;
+        Object.assign(liveOpeningEntry, buildOfflineEntryMeta(liveOpeningEntry, 'assistant', unifiedOpeningLabels, {
+          generationMs: Date.now() - openingStartedAt
+        }));
+        offlineLastErrorPayload = null;
+        session.openingFailed = false;
+        session.lastOpeningError = '';
+        session.lastErrorDetail = null;
+        session.pendingOpening = false;
+        saveSession();
+        queueOfflineStageSummaryGeneration();
+        renderStory();
+        renderOfflineInviteDebugCard();
+        hideFlightOverlay();
+        return true;
+      }
       var streamedOpeningThoughtChain = null;
       var streamedOpeningMeta = null;
       var openingThoughtPromise = null;
@@ -8290,6 +8415,93 @@ async function requestOfflineReply(options){
     var liveReplyLabels = null;
     var liveReplyEntry = null;
     if(shouldUseOfflineLeanMode()){
+      if(shouldUseOfflineSinglePassMode()){
+        var singlePassLastUserEntry = Array.isArray(session.entries) ? session.entries[session.entries.length - 1] : null;
+        var singlePassContext = options.fromUserSend && singlePassLastUserEntry && singlePassLastUserEntry.role === 'user'
+          ? buildOfflineUserPrompt(String(singlePassLastUserEntry.text || '').trim(), isMobileOfflineRuntime() ? 1 : 0)
+          : [
+              '这是一次已经开始的线下见面，请顺着当前氛围继续。',
+              buildOfflineInvitePromptLine('见面起点：'),
+              '最近线上聊天（压缩）：\n' + (getOfflineRecentOnlineSnippetByBudget(isMobileOfflineRuntime() ? 300 : 420) || '无'),
+              '最近线下记录（压缩）：\n' + (clipOfflinePromptText(formatOfflineHistoryForPrompt(2, 3) || '无', isMobileOfflineRuntime() ? 420 : 620) || '无'),
+              '用户此刻没有说新话，请角色自己顺着当前氛围继续这一幕，并且直接写够完整长度。'
+            ].filter(Boolean).join('\n\n');
+        liveReplyLabels = nowLabels();
+        liveReplyEntry = {
+          role:'assistant',
+          isTyping:true,
+          text:'',
+          title:'…',
+          quote:'…',
+          asides:[],
+          heart:'♥',
+          thoughtChain: {
+            subtext_perception:'…',
+            emotional_reaction:'…',
+            action_strategy:'…'
+          },
+          artifactLabel:'',
+          artifactHtml:'',
+          statusCard:null,
+          statusPending:false,
+          statusPendingAt:0,
+          summaryText:'',
+          bubbles:['……'],
+          timeLabel:liveReplyLabels.timeLabel,
+          meta:liveReplyLabels.meta,
+          fullLabel: liveReplyLabels.fullLabel,
+          createdAt: liveReplyLabels.createdAt
+        };
+        Object.assign(liveReplyEntry, buildOfflineEntryMeta(liveReplyEntry, 'assistant', liveReplyLabels, { generationMs: 0 }));
+        session.entries.push(liveReplyEntry);
+        saveSession();
+        renderStory();
+        keepOfflineComposerVisible();
+        var unifiedReply = await generateOfflineUnifiedScene(singlePassContext, {
+          opening: false,
+          compactLevel: isMobileOfflineRuntime() ? 1 : 0,
+          timeoutMs: getOfflineReplyTimeoutMs(),
+          targetChars: minChars,
+          onUpdate: function(partialText){
+            if(!liveReplyEntry) return;
+            liveReplyEntry.text = String(partialText || '').trim();
+            saveSession();
+            renderStory();
+            keepOfflineComposerVisible();
+          }
+        });
+        var singlePassLabels = liveReplyLabels || nowLabels();
+        liveReplyEntry.text = String(unifiedReply.text || '').trim();
+        liveReplyEntry.isTyping = false;
+        liveReplyEntry.title = String(unifiedReply.title || buildOfflineTitleFallback()).trim();
+        liveReplyEntry.quote = String(unifiedReply.quote || buildOfflineQuoteFallback()).trim();
+        liveReplyEntry.asides = Array.isArray(unifiedReply.asides) ? unifiedReply.asides.slice(0, 2) : [];
+        liveReplyEntry.heart = String(unifiedReply.heart || liveReplyEntry.heart || '♥').trim() || '♥';
+        liveReplyEntry.thoughtChain = normalizeOfflineThoughtChain(unifiedReply.thoughtChain || null, unifiedReply.text);
+        liveReplyEntry.artifactLabel = String(unifiedReply.artifactLabel || '').trim();
+        liveReplyEntry.artifactHtml = String(unifiedReply.artifactHtml || '').trim();
+        liveReplyEntry.statusCard = unifiedReply.statusCard || null;
+        liveReplyEntry.statusPending = false;
+        liveReplyEntry.statusPendingAt = 0;
+        liveReplyEntry.summaryText = String(unifiedReply.sceneSummary || '').trim();
+        liveReplyEntry.bubbles = [];
+        liveReplyEntry.timeLabel = singlePassLabels.timeLabel;
+        liveReplyEntry.meta = singlePassLabels.meta;
+        liveReplyEntry.fullLabel = singlePassLabels.fullLabel;
+        liveReplyEntry.createdAt = singlePassLabels.createdAt;
+        Object.assign(liveReplyEntry, buildOfflineEntryMeta(liveReplyEntry, 'assistant', singlePassLabels, {
+          generationMs: Date.now() - replyStartedAt
+        }));
+        offlineLastErrorPayload = null;
+        session.lastReplyError = '';
+        session.lastErrorDetail = null;
+        saveSession();
+        queueOfflineStageSummaryGeneration();
+        renderStory();
+        renderOfflineInviteDebugCard();
+        keepOfflineComposerVisible();
+        return true;
+      }
       var streamedReplyThoughtChain = null;
       var streamedReplyMeta = null;
       var replyThoughtPromise = null;
