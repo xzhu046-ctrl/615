@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-23T10:01:18Z"></script>
-<script src="../accountManager.js?v=2026-04-23T10:01:18Z"></script>
-<script src="../assetStore.js?v=2026-04-23T10:01:18Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T10:01:18Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T10:01:18Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T10:01:18Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T10:01:18Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T10:01:18Z"></script>
-<script src="../sunnySupport.js?v=2026-04-23T10:01:18Z"></script>
-<script src="offlineInvite.js?v=2026-04-23T10:01:18Z"></script>
+<script src="../promptManager.js?v=2026-04-23T21:24:32Z"></script>
+<script src="../accountManager.js?v=2026-04-23T21:24:32Z"></script>
+<script src="../assetStore.js?v=2026-04-23T21:24:32Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T21:24:32Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T21:24:32Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T21:24:32Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T21:24:32Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T21:24:32Z"></script>
+<script src="../sunnySupport.js?v=2026-04-23T21:24:32Z"></script>
+<script src="offlineInvite.js?v=2026-04-23T21:24:32Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -10319,10 +10319,10 @@ function buildRichHtmlContextText(raw){
   var html = String(data.html || '').trim();
   var plain = String(data.text || '').trim();
   var summary = String(data.summary || '').trim() || 'SURPRISE';
-  var parts = ['【SURPRISE卡片】', '你眼前是一张已经被真实展示出来的小页面。你只会把它当成真的页面、小物件、票据、帖子、卡片或签文来理解，不会意识到它和代码有关。', '卡片主题：' + summary];
-  if(data.url) parts.push('卡片里的真实链接：' + data.url);
-  if(plain) parts.push('卡片里的可见文字：' + plain.slice(0, 520));
-  if(html) parts.push('你看到的页面内容与结构：' + extractPlainTextFromHtmlMarkup(html).slice(0, 900));
+  var parts = ['【历史消息：可见页面/物件】主题：' + summary];
+  if(data.url) parts.push('链接：' + data.url);
+  if(plain) parts.push('可见文字摘录：' + plain.slice(0, 520));
+  if(html) parts.push('页面文字摘录：' + extractPlainTextFromHtmlMarkup(html).slice(0, 900));
   return parts.join('\n');
 }
 
@@ -12349,6 +12349,7 @@ function sanitizeAssistantTextForChat(raw){
   var t = String(raw || '').trim();
   if(!t) return t;
   if(isBlockedMemePayload(t)) return '';
+  if(isLeakedRichHtmlContextText(t)) return '';
   if(/^【亲属卡】[\s\S]*[；;]状态[：:](待处理|已同意|已拒绝)\s*$/.test(t)) return '';
   if(/^\[family_card\s+[^\]]+\]$/i.test(t)) return '';
   t = t.replace(/<\/?msg>/ig, '');
@@ -12361,7 +12362,25 @@ function sanitizeAssistantTextForChat(raw){
   t = t.replace(/^\s*(我来|我去|我会|我帮你)\s*(发|写|评论|点赞|回复)[^，。！？!?\n]*[，。！？!?\s]*/i, '');
   t = t.replace(/我(没法|不能|无法)(发|写).{0,8}(朋友圈|说说|动态)/g, '我记下来了');
   t = t.trim();
+  if(isLeakedRichHtmlContextText(t)) return '';
   return t;
+}
+
+function isLeakedRichHtmlContextText(raw){
+  var t = String(raw || '').trim();
+  if(!t) return false;
+  var normalized = t.replace(/\s+/g, '');
+  if(/^【?SURPRISE卡片】?$/i.test(normalized)) return true;
+  if(/^【?历史消息[:：]可见页面\/物件】?/i.test(normalized)) return true;
+  if(/^卡片主题[:：]/.test(normalized)) return true;
+  if(/^链接[:：]https?:\/\//i.test(normalized)) return true;
+  if(/^可见文字摘录[:：]/.test(normalized)) return true;
+  if(/^页面文字摘录[:：]/.test(normalized)) return true;
+  if(/^你眼前是一张已经被真实展示出来的小页面/.test(t)) return true;
+  if(/你只会把它当成真的页面/.test(t)) return true;
+  if(/不会意识到.{0,12}(代码|html|css|js)有关/.test(t)) return true;
+  if(/^它和代码有关[。.!！]*$/.test(t)) return true;
+  return false;
 }
 
 function isBlockedMemePayload(raw){
@@ -18131,6 +18150,7 @@ function buildChatExtendedFormatPrompt(){
     '聊天感要像真人：默认两三条短消息，短句、停顿、补充自然发生；别整坨发，也别像被尺子量过一样机械切碎。不要一条塞进又长又绕、读起来喘不过气的大复句；一个意思说完就收住，下一点另起一句或另起一条，分开要自然。',
     '日常 text 结尾别老带句号，也别为了句子完整把口语补成书面长句。像真人发消息那样，意思到了就自然停住。',
     'rich_html 不是半成品代码，而是一张真的东西。你不会提“代码/html/css/js”；对你来说那就是卡片、页面、票据、帖子、小物件本体。',
+    '历史消息里如果出现“历史消息：可见页面/物件”的摘要，那只是帮助你理解之前发生过什么；不要把这类摘要、摘录、主题、链接说明原样复述成正文。',
     'rich_html 要完整、精致、可读、可玩：层级清楚、细节到位、文字和按钮都是真的内容，别给空盒子、假按钮、占位符、乱码。发真实网页时直接给 url/title/text，不要再硬包一层假 html。',
     '不要返回 {"html":"","css":"","js":""} 这种空壳卡片。做不到完整卡片就改回完整 text/narrator。',
     'rich_html 不只用于情书。只要上下文适合，你可以偶尔主动发一个 SURPRISE 小卡片：聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、邮箱主页、邮箱收件箱、邮件线程、邮件草稿、银行账户总览、银行账户余额、银行账户明细、小费条、电影票、飞机票、火车票、塔罗牌、签文、百度搜索结果、论坛帖子、伪小红书帖子、便签、清单、聊天截图、网页、小票据、明信片、随手写的页面、PPT、文档、名片、周易/八卦、中式抽签、月老签、简历、说明书、调查问卷、MBTI 测试、测试结果、quiz/test/exam、套圈小游戏、番外页、番外侧页、番外卡片都可以。',
