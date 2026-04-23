@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../promptManager.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../accountManager.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../assetStore.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../promptManager.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../accountManager.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T07:43:12Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -6774,16 +6774,32 @@ function appendOfflineLittleBrainShortTermItem(store, text, label, category){
   if(!safeText) return store;
   var shortList = Array.isArray(store && store.advancedMemory && store.advancedMemory.structured && store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.slice() : [];
   var now = Date.now();
+  var safeCategory = String(category || '').trim();
+  var safeLabel = String(label || '').trim() || (function(){
+    if(safeCategory === 'facts') return '人物底稿';
+    if(safeCategory === 'events') return '已经发生';
+    if(safeCategory === 'relationship') return '关系温度';
+    if(safeCategory === 'plans') return '正在推进';
+    if(safeCategory === 'decisions') return '未来挂念';
+    if(String(safeCategory).indexOf('custom:') === 0){
+      var code = String(safeCategory).slice(7);
+      var customMeta = store && store.advancedMemory && store.advancedMemory.structured && store.advancedMemory.structured.customCategories
+        ? store.advancedMemory.structured.customCategories[code]
+        : null;
+      return String(customMeta && customMeta.name || '短期片段').trim() || '短期片段';
+    }
+    return '短期片段';
+  })();
   shortList.push({
     id: 'offline_short_memory_' + now + '_' + Math.random().toString(36).slice(2, 7),
-    label: String(label || '转回短期记忆').trim(),
+    label: safeLabel,
     text: safeText,
     createdAt: now,
     updatedAt: now,
     manual: true,
     pinned: true,
     sourceType: 'manual',
-    memoryCategory: String(category || '').trim()
+    memoryCategory: safeCategory
   });
   store.advancedMemory = normalizeOfflineAdvancedMemoryState(store.advancedMemory);
   store.advancedMemory.structured.shortTerm = normalizeOfflineLittleBrainShortTermItems(shortList);
@@ -6843,7 +6859,7 @@ async function promoteOfflineDiaryMemoryItem(id){
 async function demoteOfflineStructuredMemoryToDiary(store, text, label, category){
   var safeText = String(text || '').trim();
   if(!safeText || !character || !character.id || !store) return store;
-  appendOfflineLittleBrainShortTermItem(store, safeText, label || '转回短期记忆', category || '');
+  appendOfflineLittleBrainShortTermItem(store, safeText, label || '', category || '');
   return store;
 }
 async function deleteOfflineStructuredFactAt(idx){
@@ -6851,7 +6867,7 @@ async function deleteOfflineStructuredFactAt(idx){
   var mem = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
   var factKey = Object.keys(mem.facts || {})[Number(idx) || 0];
   if(!factKey) return;
-  await demoteOfflineStructuredMemoryToDiary(store, factKey + '：' + String(mem.facts[factKey] || '').trim(), '转回短期记忆', 'facts');
+  await demoteOfflineStructuredMemoryToDiary(store, factKey + '：' + String(mem.facts[factKey] || '').trim(), '', 'facts');
   delete mem.facts[factKey];
   store.advancedMemory = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory);
   store.advancedMemory.structured = Object.assign({}, mem, { shortTerm: store.advancedMemory.structured.shortTerm });
@@ -6865,7 +6881,7 @@ async function deleteOfflineStructuredEventMonthAt(idx){
   var mem = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
   var month = Object.keys(mem.events || {}).sort()[Number(idx) || 0];
   if(!month) return;
-  await demoteOfflineStructuredMemoryToDiary(store, month + '：' + String(mem.events[month] || '').split('|').filter(Boolean).join(' · '), '转回短期记忆', 'events');
+  await demoteOfflineStructuredMemoryToDiary(store, month + '：' + String(mem.events[month] || '').split('|').filter(Boolean).join(' · '), '', 'events');
   delete mem.events[month];
   store.advancedMemory = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory);
   store.advancedMemory.structured = Object.assign({}, mem, { shortTerm: store.advancedMemory.structured.shortTerm });
@@ -6878,7 +6894,7 @@ async function deleteOfflineStructuredRelationship(){
   var store = await loadOfflineMemoryStore();
   var mem = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
   if(!String(mem.relationship || '').trim()) return;
-  await demoteOfflineStructuredMemoryToDiary(store, '关系温度：' + String(mem.relationship || '').trim(), '转回短期记忆', 'relationship');
+  await demoteOfflineStructuredMemoryToDiary(store, '关系温度：' + String(mem.relationship || '').trim(), '', 'relationship');
   mem.relationship = '';
   store.advancedMemory = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory);
   store.advancedMemory.structured = Object.assign({}, mem, { shortTerm: store.advancedMemory.structured.shortTerm });
@@ -6894,7 +6910,7 @@ async function deleteOfflineStructuredListItem(kind, idx){
   var list = Array.isArray(mem[listKey]) ? mem[listKey] : null;
   var index = Number(idx);
   if(!list || !Number.isFinite(index) || index < 0 || index >= list.length) return;
-  await demoteOfflineStructuredMemoryToDiary(store, String(list[index] || '').trim(), '转回短期记忆', listKey);
+  await demoteOfflineStructuredMemoryToDiary(store, String(list[index] || '').trim(), '', listKey);
   list.splice(index, 1);
   mem[listKey] = list;
   store.advancedMemory = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory);
@@ -6911,7 +6927,7 @@ async function deleteOfflineStructuredCustomItem(code, idx){
   var rows = mem.custom && Array.isArray(mem.custom[safeCode]) ? mem.custom[safeCode] : null;
   var index = Number(idx);
   if(!rows || !Number.isFinite(index) || index < 0 || index >= rows.length) return;
-  await demoteOfflineStructuredMemoryToDiary(store, String(rows[index] || '').trim(), '转回短期记忆', 'custom:' + safeCode);
+  await demoteOfflineStructuredMemoryToDiary(store, String(rows[index] || '').trim(), '', 'custom:' + safeCode);
   rows.splice(index, 1);
   mem.custom[safeCode] = rows;
   store.advancedMemory = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory);

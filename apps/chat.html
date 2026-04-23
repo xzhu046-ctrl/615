@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../accountManager.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../assetStore.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T07:38:24Z"></script>
-<script src="../sunnySupport.js?v=2026-04-23T07:38:24Z"></script>
-<script src="offlineInvite.js?v=2026-04-23T07:38:24Z"></script>
+<script src="../promptManager.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../accountManager.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../assetStore.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T07:43:12Z"></script>
+<script src="../sunnySupport.js?v=2026-04-23T07:43:12Z"></script>
+<script src="offlineInvite.js?v=2026-04-23T07:43:12Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -23794,6 +23794,22 @@ function appendLittleBrainShortTermItem(store, text, label, category){
   var safeText = String(text || '').trim();
   if(!safeText) return store;
   var shortList = Array.isArray(store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.slice() : [];
+  var safeCategory = String(category || '').trim();
+  var safeLabel = String(label || '').trim() || (function(){
+    if(safeCategory === 'facts') return '人物底稿';
+    if(safeCategory === 'events') return '已经发生';
+    if(safeCategory === 'relationship') return '关系温度';
+    if(safeCategory === 'plans') return '正在推进';
+    if(safeCategory === 'decisions') return '未来挂念';
+    if(String(safeCategory).indexOf('custom:') === 0){
+      var code = String(safeCategory).slice(7);
+      var customMeta = store.advancedMemory && store.advancedMemory.structured && store.advancedMemory.structured.customCategories
+        ? store.advancedMemory.structured.customCategories[code]
+        : null;
+      return String(customMeta && customMeta.name || '短期片段').trim() || '短期片段';
+    }
+    return '短期片段';
+  })();
   shortList.push({
     id: 'st_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
     from: 0,
@@ -23804,9 +23820,9 @@ function appendLittleBrainShortTermItem(store, text, label, category){
     updatedAt: Date.now(),
     manual: true,
     pinned: true,
-    label: String(label || '转回短期记忆').trim(),
+    label: safeLabel,
     sourceType: 'manual',
-    memoryCategory: String(category || '').trim()
+    memoryCategory: safeCategory
   });
   store.advancedMemory.structured.shortTerm = normalizeLittleBrainShortTermItems(shortList);
   return store;
@@ -23863,7 +23879,7 @@ function promoteDiaryMemoryItem(id){
 function demoteStructuredMemoryToDiary(store, text, label, category){
   var safeText = String(text || '').trim();
   if(!safeText || !character || !store) return store;
-  appendLittleBrainShortTermItem(store, safeText, label || '转回短期记忆', category || '');
+  appendLittleBrainShortTermItem(store, safeText, label || '', category || '');
   return store;
 }
 function deleteStructuredFactAt(idx){
@@ -23873,7 +23889,7 @@ function deleteStructuredFactAt(idx){
   var facts = store.advancedMemory.structured.facts || {};
   var safeKey = Object.keys(facts)[index];
   if(!safeKey) return;
-  demoteStructuredMemoryToDiary(store, safeKey + '：' + String(facts[safeKey] || '').trim(), '转回短期记忆', 'facts');
+  demoteStructuredMemoryToDiary(store, safeKey + '：' + String(facts[safeKey] || '').trim(), '', 'facts');
   delete facts[safeKey];
   saveMemorySummaryStore(store);
   refreshMemoryUi();
@@ -23886,7 +23902,7 @@ function deleteStructuredEventMonthAt(idx){
   var events = store.advancedMemory.structured.events || {};
   var ym = Object.keys(events).sort()[index];
   if(!ym) return;
-  demoteStructuredMemoryToDiary(store, ym + '：' + String(events[ym] || '').split('|').filter(Boolean).join(' · '), '转回短期记忆', 'events');
+  demoteStructuredMemoryToDiary(store, ym + '：' + String(events[ym] || '').split('|').filter(Boolean).join(' · '), '', 'events');
   delete events[ym];
   saveMemorySummaryStore(store);
   refreshMemoryUi();
@@ -23895,7 +23911,7 @@ function deleteStructuredEventMonthAt(idx){
 function deleteStructuredRelationship(){
   var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
   if(!String(store.advancedMemory.structured.relationship || '').trim()) return;
-  demoteStructuredMemoryToDiary(store, '关系温度：' + String(store.advancedMemory.structured.relationship || '').trim(), '转回短期记忆', 'relationship');
+  demoteStructuredMemoryToDiary(store, '关系温度：' + String(store.advancedMemory.structured.relationship || '').trim(), '', 'relationship');
   store.advancedMemory.structured.relationship = '';
   saveMemorySummaryStore(store);
   refreshMemoryUi();
@@ -23908,7 +23924,7 @@ function deleteStructuredListItem(kind, idx){
   var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
   var list = Array.isArray(store.advancedMemory.structured[safeKind]) ? store.advancedMemory.structured[safeKind] : null;
   if(!list || index >= list.length) return;
-  demoteStructuredMemoryToDiary(store, String(list[index] || '').trim(), '转回短期记忆', safeKind);
+  demoteStructuredMemoryToDiary(store, String(list[index] || '').trim(), '', safeKind);
   list.splice(index, 1);
   saveMemorySummaryStore(store);
   refreshMemoryUi();
@@ -23923,7 +23939,7 @@ function deleteStructuredCustomItem(code, idx){
     ? store.advancedMemory.structured.custom[safeCode]
     : null;
   if(!list || index >= list.length) return;
-  demoteStructuredMemoryToDiary(store, String(list[index] || '').trim(), '转回短期记忆', 'custom:' + safeCode);
+  demoteStructuredMemoryToDiary(store, String(list[index] || '').trim(), '', 'custom:' + safeCode);
   list.splice(index, 1);
   saveMemorySummaryStore(store);
   refreshMemoryUi();
