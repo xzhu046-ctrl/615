@@ -197,13 +197,14 @@ function coerceOfflineInvitePayloadToThread(payload, sourceRole){
 }
 
 function buildOfflineInvitePayload(sourceRole, overrides){
+  var normalizedSourceRole = sourceRole === 'user' ? 'user' : 'assistant';
   var labels = currentDateLabels(sourceRole === 'user' ? 'user' : 'char');
   var threadCharacter = getOfflineInviteThreadCharacter();
   var safeOverrides = coerceOfflineInvitePayloadToThread(overrides || {}, sourceRole);
   var snapshotSource = threadCharacter || (safeOverrides && safeOverrides.charSnapshot) || character || {};
   var data = Object.assign({
     type: 'offline_invite',
-    sourceRole: sourceRole === 'user' ? 'user' : 'assistant',
+    sourceRole: normalizedSourceRole,
     charId: String((threadCharacter && threadCharacter.id) || '').trim(),
     charName: String((threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '').trim(),
     mood: randomPick(OFFLINE_MOODS, '(｡･ω･｡)'),
@@ -216,7 +217,7 @@ function buildOfflineInvitePayload(sourceRole, overrides){
     charSnapshot: buildOfflineLaunchCharSnapshot(snapshotSource)
   }, safeOverrides);
   data.type = 'offline_invite';
-  data.sourceRole = data.sourceRole === 'user' ? 'user' : 'assistant';
+  data.sourceRole = normalizedSourceRole;
   data.charId = String(data.charId || (threadCharacter && threadCharacter.id) || '').trim();
   data.charName = String(data.charName || (threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '').trim();
   data.mood = String(data.mood || '').trim() || '(｡･ω･｡)';
@@ -1402,7 +1403,7 @@ function appendOfflineInviteNoticeText(role){
   if(role === 'user'){
     return '系统提示：' + getCurrentUserDisplayName() + '想约' + charName + '见面';
   }
-  return '系统提示：' + charName + '想约您见面';
+  return '系统提示：' + charName + '想约你见面';
 }
 
 function appendOfflineInviteRejectNoticeText(){
@@ -1434,19 +1435,22 @@ function notifyShellAboutOfflineInvite(text){
 async function appendOfflineInviteToChat(role, payload, doScroll, options){
   var safeOptions = options && typeof options === 'object' ? options : {};
   var noticeText = '';
+  var safeRole = payload && typeof payload === 'object' && payload.sourceRole === 'user'
+    ? 'user'
+    : (role === 'user' ? 'user' : 'assistant');
   if(safeOptions.skipNotice !== true){
-    noticeText = String(safeOptions.noticeText || appendOfflineInviteNoticeText(role)).trim();
+    noticeText = String(safeOptions.noticeText || appendOfflineInviteNoticeText(safeRole)).trim();
   }
   if(noticeText){
     var notice = makeSystemNoticeEntry(noticeText);
     chatLog.push(notice);
     addSystemNotice(notice.content, doScroll !== false, notice.id);
   }
-  var safePayload = coerceOfflineInvitePayloadToThread(payload || {}, role === 'user' ? 'user' : 'assistant');
-  var finalPayload = buildOfflineInvitePayload(role === 'user' ? 'user' : 'assistant', safePayload || {});
-  var entry = makeChatEntry(role === 'user' ? 'user' : 'assistant', JSON.stringify(finalPayload), 'offline_invite');
+  var safePayload = coerceOfflineInvitePayloadToThread(payload || {}, safeRole);
+  var finalPayload = buildOfflineInvitePayload(safeRole, safePayload || {});
+  var entry = makeChatEntry(safeRole === 'user' ? 'user' : 'assistant', JSON.stringify(finalPayload), 'offline_invite');
   chatLog.push(entry);
-  addMessage(role === 'user' ? 'user' : 'ai', entry.content, doScroll !== false, 'offline_invite', entry.id);
+  addMessage(safeRole === 'user' ? 'user' : 'ai', entry.content, doScroll !== false, 'offline_invite', entry.id);
   await saveChat(true);
   return entry;
 }
