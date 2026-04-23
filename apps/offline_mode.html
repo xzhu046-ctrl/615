@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T05:03:42Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T05:03:42Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T05:03:42Z"></script>
-<script src="../promptManager.js?v=2026-04-23T05:03:42Z"></script>
-<script src="../accountManager.js?v=2026-04-23T05:03:42Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T05:03:42Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T05:03:42Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T05:03:42Z"></script>
+<script src="../assetStore.js?v=2026-04-23T05:12:18Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T05:12:18Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T05:12:18Z"></script>
+<script src="../promptManager.js?v=2026-04-23T05:12:18Z"></script>
+<script src="../accountManager.js?v=2026-04-23T05:12:18Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T05:12:18Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T05:12:18Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T05:12:18Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -863,6 +863,7 @@ var offlineDrawerCardBgResolvedSource = '';
 var offlineDrawerPageBgDirty = false;
 var offlineDrawerCardBgDirty = false;
 var offlineMemoryEditingId = '';
+var offlineMemoryEditingMeta = null;
 var offlineStageSummaryPreviewOpen = false;
 var offlineInitInProgress = true;
 var offlineInitCompleted = false;
@@ -6235,6 +6236,7 @@ function closeOfflineMemoryPanel(){
 }
 function closeOfflineMemoryEditor(){
   offlineMemoryEditingId = '';
+  offlineMemoryEditingMeta = null;
   document.getElementById('offlineMemoryEditorOverlay')?.classList.remove('open');
 }
 async function refreshOfflineMemoryButton(){
@@ -6270,7 +6272,14 @@ async function refreshOfflineMemoryUi(){
   if(!body || !title) return;
   title.textContent = (getCharDisplayName() || '线下') + ' · 聊天记忆';
   var store = await loadOfflineMemoryStore();
+  var mode = getOfflineMemoryModeFromStore(store);
+  var addBtn = document.querySelector('#offlineMemoryOverlay .offline-memory-close');
+  if(addBtn) addBtn.style.display = mode === 'structured' ? 'none' : '';
   refreshOfflineMemoryButton();
+  if(mode === 'structured'){
+    body.innerHTML = buildOfflineStructuredMemoryCardsHtml(store && store.advancedMemory);
+    return;
+  }
   var items = sortOfflineMemoryItemsForUi(store && store.items);
   if(!items.length){
     body.innerHTML = '<div class="offline-memory-empty">这里还没有记忆。</div>';
@@ -6298,9 +6307,79 @@ async function openOfflineMemoryPanel(){
   document.getElementById('offlineMemoryOverlay')?.classList.add('open');
   await refreshOfflineMemoryUi();
 }
+function getOfflineStructuredMemoryEntryCount(raw){
+  var mem = normalizeOfflineAdvancedMemoryState(raw).structured;
+  var total = 0;
+  total += Object.keys(mem.facts || {}).length;
+  total += Object.keys(mem.events || {}).length;
+  total += Array.isArray(mem.decisions) ? mem.decisions.length : 0;
+  total += Array.isArray(mem.plans) ? mem.plans.length : 0;
+  total += Array.isArray(mem.emotions) ? mem.emotions.length : 0;
+  if(String(mem.relationship || '').trim()) total += 1;
+  if(mem.custom && typeof mem.custom === 'object'){
+    Object.keys(mem.custom).forEach(function(code){
+      total += Array.isArray(mem.custom[code]) ? mem.custom[code].length : 0;
+    });
+  }
+  return total;
+}
+function buildOfflineStructuredMemoryCardsHtml(raw){
+  var mem = normalizeOfflineAdvancedMemoryState(raw).structured;
+  var blocks = [];
+  var factKeys = Object.keys(mem.facts || {});
+  if(factKeys.length){
+    blocks.push('<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">事实 / 偏好 · ' + factKeys.length + '</div></div>' +
+      factKeys.map(function(key, idx){
+        return '<div class="offline-memory-item-body"><strong>' + esc(key) + '</strong>：' + esc(String(mem.facts[key] || '')) +
+          '<span class="offline-memory-item-actions" style="float:right"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'fact\',' + idx + ')">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredFactAt(' + idx + ')">×</button></span></div>';
+      }).join('') + '</div>');
+  }
+  var eventMonths = Object.keys(mem.events || {}).sort();
+  if(eventMonths.length){
+    blocks.push('<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">事件时间线 · ' + eventMonths.length + '</div></div>' +
+      eventMonths.map(function(ym, idx){
+        var entries = String(mem.events[ym] || '').split('|').filter(Boolean).join(' · ');
+        return '<div class="offline-memory-item-body"><strong>' + esc(ym) + '</strong>：' + esc(entries) +
+          '<span class="offline-memory-item-actions" style="float:right"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'event-month\',' + idx + ')">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredEventMonthAt(' + idx + ')">×</button></span></div>';
+      }).join('') + '</div>');
+  }
+  if(mem.relationship){
+    blocks.push('<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">关系变化 · 1</div><div class="offline-memory-item-actions"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'relationship\',0)">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredRelationship()">×</button></div></div><div class="offline-memory-item-body">' + esc(mem.relationship) + '</div></div>');
+  }
+  [
+    { key:'decisions', label:'决定' },
+    { key:'plans', label:'计划' },
+    { key:'emotions', label:'情绪节点' }
+  ].forEach(function(kind){
+    var rows = Array.isArray(mem[kind.key]) ? mem[kind.key] : [];
+    if(!rows.length) return;
+    blocks.push('<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">' + esc(kind.label) + ' · ' + rows.length + '</div></div>' +
+      rows.map(function(row, idx){
+        return '<div class="offline-memory-item-body">' + esc(String(row || '')) +
+          '<span class="offline-memory-item-actions" style="float:right"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'list-item\',' + idx + ',\'' + esc(kind.key) + '\')">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredListItem(\'' + esc(kind.key) + '\',' + idx + ')">×</button></span></div>';
+      }).join('') + '</div>');
+  });
+  if(mem.custom && typeof mem.custom === 'object'){
+    Object.keys(mem.custom).forEach(function(code){
+      var rows = Array.isArray(mem.custom[code]) ? mem.custom[code] : [];
+      if(!rows.length) return;
+      var customName = String((mem.customCategories && mem.customCategories[code] && mem.customCategories[code].name) || code);
+      blocks.push('<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">' + esc(customName) + ' · ' + rows.length + '</div></div>' +
+        rows.map(function(row, idx){
+          return '<div class="offline-memory-item-body">' + esc(String(row || '')) +
+            '<span class="offline-memory-item-actions" style="float:right"><button class="offline-memory-mini-btn" type="button" onclick="openOfflineStructuredMemoryEditor(\'custom-item\',' + idx + ',\'' + esc(code) + '\')">编辑</button><button class="offline-memory-mini-btn icon" type="button" onclick="deleteOfflineStructuredCustomItem(\'' + esc(code) + '\',' + idx + ')">×</button></span></div>';
+        }).join('') + '</div>');
+    });
+  }
+  if(!blocks.length){
+    return '<div class="offline-memory-empty">结构化记忆暂时为空，达到设定条数后会自动提取。</div>';
+  }
+  return '<div class="offline-memory-item"><div class="offline-memory-item-head"><div class="offline-memory-item-title">结构化记忆 · ' + getOfflineStructuredMemoryEntryCount(raw) + '</div></div><div class="offline-memory-item-body">这里显示的是和线上互通的结构化记忆。</div></div>' + blocks.join('');
+}
 async function openOfflineMemoryEditor(id){
   var safeId = String(id || '').trim();
   offlineMemoryEditingId = safeId;
+  offlineMemoryEditingMeta = null;
   var title = document.getElementById('offlineMemoryEditorTitle');
   var input = document.getElementById('offlineMemoryEditorInput');
   if(!title || !input) return;
@@ -6315,6 +6394,56 @@ async function openOfflineMemoryEditor(id){
   document.getElementById('offlineMemoryEditorOverlay')?.classList.add('open');
   setTimeout(function(){ try{ input.focus(); input.setSelectionRange(input.value.length, input.value.length); }catch(e){} }, 30);
 }
+async function openOfflineStructuredMemoryEditor(kind, idx, extra){
+  var mode = String(kind || '').trim();
+  var index = Math.max(0, Number(idx) || 0);
+  var store = await loadOfflineMemoryStore();
+  var structured = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
+  var title = document.getElementById('offlineMemoryEditorTitle');
+  var input = document.getElementById('offlineMemoryEditorInput');
+  if(!title || !input) return;
+  var preset = '';
+  var meta = { type:'structured', kind:mode, idx:index, extra:String(extra || '').trim() };
+  if(mode === 'fact'){
+    var factKeys = Object.keys(structured.facts || {});
+    var factKey = factKeys[index];
+    if(!factKey) return;
+    meta.key = factKey;
+    preset = String(structured.facts[factKey] || '');
+    title.textContent = '编辑结构化记忆 · 事实';
+  }else if(mode === 'event-month'){
+    var months = Object.keys(structured.events || {}).sort();
+    var month = months[index];
+    if(!month) return;
+    meta.month = month;
+    preset = String(structured.events[month] || '').split('|').filter(Boolean).join(' · ');
+    title.textContent = '编辑结构化记忆 · 事件';
+  }else if(mode === 'relationship'){
+    preset = String(structured.relationship || '');
+    title.textContent = '编辑结构化记忆 · 关系';
+  }else if(mode === 'list-item'){
+    var listKey = String(extra || '').trim();
+    var list = Array.isArray(structured[listKey]) ? structured[listKey] : null;
+    if(!list || index >= list.length) return;
+    meta.listKey = listKey;
+    preset = String(list[index] || '');
+    title.textContent = '编辑结构化记忆';
+  }else if(mode === 'custom-item'){
+    var code = String(extra || '').trim();
+    var rows = structured.custom && Array.isArray(structured.custom[code]) ? structured.custom[code] : null;
+    if(!rows || index >= rows.length) return;
+    meta.code = code;
+    preset = String(rows[index] || '');
+    title.textContent = '编辑结构化记忆';
+  }else{
+    return;
+  }
+  offlineMemoryEditingId = '';
+  offlineMemoryEditingMeta = meta;
+  input.value = preset;
+  document.getElementById('offlineMemoryEditorOverlay')?.classList.add('open');
+  setTimeout(function(){ try{ input.focus(); input.setSelectionRange(input.value.length, input.value.length); }catch(e){} }, 30);
+}
 async function confirmOfflineMemoryEditor(){
   var input = document.getElementById('offlineMemoryEditorInput');
   if(!input || !character || !character.id) return;
@@ -6324,6 +6453,32 @@ async function confirmOfflineMemoryEditor(){
     return;
   }
   var store = await loadOfflineMemoryStore();
+  if(offlineMemoryEditingMeta && offlineMemoryEditingMeta.type === 'structured'){
+    var mem = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
+    var meta = offlineMemoryEditingMeta;
+    if(meta.kind === 'fact' && meta.key){
+      mem.facts[meta.key] = text;
+    }else if(meta.kind === 'event-month' && meta.month){
+      mem.events[meta.month] = String(text || '').split(/\s*·\s*/).filter(Boolean).join('|');
+    }else if(meta.kind === 'relationship'){
+      mem.relationship = text;
+    }else if(meta.kind === 'list-item' && meta.listKey){
+      var list = Array.isArray(mem[meta.listKey]) ? mem[meta.listKey] : [];
+      if(meta.idx < list.length) list[meta.idx] = text;
+      mem[meta.listKey] = list;
+    }else if(meta.kind === 'custom-item' && meta.code){
+      if(!mem.custom) mem.custom = {};
+      var rows = Array.isArray(mem.custom[meta.code]) ? mem.custom[meta.code] : [];
+      if(meta.idx < rows.length) rows[meta.idx] = text;
+      mem.custom[meta.code] = rows;
+    }
+    await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+    closeOfflineMemoryEditor();
+    await refreshOfflineMemoryUi();
+    refreshOfflineMemoryButton();
+    toast('结构化记忆已经保存好了');
+    return;
+  }
   var items = Array.isArray(store && store.items) ? store.items.slice() : [];
   var now = Date.now();
   if(offlineMemoryEditingId){
@@ -6358,6 +6513,66 @@ async function deleteOfflineMemoryItem(id){
   await refreshOfflineMemoryUi();
   renderOfflineStageSummaryList();
   toast('这条记忆已经删掉了');
+}
+async function deleteOfflineStructuredFactAt(idx){
+  var store = await loadOfflineMemoryStore();
+  var mem = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
+  var factKey = Object.keys(mem.facts || {})[Number(idx) || 0];
+  if(!factKey) return;
+  delete mem.facts[factKey];
+  await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+  await refreshOfflineMemoryUi();
+  refreshOfflineMemoryButton();
+  toast('已删除结构化记忆');
+}
+async function deleteOfflineStructuredEventMonthAt(idx){
+  var store = await loadOfflineMemoryStore();
+  var mem = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
+  var month = Object.keys(mem.events || {}).sort()[Number(idx) || 0];
+  if(!month) return;
+  delete mem.events[month];
+  await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+  await refreshOfflineMemoryUi();
+  refreshOfflineMemoryButton();
+  toast('已删除结构化记忆');
+}
+async function deleteOfflineStructuredRelationship(){
+  var store = await loadOfflineMemoryStore();
+  var mem = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
+  if(!String(mem.relationship || '').trim()) return;
+  mem.relationship = '';
+  await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+  await refreshOfflineMemoryUi();
+  refreshOfflineMemoryButton();
+  toast('已删除结构化记忆');
+}
+async function deleteOfflineStructuredListItem(kind, idx){
+  var store = await loadOfflineMemoryStore();
+  var mem = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
+  var listKey = String(kind || '').trim();
+  var list = Array.isArray(mem[listKey]) ? mem[listKey] : null;
+  var index = Number(idx);
+  if(!list || !Number.isFinite(index) || index < 0 || index >= list.length) return;
+  list.splice(index, 1);
+  mem[listKey] = list;
+  await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+  await refreshOfflineMemoryUi();
+  refreshOfflineMemoryButton();
+  toast('已删除结构化记忆');
+}
+async function deleteOfflineStructuredCustomItem(code, idx){
+  var store = await loadOfflineMemoryStore();
+  var mem = normalizeOfflineAdvancedMemoryState(store && store.advancedMemory).structured;
+  var safeCode = String(code || '').trim();
+  var rows = mem.custom && Array.isArray(mem.custom[safeCode]) ? mem.custom[safeCode] : null;
+  var index = Number(idx);
+  if(!rows || !Number.isFinite(index) || index < 0 || index >= rows.length) return;
+  rows.splice(index, 1);
+  mem.custom[safeCode] = rows;
+  await saveOfflineMemoryStore({ advancedMemory: Object.assign({}, normalizeOfflineAdvancedMemoryState(store && store.advancedMemory), { structured: mem }) });
+  await refreshOfflineMemoryUi();
+  refreshOfflineMemoryButton();
+  toast('已删除结构化记忆');
 }
 function getOfflineRecentOnlineSnippet(){
   return clipOfflinePromptText(session && session.chatHistory ? session.chatHistory : '', isMobileOfflineRuntime() ? 1800 : 2800);
