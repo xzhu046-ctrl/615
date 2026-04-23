@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-23T08:07:54Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T08:07:54Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T08:07:54Z"></script>
-<script src="../promptManager.js?v=2026-04-23T08:07:54Z"></script>
-<script src="../accountManager.js?v=2026-04-23T08:07:54Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T08:07:54Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T08:07:54Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T08:07:54Z"></script>
+<script src="../assetStore.js?v=2026-04-23T08:16:42Z"></script>
+<script src="../chatStorage.js?v=2026-04-23T08:16:42Z"></script>
+<script src="../metadataStore.js?v=2026-04-23T08:16:42Z"></script>
+<script src="../promptManager.js?v=2026-04-23T08:16:42Z"></script>
+<script src="../accountManager.js?v=2026-04-23T08:16:42Z"></script>
+<script src="../scheduleShared.js?v=2026-04-23T08:16:42Z"></script>
+<script src="../presenceShared.js?v=2026-04-23T08:16:42Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-23T08:16:42Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -4313,7 +4313,7 @@ function renderCharSheetBody(text, asides, entryIndex, entry){
     return renderOfflineTypingBubble();
   }
   var body = String(text || '').trim();
-  var notes = Array.isArray(asides) ? asides.map(function(it){ return normalizeOfflineAsideDisplayText(it); }).filter(Boolean).slice(0, 2) : [];
+  var notes = Array.isArray(asides) ? asides.map(function(it){ return normalizeOfflineAsideDisplayText(it); }).filter(Boolean) : [];
   var parts = body
     ? body.split(/\n+/).map(function(it){ return String(it || '').trim(); }).filter(Boolean)
     : ['这场线下见面还没正式开始。'];
@@ -4325,12 +4325,6 @@ function renderCharSheetBody(text, asides, entryIndex, entry){
   function renderInlineArtifactCard(){
     if(!inlineArtifact) return '';
     return '<div class="offline-artifact-card"><div class="offline-artifact-label">' + esc(String(inlineArtifact.artifactLabel || '小物件')) + '</div><div class="offline-artifact-preview">' + String(inlineArtifact.artifactHtml || '') + '</div></div>';
-  }
-  var insertSlots = [];
-  if(notes.length === 1){
-    insertSlots = [0];
-  }else if(notes.length >= 2){
-    insertSlots = [0, Math.min(parts.length - 1, 1)];
   }
   var quoteCursor = 0;
   function collectOpenTranslationCard(targetEntryIndex, key){
@@ -4385,14 +4379,12 @@ function renderCharSheetBody(text, asides, entryIndex, entry){
     if(inlineArtifact && idx === artifactAfterParagraph - 1){
       html += renderInlineArtifactCard();
     }
-    insertSlots.forEach(function(slot, noteIdx){
-      if(idx === slot && notes[noteIdx]){
-        var asideKey = buildOfflineInlineTranslationKey('aside', notes[noteIdx], noteIdx);
-        var asideControl = renderOfflineInlineTranslationControl(entryIndex, asideKey, '译');
-        var asideCard = collectOpenTranslationCard(entryIndex, asideKey);
-        html += '<div class="offline-inline-aside-wrap"><span class="offline-inline-aside-line offline-inline-anchor' + (asideCard ? ' is-open' : '') + ' is-aside"><span class="char-sheet-aside">' + esc(notes[noteIdx]) + '</span>' + (asideControl || '') + (asideCard || '') + '</span></div>';
-      }
-    });
+    if(notes[idx]){
+      var asideKey = buildOfflineInlineTranslationKey('aside', notes[idx], idx);
+      var asideControl = renderOfflineInlineTranslationControl(entryIndex, asideKey, '译');
+      var asideCard = collectOpenTranslationCard(entryIndex, asideKey);
+      html += '<div class="offline-inline-aside-wrap"><span class="offline-inline-aside-line offline-inline-anchor' + (asideCard ? ' is-open' : '') + ' is-aside"><span class="char-sheet-aside">' + esc(notes[idx]) + '</span>' + (asideControl || '') + (asideCard || '') + '</span></div>';
+    }
   });
   return html;
 }
@@ -4437,15 +4429,15 @@ async function requestOfflineEntryTranslation(index, options){
     var systemPrompt = [
       '你是翻译器。',
       '请把角色线下正文翻译成自然流畅的简体中文。',
-      '只返回 JSON：{"text":"...","asides":["...","..."]}',
+      '只返回 JSON：{"text":"...","asides":["..."]}',
       '保留暧昧、嘴硬、停顿和语气，不要总结，不要解释，不要额外补充。',
-      '如果原文里有两句蓝字心声，就分别翻译到 asides 里；没有就返回空数组。',
+      '如果原文里有多句蓝字心声，就按出现顺序全部翻译到 asides 里；没有就返回空数组。',
       '不要给 asides 加括号、引号、破折号或任何前后缀，只返回干净句子。'
     ].join('\n');
     var userPrompt = JSON.stringify({
       sourceLanguage: getReplyLanguageOption(getOfflineReplyLanguage()).nativeLabel,
       text: String(entry.text || '').trim(),
-      asides: Array.isArray(entry.asides) ? entry.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : []
+      asides: Array.isArray(entry.asides) ? entry.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean) : []
     });
     var raw = await callAI(systemPrompt, userPrompt);
     var parsed = parseOfflineJsonObject(raw) || {};
@@ -4453,7 +4445,7 @@ async function requestOfflineEntryTranslation(index, options){
     if(!translatedText) throw new Error('empty translation');
     entry.translation = {
       text: translatedText,
-      asides: Array.isArray(parsed.asides) ? parsed.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [],
+      asides: Array.isArray(parsed.asides) ? parsed.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean) : [],
       visible: opts.showOnReady !== false,
       sourceLanguage: getOfflineReplyLanguage(),
       generatedAt: Date.now()
@@ -5311,7 +5303,7 @@ function normalizeOfflineAsides(raw){
   else if(typeof raw === 'string' && raw.trim()) list = raw.split(/\n+/);
   list = list.map(function(it){ return String(it || '').trim(); }).filter(Boolean);
   if(!list.length) list = buildOfflineAsideFallback();
-  return list.slice(0, 2);
+  return list;
 }
 function collectOfflineBodyValidationIssues(payload, options){
   var opts = options || {};
@@ -5363,7 +5355,7 @@ async function repairOfflineBodyPayload(draft, options){
   var langOption = getReplyLanguageOption(lang);
   var systemPrompt = [
     '你是“线下正文修正文案器”。',
-    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."],"artifact_label":"...","artifact_html":"..."}。',
+    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["..."],"artifact_label":"...","artifact_html":"..."}。',
     '不要解释，不要代码块，不要 thought_chain，不要 status_card。',
     '保持原草稿这幕的情境、关系、推进和情绪，不要重写成另一场戏。',
     'title 与 quote 必须是简体中文。',
@@ -5386,7 +5378,7 @@ async function repairOfflineBodyPayload(draft, options){
       title: String(source.title || '').trim(),
       quote: String(source.quote || '').trim(),
       text: String(source.text || '').trim(),
-      asides: Array.isArray(source.asides) ? source.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [],
+      asides: Array.isArray(source.asides) ? source.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean) : [],
       artifact_label: String(source.artifactLabel || source.artifact_label || '').trim(),
       artifact_html: String(source.artifactHtml || source.artifact_html || '').trim()
     }
@@ -5411,7 +5403,7 @@ async function rewriteOfflineBodyPayload(draft, options){
   var systemPrompt = [
     '你是“线下正文终审改稿器”。',
     '你收到的是一版不合格草稿，你的任务不是判断它哪里错，而是直接把它改成最终可用版本。',
-    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["...","..."],"artifact_label":"...","artifact_html":"..."}。',
+    '只返回 JSON：{"title":"...","quote":"...","text":"...","asides":["..."],"artifact_label":"...","artifact_html":"..."}。',
     '不要解释，不要代码块，不要 thought_chain，不要 status_card。',
     '如果草稿里踩中了禁词、禁用句式、外语旁白、错误视角、缺少引号台词、长度不够，你必须主动改写到合格，不能把问题原样留下。',
     'title 与 quote 必须是简体中文。',
@@ -5420,7 +5412,7 @@ async function rewriteOfflineBodyPayload(draft, options){
       ? ('只有蓝字心声 asides 和引号里的角色台词使用' + (langOption.nativeLabel || langOption.label || lang) + '原文。')
       : '蓝字心声和引号里的角色台词默认使用简体中文。',
     '正文里必须至少保留 1 句角色真正说出口的引号台词。',
-    'asides 只保留 1 到 2 句，语气自然，不能是总结句。',
+    'asides 要按正文段落顺序返回，能给几段就给几句；语气自然，不能是总结句。',
     '如果这幕天然提到了信、纸条、票据、截图、搜索页、证件、记录页、小物件这类能被拿出来看的东西，可以保留或补一张正文小卡片：artifact_label 写名字，artifact_html 写简单安全的 HTML/CSS；如果这幕不需要，就把 artifact_label 和 artifact_html 都留空字符串。',
     '绝对不要说“我不能这样写”“不合规”“请修改后再试”，你要直接给出修好的成稿。'
   ].join('\n');
@@ -5439,7 +5431,7 @@ async function rewriteOfflineBodyPayload(draft, options){
       title: String(source.title || '').trim(),
       quote: String(source.quote || '').trim(),
       text: String(source.text || '').trim(),
-      asides: Array.isArray(source.asides) ? source.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean).slice(0, 2) : [],
+      asides: Array.isArray(source.asides) ? source.asides.map(function(it){ return String(it || '').trim(); }).filter(Boolean) : [],
       artifact_label: String(source.artifactLabel || source.artifact_label || '').trim(),
       artifact_html: String(source.artifactHtml || source.artifact_html || '').trim()
     }
@@ -7456,7 +7448,7 @@ function buildOfflineSystemPrompt(options){
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["...","..."],"heart":"...","artifact_label":"...","artifact_html":"...","artifact_after_paragraph":0,"scene_summary":"..."}',
+    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["..."],"heart":"...","artifact_label":"...","artifact_html":"...","artifact_after_paragraph":0,"scene_summary":"..."}',
     'text 必须写成足量的线下面对面正文，细节感更强，不要写成短回复，不要写成一小段，也不要写成小说章节标题。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个简体中文字符左右，不要太正经，但必须贴人设。',
@@ -7490,7 +7482,8 @@ function buildOfflineSystemPrompt(options){
     '不要使用“像受惊的小动物一样”“像护食的小动物一样”这类把人比成小动物的写法。',
     'text 至少写成 3 个自然段，每一段都用完整句子收尾；如果字数不够，就继续补充同一幕的动作、气氛、停顿、对话和身体反应，直到达到下限。',
     '正文里必须至少出现 1 句 char 真正说出口的直接引语，用引号包起来，不要整段都只写动作和旁白。',
-    'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
+    'asides 是正文中会穿插出现的蓝字心声，数量要尽量和正文自然段数量一致：每一段结束后都给 1 句对应心声。',
+    '每句 asides 都必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，绝对不要打断一个还没说完的句子。',
     '蓝字心声要像活人脑内瞬间闪过的欲言又止、嘴硬、自我警告、心里发烫或一秒露馅，不要总结局面，不要讲大道理，不要复述正文。',
     'heart 是右上角爱心里的短心声，2-10 个字。',
     '如果这一幕里自然出现了信、纸条、票据、截图、搜索页、证件、小网页、小物件这些白名单风格的东西，你可以额外返回 artifact_label 和 artifact_html，把它做成正文附带的小卡片；没有就留空字符串，不要硬塞。',
@@ -7538,7 +7531,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
   return [
     '你在生成“线下见面模式”的第一幕正文。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."],"artifact_label":"...","artifact_html":"...","artifact_after_paragraph":0}，不要代码块，不要解释。',
+    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["..."],"artifact_label":"...","artifact_html":"...","artifact_after_paragraph":0}，不要代码块，不要解释。',
     '这次直接写完整第一幕正文，长度尽量写在 ' + storyPrefs.minChars + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间。',
     '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；title、quote 和正文旁白固定简体中文；status_card 严格使用当前语言设置；只有 asides 和引号里的台词严格使用当前语言设置。',
     '不要把整段正文旁白切成外语；title、quote 和外层旁白也绝对不许变成外语。',
@@ -7558,7 +7551,8 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '不要使用“像受惊的小动物一样”“像护食的小动物一样”这类把人比成小动物的写法。',
     'text 至少写成 3 个自然段，每一段都用完整句子收尾。',
     '正文里必须至少出现 1 句 char 真正说出口的直接引语，用引号包起来，不要整段都只写动作和旁白。',
-    'asides 是正文中会穿插出现的 2 句心声，必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，并且分别适合插在第一段后和第二段后，绝对不要打断一个还没说完的句子。',
+    'asides 是正文中会穿插出现的蓝字心声，数量要尽量和正文自然段数量一致：每一段结束后都给 1 句对应心声。',
+    '每句 asides 都必须永远使用 char 的第一人称，每句控制在 10-28 个中文字符之间，绝对不要打断一个还没说完的句子。',
     '蓝字心声要像活人脑内瞬间闪过的欲言又止、嘴硬、自我警告、心里发烫或一秒露馅，不要总结局面，不要讲大道理，不要复述正文。',
     '如果首幕里自然出现了信、纸条、便签、票据、收据、搜索页、聊天截图、记录页、证件、网页、小海报、小物件这些白名单风格的东西，可以额外返回 artifact_label 和 artifact_html；没有自然提到就留空，不要硬做。',
     'artifact_html 只能是简单安全的 HTML/CSS 小卡片，不许 script，不许外链，不许 iframe，不许事件属性；artifact_label 写这张卡片的名字。',
@@ -8407,7 +8401,7 @@ function mergeOfflineAsides(base, extra){
     if(seen[it]) return false;
     seen[it] = true;
     return true;
-  }).slice(0, 2);
+  });
 }
 function offlineStyleBannedPatterns(){
   return [
@@ -8519,7 +8513,7 @@ function buildOfflineEmergencyOpeningSystemPrompt(){
   return [
     '你在生成“线下见面模式”的第一幕正文。',
     '这是超轻量应急模式，只保留最必要上下文，目标是先把第一幕稳定写出来。',
-    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["...","..."]}。',
+    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["..."]}。',
     '不要代码块，不要解释，不要 status_card。',
     'title、quote、正文旁白必须是简体中文；只有 asides 和引号里的角色台词跟随当前语言设置。',
     offlinePerspectiveRuleLine(getOfflineStoryPrefs().perspective),
@@ -9000,7 +8994,7 @@ async function generateOpeningIfNeeded(){
         liveOpeningEntry.isTyping = false;
         liveOpeningEntry.title = String(unifiedOpening.title || buildOfflineTitleFallback()).trim();
         liveOpeningEntry.quote = String(unifiedOpening.quote || buildOfflineQuoteFallback()).trim();
-        liveOpeningEntry.asides = Array.isArray(unifiedOpening.asides) ? unifiedOpening.asides.slice(0, 2) : [];
+        liveOpeningEntry.asides = Array.isArray(unifiedOpening.asides) ? unifiedOpening.asides.slice() : [];
         liveOpeningEntry.heart = String(unifiedOpening.heart || liveOpeningEntry.heart || '♥').trim() || '♥';
         liveOpeningEntry.thoughtChain = normalizeOfflineThoughtChain(unifiedOpening.thoughtChain || null, unifiedOpening.text);
         liveOpeningEntry.artifactLabel = String(unifiedOpening.artifactLabel || '').trim();
@@ -9183,7 +9177,7 @@ async function generateOpeningIfNeeded(){
         || leanOpening.quote
         || buildOfflineQuoteFallback()
       ).trim();
-      leanOpeningEntry.asides = Array.isArray(leanOpening.asides) ? leanOpening.asides.slice(0, 2) : [];
+      leanOpeningEntry.asides = Array.isArray(leanOpening.asides) ? leanOpening.asides.slice() : [];
       leanOpeningEntry.thoughtChain = normalizeOfflineThoughtChain(streamedOpeningThoughtChain || leanOpeningEntry.thoughtChain || null, leanOpeningEntry.text);
       leanOpeningEntry.statusCard = null;
       leanOpeningEntry.statusPending = false;
@@ -9719,7 +9713,7 @@ async function requestOfflineReply(options){
         liveReplyEntry.isTyping = false;
         liveReplyEntry.title = String(unifiedReply.title || buildOfflineTitleFallback()).trim();
         liveReplyEntry.quote = String(unifiedReply.quote || buildOfflineQuoteFallback()).trim();
-        liveReplyEntry.asides = Array.isArray(unifiedReply.asides) ? unifiedReply.asides.slice(0, 2) : [];
+        liveReplyEntry.asides = Array.isArray(unifiedReply.asides) ? unifiedReply.asides.slice() : [];
         liveReplyEntry.heart = String(unifiedReply.heart || liveReplyEntry.heart || '♥').trim() || '♥';
         liveReplyEntry.thoughtChain = normalizeOfflineThoughtChain(unifiedReply.thoughtChain || null, unifiedReply.text);
         liveReplyEntry.artifactLabel = String(unifiedReply.artifactLabel || '').trim();
@@ -9911,7 +9905,7 @@ async function requestOfflineReply(options){
         || leanReply.quote
         || buildOfflineQuoteFallback()
       ).trim();
-      leanEntry.asides = Array.isArray(leanReply.asides) ? leanReply.asides.slice(0, 2) : [];
+      leanEntry.asides = Array.isArray(leanReply.asides) ? leanReply.asides.slice() : [];
       leanEntry.thoughtChain = normalizeOfflineThoughtChain(streamedReplyThoughtChain || leanEntry.thoughtChain || null, leanEntry.text);
       leanEntry.artifactLabel = '';
       leanEntry.artifactHtml = '';
