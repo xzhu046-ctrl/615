@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-24T00:44:23Z"></script>
-<script src="../chatStorage.js?v=2026-04-24T00:44:23Z"></script>
-<script src="../metadataStore.js?v=2026-04-24T00:44:23Z"></script>
-<script src="../promptManager.js?v=2026-04-24T00:44:23Z"></script>
-<script src="../accountManager.js?v=2026-04-24T00:44:23Z"></script>
-<script src="../scheduleShared.js?v=2026-04-24T00:44:23Z"></script>
-<script src="../presenceShared.js?v=2026-04-24T00:44:23Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-24T00:44:23Z"></script>
+<script src="../assetStore.js?v=2026-04-24T00:58:14Z"></script>
+<script src="../chatStorage.js?v=2026-04-24T00:58:14Z"></script>
+<script src="../metadataStore.js?v=2026-04-24T00:58:14Z"></script>
+<script src="../promptManager.js?v=2026-04-24T00:58:14Z"></script>
+<script src="../accountManager.js?v=2026-04-24T00:58:14Z"></script>
+<script src="../scheduleShared.js?v=2026-04-24T00:58:14Z"></script>
+<script src="../presenceShared.js?v=2026-04-24T00:58:14Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-24T00:58:14Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -7289,7 +7289,10 @@ function isOfflineContextLikeError(err){
   return /maximum context|context length|context window|too many tokens|token limit|max tokens|max context|prompt is too long|input is too long/.test(text);
 }
 function isOfflineQuotaLikeError(err){
-  return isOfflineQuotaExceededError(err) || isOfflineContextLikeError(err) || /rate limit|429/.test(String(err && (err.message || err) || '').toLowerCase());
+  return isOfflineQuotaExceededError(err) || isOfflineContextLikeError(err);
+}
+function isOfflineRateLimitError(err){
+  return /rate limit|too many requests|请求太密|限流|429/.test(String(err && (err.message || err) || '').toLowerCase());
 }
 function offlineQuotaRetryBudget(base, retryStep, min){
   var floor = Math.max(120, Number(min) || 120);
@@ -7974,13 +7977,12 @@ async function callAI(systemPrompt, userPrompt, requestOptions){
       temperature: temperature,
       messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }]
     };
-    var customRequest = applyOfflineCustomRequestOverrides(headers, customPayload);
     var resCustom;
     try{
       resCustom = await fetch(baseUrl + '/chat/completions', {
         method:'POST',
-        headers: customRequest.headers,
-        body: JSON.stringify(customRequest.body)
+        headers: headers,
+        body: JSON.stringify(customPayload)
       });
     }catch(err){
       throw buildOfflineProviderError('自定义接口这次没有成功返回内容。你可以稍后再试一下。', {
