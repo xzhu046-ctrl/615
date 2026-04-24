@@ -9,6 +9,7 @@ const APP_MAP = {
   schedule:   { title: '日程',           src: 'apps/schedule.html', hideTopbar: true },
   offline:    { title: '约会',           src: 'apps/offline.html', hideTopbar: true },
   offline_mode:{ title: '线下',          src: 'apps/offline_mode.html', hideTopbar: true },
+  couple:     { title: '情侣空间',       src: 'apps/qq_profile.html?couple=1', hideTopbar: true },
   backend:    { title: '后台',           src: 'apps/backend.html' },
   map6:       { title: '地图',           src: 'apps/map6.html' },
 };
@@ -49,7 +50,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-24T03:32:08Z';
+const APP_BUILD_ID = '2026-04-24T03:37:33Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -5085,7 +5086,7 @@ function openPlaceholderMiniApp(idx){
     return;
   }
   if(Number(idx) === 7){
-    showHomeToast('档案馆正在重新制作');
+    openApp('couple');
     return;
   }
   showHomeToast(Number(idx) === 1 ? 'CHAR 暂未设置' : (Number(idx) === 2 ? 'USER 暂未设置' : ('占位' + idx + ' 暂未设置')));
