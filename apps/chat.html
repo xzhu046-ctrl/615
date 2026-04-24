@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-23T23:08:03Z"></script>
-<script src="../accountManager.js?v=2026-04-23T23:08:03Z"></script>
-<script src="../assetStore.js?v=2026-04-23T23:08:03Z"></script>
-<script src="../chatStorage.js?v=2026-04-23T23:08:03Z"></script>
-<script src="../metadataStore.js?v=2026-04-23T23:08:03Z"></script>
-<script src="../scheduleShared.js?v=2026-04-23T23:08:03Z"></script>
-<script src="../presenceShared.js?v=2026-04-23T23:08:03Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-23T23:08:03Z"></script>
-<script src="../sunnySupport.js?v=2026-04-23T23:08:03Z"></script>
-<script src="offlineInvite.js?v=2026-04-23T23:08:03Z"></script>
+<script src="../promptManager.js?v=2026-04-24T00:44:23Z"></script>
+<script src="../accountManager.js?v=2026-04-24T00:44:23Z"></script>
+<script src="../assetStore.js?v=2026-04-24T00:44:23Z"></script>
+<script src="../chatStorage.js?v=2026-04-24T00:44:23Z"></script>
+<script src="../metadataStore.js?v=2026-04-24T00:44:23Z"></script>
+<script src="../scheduleShared.js?v=2026-04-24T00:44:23Z"></script>
+<script src="../presenceShared.js?v=2026-04-24T00:44:23Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-24T00:44:23Z"></script>
+<script src="../sunnySupport.js?v=2026-04-24T00:44:23Z"></script>
+<script src="offlineInvite.js?v=2026-04-24T00:44:23Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -12347,10 +12347,12 @@ function sanitizeAssistantTextForChat(raw){
   if(!t) return t;
   if(isBlockedMemePayload(t)) return '';
   if(isLeakedRichHtmlContextText(t)) return '';
+  if(isLeakedOfflineInviteProtocolText(t)) return '';
   if(/^【亲属卡】[\s\S]*[；;]状态[：:](待处理|已同意|已拒绝)\s*$/.test(t)) return '';
   if(/^\[family_card\s+[^\]]+\]$/i.test(t)) return '';
   t = t.replace(/<\/?msg>/ig, '');
   t = t.replace(/\[family_card\s+[^\]]+\]/ig, '');
+  t = t.replace(/\[\s*offline_invite\b[\s\S]*?\]/ig, '');
   t = t.replace(/【亲属卡】[\s\S]*?[；;]状态[：:](待处理|已同意|已拒绝)/g, '');
   t = t.replace(/<\s*meme\s*>[\s\S]*?<\s*\/\s*meme\s*>/ig, '');
   t = t.replace(/^\s*<\s*meme\s*>[\s\S]*$/ig, '');
@@ -12360,7 +12362,23 @@ function sanitizeAssistantTextForChat(raw){
   t = t.replace(/我(没法|不能|无法)(发|写).{0,8}(朋友圈|说说|动态)/g, '我记下来了');
   t = t.trim();
   if(isLeakedRichHtmlContextText(t)) return '';
+  if(isLeakedOfflineInviteProtocolText(t)) return '';
   return t;
+}
+
+function isLeakedOfflineInviteProtocolText(raw){
+  var t = String(raw || '').trim();
+  if(!t) return false;
+  if(/^\s*\[\s*offline_invite\b/i.test(t)) return true;
+  var normalized = t.replace(/\s+/g, ' ');
+  var attrHits = 0;
+  ['location','mood','weather','scheduledDate','scheduledTime','requestedDate','requestedTime'].forEach(function(key){
+    if(new RegExp('(?:^|\\s)' + key + '\\s*=', 'i').test(normalized)) attrHits++;
+  });
+  if(attrHits >= 2) return true;
+  if(attrHits >= 1 && /\boffline_invite\b|scheduledDa|scheduledTi|weather\s*=|mood\s*=/i.test(normalized)) return true;
+  if(/^(?:on|ather|duledDate|duledTime)\s*=\s*["“'][\s\S]*?(?:mood|weather|scheduledDa|scheduledTi)\b/i.test(normalized)) return true;
+  return false;
 }
 
 function isLeakedRichHtmlContextText(raw){
@@ -18250,7 +18268,7 @@ function buildChatExtendedFormatPrompt(){
     '你除了普通 text / voice_message / image_message / money_packet，还可以使用 offline_invite / narrator / rich_html / recall / rename_profile / change_avatar / change_user_avatar。',
     'narrator：用于动作、环境、声音、镜头感、心理余波，是旁白，不是说出口的话。格式：{"type":"narrator","content":"..."}',
     'narrator 里禁止写“用户”“USER”“user”“角色”“CHAR”“char”这种偷懒指代。涉及双方时，只能直接写名字、昵称，或者自然的第三人称代称。',
-    'offline_invite：用于主动约对方见面/出门/赴约。格式：{"type":"offline_invite","location":"地点","mood":"表情/气氛","weather":"天气符号或描述","scheduledDate":"YYYY-MM-DD，可选","scheduledTime":"HH:MM，可选"}。',
+    'offline_invite：用于主动约对方见面/出门/赴约。格式只能是 JSON：{"type":"offline_invite","location":"地点","mood":"表情/气氛","weather":"天气符号或描述","scheduledDate":"YYYY-MM-DD，可选","scheduledTime":"HH:MM，可选"}。历史里的 [offline_invite ...] 只是不可见记录，绝对不要照抄成台词。',
     'offline_invite 对你来说只是正常约对方见面。只要聊天开始脱离纯手机消息，朝现实接触、出门、碰面、赴约、到场、来你这/去她那、面对面相处这些方向走，就鼓励你直接发，让对方自己决定接受还是拒绝；像“门没锁，来不来我卧室”“下来见我”“出来一下”“我去找你”这种，也优先用 offline_invite。主动约人时默认不要自己乱设具体时间，除非对方刚刚就在和你对时间；大多数时候把它当成现在、当下、马上见就够了。语气要像真人，不要模板腔，不要像系统通知，也不要提卡片、按钮或“邀请”这种系统词。',
     'rich_html：用于真正可渲染的小卡片、小网页、小票据、情书、信件、截图、海报、小物件，也包括聊天记录、搜索记录、歌单、日记、涂鸦、菜谱、书单、电影单、游戏时长、游戏页面、书评、贺卡、认错书、检讨、小作文、歌词摘抄、文学摘抄、外卖订单、设计图纸、合同、学生证、身份证、护照、笔记、数学题、物理题、草稿纸、试卷、结婚证件、机票、作业、论文、邮件、邮箱主页、邮箱收件箱、邮件线程、邮件草稿、银行账户总览、银行账户余额、银行账户明细、影评、药品单、医院开的单子、知乎帖子、小说简介、伪小红书帖子、直播间、抖音样式页、社交媒体主页、社交媒体帖子、社交媒体评论、测评、repo、银行账单、银行流水、法院传票、学签、旅游签、工签、银行卡、PPT页、文档页、名片、便签、周易/八卦、中式算卦、抽签、月老签、简历、说明书、调查问卷、MBTI 测试、测试结果、quiz/test/exam、番外页、番外侧页、番外卡片这类页面或卡片。输出格式必须是机器可解析 JSON：{"type":"rich_html","summary":"一句概括","html":"完整HTML","css":"完整CSS","js":"可选JS，没有就空字符串","text":"提取出来的正文","translation":"卡片全部可见文字的完整简中译文，可选"}；如果是发一个真的网页链接，也可以用 {"type":"rich_html","summary":"一句概括","url":"https://...","title":"网页标题","text":"可提取正文","translation":"整张卡片所有可见文字的完整简中译文，可选"}',
     'recall：用于撤回你刚刚发出去的一条消息。格式：{"type":"recall","content":"可选补充"}',
@@ -29149,6 +29167,32 @@ async function deliverAiReply(text, limitOverride, options){
     }
     return splitParts.map(function(){ return ''; });
   };
+  var tryPromoteTextToOfflineInvite = function(raw){
+    var source = clean(raw);
+    if(!source || !/\boffline_invite\b/i.test(source)) return '';
+    var payload = null;
+    try{
+      payload = parseOfflineInvitePayload(source);
+    }catch(err){}
+    if(!payload && /\[\s*offline_invite\b/i.test(source)){
+      var tag = source.match(/\[\s*offline_invite\b[\s\S]*?\]/i);
+      try{ payload = parseOfflineInvitePayload(tag ? tag[0] : source); }catch(err2){}
+    }
+    if(!payload || typeof payload !== 'object') return '';
+    return JSON.stringify(buildOfflineInvitePayload('assistant', {
+      charId: payload.charId || '',
+      charName: payload.charName || '',
+      mood: payload.mood || '',
+      weather: payload.weather || '',
+      location: payload.location || '',
+      scheduledDate: payload.scheduledDate || payload.requestedDate || '',
+      scheduledTime: payload.scheduledTime || payload.requestedTime || '',
+      timeLabel: payload.timeLabel || '',
+      dateLabel: payload.dateLabel || '',
+      immediate: payload.immediate,
+      status: payload.status || 'pending'
+    }));
+  };
   var parsed = null;
   var rawParts = [];
   var isReplyMetadataOnly = function(item){
@@ -29270,6 +29314,13 @@ async function deliverAiReply(text, limitOverride, options){
       });
     }
     if(t === 'text'){
+      var promotedInvite = tryPromoteTextToOfflineInvite(c);
+      if(promotedInvite){
+        c = promotedInvite;
+        t = 'offlineinvite';
+      }
+    }
+    if(t === 'text'){
       var promotedMoney = tryPromoteTextToMoneyPacket(c);
       if(promotedMoney){
         c = promotedMoney;
@@ -29300,8 +29351,12 @@ async function deliverAiReply(text, limitOverride, options){
         mood: item.mood || '',
         weather: item.weather || '',
         location: item.location || '',
+        scheduledDate: item.scheduledDate || item.requestedDate || '',
+        scheduledTime: item.scheduledTime || item.requestedTime || '',
         timeLabel: item.timeLabel || '',
-        dateLabel: item.dateLabel || ''
+        dateLabel: item.dateLabel || '',
+        immediate: item.immediate,
+        status: item.status || 'pending'
       }));
     }
     if(t === 'voice' && !shouldAllowAssistantVoice(c)) t = 'text';
@@ -29628,6 +29683,13 @@ async function deliverAiReply(text, limitOverride, options){
             });
           }
           if(t === 'text'){
+            var promotedObjInvite = tryPromoteTextToOfflineInvite(c);
+            if(promotedObjInvite){
+              c = promotedObjInvite;
+              t = 'offlineinvite';
+            }
+          }
+          if(t === 'text'){
             var promotedObjMoney = tryPromoteTextToMoneyPacket(c);
             if(promotedObjMoney){
               c = promotedObjMoney;
@@ -29669,8 +29731,12 @@ async function deliverAiReply(text, limitOverride, options){
               mood: obj.mood || '',
               weather: obj.weather || '',
               location: obj.location || '',
+              scheduledDate: obj.scheduledDate || obj.requestedDate || '',
+              scheduledTime: obj.scheduledTime || obj.requestedTime || '',
               timeLabel: obj.timeLabel || '',
-              dateLabel: obj.dateLabel || ''
+              dateLabel: obj.dateLabel || '',
+              immediate: obj.immediate,
+              status: obj.status || 'pending'
             }));
           }
           if(t === 'voice' && !shouldAllowAssistantVoice(c)) t = 'text';
@@ -29745,6 +29811,13 @@ async function deliverAiReply(text, limitOverride, options){
         }),
         t: 'richhtml'
       }];
+    }
+  }
+
+  if(!rawParts.length && text){
+    var directInvite = tryPromoteTextToOfflineInvite(text);
+    if(directInvite){
+      rawParts = [{ text: directInvite, t: 'offlineinvite', replyTo: '', replyRole: '', translationText: '' }];
     }
   }
 

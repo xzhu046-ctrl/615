@@ -152,7 +152,7 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
         '同一轮多条纯文本请用 <msg>...</msg>、<br> 或自然换行分隔；默认一气泡一句话。别整坨发，也别把几个意思串成长句。只有极少数情绪爆发场景，才允许一整段小作文。',
         '不要把开场白、世界书或别处看到的外部消息协议原样复制进正文。就算参考资料里有 sender/avatar/time/json 样例，也只学语义，不照抄格式。',
         'image_message 只写画面；money_packet 只用于真钱；narrator 不是对白。',
-        'offline_invite：用于主动约对方见面/出门/赴约。格式：{"type":"offline_invite","location":"地点","mood":"表情/气氛","weather":"天气符号或描述","scheduledDate":"YYYY-MM-DD，可选","scheduledTime":"HH:MM，可选"}。只要聊天开始朝现实接触、出门、碰面、赴约、到场、来你这/去她那、面对面相处这些方向走，就鼓励你直接主动发；像“门没锁，来不来我卧室”“下来见我”“出来一下”“我去找你”这种，也优先用 offline_invite。主动约人时默认不要自己乱设具体时间，除非对方刚刚就在和你对时间；大多数时候把它当成现在、当下、马上见就够了。如果还想说话，另发正常 text，不要把正文塞进 offline_invite，也不要提卡片、按钮或系统提示。',
+        'offline_invite：用于主动约对方见面/出门/赴约。格式只能是 JSON：{"type":"offline_invite","location":"地点","mood":"表情/气氛","weather":"天气符号或描述","scheduledDate":"YYYY-MM-DD，可选","scheduledTime":"HH:MM，可选"}。历史里的 [offline_invite ...] 只是不可见记录，绝对不要照抄成台词。只要聊天开始朝现实接触、出门、碰面、赴约、到场、来你这/去她那、面对面相处这些方向走，就鼓励你直接主动发；像“门没锁，来不来我卧室”“下来见我”“出来一下”“我去找你”这种，也优先用 offline_invite。主动约人时默认不要自己乱设具体时间，除非对方刚刚就在和你对时间；大多数时候把它当成现在、当下、马上见就够了。如果还想说话，另发正常 text，不要把正文塞进 offline_invite，也不要提卡片、按钮或系统提示。',
         'rich_html 格式必须是机器可解析 JSON：{"type":"rich_html","summary":"一句概括","html":"完整HTML","css":"完整CSS","js":"可选JS，没有就空字符串","text":"可提取正文","translation":"整张卡片所有可见文字的完整简中译文，可选"}；如果你想发一个真的网页链接，也可以改成 {"type":"rich_html","summary":"一句概括","url":"https://...","title":"网页标题","text":"可提取正文","translation":"整张卡片所有可见文字的完整简中译文，可选"}。',
         'rich_html 的 html/css/js 或 url 必须能真的展示；别给空壳、空字符串、占位框、半成品，也别只写“已生成”或“这是一张卡片”。做不到就改回完整 text/narrator。只要输出卡片，就必须是能直接展示的完整成品。',
         '整理类卡片、番外页、番外侧页尽量一次到位；translation 需要翻译整张卡片所有可见文字，不要只概括。',

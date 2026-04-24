@@ -91,6 +91,23 @@ function formatOfflineInviteDraftTimeLabel(value){
   return raw;
 }
 
+function parseOfflineInviteTagPayload(raw){
+  var text = String(raw || '').trim();
+  if(!text) return null;
+  var match = text.match(/\[\s*offline_invite\b([\s\S]*?)\]/i) || text.match(/\boffline_invite\b([\s\S]*)/i);
+  if(!match) return null;
+  var body = String(match[1] || '').trim();
+  if(!body) return { type:'offline_invite' };
+  var out = { type:'offline_invite' };
+  body.replace(/([a-zA-Z][a-zA-Z0-9_]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|“([^”]*)”|‘([^’]*)’|([^\s\]]+))/g, function(_, key, v1, v2, v3, v4, v5){
+    var safeKey = String(key || '').trim();
+    if(!safeKey) return '';
+    out[safeKey] = String(v1 != null ? v1 : (v2 != null ? v2 : (v3 != null ? v3 : (v4 != null ? v4 : (v5 || ''))))).trim();
+    return '';
+  });
+  return out;
+}
+
 function parseOfflineInvitePayload(raw){
   if(!raw) return null;
   if(typeof raw === 'object'){
@@ -105,6 +122,11 @@ function parseOfflineInvitePayload(raw){
       return parsed;
     }
   }catch(e){}
+  var tagged = parseOfflineInviteTagPayload(raw);
+  if(tagged){
+    delete tagged.content;
+    return tagged;
+  }
   return null;
 }
 
