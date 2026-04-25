@@ -1553,6 +1553,9 @@ async function requestCharOfflineInviteDecision(userPayload){
   var systemPrompt = [
     '你是角色本人，只负责判断是否接受用户刚刚发来的见面请求。',
     '必须认真读取角色当前人设、世界书设定、最近聊天气氛、用户此刻的伤心或情绪状态，以及这次见面的地点和时间。',
+    '决定必须贴住最近聊天的因果：上一秒如果正在急着见面、撒娇、吵架后求和、担心对方、已经说要过去，就不要突然冷冰冰改成很久以后的安排。',
+    '上一秒如果关系紧张、角色明显不方便、跨城/时间/天气不合理，才可以拒绝或缓一缓；不要为了有动作而硬答应。',
+    '把“地点”当成用户真实想见面的方式来理解：卧室、楼下、公园、公司、学校、车站等都要结合关系和当下语境判断，不能只当表格字段。',
     '一定要把地点和时间真正读进去，再决定接受还是拒绝，不能忽略地点，也不能把系统展示用的信息当成聊天正文。',
     '对你来说这就是一次正常的见面、出门、赴约沟通。不要提卡片、按钮、接受拒绝按钮或系统提示。',
     '不要生成聊天正文，不要生成 followups，不要写台词；真正聊天回复会走普通聊天链。',
@@ -1602,6 +1605,7 @@ function buildOfflineInviteNormalReplyCue(accepted, userPayload, acceptedPayload
       ? '系统事件：用户刚刚约你线下见面，你已经决定答应。小卡片状态已经单独展示好了。'
       : '系统事件：用户刚刚约你线下见面，你已经决定这次先不去/不方便答应。卡片状态已经单独处理好了。',
     '现在请像普通聊天一样回复用户刚才这个邀约，语气、人设、短句节奏、分条方式都完全沿用平时聊天。',
+    '先接住上一轮聊天里的真实情绪和关系推进，再顺着说见面这件事；不要像突然插进来的审批回复。',
     '不要写成系统通知，不要解释“我接受/拒绝了邀请卡片”，不要提卡片、按钮、系统、offline_invite，也不要再发 offline_invite。',
     '不要为了总结而机械复述时间地点；只在自然需要时顺口提。',
     timingBits.join('；'),
@@ -2005,6 +2009,10 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
       + '<div class="offline-invite-plain-row is-plain">' + timeText + '</div>'
       + '<div class="offline-invite-plain-row is-plain">' + locationText + '</div>'
       + '</div>'
+      + '<div class="offline-invite-plain-actions">'
+      + '<button class="offline-invite-plain-btn" type="button" data-offline-action="reject">Pass</button>'
+      + '<button class="offline-invite-plain-btn primary" type="button" data-offline-action="accept">Go</button>'
+      + '</div>'
       + '<div class="offline-invite-plain-avatar is-right"><span class="offline-invite-plain-avatar-fallback">' + esc(getOfflineInviteAvatarFallback('assistant')) + '</span><div class="offline-invite-plain-avatar-label">' + esc(getOfflineInviteDisplayName('assistant')) + '</div></div>'
       + '</div>';
     var assistantAvatar = bubble.querySelector('.offline-invite-plain-avatar');
@@ -2016,6 +2024,12 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
           assistantAvatar.innerHTML = '<img src="' + escAttr(safe) + '" alt=""><div class="offline-invite-plain-avatar-label">' + esc(getOfflineInviteDisplayName('assistant')) + '</div>';
         }).catch(function(){});
     }
+    bubble.addEventListener('click', function(evt){
+      var actionBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-action]') : null;
+      if(!actionBtn || !msgId) return;
+      evt.stopPropagation();
+      runOfflineInviteAction(actionBtn.getAttribute('data-offline-action'), msgId);
+    });
     return;
   }
   bubble.innerHTML = '<div class="offline-invite-plain">'
