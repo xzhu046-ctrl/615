@@ -1566,6 +1566,34 @@ function openAcceptedOfflineInvitePayload(rawPayload, msgId){
     });
 }
 
+function launchAcceptedOfflineInviteFromCard(rawPayload, msgId){
+  var source = rawPayload && typeof rawPayload === 'object' ? Object.assign({}, rawPayload) : {};
+  var safeMsgId = String(msgId || '').trim();
+  if(safeMsgId){
+    try{
+      var entry = getMessageById(safeMsgId);
+      var savedPayload = parseOfflineInvitePayload(entry && entry.content) || null;
+      if(entry && savedPayload){
+        source = Object.assign({}, savedPayload, source, {
+          status: 'accepted',
+          sourceRole: 'assistant',
+          inviteMessageId: String(savedPayload.inviteMessageId || entry.id || safeMsgId).trim(),
+          replyMessageId: String(savedPayload.replyMessageId || entry.id || safeMsgId).trim()
+        });
+        entry.content = JSON.stringify(source);
+        if(typeof saveChat === 'function'){
+          Promise.resolve(saveChat(true)).catch(function(err){
+            console.error('save accepted offline invite before launch failed:', err);
+          });
+        }
+      }
+    }catch(err){
+      console.warn('accepted offline invite card launch save skipped:', err);
+    }
+  }
+  openAcceptedOfflineInvitePayload(source, safeMsgId);
+}
+
 async function requestCharOfflineInviteDecision(userPayload){
   var safePayload = sanitizeOfflineInvitePayloadForModel(userPayload);
   var inviteLocation = String(safePayload.location || '').trim();
@@ -2047,8 +2075,9 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
       var actionBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-action]') : null;
       if(!actionBtn) return;
       evt.stopPropagation();
+      evt.preventDefault();
       if(actionBtn.getAttribute('data-offline-action') === 'accept'){
-        openAcceptedOfflineInvitePayload(data, msgId);
+        launchAcceptedOfflineInviteFromCard(data, msgId);
         return;
       }
       if(msgId) runOfflineInviteAction(actionBtn.getAttribute('data-offline-action'), msgId);
