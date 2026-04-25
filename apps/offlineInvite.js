@@ -370,41 +370,25 @@ function getOfflineInviteLocalClockNow(){
 }
 
 function deriveOfflineInviteAcceptedSchedule(userPayload, decision){
-  var chosenDate = '';
-  var chosenTime = '';
-  var safeDecision = decision && typeof decision === 'object' ? decision : {};
-  var decisionDate = String(safeDecision.scheduledDate || safeDecision.date || '').trim();
-  var decisionTime = String(safeDecision.scheduledTime || safeDecision.time || safeDecision.availableTime || '').trim();
-  if(isOfflineInviteValidDateKey(decisionDate)) chosenDate = decisionDate;
-  if(isOfflineInviteValidTimeValue(decisionTime)) chosenTime = decisionTime;
-  if(!chosenDate && isOfflineInviteValidDateKey(userPayload && userPayload.scheduledDate)) chosenDate = String(userPayload.scheduledDate).trim();
-  if(!chosenTime && isOfflineInviteValidTimeValue(userPayload && userPayload.scheduledTime)) chosenTime = String(userPayload.scheduledTime).trim();
-  var localNow = getOfflineInviteLocalClockNow();
-  var todayKey = String(localNow.dateKey || buildOfflineInviteDefaultSchedule().date || '').trim();
-  var nowMinutes = offlineInviteTimeToMinutes(localNow.nowTime);
-  if(nowMinutes < 0) nowMinutes = offlineInviteTimeToMinutes(buildOfflineInviteDefaultSchedule().time);
-  if(!chosenDate) chosenDate = todayKey;
-  if(!chosenTime) chosenTime = buildOfflineInviteDefaultSchedule().time;
-  var minutes = offlineInviteTimeToMinutes(chosenTime);
-  if(minutes < 0) minutes = offlineInviteTimeToMinutes(buildOfflineInviteDefaultSchedule().time);
-  var earliest = roundOfflineInviteMinutesToQuarter(nowMinutes + 60);
-  if(compareOfflineInviteDateKeys(chosenDate, todayKey) < 0){
-    chosenDate = todayKey;
-    minutes = Math.max(earliest, 10 * 60);
-  }else if(compareOfflineInviteDateKeys(chosenDate, todayKey) === 0 && minutes < earliest){
-    minutes = earliest;
+  var src = userPayload && typeof userPayload === 'object' ? userPayload : {};
+  var requestedDate = String(src.requestedDate || src.scheduledDate || '').trim();
+  var requestedTime = String(src.requestedTime || src.scheduledTime || '').trim();
+  var isImmediate = !!src.immediate || (!requestedDate && !requestedTime && String(src.timeLabel || '').trim() === '现在');
+  if(isImmediate){
+    return {
+      scheduledDate: '',
+      scheduledTime: '',
+      dateLabel: '',
+      timeLabel: '现在'
+    };
   }
-  if(minutes < 9 * 60 + 30) minutes = 10 * 60;
-  if(minutes > 22 * 60 + 30){
-    chosenDate = shiftOfflineInviteDateKeyByDays(chosenDate, 1);
-    minutes = 10 * 60 + 30;
-  }
-  var finalTime = offlineInviteMinutesToTime(minutes);
+  var finalDate = isOfflineInviteValidDateKey(requestedDate) ? requestedDate : '';
+  var finalTime = isOfflineInviteValidTimeValue(requestedTime) ? requestedTime : '';
   return {
-    scheduledDate: chosenDate,
+    scheduledDate: finalDate,
     scheduledTime: finalTime,
-    dateLabel: formatOfflineInviteDraftDateLabel(chosenDate),
-    timeLabel: formatOfflineInviteDraftTimeLabel(finalTime)
+    dateLabel: String(src.requestedDateLabel || src.dateLabel || '').trim() || (finalDate ? formatOfflineInviteDraftDateLabel(finalDate) : ''),
+    timeLabel: String(src.requestedTimeLabel || src.timeLabel || '').trim() || (finalTime ? formatOfflineInviteDraftTimeLabel(finalTime) : '待定')
   };
 }
 
@@ -1566,23 +1550,16 @@ async function acceptOfflineInvite(messageId){
 async function requestCharOfflineInviteDecision(userPayload){
   var safePayload = sanitizeOfflineInvitePayloadForModel(userPayload);
   var inviteLocation = String(safePayload.location || '').trim();
-  var msgMin = Math.max(1, Number(character && character.msgMin) || 1);
-  var msgMax = Math.max(msgMin, Number(character && character.msgMax) || 3);
   var systemPrompt = [
-    '你是角色本人，要决定是否接受用户刚刚发来的见面请求。',
+    '你是角色本人，只负责判断是否接受用户刚刚发来的见面请求。',
     '必须认真读取角色当前人设、世界书设定、最近聊天气氛、用户此刻的伤心或情绪状态，以及这次见面的地点和时间。',
     '一定要把地点和时间真正读进去，再决定接受还是拒绝，不能忽略地点，也不能把系统展示用的信息当成聊天正文。',
     '对你来说这就是一次正常的见面、出门、赴约沟通。不要提卡片、按钮、接受拒绝按钮或系统提示。',
-    '如果 accept 为 true，不要再单独写一条邀约语。正常聊天内容都放进 followups。',
-    '只返回 JSON：{"accept":true|false,"text":"...","followups":["..."],"mood":"...","weather":"...","location":"...","scheduledDate":"YYYY-MM-DD","scheduledTime":"HH:MM"}',
-    '如果 accept 为 true，scheduledDate / scheduledTime / location 只是你这次见面安排的时间地点，不要把它们写进解释腔里。',
-    '如果 accept 为 true，followups 里继续补 1 到 2 条正常聊天消息，像答应见面之后顺手又说了几句。每个数组元素就是单独一条消息，不要把几句塞进同一个字符串里。',
-    '如果 accept 为 true，请顺手给出你真的能赴约的时间 scheduledDate / scheduledTime。这个时间必须现实、合理，不能比现在更早，也不要写凌晨四点这种不合常理的时间。',
-    '如果 accept 为 false，text 要写成普通聊天里的自然解释，不要模板腔，不要写成通知文案。尽量短一点，别写成长句。',
-    '如果 accept 为 false，请像真人聊天一样回复：可以先来一句当下反应，再补一句解释或安抚，语气要有停顿感和生活感。',
-    '如果 accept 为 false，followups 里再补 0 到 2 条自然的后续消息，可以是解释、安抚、改约的意思，但要像聊天，不要像通知。每个数组元素就是单独一条消息。',
-    'followups 里的总条数请严格参考当前聊天设置：最少 ' + msgMin + ' 条，最多 ' + msgMax + ' 条；每一条都应该是独立消息。',
-    '不要为了分条而硬切，只有真的像聊天那样自然停顿时才分开。',
+    '不要生成聊天正文，不要生成 followups，不要写台词；真正聊天回复会走普通聊天链。',
+    '用户如果选了“现在”，就把这次理解成现在/马上/当下，不要改成早上十点、明天或几小时后。',
+    '用户如果已经给了 scheduledDate / scheduledTime，你不能另约随机时间，只按用户给出的时间理解。',
+    '只返回 JSON：{"accept":true|false,"mood":"...","weather":"...","scheduleNote":"..."}',
+    'scheduleNote 是角色自己写进日程里的 1 到 2 句小备注。accept=false 时可以留空。',
     '不要 markdown，不要额外解释。'
   ].join('\n');
   var userPrompt = [
@@ -1600,6 +1577,37 @@ async function requestCharOfflineInviteDecision(userPayload){
   }catch(e){
     throw new Error('邀约回复解析失败');
   }
+}
+
+function buildOfflineInviteNormalReplyCue(accepted, userPayload, acceptedPayload){
+  var userInfo = sanitizeOfflineInvitePayloadForModel(userPayload || {});
+  var acceptedInfo = sanitizeOfflineInvitePayloadForModel(acceptedPayload || {});
+  var timingBits = [];
+  var locationText = String((acceptedPayload && acceptedPayload.location) || (userPayload && userPayload.location) || '').trim();
+  var immediate = !!(userPayload && userPayload.immediate) || String((acceptedPayload && acceptedPayload.timeLabel) || (userPayload && userPayload.timeLabel) || '').trim() === '现在';
+  if(immediate) timingBits.push('用户约的是现在/马上/当下');
+  var dateText = String((acceptedPayload && acceptedPayload.scheduledDate) || (userPayload && userPayload.scheduledDate) || '').trim();
+  var timeText = String((acceptedPayload && acceptedPayload.scheduledTime) || (userPayload && userPayload.scheduledTime) || '').trim();
+  if(dateText || timeText) timingBits.push('用户定的时间：' + [dateText, timeText].filter(Boolean).join(' '));
+  if(locationText) timingBits.push('地点：' + locationText);
+  if(accepted){
+    if(dateText || timeText){
+      timingBits.push('不要把时间改成别的，也不要突然说自己已经到门口，除非上下文真的已经到点');
+    }else if(immediate){
+      timingBits.push('不要另约早上十点/明天/几小时后，顺着“现在见面”的语境说');
+    }
+  }
+  return [
+    accepted
+      ? '系统事件：用户刚刚约你线下见面，你已经决定答应。小卡片状态已经单独展示好了。'
+      : '系统事件：用户刚刚约你线下见面，你已经决定这次先不去/不方便答应。卡片状态已经单独处理好了。',
+    '现在请像普通聊天一样回复用户刚才这个邀约，语气、人设、短句节奏、分条方式都完全沿用平时聊天。',
+    '不要写成系统通知，不要解释“我接受/拒绝了邀请卡片”，不要提卡片、按钮、系统、offline_invite，也不要再发 offline_invite。',
+    '不要为了总结而机械复述时间地点；只在自然需要时顺口提。',
+    timingBits.join('；'),
+    '用户邀约原始信息：' + JSON.stringify(userInfo),
+    accepted ? ('已定下来的卡片信息：' + JSON.stringify(acceptedInfo)) : ''
+  ].filter(Boolean).join('\n');
 }
 
 function getPendingUserOfflineInviteEntry(){
@@ -1747,20 +1755,21 @@ async function rerollPendingOfflineInviteReply(){
   pendingMomentsChatCue = '';
   pendingFamilyFollowupCue = '';
   pendingModelUserCue = '';
-  await handlePendingOfflineInviteReply();
+  var handled = await handlePendingOfflineInviteReply();
+  if(!handled){
+    await requestAndDeliverAiReply(provider, key);
+  }
   return true;
 }
 
 async function handlePendingOfflineInviteReply(){
   var pending = getPendingUserOfflineInviteEntry();
   if(!pending) return false;
-  isTyping = true;
   var genBtn = document.getElementById('genBtn');
   var sendBtn = document.getElementById('sendBtn');
   if(genBtn) genBtn.disabled = true;
   if(sendBtn) sendBtn.disabled = true;
   clearPendingOfflineInviteReplyTimer();
-  showTyping();
   try{
     var decision = await requestCharOfflineInviteDecision(pending.payload);
     if(decision && decision.accept){
@@ -1771,32 +1780,18 @@ async function handlePendingOfflineInviteReply(){
         charName: String((character && (character.nickname || character.name)) || '').trim(),
         mood: decision.mood || randomPick(OFFLINE_MOODS, '(///v///)'),
         weather: charWeather.icon,
-        location: decision.location || pending.payload.location,
+        location: pending.payload.location,
         status: 'accepted',
         scheduledDate: schedule.scheduledDate,
         scheduledTime: schedule.scheduledTime,
         dateLabel: schedule.dateLabel,
         timeLabel: schedule.timeLabel,
+        immediate: !!pending.payload.immediate && !schedule.scheduledDate && !schedule.scheduledTime,
+        scheduleNote: String(decision.scheduleNote || '').trim(),
         recordId: ensureOfflineInviteRecordId(pending.payload)
       });
-      var acceptedFollowupsRaw = [];
-      try{
-        acceptedFollowupsRaw = await requestCharOfflineInviteAcceptedFollowups(pending.payload, replyPayload);
-      }catch(err){
-        acceptedFollowupsRaw = decision && decision.followups;
-      }
-      try{
-        replyPayload.scheduleNote = await requestCharOfflineInviteScheduleNote(pending.payload, replyPayload);
-      }catch(err){
-        replyPayload.scheduleNote = '';
-      }
-      var acceptedFollowups = sanitizeOfflineInviteFollowupItems(acceptedFollowupsRaw, '', {
-        limit: Math.max(1, Number(character && character.msgMax) || 3)
-      });
-      var acceptedPreviewText = acceptedFollowups.length ? String(acceptedFollowups[0].content || '').trim() : 'ACCEPTED';
       pending.payload.status = 'accepted';
       pending.entry.content = JSON.stringify(pending.payload);
-      hideTyping();
       var replyEntry = await appendOfflineInviteToChat('assistant', replyPayload, true, {
         noticeText: appendOfflineInviteAcceptedNoticeText(replyPayload)
       });
@@ -1825,7 +1820,7 @@ async function handlePendingOfflineInviteReply(){
         sourceRole: 'assistant',
         status: 'accepted',
         meetState: 'scheduled',
-        previewText: acceptedPreviewText,
+        previewText: 'ACCEPTED',
         reminderState: 'pending',
         arrivalState: 'pending',
         arrivedAt: 0,
@@ -1833,49 +1828,38 @@ async function handlePendingOfflineInviteReply(){
         remindedAt: 0,
         openedAt: 0
       });
-      if(acceptedFollowups.length){
-        await deliverAiReply(acceptedFollowups, Math.max(1, Number(character && character.msgMax) || 3));
-      }
-      notifyShellAboutOfflineInvite(String(acceptedPreviewText || '我答应见面了').trim() || '我答应见面了');
       await saveChat(true);
       rerenderChat();
-      return true;
+      pendingModelUserCue = [pendingModelUserCue, buildOfflineInviteNormalReplyCue(true, pending.payload, replyPayload)].filter(Boolean).join('\n');
+      notifyShellAboutOfflineInvite('我答应见面了');
+      return false;
     }
     pending.payload.status = 'rejected';
     pending.entry.content = JSON.stringify(pending.payload);
-    hideTyping();
     var rejectNotice = makeSystemNoticeEntry(appendOfflineInviteRejectNoticeText());
     chatLog.push(rejectNotice);
     addSystemNotice(rejectNotice.content, true, rejectNotice.id);
-    var rejectedFollowups = sanitizeOfflineInviteFollowupItems(decision && decision.followups, String((decision && decision.text) || '').trim(), {
-      limit: Math.max(1, Number(character && character.msgMax) || 3)
-    });
     await syncOfflineInviteRecord(pending.payload, {
       id: ensureOfflineInviteRecordId(pending.payload),
       inviteMessageId: String(pending.entry && pending.entry.id || '').trim(),
       status: 'rejected',
       meetState: '',
       sourceRole: 'user',
-      previewText: rejectedFollowups.length ? String(rejectedFollowups[0].content || '').trim() : normalizeOfflineInviteDecisionText((decision && decision.text) || '', ''),
+      previewText: 'REJECTED',
       remindedAt: 0,
       reminderState: 'pending',
       arrivalState: 'pending',
       arrivedAt: 0
     });
-    if(rejectedFollowups.length){
-      await deliverAiReply(rejectedFollowups, Math.max(1, character && character.msgMax ? character.msgMax : 3));
-    }
     await saveChat(true);
     rerenderChat();
-    return true;
+    pendingModelUserCue = [pendingModelUserCue, buildOfflineInviteNormalReplyCue(false, pending.payload, null)].filter(Boolean).join('\n');
+    return false;
   }catch(err){
-    hideTyping();
     showError('邀约回复失败: ' + humanizeAiError(err));
     console.error('offline invite reply error:', err);
     return true;
   } finally {
-    hideTyping();
-    isTyping = false;
     if(genBtn) genBtn.disabled = false;
     if(sendBtn) sendBtn.disabled = false;
   }
