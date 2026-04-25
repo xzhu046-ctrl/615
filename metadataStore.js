@@ -44,8 +44,14 @@
     return data && typeof data === 'object' ? data : {};
   }
 
+  function mirrorLegacyKey(key, value){
+    try{ global.localStorage.setItem(key, JSON.stringify(value)); }catch(err){}
+  }
+
   function removeLegacyKey(key){
-    try{ global.localStorage.removeItem(key); }catch(err){}
+    // Keep legacy mirrors. Several older pages still read these keys
+    // synchronously before IndexedDB hydration finishes.
+    void key;
   }
 
   function notify(topic){
@@ -72,6 +78,7 @@
         var next = Array.isArray(stored) ? stored : readLegacyCharacters();
         cache.characters = Array.isArray(next) ? next : [];
         loaded.characters = true;
+        if(cache.characters.length) mirrorLegacyKey('characters', cache.characters);
         if(!Array.isArray(stored) && cache.characters.length && global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
           global.PhoneStorage.putJson(CHARACTERS_KEY, cache.characters).then(function(){
             removeLegacyKey('characters');
@@ -103,6 +110,7 @@
         var next = (stored && typeof stored === 'object') ? stored : readLegacyWorldbooks();
         cache.worldbooks = next && typeof next === 'object' ? next : {};
         loaded.worldbooks = true;
+        if(Object.keys(cache.worldbooks).length) mirrorLegacyKey('worldbooks', cache.worldbooks);
         if((!stored || typeof stored !== 'object') && Object.keys(cache.worldbooks).length && global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
           global.PhoneStorage.putJson(WORLDBOOKS_KEY, cache.worldbooks).then(function(){
             removeLegacyKey('worldbooks');
@@ -122,8 +130,10 @@
   function saveCharacters(list){
     cache.characters = Array.isArray(list) ? cloneJson(list) : [];
     loaded.characters = true;
+    mirrorLegacyKey('characters', cache.characters);
     if(global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
       return global.PhoneStorage.putJson(CHARACTERS_KEY, cache.characters).then(function(data){
+        mirrorLegacyKey('characters', cache.characters);
         removeLegacyKey('characters');
         notify('characters');
         return cloneJson(data || cache.characters);
@@ -137,8 +147,10 @@
   function saveWorldbooks(data){
     cache.worldbooks = (data && typeof data === 'object') ? cloneJson(data) : {};
     loaded.worldbooks = true;
+    mirrorLegacyKey('worldbooks', cache.worldbooks);
     if(global.PhoneStorage && typeof global.PhoneStorage.putJson === 'function'){
       return global.PhoneStorage.putJson(WORLDBOOKS_KEY, cache.worldbooks).then(function(next){
+        mirrorLegacyKey('worldbooks', cache.worldbooks);
         removeLegacyKey('worldbooks');
         notify('worldbooks');
         return cloneJson(next || cache.worldbooks);

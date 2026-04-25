@@ -50,7 +50,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-24T04:51:17Z';
+const APP_BUILD_ID = '2026-04-25T01:31:26Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -7773,7 +7773,12 @@ async function clearPersistedPhoneData(){
   }catch(e){}
 }
 
-async function formatEphone(){
+async function formatEphone(options){
+  if(!options || options.trusted !== true){
+    console.warn('Blocked untrusted formatEphone request');
+    showHomeToast('已拦截一次异常格式化请求');
+    return false;
+  }
   await clearPersistedPhoneData();
   // Reset UI
   closeApp();
@@ -7807,6 +7812,16 @@ async function formatEphone(){
   renderBondWidget(null);
   applyLiveDanmakuVisibility(true);
   setHomePage(0, true);
+  return true;
+}
+
+function isMessageFromCurrentAppFrame(event){
+  try{
+    var frame = document.getElementById('app-iframe');
+    return !!(frame && frame.contentWindow && event && event.source === frame.contentWindow);
+  }catch(err){
+    return false;
+  }
 }
 
 window.addEventListener('message',(e)=>{
@@ -7964,7 +7979,14 @@ window.addEventListener('message',(e)=>{
   if(type==='SHOW_HOME_TOAST'){ showHomeToast(payload); }
   if(type==='SET_WALLPAPER'){ setWallpaper(payload); }
   if(type==='CLOSE_APP'){ closeApp(); }
-  if(type==='FORMAT_EPHONE'){ formatEphone(); }
+  if(type==='FORMAT_EPHONE'){
+    if(currentApp === 'settings' && isMessageFromCurrentAppFrame(e) && payload && payload.confirmed === true){
+      formatEphone({ trusted:true });
+    }else{
+      console.warn('Blocked FORMAT_EPHONE message', { currentApp: currentApp, fromCurrentFrame: isMessageFromCurrentAppFrame(e) });
+      showHomeToast('已拦截一次异常格式化请求');
+    }
+  }
   if(type==='SETTINGS_SAVED'){
     if(payload && payload.shellNotifySettings){
       shellNotificationSettingsCache = normalizeShellNotificationSettings(payload.shellNotifySettings);

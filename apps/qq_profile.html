@@ -596,21 +596,17 @@ async function loadCoupleChatHistory(charId){
   }
   return best && Array.isArray(best.history) ? best.history : [];
 }
-async function latestCoupleCharId(chars){
-  const list=Array.isArray(chars) ? chars : [];
-  let bestId='';
-  let bestStamp={ lastTs:-1, count:-1 };
-  for(const charObj of list){
-    const id=String((charObj && charObj.id) || '').trim();
-    if(!id) continue;
-    const history=await loadCoupleChatHistory(id);
-    const stamp=coupleHistoryStamp(history);
-    if(stamp.lastTs > bestStamp.lastTs || (stamp.lastTs === bestStamp.lastTs && stamp.count > bestStamp.count)){
-      bestStamp=stamp;
-      bestId=id;
-    }
+function latestCoupleCharId(){
+  const keys=[];
+  try{ keys.push(window.AccountManager.scopedKey('activeChatCharacterId')); }catch(err){}
+  keys.push('activeChatCharacterId');
+  for(const key of keys){
+    try{
+      const val=String(localStorage.getItem(key) || '').trim();
+      if(val) return val;
+    }catch(err){}
   }
-  return bestId;
+  return currentActiveCharId();
 }
 function coupleEntryRole(entry){
   return String((entry && (entry.role || entry.sender || entry.from || entry.author)) || '').toLowerCase();
@@ -717,7 +713,7 @@ async function getCoupleSelectedCharAsync(){
   const chars=await hydrateWalletCharactersCache();
   if(!chars.length) return null;
   if(!coupleSelectedCharId){
-    const latestId=await latestCoupleCharId(chars);
+    const latestId=latestCoupleCharId();
     const activeId=currentActiveCharId();
     coupleSelectedCharId=String(latestId || activeId || '').trim();
   }
