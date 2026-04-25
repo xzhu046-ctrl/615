@@ -1056,7 +1056,7 @@ async function openOfflineSession(payload){
   postToShell({
     type:'OPEN_APP_WITH',
     payload:{
-      app:'offline',
+      app:'offline_mode',
       charId: targetCharId,
       launchMode:'invite',
       launchToken: launchToken,
