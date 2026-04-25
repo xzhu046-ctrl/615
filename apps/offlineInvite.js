@@ -1547,6 +1547,25 @@ async function acceptOfflineInvite(messageId){
   await openOfflineSession(payload);
 }
 
+function openAcceptedOfflineInvitePayload(rawPayload, msgId){
+  var source = rawPayload && typeof rawPayload === 'object' ? Object.assign({}, rawPayload) : {};
+  source.status = 'accepted';
+  source.sourceRole = 'assistant';
+  source.inviteMessageId = String(source.inviteMessageId || msgId || '').trim();
+  source.replyMessageId = String(source.replyMessageId || msgId || '').trim();
+  if(!String(source.previewText || '').trim()){
+    source.previewText = String(source.location || '赴约已定下').trim();
+  }
+  Promise.resolve()
+    .then(function(){ return openOfflineSession(source); })
+    .catch(function(err){
+      console.error('open accepted offline invite failed:', err);
+      if(typeof toast === 'function'){
+        toast('线下邀约启动失败：' + String(err && (err.message || err) || '未知错误'));
+      }
+    });
+}
+
 async function requestCharOfflineInviteDecision(userPayload){
   var safePayload = sanitizeOfflineInvitePayloadForModel(userPayload);
   var inviteLocation = String(safePayload.location || '').trim();
@@ -2026,9 +2045,13 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     }
     bubble.addEventListener('click', function(evt){
       var actionBtn = evt.target && evt.target.closest ? evt.target.closest('[data-offline-action]') : null;
-      if(!actionBtn || !msgId) return;
+      if(!actionBtn) return;
       evt.stopPropagation();
-      runOfflineInviteAction(actionBtn.getAttribute('data-offline-action'), msgId);
+      if(actionBtn.getAttribute('data-offline-action') === 'accept'){
+        openAcceptedOfflineInvitePayload(data, msgId);
+        return;
+      }
+      if(msgId) runOfflineInviteAction(actionBtn.getAttribute('data-offline-action'), msgId);
     });
     return;
   }
