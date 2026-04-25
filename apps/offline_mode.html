@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-25T06:29:25Z"></script>
-<script src="../chatStorage.js?v=2026-04-25T06:29:25Z"></script>
-<script src="../metadataStore.js?v=2026-04-25T06:29:25Z"></script>
-<script src="../promptManager.js?v=2026-04-25T06:29:25Z"></script>
-<script src="../accountManager.js?v=2026-04-25T06:29:25Z"></script>
-<script src="../scheduleShared.js?v=2026-04-25T06:29:25Z"></script>
-<script src="../presenceShared.js?v=2026-04-25T06:29:25Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-25T06:29:25Z"></script>
+<script src="../assetStore.js?v=2026-04-25T06:37:08Z"></script>
+<script src="../chatStorage.js?v=2026-04-25T06:37:08Z"></script>
+<script src="../metadataStore.js?v=2026-04-25T06:37:08Z"></script>
+<script src="../promptManager.js?v=2026-04-25T06:37:08Z"></script>
+<script src="../accountManager.js?v=2026-04-25T06:37:08Z"></script>
+<script src="../scheduleShared.js?v=2026-04-25T06:37:08Z"></script>
+<script src="../presenceShared.js?v=2026-04-25T06:37:08Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-25T06:37:08Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -885,6 +885,7 @@ var offlineInitInProgress = true;
 var offlineInitCompleted = false;
 var offlineLastErrorPayload = null;
 var offlineJsonSaveState = Object.create(null);
+var offlineAllowEntryShrinkUntil = 0;
 var offlineMoodFaces = {
   soft:['(˶ᵔ ᵕ ᵔ˶)','(◍•ᴗ•◍)','(˵¯͒〰¯͒˵)','(｡•ㅅ•｡)'],
   moody:['(¬_¬ )','(◔_◔)','( －з)','(눈_눈)'],
@@ -2647,8 +2648,69 @@ async function findLatestOfflineSessionRecord(){
   }catch(e){}
   return best;
 }
+function offlineEntryFingerprint(entry){
+  if(!entry || typeof entry !== 'object') return '';
+  return [
+    String(entry.role || '').trim(),
+    String(entry.createdAt || '').trim(),
+    String(entry.timeLabel || '').trim(),
+    String(entry.title || '').trim().slice(0, 32),
+    String(entry.text || '').replace(/\s+/g, ' ').trim().slice(0, 96)
+  ].join('::');
+}
+function mergeOfflineEntryListsPreservingHistory(longEntries, currentEntries){
+  var merged = (Array.isArray(longEntries) ? longEntries : []).slice();
+  var seen = new Set(merged.map(offlineEntryFingerprint).filter(Boolean));
+  (Array.isArray(currentEntries) ? currentEntries : []).forEach(function(entry){
+    var key = offlineEntryFingerprint(entry);
+    if(key && seen.has(key)) return;
+    merged.push(entry);
+    if(key) seen.add(key);
+  });
+  return merged;
+}
+function loadBestLocalOfflineSessionSnapshotForSave(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return null;
+  var best = null;
+  offlineSessionKeyCandidates(safeId).forEach(function(key){
+    try{
+      var raw = localStorage.getItem(key) || '';
+      if(!raw) return;
+      var parsed = JSON.parse(raw);
+      if(!isOfflineSessionPayload(parsed)) return;
+      best = pickBetterOfflineSessionCandidate(best, parsed);
+    }catch(e){}
+  });
+  return best;
+}
+function protectOfflineEntriesBeforeSave(){
+  if(!session || !character || !character.id) return;
+  if(Date.now() < offlineAllowEntryShrinkUntil) return;
+  if(exitingOfflineMeet || archivingOfflineMeet || offlineCloseIntent === 'ended') return;
+  var currentEntries = Array.isArray(session.entries) ? session.entries : [];
+  var existing = loadBestLocalOfflineSessionSnapshotForSave(character.id);
+  var existingEntries = Array.isArray(existing && existing.entries) ? existing.entries : [];
+  if(existingEntries.length < currentEntries.length + 2) return;
+  var currentInviteId = getOfflineInviteRecordIdFromSource(session);
+  var existingInviteId = getOfflineInviteRecordIdFromSource(existing);
+  if(currentInviteId && existingInviteId && currentInviteId !== existingInviteId) return;
+  var mergedEntries = mergeOfflineEntryListsPreservingHistory(existingEntries, currentEntries);
+  if(mergedEntries.length <= currentEntries.length) return;
+  session.entries = mergedEntries;
+  if(existing && Array.isArray(existing.stageSummaries) && !Array.isArray(session.stageSummaries)){
+    session.stageSummaries = existing.stageSummaries.slice();
+  }
+  pushOfflineBackendLog('warn', 'session.protect_entries', '阻止短线下记录覆盖长记录，已合并恢复', {
+    charId: String(character.id || ''),
+    before: currentEntries.length,
+    restoredFrom: existingEntries.length,
+    after: mergedEntries.length
+  });
+}
 function saveSession(){
   if(!session || !character || !character.id) return;
+  protectOfflineEntriesBeforeSave();
   session.charId = String(character.id || '').trim();
   session.charSnapshot = Object.assign({}, session.charSnapshot || {}, buildOfflineCharacterFromSnapshot(character));
   session.updatedAt = Date.now();
@@ -10455,6 +10517,7 @@ async function rerollOfflineTurn(){
     return;
   }
   session.entries = session.entries.slice(0, lastAssistantIndex);
+  offlineAllowEntryShrinkUntil = Date.now() + 10 * 60 * 1000;
   var hasAnyAssistant = session.entries.some(function(entry){
     return entry && entry.role === 'assistant' && String(entry.text || '').trim();
   });
@@ -10470,6 +10533,7 @@ async function rerollOfflineTurn(){
   if(!hasAnyAssistant && session.invite){
     showFlightIfNeeded();
     var openingOk = await generateOpeningIfNeeded();
+    offlineAllowEntryShrinkUntil = 0;
     if(!openingOk){
       session.entries = snapshotEntries.slice();
       session.openingFailed = snapshotOpeningFailed;
@@ -10477,12 +10541,14 @@ async function rerollOfflineTurn(){
       session.lastReplyError = snapshotLastReplyError;
       session.pendingOpening = false;
       session.pendingAnimation = false;
+      offlineAllowEntryShrinkUntil = 0;
       saveSession();
     }
     renderStory();
     return;
   }
   var replyOk = await requestOfflineReply();
+  offlineAllowEntryShrinkUntil = 0;
   if(!replyOk){
     session.entries = snapshotEntries.slice();
     session.openingFailed = snapshotOpeningFailed;
@@ -10490,6 +10556,7 @@ async function rerollOfflineTurn(){
     session.lastReplyError = snapshotLastReplyError;
     session.pendingOpening = false;
     session.pendingAnimation = false;
+    offlineAllowEntryShrinkUntil = 0;
     saveSession();
     renderStory();
   }
