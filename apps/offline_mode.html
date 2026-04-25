@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-25T01:35:59Z"></script>
-<script src="../chatStorage.js?v=2026-04-25T01:35:59Z"></script>
-<script src="../metadataStore.js?v=2026-04-25T01:35:59Z"></script>
-<script src="../promptManager.js?v=2026-04-25T01:35:59Z"></script>
-<script src="../accountManager.js?v=2026-04-25T01:35:59Z"></script>
-<script src="../scheduleShared.js?v=2026-04-25T01:35:59Z"></script>
-<script src="../presenceShared.js?v=2026-04-25T01:35:59Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-25T01:35:59Z"></script>
+<script src="../assetStore.js?v=2026-04-25T04:28:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-25T04:28:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-25T04:28:00Z"></script>
+<script src="../promptManager.js?v=2026-04-25T04:28:00Z"></script>
+<script src="../accountManager.js?v=2026-04-25T04:28:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-25T04:28:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-25T04:28:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-25T04:28:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -884,6 +884,7 @@ var offlineStageSummaryPreviewOpen = false;
 var offlineInitInProgress = true;
 var offlineInitCompleted = false;
 var offlineLastErrorPayload = null;
+var offlineJsonSaveState = Object.create(null);
 var offlineMoodFaces = {
   soft:['(˶ᵔ ᵕ ᵔ˶)','(◍•ᴗ•◍)','(˵¯͒〰¯͒˵)','(｡•ㅅ•｡)'],
   moody:['(¬_¬ )','(◔_◔)','( －з)','(눈_눈)'],
@@ -967,19 +968,85 @@ function buildOfflineStorageStub(value){
     __offlineStub: true
   };
 }
+function cloneOfflineJsonRecord(value){
+  try{
+    return JSON.parse(JSON.stringify(value));
+  }catch(e){
+    return value;
+  }
+}
+function isOfflineLiveSessionKey(key){
+  return /(?:^|_)offline_(?:meet_session|resume)_/.test(String(key || ''));
+}
+function writeOfflineLocalFallback(key, data, options){
+  var opts = options && typeof options === 'object' ? options : {};
+  if(opts.localFallback === false) return;
+  try{
+    var serialized = JSON.stringify(data);
+    if(isOfflineLiveSessionKey(key) && serialized.length <= 220000){
+      localStorage.setItem(key, serialized);
+      return;
+    }
+  }catch(e){}
+  try{
+    var stub = buildOfflineStorageStub(data);
+    localStorage.setItem(key, JSON.stringify(stub || data));
+  }catch(e2){}
+}
+function queueOfflineJsonStorageSave(key, data){
+  var safeKey = String(key || '').trim();
+  if(!safeKey || !data || typeof data !== 'object') return;
+  var state = offlineJsonSaveState[safeKey];
+  if(!state){
+    state = offlineJsonSaveState[safeKey] = { latest:null, saving:false, timer:0 };
+  }
+  state.latest = cloneOfflineJsonRecord(data);
+  if(state.timer) clearTimeout(state.timer);
+  state.timer = setTimeout(function(){
+    state.timer = 0;
+    flushOfflineJsonStorageSave(safeKey);
+  }, isOfflineLiveSessionKey(safeKey) ? 80 : 0);
+}
+function flushOfflineJsonStorageSave(key){
+  var safeKey = String(key || '').trim();
+  var state = offlineJsonSaveState[safeKey];
+  if(!state || state.saving || !state.latest) return;
+  var payload = state.latest;
+  state.latest = null;
+  state.saving = true;
+  saveArchiveJsonToStorage(safeKey, payload).catch(function(){ return false; }).then(function(){
+    state.saving = false;
+    if(state.latest) flushOfflineJsonStorageSave(safeKey);
+  });
+}
+function pickNewestOfflineJsonRecord(a, b){
+  if(!a) return b || null;
+  if(!b) return a || null;
+  var aSession = a.session && typeof a.session === 'object' ? a.session : a;
+  var bSession = b.session && typeof b.session === 'object' ? b.session : b;
+  var aUpdated = Number(aSession.updatedAt || a.updatedAt || 0) || 0;
+  var bUpdated = Number(bSession.updatedAt || b.updatedAt || 0) || 0;
+  var aEntries = Array.isArray(aSession.entries) ? aSession.entries.length : 0;
+  var bEntries = Array.isArray(bSession.entries) ? bSession.entries.length : 0;
+  if(bUpdated > aUpdated) return b;
+  if(aUpdated > bUpdated) return a;
+  return bEntries > aEntries ? b : a;
+}
 async function loadOfflineJsonRecord(key, validator){
   var safeKey = String(key || '').trim();
   if(!safeKey) return null;
   var check = typeof validator === 'function' ? validator : function(value){ return !!value; };
   var storageValue = await loadArchiveJsonFromStorage(safeKey);
-  if(check(storageValue)) return storageValue;
+  var storageRecord = check(storageValue) ? storageValue : null;
+  var localRecord = null;
   try{
     var raw = localStorage.getItem(safeKey) || '';
-    if(!raw) return null;
-    var parsed = JSON.parse(raw);
-    return check(parsed) ? parsed : null;
+    if(raw){
+      var parsed = JSON.parse(raw);
+      localRecord = check(parsed) ? parsed : null;
+    }
   }catch(e){}
-  return null;
+  return pickNewestOfflineJsonRecord(storageRecord, localRecord);
 }
 function saveOfflineJsonRecord(key, data, options){
   var safeKey = String(key || '').trim();
@@ -987,13 +1054,8 @@ function saveOfflineJsonRecord(key, data, options){
   var opts = options && typeof options === 'object' ? options : {};
   var storageApi = archiveStorageApi();
   if(storageApi && typeof storageApi.putJson === 'function'){
-    saveArchiveJsonToStorage(safeKey, data).catch(function(){ return false; });
-    if(opts.localFallback !== false){
-      try{
-        var stub = buildOfflineStorageStub(data);
-        localStorage.setItem(safeKey, JSON.stringify(stub || data));
-      }catch(e){}
-    }
+    queueOfflineJsonStorageSave(safeKey, data);
+    writeOfflineLocalFallback(safeKey, data, opts);
     return;
   }
   try{
