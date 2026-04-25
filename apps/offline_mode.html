@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-25T04:43:59Z"></script>
-<script src="../chatStorage.js?v=2026-04-25T04:43:59Z"></script>
-<script src="../metadataStore.js?v=2026-04-25T04:43:59Z"></script>
-<script src="../promptManager.js?v=2026-04-25T04:43:59Z"></script>
-<script src="../accountManager.js?v=2026-04-25T04:43:59Z"></script>
-<script src="../scheduleShared.js?v=2026-04-25T04:43:59Z"></script>
-<script src="../presenceShared.js?v=2026-04-25T04:43:59Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-25T04:43:59Z"></script>
+<script src="../assetStore.js?v=2026-04-25T06:29:25Z"></script>
+<script src="../chatStorage.js?v=2026-04-25T06:29:25Z"></script>
+<script src="../metadataStore.js?v=2026-04-25T06:29:25Z"></script>
+<script src="../promptManager.js?v=2026-04-25T06:29:25Z"></script>
+<script src="../accountManager.js?v=2026-04-25T06:29:25Z"></script>
+<script src="../scheduleShared.js?v=2026-04-25T06:29:25Z"></script>
+<script src="../presenceShared.js?v=2026-04-25T06:29:25Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-25T06:29:25Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -983,7 +983,7 @@ function writeOfflineLocalFallback(key, data, options){
   if(opts.localFallback === false) return;
   try{
     var serialized = JSON.stringify(data);
-    if(isOfflineLiveSessionKey(key) && serialized.length <= 220000){
+    if(isOfflineLiveSessionKey(key) && serialized.length <= 900000){
       localStorage.setItem(key, serialized);
       return;
     }
@@ -1028,6 +1028,7 @@ function pickNewestOfflineJsonRecord(a, b){
   var bUpdated = Number(bSession.updatedAt || b.updatedAt || 0) || 0;
   var aEntries = Array.isArray(aSession.entries) ? aSession.entries.length : 0;
   var bEntries = Array.isArray(bSession.entries) ? bSession.entries.length : 0;
+  if(Math.abs(bEntries - aEntries) >= 2) return bEntries > aEntries ? b : a;
   if(bUpdated > aUpdated) return b;
   if(aUpdated > bUpdated) return a;
   return bEntries > aEntries ? b : a;
@@ -1728,8 +1729,11 @@ async function archiveCurrentOfflineMeet(status, reason){
       clearLiveOfflineSession(character.id);
       session = { active:false, entries:[], minimized:false, archiveId:archiveId || '' };
     }else{
-      clearLiveOfflineSession(character.id);
-      session = { active:false, entries:[], minimized:false, archiveId:archiveId || '' };
+      session.archiveId = archiveId || session.archiveId || '';
+      session.active = true;
+      session.minimized = true;
+      saveSession();
+      persistOfflineResumeSnapshot(character.id, snapshotOfflineSessionState(session));
     }
     return archiveId;
   }finally{
@@ -2812,7 +2816,6 @@ async function consumePendingOfflineResume(charId){
     var key = keys[i];
     var parsed = await loadOfflineJsonRecord(key, isOfflineResumePayload);
     if(!parsed) continue;
-    removeOfflineJsonRecord(key);
     var sessionData = parsed && parsed.session ? parsed.session : parsed;
     if(sessionData && typeof sessionData === 'object') return sessionData;
   }
