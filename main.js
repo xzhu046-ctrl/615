@@ -50,7 +50,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-26T00:55:00Z';
+const APP_BUILD_ID = '2026-04-26T02:43:42Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -5172,13 +5172,6 @@ function getCurrentForegroundCharacter(){
 }
 
 function getChatUserName(charId){
-  try{
-    if(window.AccountManager){
-      var acct = window.AccountManager.getActive();
-      var acctName = String((acct && acct.name) || '').trim();
-      if(acctName) return acctName;
-    }
-  }catch(err){}
   if(!charId) return 'USER';
   try{
     var chars = getStoredCharactersSnapshot();
@@ -5187,8 +5180,17 @@ function getChatUserName(charId){
     if(embedded) return embedded;
   }catch(err){}
   var activeId = getActiveAccountId();
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      var acctName = String((acct && acct.name) || '').trim();
+      if(acctName) return acctName;
+    }
+  }catch(err){}
   var scoped = scopedKeyForAccount('user_name_' + charId, activeId);
-  return (localStorage.getItem(scoped) || localStorage.getItem('user_name_' + charId) || '').trim() || 'USER';
+  var stored = (localStorage.getItem(scoped) || localStorage.getItem('user_name_' + charId) || '').trim();
+  if(stored) return stored;
+  return 'USER';
 }
 
 function getBondWidgetUserName(charData, fallbackName){

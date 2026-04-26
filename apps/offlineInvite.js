@@ -2080,6 +2080,10 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
       evt.stopPropagation();
       evt.preventDefault();
       if(actionBtn.getAttribute('data-offline-action') === 'accept'){
+        if(msgId){
+          runOfflineInviteAction('accept', msgId);
+          return;
+        }
         launchAcceptedOfflineInviteFromCard(data, msgId);
         return;
       }
@@ -2107,11 +2111,13 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     if(actionBtn){
       if(!msgId || actionBtn.disabled) return;
       evt.stopPropagation();
-      openOfflineInviteDecisionPrompt(msgId, actionBtn.getAttribute('data-offline-action'));
+      evt.preventDefault();
+      runOfflineInviteAction(actionBtn.getAttribute('data-offline-action'), msgId);
       return;
     }
     if(!msgId || disabled) return;
     evt.stopPropagation();
-    openOfflineInviteDecisionPrompt(msgId, 'accept');
+    evt.preventDefault();
+    runOfflineInviteAction('accept', msgId);
   });
 }
