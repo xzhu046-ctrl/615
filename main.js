@@ -50,7 +50,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-26T04:23:14Z';
+const APP_BUILD_ID = '2026-04-26T04:42:05Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -7729,6 +7729,19 @@ function forceOpenApp(id){
 }
 window.forceOpenApp = forceOpenApp;
 
+function forceOpenOfflineMode(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  pendingOpenOfflineCharId = String(payload.charId || '').trim();
+  pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+  pendingOpenOfflineLaunchMode = String(payload.launchMode || '').trim();
+  pendingOpenOfflineLaunchToken = String(payload.launchToken || '').trim();
+  pendingOpenOfflineLaunchRecord = clonePendingOfflineLaunchRecord(payload.offlineLaunchRecord || null);
+  try{ localStorage.setItem(scopedKeyForAccount('activeOfflineCharacterId', getActiveAccountId()), pendingOpenOfflineCharId); }catch(err){}
+  try{ localStorage.setItem('activeOfflineCharacterId', pendingOpenOfflineCharId); }catch(err){}
+  forceOpenApp('offline_mode');
+}
+window.forceOpenOfflineMode = forceOpenOfflineMode;
+
 function replaceApp(id){
   if(!APP_MAP[id]) return Promise.resolve();
   return runAppTransition(async function(){
@@ -7924,6 +7937,10 @@ window.addEventListener('message',(e)=>{
       pendingOpenOfflineLaunchRecord = clonePendingOfflineLaunchRecord(payload.offlineLaunchRecord || null);
       try{ localStorage.setItem(scopedKeyForAccount('activeOfflineCharacterId', getActiveAccountId()), pendingOpenOfflineCharId); }catch(err){}
       try{ localStorage.setItem('activeOfflineCharacterId', pendingOpenOfflineCharId); }catch(err){}
+      if(payload.forceOpen){
+        forceOpenApp('offline_mode');
+        return;
+      }
       replaceApp('offline_mode');
       return;
     }
