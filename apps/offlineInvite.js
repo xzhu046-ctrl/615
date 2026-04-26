@@ -1342,6 +1342,89 @@ function runOfflineInviteAction(action, msgId){
     });
 }
 
+function launchOfflineDateAppFromInvitePayload(rawPayload, msgId){
+  var source = rawPayload && typeof rawPayload === 'object' ? Object.assign({}, rawPayload) : {};
+  var safeMsgId = String(msgId || '').trim();
+  source = coerceOfflineInvitePayloadToThread(source, 'assistant');
+  if(!String(source.charId || '').trim()){
+    var threadCharId = getOfflineInviteThreadCharId();
+    if(threadCharId) source.charId = String(threadCharId || '').trim();
+  }
+  if(!String(source.charId || '').trim() && character && character.id){
+    source.charId = String(character.id || '').trim();
+  }
+  if(!String(source.charName || '').trim()){
+    var threadCharacter = getOfflineInviteThreadCharacter();
+    source.charName = String((threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || (character && (character.nickname || character.name)) || '').trim();
+  }
+  source.status = 'accepted';
+  source.sourceRole = String(source.sourceRole || 'assistant').trim() || 'assistant';
+  source.inviteMessageId = String(source.inviteMessageId || safeMsgId || '').trim();
+  source.previewText = String(source.previewText || source.location || '赴约已定下').trim();
+  var recordId = ensureOfflineInviteRecordId(source);
+  var record = {
+    id: recordId,
+    threadId: String(source.threadId || recordId).trim() || recordId,
+    charId: String(source.charId || '').trim(),
+    charName: String(source.charName || '').trim(),
+    sourceRole: String(source.sourceRole || 'assistant').trim() || 'assistant',
+    status: 'accepted',
+    meetState: 'scheduled',
+    previewText: String(source.previewText || source.location || '赴约已定下').trim(),
+    location: String(source.location || '').trim(),
+    scheduledDate: String(source.scheduledDate || '').trim(),
+    scheduledTime: String(source.scheduledTime || '').trim(),
+    dateLabel: String(source.dateLabel || '').trim(),
+    timeLabel: String(source.timeLabel || '').trim(),
+    inviteMessageId: String(source.inviteMessageId || '').trim(),
+    replyMessageId: String(source.replyMessageId || '').trim(),
+    scheduleEntryId: String(source.scheduleEntryId || '').trim(),
+    reminderState: 'pending',
+    arrivalState: 'pending',
+    arrivedAt: 0,
+    openedAt: 0,
+    createdAt: Number(source.createdAt || Date.now()) || Date.now(),
+    updatedAt: Date.now()
+  };
+  try{
+    var store = getOfflineInviteStoreApi();
+    if(store && typeof store.upsertRecord === 'function') store.upsertRecord(record);
+  }catch(err){
+    console.warn('offline invite direct record upsert skipped:', err);
+  }
+  try{
+    if(recordId){
+      localStorage.setItem(accountScopedKey('offline_invite_focus_id_v1'), String(recordId));
+      localStorage.setItem('offline_invite_focus_id_v1', String(recordId));
+    }
+  }catch(err){}
+  try{
+    postToShell({
+      type:'OPEN_APP_WITH',
+      payload:{
+        app:'offline',
+        charId:String(source.charId || '').trim(),
+        inviteId:String(recordId || '').trim()
+      }
+    });
+  }catch(err){}
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.openApp === 'function'){
+      window.parent.openApp('offline');
+    }
+  }catch(err){}
+  return source;
+}
+
+function acceptOfflineInviteFromDecision(msgId){
+  var safeMsgId = String(msgId || '').trim();
+  if(!safeMsgId) return;
+  var entry = getMessageById(safeMsgId);
+  var payload = parseOfflineInvitePayload(entry && entry.content) || null;
+  if(payload) launchOfflineDateAppFromInvitePayload(payload, safeMsgId);
+  runOfflineInviteAction('accept', safeMsgId);
+}
+
 var pendingOfflineInviteDecisionAction = '';
 var pendingOfflineInviteDecisionMessageId = '';
 
@@ -1382,6 +1465,10 @@ function confirmOfflineInviteDecision(accepted){
     : (pendingOfflineInviteDecisionAction === 'reject' ? 'reject' : 'accept');
   closeOfflineInviteDecisionPrompt();
   if(!msgId) return;
+  if(chosen === 'accept'){
+    acceptOfflineInviteFromDecision(msgId);
+    return;
+  }
   runOfflineInviteAction(chosen, msgId);
 }
 
