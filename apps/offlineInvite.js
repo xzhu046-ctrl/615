@@ -925,25 +925,21 @@ async function openOfflineSession(payload){
       payload.sourceRole = String(payload.sourceRole || 'assistant').trim() || 'assistant';
       payload.previewText = String(payload.previewText || payload.location || '赴约已定下').trim();
       try{
-        Promise.resolve().then(function(){
-          return syncOfflineInviteRecord(payload, {
-            id: ensureOfflineInviteRecordId(payload),
-            charId: String(payload.charId || '').trim(),
-            charName: String(payload.charName || '').trim(),
-            location: String(payload.location || '').trim(),
-            scheduledDate: String(payload.scheduledDate || '').trim(),
-            scheduledTime: String(payload.scheduledTime || '').trim(),
-            dateLabel: String(payload.dateLabel || '').trim(),
-            timeLabel: String(payload.timeLabel || '').trim(),
-            sourceRole: String(payload.sourceRole || 'assistant').trim() || 'assistant',
-            status: 'accepted',
-            meetState: 'scheduled',
-            previewText: String(payload.previewText || payload.location || '赴约已定下').trim(),
-            inviteMessageId: String(payload.inviteMessageId || '').trim(),
-            openedAt: Date.now()
-          });
-        }).catch(function(err){
-          console.warn('offline invite open record sync skipped:', err);
+        await syncOfflineInviteRecord(payload, {
+          id: ensureOfflineInviteRecordId(payload),
+          charId: String(payload.charId || '').trim(),
+          charName: String(payload.charName || '').trim(),
+          location: String(payload.location || '').trim(),
+          scheduledDate: String(payload.scheduledDate || '').trim(),
+          scheduledTime: String(payload.scheduledTime || '').trim(),
+          dateLabel: String(payload.dateLabel || '').trim(),
+          timeLabel: String(payload.timeLabel || '').trim(),
+          sourceRole: String(payload.sourceRole || 'assistant').trim() || 'assistant',
+          status: 'accepted',
+          meetState: 'scheduled',
+          previewText: String(payload.previewText || payload.location || '赴约已定下').trim(),
+          inviteMessageId: String(payload.inviteMessageId || '').trim(),
+          openedAt: Date.now()
         });
       }catch(err){}
     }
@@ -1057,11 +1053,19 @@ async function openOfflineSession(payload){
   }catch(e){}
   latestLaunchRecord.session = nextSession;
   persistOfflineLaunchTokenRecord(launchToken, latestLaunchRecord);
+  try{
+    var focusRecordId = ensureOfflineInviteRecordId(payload || {});
+    if(focusRecordId){
+      localStorage.setItem(accountScopedKey('offline_invite_focus_id_v1'), String(focusRecordId));
+      localStorage.setItem('offline_invite_focus_id_v1', String(focusRecordId));
+    }
+  }catch(e){}
   postToShell({
     type:'OPEN_APP_WITH',
     payload:{
-      app:'offline_mode',
+      app:'offline',
       charId: targetCharId,
+      inviteId: String(ensureOfflineInviteRecordId(payload || {}) || '').trim(),
       launchMode:'invite',
       launchToken: launchToken,
       offlineLaunchRecord: latestLaunchRecord
@@ -1512,30 +1516,24 @@ async function acceptOfflineInvite(messageId){
   payload.previewText = String(payload.previewText || payload.location || '赴约已定下').trim();
   entry.content = JSON.stringify(payload);
   rerenderChat();
-  try{
-    Promise.resolve().then(function(){
-      return syncOfflineInviteRecord(payload, {
-        id: ensureOfflineInviteRecordId(payload),
-        inviteMessageId: String(entry && entry.id || '').trim(),
-        charId: String(payload.charId || '').trim(),
-        charName: String(payload.charName || '').trim(),
-        location: String(payload.location || '').trim(),
-        scheduledDate: String(payload.scheduledDate || '').trim(),
-        scheduledTime: String(payload.scheduledTime || '').trim(),
-        dateLabel: String(payload.dateLabel || '').trim(),
-        timeLabel: String(payload.timeLabel || '').trim(),
-        sourceRole: 'assistant',
-        status: 'accepted',
-        meetState: 'scheduled',
-        previewText: String(payload.previewText || payload.location || '赴约已定下').trim(),
-        reminderState: 'pending',
-        arrivalState: 'pending',
-        arrivedAt: 0
-      });
-    }).catch(function(err){
-      console.warn('offline invite accept record sync skipped:', err);
-    });
-  }catch(e){}
+  await syncOfflineInviteRecord(payload, {
+    id: ensureOfflineInviteRecordId(payload),
+    inviteMessageId: String(entry && entry.id || '').trim(),
+    charId: String(payload.charId || '').trim(),
+    charName: String(payload.charName || '').trim(),
+    location: String(payload.location || '').trim(),
+    scheduledDate: String(payload.scheduledDate || '').trim(),
+    scheduledTime: String(payload.scheduledTime || '').trim(),
+    dateLabel: String(payload.dateLabel || '').trim(),
+    timeLabel: String(payload.timeLabel || '').trim(),
+    sourceRole: 'assistant',
+    status: 'accepted',
+    meetState: 'scheduled',
+    previewText: String(payload.previewText || payload.location || '赴约已定下').trim(),
+    reminderState: 'pending',
+    arrivalState: 'pending',
+    arrivedAt: 0
+  });
   try{
     var threadCharacter = getOfflineInviteThreadCharacter();
     var shellCharacter = null;
@@ -2121,12 +2119,12 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
       if(!msgId || actionBtn.disabled) return;
       evt.stopPropagation();
       evt.preventDefault();
-      runOfflineInviteAction(actionBtn.getAttribute('data-offline-action'), msgId);
+      openOfflineInviteDecisionPrompt(msgId, actionBtn.getAttribute('data-offline-action'));
       return;
     }
     if(!msgId || disabled) return;
     evt.stopPropagation();
     evt.preventDefault();
-    runOfflineInviteAction('accept', msgId);
+    openOfflineInviteDecisionPrompt(msgId, 'accept');
   });
 }
