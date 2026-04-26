@@ -1076,6 +1076,21 @@ function activeCharacterKey(){
 function offlineSessionKey(charId){
   return scopedKey('offline_meet_session_' + String(charId || ''));
 }
+function offlineSessionRecordKey(recordId){
+  return scopedKey('offline_meet_session_record_' + String(recordId || '').trim());
+}
+function offlineSessionRecordKeyCandidates(recordId){
+  var safeId = String(recordId || '').trim();
+  if(!safeId) return [];
+  var keys = [offlineSessionRecordKey(safeId), 'offline_meet_session_record_' + safeId];
+  try{
+    var acctId = activeAccountId();
+    if(acctId){
+      keys.unshift('offline_meet_session_record_' + safeId + '__acct_' + acctId);
+    }
+  }catch(e){}
+  return Array.from(new Set(keys.filter(Boolean)));
+}
 function offlineSessionKeyCandidates(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return [];
@@ -1679,8 +1694,15 @@ async function mergeOfflineStageSummariesIntoOnlineMemoryStore(targetCharId, sna
   var items = Array.isArray(snapshot && snapshot.stageSummaries) ? snapshot.stageSummaries.slice() : [];
   await syncOfflineStageSummariesToMemoryStore(items, targetCharId);
 }
-function clearLiveOfflineSession(targetCharId){
+function clearLiveOfflineSession(targetCharId, source){
   if(!targetCharId) return;
+  var inviteRecordId = getOfflineInviteRecordIdFromSource(source || session);
+  if(inviteRecordId){
+    offlineSessionRecordKeyCandidates(inviteRecordId).forEach(function(key){
+      removeOfflineJsonRecord(key);
+    });
+    return;
+  }
   removeOfflineJsonRecord(offlineSessionKey(targetCharId));
   removeOfflineJsonRecord('offline_meet_session_' + String(targetCharId || '').trim());
 }
@@ -1727,7 +1749,7 @@ async function archiveCurrentOfflineMeet(status, reason){
     }
     if(status === 'ended'){
       await queueOfflineEndArtifacts(character.id, snapshot);
-      clearLiveOfflineSession(character.id);
+      clearLiveOfflineSession(character.id, snapshot);
       session = { active:false, entries:[], minimized:false, archiveId:archiveId || '' };
     }else{
       session.archiveId = archiveId || session.archiveId || '';
@@ -2672,13 +2694,16 @@ function mergeOfflineEntryListsPreservingHistory(longEntries, currentEntries){
 function loadBestLocalOfflineSessionSnapshotForSave(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return null;
+  var currentInviteId = getOfflineInviteRecordIdFromSource(session);
+  var recordKeys = currentInviteId ? offlineSessionRecordKeyCandidates(currentInviteId) : [];
   var best = null;
-  offlineSessionKeyCandidates(safeId).forEach(function(key){
+  recordKeys.concat(offlineSessionKeyCandidates(safeId)).forEach(function(key){
     try{
       var raw = localStorage.getItem(key) || '';
       if(!raw) return;
       var parsed = JSON.parse(raw);
       if(!isOfflineSessionPayload(parsed)) return;
+      if(currentInviteId && getOfflineInviteRecordIdFromSource(parsed) !== currentInviteId) return;
       best = pickBetterOfflineSessionCandidate(best, parsed);
     }catch(e){}
   });
@@ -2714,14 +2739,37 @@ function saveSession(){
   session.charId = String(character.id || '').trim();
   session.charSnapshot = Object.assign({}, session.charSnapshot || {}, buildOfflineCharacterFromSnapshot(character));
   session.updatedAt = Date.now();
-  saveOfflineJsonRecord(offlineSessionKey(character.id), session);
-  saveOfflineJsonRecord('offline_meet_session_' + String(character.id || '').trim(), session);
+  var inviteRecordId = getOfflineInviteRecordIdFromSource(session);
+  if(inviteRecordId){
+    saveOfflineJsonRecord(offlineSessionRecordKey(inviteRecordId), session);
+    saveOfflineJsonRecord('offline_meet_session_record_' + String(inviteRecordId || '').trim(), session);
+  }else{
+    saveOfflineJsonRecord(offlineSessionKey(character.id), session);
+    saveOfflineJsonRecord('offline_meet_session_' + String(character.id || '').trim(), session);
+  }
   try{
     var resumeSnap = snapshotOfflineSessionState(session);
     if(hasMeaningfulOfflineSession(resumeSnap)){
       persistOfflineResumeSnapshot(character.id, resumeSnap);
     }
   }catch(e){}
+}
+async function loadSessionByInviteRecordId(recordId){
+  var safeId = String(recordId || '').trim();
+  if(!safeId) return null;
+  var keys = offlineSessionRecordKeyCandidates(safeId);
+  var best = null;
+  for(var k = 0; k < keys.length; k += 1){
+    var parsed = await loadOfflineJsonRecord(keys[k], isOfflineSessionPayload);
+    if(!parsed || typeof parsed !== 'object') continue;
+    if(getOfflineInviteRecordIdFromSource(parsed) !== safeId) continue;
+    if(!best){
+      best = parsed;
+      continue;
+    }
+    best = pickBetterOfflineSessionCandidate(best, parsed);
+  }
+  return best;
 }
 async function loadSessionByCharId(charId){
   var safeId = String(charId || '').trim();
@@ -10631,7 +10679,7 @@ async function exitOfflineMeet(){
       if(fallbackSnapshot){
         await queueOfflineEndArtifacts(character.id, fallbackSnapshot);
       }
-      clearLiveOfflineSession(character.id);
+      clearLiveOfflineSession(character.id, fallbackSnapshot);
       session = { active:false, entries:[], minimized:false, archiveId:session && session.archiveId || '' };
       toast('档案保存异常，已用兜底方式退出');
     }catch(fallbackErr){
@@ -10905,10 +10953,11 @@ async function init(){
     ''
   ).trim().toLowerCase();
   offlineEntryHome = !hasExplicitLaunch;
+  var launchInviteRecordId = getOfflineInviteRecordIdFromSource(launchSeed && launchSeed.payload ? launchSeed.payload : launchSeed);
+  var recordScopedSession = (!offlineEntryHome && launchInviteRecordId) ? await loadSessionByInviteRecordId(launchInviteRecordId) : null;
   var existingSession = (!offlineEntryHome && desiredOfflineCharId) ? await loadSessionByCharId(desiredOfflineCharId) : null;
   var resumeSession = (!offlineEntryHome && tokenLaunch && tokenLaunch.session) ? tokenLaunch.session : ((!offlineEntryHome && desiredOfflineCharId) ? await consumePendingOfflineResume(desiredOfflineCharId) : null);
   var bootSession = (!offlineEntryHome && desiredOfflineCharId) ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
-  var launchInviteRecordId = getOfflineInviteRecordIdFromSource(launchSeed && launchSeed.payload ? launchSeed.payload : launchSeed);
   var archiveSession = (!offlineEntryHome && desiredOfflineCharId && launchInviteRecordId) ? await findOfflineArchiveSessionForInvite(desiredOfflineCharId, launchInviteRecordId) : null;
   function pickMatchingInviteSession(candidate){
     if(!(candidate && typeof candidate === 'object')) return null;
@@ -10919,6 +10968,7 @@ async function init(){
     return candidate;
   }
   var reusableInviteSession = [
+    pickMatchingInviteSession(recordScopedSession),
     pickMatchingInviteSession(resumeSession),
     pickMatchingInviteSession(existingSession),
     pickMatchingInviteSession(bootSession),
@@ -10930,6 +10980,7 @@ async function init(){
     tokenLaunch && tokenLaunch.threadCharSnapshot,
     launchSeed && launchSeed.payload && launchSeed.payload.charSnapshot,
     launchSeed && launchSeed.charSnapshot,
+    recordScopedSession && recordScopedSession.charSnapshot,
     existingSession && existingSession.charSnapshot,
     resumeSession && resumeSession.charSnapshot,
     bootSession && bootSession.charSnapshot,
