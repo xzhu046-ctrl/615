@@ -50,7 +50,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-26T23:39:45Z';
+const APP_BUILD_ID = '2026-04-26T23:59:02Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -5258,12 +5258,12 @@ function getBondWidgetUserName(charData, fallbackName){
 function getChatUserAvatar(charId){
   var activeId = getActiveAccountId();
   var keys = [];
-  keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
-  keys.push('qq_profile_avatar_asset');
-  keys.push(scopedKeyForAccount('user_avatar', activeId));
-  keys.push('user_avatar');
   if(charId) keys.push(scopedKeyForAccount('user_avatar_' + charId, activeId));
   if(charId) keys.push('user_avatar_' + charId);
+  keys.push(scopedKeyForAccount('user_avatar', activeId));
+  keys.push('user_avatar');
+  keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
+  keys.push('qq_profile_avatar_asset');
   function loadAt(idx){
     if(idx >= keys.length){
       try{
