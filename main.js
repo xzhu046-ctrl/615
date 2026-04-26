@@ -50,7 +50,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-26T05:25:05Z';
+const APP_BUILD_ID = '2026-04-26T23:26:54Z';
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -442,9 +442,28 @@ function getWidgetPreview(charId){
 
 function loadLargeState(id){
   if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
-    return window.PhoneStorage.getJson(id).catch(function(){ return null; });
+    return window.PhoneStorage.getJson(id).then(function(data){
+      if(data != null) return data;
+      return loadLargeStateLegacyFallback(id);
+    }).catch(function(){ return loadLargeStateLegacyFallback(id); });
   }
-  return Promise.resolve(null);
+  return Promise.resolve(loadLargeStateLegacyFallback(id));
+}
+
+function loadLargeStateLegacyFallback(id){
+  var safeId = String(id || '').trim();
+  try{
+    var activeAccountId = getActiveAccountId();
+    if(safeId === shellActiveCharacterStorageId(activeAccountId)){
+      var scopedRaw = localStorage.getItem(scopedKeyForAccount('activeCharacter', activeAccountId)) || '';
+      var raw = scopedRaw || localStorage.getItem('activeCharacter') || '';
+      return raw ? JSON.parse(raw) : null;
+    }
+    if(safeId === shellActiveChatIdStorageId(activeAccountId)){
+      return localStorage.getItem(scopedKeyForAccount('activeChatCharacterId', activeAccountId)) || localStorage.getItem('activeChatCharacterId') || '';
+    }
+  }catch(e){}
+  return null;
 }
 
 function saveLargeState(id, data){
@@ -477,9 +496,28 @@ function requestPersistentStorageIfPossible(){
 }
 requestPersistentStorageIfPossible();
 if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
-  window.MetadataStore.init().catch(function(err){
+  window.MetadataStore.init().then(function(){
+    refreshShellCharacterSurfaces();
+  }).catch(function(err){
     console.warn('MetadataStore init failed', err);
   });
+}
+if(window.MetadataStore && typeof window.MetadataStore.subscribe === 'function'){
+  window.MetadataStore.subscribe(function(topic){
+    if(topic === 'characters') refreshShellCharacterSurfaces();
+  });
+}
+
+function refreshShellCharacterSurfaces(){
+  try{
+    var active = getActiveCharacterData();
+    if(active){
+      setWidgetCharacter(active);
+      renderBondWidget(active);
+    }else{
+      renderBondWidget(null);
+    }
+  }catch(e){}
 }
 
 function shellActiveCharacterStorageId(accountId){
@@ -1930,6 +1968,20 @@ function getCharacterAvatarForBg(character){
     if(isRenderableShellAvatarSrc(av)) return av;
   }
   return '';
+}
+
+function resolveCharacterAvatarForShell(character){
+  var immediate = getCharacterAvatarForBg(character);
+  if(isRenderableShellAvatarSrc(immediate)) return Promise.resolve(immediate);
+  var id = String(character && character.id || '').trim();
+  if(!id) return Promise.resolve(immediate || '');
+  return loadStoredAsset('char_avatar_' + id).then(function(src){
+    var safeSrc = normalizeShellAssetSrc(src || '');
+    if(isRenderableShellAvatarSrc(safeSrc)) return safeSrc;
+    return immediate || '';
+  }).catch(function(){
+    return immediate || '';
+  });
 }
 
 function shouldSuppressChatNotification(charId){
@@ -5365,7 +5417,9 @@ function renderBondWidget(character){
   if(charName) charName.textContent = c ? (c.nickname || c.name || 'CHAR') : 'CHAR';
   if(userName) userName.textContent = getBondWidgetUserName(c, '');
   if(charAvatar){
+    charAvatar.dataset.charId = String((c && c.id) || '').trim();
     const applyCharAvatar = (override)=>{
+      if(String(charAvatar.dataset.charId || '') !== String((c && c.id) || '').trim()) return;
       const safeOverride = normalizeShellAssetSrc(override || '');
       const safeImage = getCharacterAvatarForBg(c || null);
       const baseHtml = isRenderableShellAvatarSrc(safeOverride)
@@ -8589,13 +8643,16 @@ function setWidgetCharacter(c){
     if(sideNameEl) sideNameEl.textContent = 'CHAR';
     applyWidgetUserAvatarContent(userAvEl, '', '你');
   }
-  if (isRenderableShellAvatarSrc(liveAvatarSrc)) {
+  if(avEl) avEl.dataset.charId = String((c && c.id) || '').trim();
+  if (avEl && isRenderableShellAvatarSrc(liveAvatarSrc)) {
     avEl.innerHTML = '<img src="'+liveAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
-  } else {
+  } else if(avEl) {
     avEl.textContent = c?.avatar || '✿';
   }
   if(c?.id){
     loadStoredAsset('char_avatar_' + c.id).then((override)=>{
+      if(!avEl) return;
+      if(String(avEl.dataset.charId || '') !== String(c.id || '')) return;
       var safeOverride = normalizeShellAssetSrc(override || '');
       if(isRenderableShellAvatarSrc(safeOverride)){
         avEl.innerHTML = '<img src="'+safeOverride+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
