@@ -1832,7 +1832,9 @@ async function handlePendingOfflineInviteReply(){
         mood: decision.mood || randomPick(OFFLINE_MOODS, '(///v///)'),
         weather: charWeather.icon,
         location: pending.payload.location,
-        status: 'accepted',
+        status: 'pending',
+        displayStatus: 'accepted',
+        acceptedByChar: true,
         scheduledDate: schedule.scheduledDate,
         scheduledTime: schedule.scheduledTime,
         dateLabel: schedule.dateLabel,
@@ -2016,9 +2018,10 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
   var data = buildOfflineInvitePayload(viewRole === 'user' ? 'user' : 'assistant', coerceOfflineInvitePayloadToThread(parseOfflineInvitePayload(raw) || {}, viewRole === 'user' ? 'user' : 'assistant'));
   var canRespond = viewRole !== 'user';
   var status = String(data.status || 'pending');
-  var statusLabel = status === 'accepted' ? 'Accepted' : (status === 'rejected' ? 'Rejected' : 'Pending');
+  var displayAccepted = String(data.displayStatus || '').trim() === 'accepted' || data.acceptedByChar === true;
+  var statusLabel = (status === 'accepted' || displayAccepted) ? 'Accepted' : (status === 'rejected' ? 'Rejected' : 'Pending');
   var disabled = status !== 'pending';
-  var statusTone = status === 'accepted' ? ' is-accepted' : (status === 'rejected' ? ' is-rejected' : ' is-pending');
+  var statusTone = (status === 'accepted' || displayAccepted) ? ' is-accepted' : (status === 'rejected' ? ' is-rejected' : ' is-pending');
   var cleanDateLabel = stripOfflineInviteWeekdayLabel(data.dateLabel || '');
   var timeText = data.immediate
     ? '现在'
@@ -2084,7 +2087,11 @@ function renderOfflineInviteBubble(bubble, raw, viewRole, msgId){
     });
     return;
   }
-  bubble.innerHTML = '<div class="offline-invite-plain">'
+  bubble.innerHTML = '<div class="offline-invite-plain' + (displayAccepted ? ' reply' : '') + '">'
+    + (displayAccepted ? '<div class="offline-invite-plain-head">'
+      + '<div class="offline-invite-plain-title is-sent">ACCEPTED</div>'
+      + '<div class="offline-invite-plain-status is-dot is-accepted" title="' + escAttr(statusLabel) + '" aria-label="' + escAttr(statusLabel) + '"></div>'
+      + '</div>' : '')
     + '<div class="offline-invite-plain-meta">'
     + '<div class="offline-invite-plain-row is-plain">' + timeText + '</div>'
     + '<div class="offline-invite-plain-row is-plain">' + locationText + '</div>'
