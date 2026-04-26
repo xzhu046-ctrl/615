@@ -1404,12 +1404,15 @@ function launchOfflineDateAppFromInvitePayload(rawPayload, msgId){
       payload:{
         app:'offline',
         charId:String(source.charId || '').trim(),
-        inviteId:String(recordId || '').trim()
+        inviteId:String(recordId || '').trim(),
+        forceOpen:true
       }
     });
   }catch(err){}
   try{
-    if(window.parent && window.parent !== window && typeof window.parent.openApp === 'function'){
+    if(window.parent && window.parent !== window && typeof window.parent.forceOpenApp === 'function'){
+      window.parent.forceOpenApp('offline');
+    }else if(window.parent && window.parent !== window && typeof window.parent.openApp === 'function'){
       window.parent.openApp('offline');
     }
   }catch(err){}
@@ -1421,6 +1424,12 @@ function acceptOfflineInviteFromDecision(msgId){
   if(!safeMsgId) return;
   var entry = getMessageById(safeMsgId);
   var payload = parseOfflineInvitePayload(entry && entry.content) || null;
+  if(payload && entry){
+    payload.status = 'accepted';
+    payload.sourceRole = String(payload.sourceRole || 'assistant').trim() || 'assistant';
+    payload.inviteMessageId = String(payload.inviteMessageId || safeMsgId || '').trim();
+    entry.content = JSON.stringify(payload);
+  }
   if(payload) launchOfflineDateAppFromInvitePayload(payload, safeMsgId);
   runOfflineInviteAction('accept', safeMsgId);
 }
