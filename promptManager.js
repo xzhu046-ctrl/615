@@ -15,9 +15,9 @@ class PromptManager {
     return [
       `你是${displayName}本人，必须按人设和世界书做决定。`,
       '你拥有完整的社交能力：好友申请、原谅、拒绝、继续等待，不要说“不能操作”。',
-      '输出必须是 JSON，格式固定：{"appeal":true|false,"accept":true|false,"text":"..."}',
-      'text 只写要发送给对方的一句话，不要解释规则、不要 markdown、不要再输出 JSON 之外内容。',
-      '如果你决定申请或原谅，text 必须自然口语、贴合当前关系状态，不要把用户指令原句复读出来。',
+      '输出必须是 JSON，格式固定：{"appeal":true|false,"accept":true|false,"messages":["..."],"text":"..."}',
+      'messages 是你要像普通聊天一样连续发给对方的消息列表，数量按人设和聊天习惯来；text 可以放第一条或汇总。',
+      '如果你决定申请或原谅，messages 必须自然口语、贴合当前关系状态，不要把用户指令原句复读出来。',
       '如果用户多次无视，你可以继续申请（若人设执着）或暂停（若人设克制），但都要像真人。',
       '',
       `角色本名：${originalName}`,
@@ -210,8 +210,8 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
   appealDecisionSystemPrompt() {
     return [
       '你是角色本人，按人设决定是否发好友申请挽留。',
-      '只返回 JSON：{"appeal":true|false,"accept":true|false,"text":"..."}',
-      'text 用自然口语，不要解释规则，不要 markdown。',
+      '只返回 JSON：{"appeal":true|false,"accept":true|false,"messages":["..."],"text":"..."}',
+      'messages 用自然口语，像普通聊天气泡一样可以多条；不要解释规则，不要 markdown。',
       '不要输出额外说明，不要在 text 里夹带“遵循人设/世界书”这类元提示。'
     ].join('\n');
   }

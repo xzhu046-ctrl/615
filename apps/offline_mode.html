@@ -196,6 +196,15 @@ body::before{content:'';position:fixed;inset:0;background:var(--offline-page-bg)
 .offline-memory-editor-title{font-family:'ZCOOL KuaiLe','Nunito',sans-serif;font-size:17px;font-weight:900;color:#111}
 .offline-memory-editor-input{min-height:180px;border:2px solid #111;border-radius:18px;background:#fff;padding:12px 12px;font:700 13px/1.7 var(--font);color:#111;resize:none;outline:none}
 .offline-memory-editor-actions{display:flex;justify-content:flex-end;gap:8px}
+.offline-confirm-overlay{position:fixed;inset:0;z-index:170;display:none;align-items:center;justify-content:center;padding:22px;background:rgba(255,255,255,.32);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.offline-confirm-overlay.open{display:flex}
+.offline-confirm-card{width:min(318px,calc(100vw - 32px));border:2px solid #111;border-radius:2px;background:#fff;box-shadow:4px 4px 0 rgba(17,17,17,.88);padding:14px;display:flex;flex-direction:column;gap:12px}
+.offline-confirm-title{font-family:'ZCOOL KuaiLe','Nunito',sans-serif;font-size:17px;font-weight:900;color:#111}
+.offline-confirm-copy{font-size:12px;font-weight:800;line-height:1.65;color:#333}
+.offline-confirm-actions{display:flex;justify-content:flex-end;gap:8px}
+.offline-confirm-btn{min-width:76px;min-height:34px;border:2px solid #111;border-radius:2px;background:#fff;color:#111;box-shadow:2px 2px 0 #111;font-family:var(--fontd);font-size:12px;font-weight:900;cursor:pointer}
+.offline-confirm-btn.primary{background:#111;color:#fff}
+.offline-confirm-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #111}
 .offline-artifact-card{margin-top:14px;padding:0;border:none;border-radius:0;background:transparent}
 .offline-artifact-label{font-size:10px;font-weight:900;letter-spacing:.08em;color:#6a6a6a;text-transform:uppercase;margin-bottom:8px}
 .offline-artifact-preview{border:none;border-radius:0;background:transparent;padding:0;overflow:visible}
@@ -866,6 +875,16 @@ box-shadow:0 0 0 2px rgba(255,255,255,.97),6px 6px 0 rgba(17,17,17,.94);padding:
     </div>
   </div>
 </div>
+<div class="offline-confirm-overlay" id="offlineMemoryConfirmOverlay">
+  <div class="offline-confirm-card">
+    <div class="offline-confirm-title" id="offlineMemoryConfirmTitle">确认操作</div>
+    <div class="offline-confirm-copy" id="offlineMemoryConfirmCopy">确定要继续吗？</div>
+    <div class="offline-confirm-actions">
+      <button class="offline-confirm-btn" type="button" onclick="resolveOfflineMemoryConfirm(false)">取消</button>
+      <button class="offline-confirm-btn primary" type="button" onclick="resolveOfflineMemoryConfirm(true)">确认</button>
+    </div>
+  </div>
+</div>
 
 <script>
 var promptManager = new (window.PromptManager || function(){})();
@@ -900,6 +919,7 @@ var offlineDrawerPageBgDirty = false;
 var offlineDrawerCardBgDirty = false;
 var offlineMemoryEditingId = '';
 var offlineMemoryEditingMeta = null;
+var offlineMemoryConfirmResolver = null;
 var offlineStageSummaryPreviewOpen = false;
 var offlineInitInProgress = true;
 var offlineInitCompleted = false;
@@ -6771,7 +6791,7 @@ async function handleOfflineMemoryPanelActionClick(event){
   event.stopPropagation();
   if(action === 'promote-short') return promoteOfflineDiaryMemoryItem(String(btn.getAttribute('data-memory-id') || ''));
   if(action === 'delete-short') return deleteOfflineMemoryItem(String(btn.getAttribute('data-memory-id') || ''));
-  if(/^demote-/.test(action) && !confirmOfflineMemoryDemoteAction()) return;
+  if(/^demote-/.test(action) && !(await confirmOfflineMemoryDemoteAction())) return;
   if(action === 'demote-fact') return deleteOfflineStructuredFactAt(Number(btn.getAttribute('data-memory-idx') || 0));
   if(action === 'demote-event-month') return deleteOfflineStructuredEventMonthAt(Number(btn.getAttribute('data-memory-idx') || 0));
   if(action === 'demote-relationship') return deleteOfflineStructuredRelationship();
@@ -6779,11 +6799,30 @@ async function handleOfflineMemoryPanelActionClick(event){
   if(action === 'demote-custom-item') return deleteOfflineStructuredCustomItem(String(btn.getAttribute('data-memory-code') || ''), Number(btn.getAttribute('data-memory-idx') || 0));
 }
 function confirmOfflineMemoryDemoteAction(){
-  try{
-    return window.confirm('要取消置顶，把这条长期记忆转回短期吗？');
-  }catch(e){
-    return true;
-  }
+  return openOfflineMemoryConfirm({
+    title: '取消置顶？',
+    copy: '这条长期记忆会转回短期区，之后还可以重新置顶。'
+  });
+}
+function openOfflineMemoryConfirm(options){
+  var opts = options || {};
+  var overlay = document.getElementById('offlineMemoryConfirmOverlay');
+  var title = document.getElementById('offlineMemoryConfirmTitle');
+  var copy = document.getElementById('offlineMemoryConfirmCopy');
+  if(!overlay) return Promise.resolve(true);
+  if(title) title.textContent = String(opts.title || '确认操作');
+  if(copy) copy.textContent = String(opts.copy || '确定要继续吗？');
+  overlay.classList.add('open');
+  return new Promise(function(resolve){
+    offlineMemoryConfirmResolver = resolve;
+  });
+}
+function resolveOfflineMemoryConfirm(ok){
+  var overlay = document.getElementById('offlineMemoryConfirmOverlay');
+  if(overlay) overlay.classList.remove('open');
+  var resolver = offlineMemoryConfirmResolver;
+  offlineMemoryConfirmResolver = null;
+  if(resolver) resolver(!!ok);
 }
 document.getElementById('offlineMemoryBody')?.addEventListener('click', function(event){
   handleOfflineMemoryPanelActionClick(event).catch(function(err){
