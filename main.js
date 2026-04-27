@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T09:45:00Z';
+const APP_BUILD_ID = '2026-04-27T09:52:00Z';
 const APP_UPDATE_NOTES = [
-  '结束页改成粉蓝像素小聊天室，不再显示照片等待文案。',
-  'char 收尾会像线上聊天一样拆成短短的多条气泡。',
-  '约会 app 会主动消费完成队列，减少结束后不进 Complete 的情况。'
+  '结束页改成黑白网页式聊天室，拆出侧栏、聊天区和小装饰元素。',
+  '收尾气泡取消尾巴，按线上聊天一样显示短消息。',
+  '继续保留约会完成队列，帮助结束后稳定进入 Complete。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
