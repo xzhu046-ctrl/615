@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T08:29:00Z';
+const APP_BUILD_ID = '2026-04-27T08:46:00Z';
 const APP_UPDATE_NOTES = [
-  '相纸显影文字只保留在背面，底部不再重复显示。',
-  '吐纸动画改为纯向下滑出，相纸背面改成明信片并加邮票。',
-  '结束约会后不再被自动归档改回待续，完成后会清掉恢复快照。'
+  '相纸背面改成黑白复古聊天室，去掉明信片黄底和装饰线。',
+  'char 的收尾文字会拆成几条消息，一句一句弹出来。',
+  '结束约会按钮移到聊天室底部，并加强当前邀约的 Complete 写入。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
