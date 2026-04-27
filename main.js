@@ -50,12 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T04:18:36Z';
+const APP_BUILD_ID = '2026-04-27T04:31:12Z';
 const APP_UPDATE_NOTES = [
-  '约会 app 去掉 Received，Pending 合并所有未处理邀约。',
-  '约会 app 按选中日期显示当天邀约，日历日期可以点击切换。',
-  'Complete 邀约可以只读打开，右上设置位变成红色返回叉。',
-  'To Be Continued 覆盖线下暂时离开和意外退出，修掉底部白色遮挡。'
+  '更新弹窗里的“更新介绍”改成了“更新日志”。',
+  '每条更新前的短横线换成了数字徽标样式。',
+  '数字徽标用样式绘制，移动端不会被渲染成 emoji。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -889,10 +888,14 @@ function updateHostedUpdateMeta(remoteFingerprint){
     }).join('<br>');
   }
   if(notes){
-    notes.innerHTML = ['更新介绍：'].concat(getHostedUpdateNotes(remote)).map(function(line, idx){
-      var safe = String(line || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
-      return idx === 0 ? safe : ('- ' + safe);
-    }).join('<br>');
+    var noteLines = getHostedUpdateNotes(remote);
+    notes.innerHTML = [
+      '<div class="update-toast-notes-label">更新日志</div>',
+      noteLines.map(function(line, idx){
+        var safe = String(line || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        return '<div class="update-toast-note-line"><span class="update-toast-note-icon" aria-hidden="true">' + (idx + 1) + '</span><span class="update-toast-note-text">' + safe + '</span></div>';
+      }).join('')
+    ].join('');
   }
 }
 
