@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T01:42:18Z';
+const APP_BUILD_ID = '2026-04-27T02:05:26Z';
 const APP_UPDATE_NOTES = [
-  '更新弹窗改为优先显示远端 version.json 里的更新介绍。',
-  'version.json 现在会跟版本号一起保存本次更新内容，避免弹窗继续显示上一版日志。',
-  '保留本地简介兜底：远端日志读取失败时才使用当前包里的说明。'
+  '线下番外改成参考图那种黑白贴纸卡片，背景是毛玻璃透明，不再是蓝色底。',
+  '线下正文段落首字放大，阅读时更像排版好的故事页。',
+  '线下设置新增段落字数和心声字数，心声长度会跟着设置写入生成规则。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1164,6 +1164,7 @@ async function primeLatestCoreFiles(){
     'version.json',
     'apps/qq.html',
     'apps/chat.html',
+    'apps/offline_mode.html',
     'apps/schedule.html',
     'apps/map6.html',
     'apps/offline_archive.html'
