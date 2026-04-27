@@ -725,6 +725,15 @@ function getCompletedOfflineInviteIdsKey(){
   return 'offline_invite_completed_ids_v1';
 }
 
+function getForceCompleteOfflineInvitePayloadKey(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
+      return window.parent.scopedKeyForAccount('offline_invite_force_complete_payload_v1', window.parent.getActiveAccountId());
+    }
+  }catch(err){}
+  return 'offline_invite_force_complete_payload_v1';
+}
+
 function readCompletedOfflineInviteIds(){
   var ids = [];
   try{
@@ -776,8 +785,24 @@ function forceCompleteOfflineRecords(ids){
   var now = Date.now();
   var store = window.OfflineInviteStore || null;
   if(store && typeof store.patchRecord === 'function'){
-    var primaryId = safeIds[0] || '';
-    safeIds.forEach(function(id){
+    var wanted = safeIds.reduce(function(map, id){ map[id] = true; return map; }, Object.create(null));
+    var targetMap = safeIds.reduce(function(map, id){ map[id] = true; return map; }, Object.create(null));
+    try{
+      if(typeof store.listRecords === 'function'){
+        store.listRecords().forEach(function(record){
+          ['id','threadId','inviteMessageId','replyMessageId'].forEach(function(key){
+            var value = String(record && record[key] || '').trim();
+            if(value && wanted[value]){
+              var recordId = String(record && record.id || '').trim();
+              if(recordId) targetMap[recordId] = true;
+            }
+          });
+        });
+      }
+    }catch(listErr){}
+    var targetIds = Object.keys(targetMap);
+    var primaryId = targetIds[0] || safeIds[0] || '';
+    targetIds.forEach(function(id){
       try{
         var existing = typeof store.getRecord === 'function' ? store.getRecord(id) : null;
         if(existing || typeof store.getRecord !== 'function'){
@@ -794,6 +819,23 @@ function forceCompleteOfflineRecords(ids){
       }
     });
   }
+}
+
+function consumePendingForceCompleteOfflineRecords(){
+  var payloads = [];
+  [getForceCompleteOfflineInvitePayloadKey(), 'offline_invite_force_complete_payload_v1'].forEach(function(key){
+    try{
+      var raw = localStorage.getItem(key) || '';
+      if(raw) payloads.push({ key:key, value:JSON.parse(raw) });
+    }catch(err){}
+  });
+  payloads.forEach(function(item){
+    var payload = item && item.value && typeof item.value === 'object' ? item.value : {};
+    var ids = Array.isArray(payload.ids) ? payload.ids.slice() : [];
+    if(payload.inviteId) ids.push(payload.inviteId);
+    forceCompleteOfflineRecords(ids);
+    try{ localStorage.removeItem(item.key); }catch(err){}
+  });
 }
 
 function hideOfflineRecordIds(ids){
@@ -1813,20 +1855,31 @@ window.addEventListener('message', function(e){
     return;
   }
   if(data.type === 'OFFLINE_INVITE_STORE_DIRTY' || data.type === 'OPEN_SHELL_NOTIFICATION'){
+    consumePendingForceCompleteOfflineRecords();
     renderOfflineApp();
   }
 });
 
 window.addEventListener('storage', function(e){
-  if(e && /offline_invite/i.test(String(e.key || ''))) renderOfflineApp();
+  if(e && /offline_invite/i.test(String(e.key || ''))){
+    consumePendingForceCompleteOfflineRecords();
+    renderOfflineApp();
+  }
 });
 
 document.addEventListener('visibilitychange', function(){
-  if(document.visibilityState === 'visible') renderOfflineApp();
+  if(document.visibilityState === 'visible'){
+    consumePendingForceCompleteOfflineRecords();
+    renderOfflineApp();
+  }
 });
 
+consumePendingForceCompleteOfflineRecords();
 renderOfflineApp();
-setInterval(renderOfflineApp, 20000);
+setInterval(function(){
+  consumePendingForceCompleteOfflineRecords();
+  renderOfflineApp();
+}, 20000);
 </script>
 </body>
 </html>

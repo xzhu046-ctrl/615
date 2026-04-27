@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T09:34:00Z';
+const APP_BUILD_ID = '2026-04-27T09:45:00Z';
 const APP_UPDATE_NOTES = [
-  '结束页改成温馨小聊天室，不再显示 blocked chat 和红色感叹号。',
-  'char 的收尾话会保留换行并拆成多条气泡，不再挤成一大段。',
-  '更新日志同步为这次的小聊天室与收尾消息修正。'
+  '结束页改成粉蓝像素小聊天室，不再显示照片等待文案。',
+  'char 收尾会像线上聊天一样拆成短短的多条气泡。',
+  '约会 app 会主动消费完成队列，减少结束后不进 Complete 的情况。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4614,6 +4614,20 @@ function rememberCompletedOfflineInviteIds(ids){
   return out;
 }
 
+function rememberOfflineInviteForceCompletePayload(ids, payload, reason){
+  var safeIds = (Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
+  if(!safeIds.length) return;
+  var data = {
+    ids:safeIds,
+    inviteId:String((payload && payload.inviteId) || safeIds[0] || '').trim(),
+    charId:String(payload && payload.charId || '').trim(),
+    reason:String(reason || 'complete').trim(),
+    at:Date.now()
+  };
+  try{ localStorage.setItem(scopedKeyForAccount('offline_invite_force_complete_payload_v1', getActiveAccountId()), JSON.stringify(data)); }catch(err){}
+  try{ localStorage.setItem('offline_invite_force_complete_payload_v1', JSON.stringify(data)); }catch(err2){}
+}
+
 function showAppNotificationCard(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var shell = document.getElementById('app-notify-shell');
@@ -8189,6 +8203,7 @@ window.addEventListener('message',(e)=>{
     }
     if(appId === 'offline' && payload.forceComplete){
       var completedIds = rememberCompletedOfflineInviteIds(normalizeOfflineInviteCompleteIds(payload));
+      rememberOfflineInviteForceCompletePayload(completedIds, payload, 'open_app_with');
       postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), reason:'open_app_with' } });
       setTimeout(function(){
         postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), reason:'open_app_with_after_open' } });
@@ -8225,6 +8240,7 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='OFFLINE_INVITE_FORCE_COMPLETE'){
     var forcedIds = rememberCompletedOfflineInviteIds(normalizeOfflineInviteCompleteIds(payload));
+    rememberOfflineInviteForceCompletePayload(forcedIds, payload, 'message');
     postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:Object.assign({}, payload || {}, { ids:forcedIds }) });
   }
   if(type==='QQ_BADGE_SYNC'){
