@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T06:40:00Z';
+const APP_BUILD_ID = '2026-04-27T06:58:00Z';
 const APP_UPDATE_NOTES = [
-  'QQ 置顶和取消置顶的确认按钮改成稳定响应。',
-  '置顶弹窗会隔离长按后的触摸事件，不再吞掉取消或确认。',
-  '确认后会立刻刷新 QQ 列表并显示置顶状态。'
+  '主页第二页 USER 头像改为跟随当前聊天的用户头像。',
+  '第二页头像入口会打开当前主页角色的聊天，不再跳到旧角色。',
+  'QQ 置顶确认按钮改为抗容量异常保存，按确认会关闭并刷新置顶状态。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1802,6 +1802,17 @@ function isDefaultAccountActive(){
     }
   }catch(e){}
   return true;
+}
+function getActiveAccountProfileAvatar(){
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      var active = window.AccountManager.getActive();
+      var src = String((active && active.avatar) || '').trim();
+      return normalizeShellAssetSrc(src);
+    }
+  }catch(e){}
+  return '';
 }
 
 async function getBackgroundCharacter(){
@@ -5258,6 +5269,18 @@ function bindHomePager(){
 }
 
 function openPlaceholderMiniApp(idx){
+  if(Number(idx) === 1 || Number(idx) === 2){
+    var activeChat = getActiveCharacterData();
+    if(activeChat && activeChat.id){
+      persistShellActiveCharacter(activeChat);
+      pendingOpenChatCharId = String(activeChat.id || '').trim();
+      pendingOpenChatNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+      openApp('chat');
+    }else{
+      openApp('characters');
+    }
+    return;
+  }
   if(Number(idx) === 3){
     openApp('schedule');
     return;
@@ -5399,9 +5422,11 @@ function getChatUserAvatar(charId){
   if(charId) keys.push('user_avatar_' + charId);
   keys.push(scopedKeyForAccount('user_avatar', activeId));
   keys.push('user_avatar');
+  if(!isDefaultAccountActive()) keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
   function loadAt(idx){
     if(idx >= keys.length){
-      return Promise.resolve('');
+      var accountAvatar = getActiveAccountProfileAvatar();
+      return Promise.resolve(isRenderableShellAvatarSrc(accountAvatar) ? accountAvatar : '');
     }
     return loadStoredAsset(keys[idx]).then(function(src){
       if(isRenderableShellAvatarSrc(src)) return normalizeShellAssetSrc(src);
@@ -5418,12 +5443,15 @@ function getImmediateChatUserAvatar(charId){
   if(charId) keys.push('user_avatar_' + charId);
   keys.push(scopedKeyForAccount('user_avatar', activeId));
   keys.push('user_avatar');
+  if(!isDefaultAccountActive()) keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
   for(var i = 0; i < keys.length; i += 1){
     try{
       var src = normalizeShellAssetSrc(localStorage.getItem(keys[i]) || '');
-      if(isRenderableShellAvatarSrc(src)) return src;
+      if(isRenderableShellAvatarSrc(src) && !/^blob:/i.test(src)) return src;
     }catch(e){}
   }
+  var accountAvatar = getActiveAccountProfileAvatar();
+  if(isRenderableShellAvatarSrc(accountAvatar) && !/^blob:/i.test(accountAvatar)) return accountAvatar;
   return '';
 }
 
@@ -5659,6 +5687,9 @@ function onBondAvatarTap(e, role){
     openApp('characters');
     return;
   }
+  persistShellActiveCharacter(active);
+  pendingOpenChatCharId = String(active.id || '').trim();
+  pendingOpenChatNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
   openApp('chat');
 }
 
@@ -5669,6 +5700,9 @@ function onBondNameTap(e, role){
     openApp('characters');
     return;
   }
+  persistShellActiveCharacter(active);
+  pendingOpenChatCharId = String(active.id || '').trim();
+  pendingOpenChatNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
   openApp('chat');
 }
 

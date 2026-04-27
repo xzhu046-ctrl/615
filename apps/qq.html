@@ -1444,6 +1444,8 @@ body{
 var chars=[];
 var pinConfirmId = '';
 var pinConfirmMode = 'pin';
+var pinActionLockUntil = 0;
+var pinnedChatIdsCache = null;
 var longPressTimer = null;
 var longPressTriggered = false;
 var activePressId = null;
@@ -2148,6 +2150,7 @@ async function loadChars(){
     }
   }
   hydrateAvatarAssets();
+  await hydratePinnedChatIds();
   await refreshChatCaches();
   await refreshMomentsCache();
   renderList();
@@ -2161,15 +2164,43 @@ function memeLibraryStorageKey(){
   return accountScopedKey('chat_meme_library_v1');
 }
 function getPinnedChatIds(){
+  if(Array.isArray(pinnedChatIdsCache)){
+    return pinnedChatIdsCache.slice();
+  }
   try{
     var ids = JSON.parse(localStorage.getItem(pinnedChatIdsKey()) || '[]');
-    return Array.isArray(ids) ? ids.filter(Boolean) : [];
+    pinnedChatIdsCache = Array.isArray(ids) ? ids.filter(Boolean) : [];
+    return pinnedChatIdsCache.slice();
   }catch(e){
     return [];
   }
 }
 function setPinnedChatIds(ids){
-  localStorage.setItem(pinnedChatIdsKey(), JSON.stringify(ids));
+  var safeIds = (Array.isArray(ids) ? ids : []).map(function(item){ return String(item || '').trim(); }).filter(Boolean);
+  pinnedChatIdsCache = safeIds.slice();
+  try{
+    localStorage.setItem(pinnedChatIdsKey(), JSON.stringify(safeIds));
+  }catch(err){
+    console.warn('qq pinned localStorage save failed', err);
+  }
+  if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
+    window.PhoneStorage.putJson(pinnedChatIdsKey(), safeIds).catch(function(err){
+      console.warn('qq pinned indexedDB save failed', err);
+    });
+  }
+}
+function hydratePinnedChatIds(){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function')) return Promise.resolve(getPinnedChatIds());
+  return window.PhoneStorage.getJson(pinnedChatIdsKey()).then(function(ids){
+    if(Array.isArray(ids)){
+      pinnedChatIdsCache = ids.map(function(item){ return String(item || '').trim(); }).filter(Boolean);
+    }else{
+      getPinnedChatIds();
+    }
+    return pinnedChatIdsCache || [];
+  }).catch(function(){
+    return getPinnedChatIds();
+  });
 }
 function isChatPinned(id){
   return getPinnedChatIds().indexOf(id) !== -1;
@@ -2944,7 +2975,6 @@ function stopPinEvent(evt){
   if(!evt) return;
   evt.preventDefault();
   evt.stopPropagation();
-  if(typeof evt.stopImmediatePropagation === 'function') evt.stopImmediatePropagation();
 }
 function openPinConfirm(id){
   if(!id) return false;
@@ -2970,24 +3000,36 @@ function handlePinOverlayClick(evt){
 }
 function confirmPinChat(evt){
   stopPinEvent(evt);
-  if(!pinConfirmId) return closePinConfirm();
+  var targetId = String(pinConfirmId || '').trim();
+  if(!targetId) return closePinConfirm();
   var mode = pinConfirmMode;
-  if(mode === 'unpin'){
-    unpinChat(pinConfirmId);
-  }else{
-    pinChat(pinConfirmId);
+  try{
+    if(mode === 'unpin'){
+      unpinChat(targetId);
+    }else{
+      pinChat(targetId);
+    }
+  }catch(err){
+    console.warn('qq pin action failed', err);
   }
   closePinConfirm();
   renderList();
   showToast(mode === 'unpin' ? '已取消置顶' : '已置顶到最上面');
 }
-function handlePinCancel(evt){
-  closePinConfirm(evt);
+function runPinButtonAction(action, evt){
+  stopPinEvent(evt);
+  var now = Date.now();
+  if(pinActionLockUntil && now < pinActionLockUntil) return false;
+  pinActionLockUntil = now + 260;
+  if(action === 'confirm') confirmPinChat();
+  else closePinConfirm();
   return false;
 }
+function handlePinCancel(evt){
+  return runPinButtonAction('cancel', evt);
+}
 function handlePinConfirm(evt){
-  confirmPinChat(evt);
-  return false;
+  return runPinButtonAction('confirm', evt);
 }
 function bindPinConfirmControls(){
   var overlay = document.getElementById('pinOverlay');
@@ -3007,7 +3049,8 @@ function bindPinConfirmControls(){
     var handler = pair[1];
     if(!btn || btn.dataset.pinButtonBound === '1') return;
     btn.dataset.pinButtonBound = '1';
-    btn.addEventListener('pointerdown', handler, true);
+    btn.addEventListener('pointerup', handler, true);
+    btn.addEventListener('touchend', handler, true);
     btn.addEventListener('click', handler, true);
   });
 }
