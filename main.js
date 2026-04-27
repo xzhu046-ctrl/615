@@ -50,17 +50,18 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T00:33:16Z';
+const APP_BUILD_ID = '2026-04-27T00:48:09Z';
 const APP_UPDATE_NOTES = [
-  '修复 blocked chat 拒绝后旧消息从头重播的问题。',
-  '拒绝后的系统提示改为 user 还在生气，不再显示 char 名字。',
-  '更新介绍会固定写进弹窗，方便一眼看到这版改了什么。'
+  '修复更新弹窗同一远端版本在同一会话里重复弹出的问题。',
+  '修复主屏第二页 user 头像掉回“你”的问题。',
+  'System Update 标题加大加粗，更像复古系统弹窗。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
 const UPDATE_PROMPT_DEDUPE_KEY = 'hosted_update_prompt_dedupe_v1';
 const UPDATE_PROMPT_DEDUPE_MS = 8000;
+const HOSTED_UPDATE_SESSION_SHOWN_KEY = 'hosted_update_session_shown_v1';
 const HOSTED_UPDATE_ACCEPTED_BUILD_KEY = 'hosted_update_accepted_build_v1';
 const HOSTED_UPDATE_ACCEPTED_AT_KEY = 'hosted_update_accepted_at_v1';
 const HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY = 'hosted_update_last_seen_remote_v1';
@@ -723,6 +724,9 @@ function markHostedUpdatePromptShown(fingerprint){
       at: hostedUpdatePromptDedupeAt
     }));
   }catch(e){}
+  try{
+    sessionStorage.setItem(HOSTED_UPDATE_SESSION_SHOWN_KEY, value);
+  }catch(e){}
 }
 
 function hydrateHostedUpdatePromptDedupe(fingerprint){
@@ -744,6 +748,12 @@ function hydrateHostedUpdatePromptDedupe(fingerprint){
 function shouldSuppressHostedUpdatePrompt(fingerprint){
   var value = String(fingerprint || pendingRemoteAppFingerprint || '').trim();
   if(!value) return false;
+  try{
+    if(String(sessionStorage.getItem(HOSTED_UPDATE_SESSION_SHOWN_KEY) || '').trim() === value){
+      var card = document.getElementById('update-toast-card');
+      if(card && card.hidden) return true;
+    }
+  }catch(e){}
   hydrateHostedUpdatePromptDedupe(value);
   if(hostedUpdatePromptDedupeFingerprint !== value) return false;
   var age = Date.now() - (Number(hostedUpdatePromptDedupeAt || 0) || 0);
@@ -801,12 +811,13 @@ function isAcceptedHostedRemoteBuild(fingerprint){
 function showHostedUpdateCard(){
   if(hostedUpdateModalShown) return;
   var fingerprint = String(pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
-  if(shouldSuppressHostedUpdatePrompt(fingerprint)) return;
   var card = document.getElementById('update-toast-card');
   if(!card){
     hostedUpdateCardPending = true;
     return;
   }
+  if(!card.hidden) return;
+  if(shouldSuppressHostedUpdatePrompt(fingerprint)) return;
   updateHostedUpdateMeta();
   card.hidden = false;
   hostedUpdateCardPending = false;
@@ -5303,7 +5314,7 @@ function getChatUserAvatar(charId){
       return Promise.resolve('');
     }
     return loadStoredAsset(keys[idx]).then(function(src){
-      if(isRenderableShellAvatarSrc(src)) return src;
+      if(isRenderableShellAvatarSrc(src)) return normalizeShellAssetSrc(src);
       return loadAt(idx + 1);
     });
   }
@@ -5468,8 +5479,9 @@ function renderBondWidget(character){
   }
   if(userAvatar){
     const applyUserAvatar = (src)=>{
-      const baseHtml = src && /^(data:|https?:|blob:|\/|\.\.?\/)/i.test(String(src || '').trim())
-        ? '<span class="bond-avatar-base"><img src="' + src + '" alt=""></span>'
+      const safeSrc = normalizeShellAssetSrc(src || '');
+      const baseHtml = isRenderableShellAvatarSrc(safeSrc)
+        ? '<span class="bond-avatar-base"><img src="' + safeSrc + '" alt=""></span>'
         : '<span class="bond-avatar-base">你</span>';
       const frameUrl = getActiveBondAvatarFrameUrl('user');
       if(frameUrl){
