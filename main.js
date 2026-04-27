@@ -50,11 +50,9 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T03:18:44Z';
+const APP_BUILD_ID = '2026-04-27T03:29:12Z';
 const APP_UPDATE_NOTES = [
-  '线下人称拆成 char 和 user 两组按钮，第三人称会强制用本名。',
-  'user 人称只跟 user 按钮走，char 人称只跟 char 按钮走，心声仍固定 char 第一人称。',
-  '求求你别再看片了番外改成黑屏视频页，精彩片段会用长弹幕划过。'
+  '我改了一些东西。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
