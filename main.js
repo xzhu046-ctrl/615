@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T01:23:47Z';
+const APP_BUILD_ID = '2026-04-27T01:42:18Z';
 const APP_UPDATE_NOTES = [
-  '线下心声改成旁白同款：渐变竖线、大双引号和虚线下划线。',
-  '收紧线下心声框高度，让短心声不再显得空。',
-  '线下番外改成独立的黑白复古文档窗口风格，不和更新弹窗/拉黑聊天室撞样式。'
+  '更新弹窗改为优先显示远端 version.json 里的更新介绍。',
+  'version.json 现在会跟版本号一起保存本次更新内容，避免弹窗继续显示上一版日志。',
+  '保留本地简介兜底：远端日志读取失败时才使用当前包里的说明。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -65,6 +65,7 @@ const HOSTED_UPDATE_SESSION_SHOWN_KEY = 'hosted_update_session_shown_v1';
 const HOSTED_UPDATE_ACCEPTED_BUILD_KEY = 'hosted_update_accepted_build_v1';
 const HOSTED_UPDATE_ACCEPTED_AT_KEY = 'hosted_update_accepted_at_v1';
 const HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY = 'hosted_update_last_seen_remote_v1';
+const HOSTED_UPDATE_REMOTE_NOTES_KEY = 'hosted_update_remote_notes_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
 const GITHUB_UPDATE_REPO = '615';
@@ -96,6 +97,7 @@ let hostedUpdatePromptDedupeFingerprint = '';
 let hostedUpdatePromptDedupeAt = 0;
 let hostedUpdateCardPending = false;
 let lastHostedUpdateCheckStatus = '';
+let hostedUpdateRemoteNotes = {};
 let chatInputFocusActive = false;
 let chatReportedKeyboardShift = 0;
 var shellActiveCharacterCache = {};
@@ -793,6 +795,48 @@ function setLastSeenHostedRemoteBuild(fingerprint){
   }catch(e){}
 }
 
+function normalizeHostedUpdateNotes(value){
+  if(Array.isArray(value)){
+    return value.map(function(line){ return String(line || '').trim(); }).filter(Boolean).slice(0, 8);
+  }
+  var text = String(value || '').trim();
+  if(!text) return [];
+  return text.split(/\r?\n|[；;]/).map(function(line){ return line.trim(); }).filter(Boolean).slice(0, 8);
+}
+
+function loadHostedUpdateRemoteNotes(){
+  if(hostedUpdateRemoteNotes && Object.keys(hostedUpdateRemoteNotes).length) return hostedUpdateRemoteNotes;
+  try{
+    var parsed = JSON.parse(localStorage.getItem(HOSTED_UPDATE_REMOTE_NOTES_KEY) || '{}');
+    hostedUpdateRemoteNotes = parsed && typeof parsed === 'object' ? parsed : {};
+  }catch(e){
+    hostedUpdateRemoteNotes = {};
+  }
+  return hostedUpdateRemoteNotes;
+}
+
+function rememberHostedUpdateRemoteNotes(buildId, notes){
+  var build = String(buildId || '').trim();
+  var safeNotes = normalizeHostedUpdateNotes(notes);
+  if(!build || !safeNotes.length) return;
+  var store = loadHostedUpdateRemoteNotes();
+  store[build] = safeNotes;
+  hostedUpdateRemoteNotes = store;
+  try{
+    localStorage.setItem(HOSTED_UPDATE_REMOTE_NOTES_KEY, JSON.stringify(store));
+  }catch(e){}
+}
+
+function getHostedUpdateNotes(remoteFingerprint){
+  var remote = String(remoteFingerprint || pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
+  if(remote){
+    var store = loadHostedUpdateRemoteNotes();
+    var remoteNotes = normalizeHostedUpdateNotes(store[remote]);
+    if(remoteNotes.length) return remoteNotes;
+  }
+  return APP_UPDATE_NOTES.slice();
+}
+
 function clearAcceptedHostedUpdateBuildIfCurrent(){
   var accepted = getAcceptedHostedUpdateBuild();
   if(!accepted || accepted !== APP_BUILD_ID) return;
@@ -844,7 +888,7 @@ function updateHostedUpdateMeta(remoteFingerprint){
     }).join('<br>');
   }
   if(notes){
-    notes.innerHTML = ['更新介绍：'].concat(APP_UPDATE_NOTES).map(function(line, idx){
+    notes.innerHTML = ['更新介绍：'].concat(getHostedUpdateNotes(remote)).map(function(line, idx){
       var safe = String(line || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
       return idx === 0 ? safe : ('- ' + safe);
     }).join('<br>');
@@ -918,14 +962,26 @@ function readBuildIdFromVersionPayload(data){
   return String(data && data.buildId || '').trim();
 }
 
-function decodeGithubContentsBuildId(payload){
+function readUpdateNotesFromVersionPayload(data){
+  if(!data || typeof data !== 'object') return [];
+  return normalizeHostedUpdateNotes(data.updateNotes || data.notes || data.releaseNotes || data.changelog || data.description);
+}
+
+function readVersionInfoFromVersionPayload(data){
+  return {
+    buildId: readBuildIdFromVersionPayload(data),
+    updateNotes: readUpdateNotesFromVersionPayload(data)
+  };
+}
+
+function decodeGithubContentsVersionInfo(payload){
   try{
     var encoded = String(payload && payload.content || '').replace(/\s+/g, '');
-    if(!encoded) return '';
+    if(!encoded) return { buildId:'', updateNotes:[] };
     var decoded = atob(encoded);
-    return readBuildIdFromVersionPayload(JSON.parse(decoded));
+    return readVersionInfoFromVersionPayload(JSON.parse(decoded));
   }catch(err){
-    return '';
+    return { buildId:'', updateNotes:[] };
   }
 }
 
@@ -984,18 +1040,27 @@ function syncHostedUpdateFromServiceWorker(reg){
 
 async function buildRemoteAppFingerprint(){
   var stamp = Date.now();
+  var normalizeRemoteVersionResult = function(value){
+    if(value && typeof value === 'object'){
+      return {
+        buildId: String(value.buildId || '').trim(),
+        updateNotes: normalizeHostedUpdateNotes(value.updateNotes || value.notes)
+      };
+    }
+    return { buildId: String(value || '').trim(), updateNotes: [] };
+  };
   var remoteTasks = [
     function(){
       return fetchJsonWithTimeout('https://api.github.com/repos/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/contents/version.json?ref=' + GITHUB_UPDATE_BRANCH + '&t=' + stamp, 12000)
-        .then(function(data){ return decodeGithubContentsBuildId(data); });
+        .then(function(data){ return decodeGithubContentsVersionInfo(data); });
     },
     function(){
       return fetchJsonWithTimeout('https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 12000)
-        .then(function(data){ return readBuildIdFromVersionPayload(data); });
+        .then(function(data){ return readVersionInfoFromVersionPayload(data); });
     },
     function(){
       return fetchJsonWithTimeout('https://cdn.jsdelivr.net/gh/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '@' + GITHUB_UPDATE_BRANCH + '/version.json?t=' + stamp, 12000)
-        .then(function(data){ return readBuildIdFromVersionPayload(data); });
+        .then(function(data){ return readVersionInfoFromVersionPayload(data); });
     },
     function(){
       return fetchTextWithTimeout('https://raw.githubusercontent.com/' + GITHUB_UPDATE_OWNER + '/' + GITHUB_UPDATE_REPO + '/' + GITHUB_UPDATE_BRANCH + '/main.js?t=' + stamp, 12000)
@@ -1009,7 +1074,7 @@ async function buildRemoteAppFingerprint(){
   if(/^https?:$/.test(window.location.protocol)){
     remoteTasks.push(function(){
       return fetchJsonWithTimeout(new URL('version.json?updateCheck=' + stamp, window.location.href).toString(), 15000)
-        .then(function(data){ return String(data && data.buildId || '').trim(); });
+        .then(function(data){ return readVersionInfoFromVersionPayload(data); });
     });
     remoteTasks.push(function(){
       return fetchTextWithTimeout(new URL('main.js?updateCheck=' + stamp, window.location.href).toString(), 15000)
@@ -1019,24 +1084,34 @@ async function buildRemoteAppFingerprint(){
   var results = await Promise.all(remoteTasks.map(function(task){
     return Promise.resolve()
       .then(task)
-      .then(function(value){ return String(value || '').trim(); })
+      .then(function(value){ return normalizeRemoteVersionResult(value); })
       .catch(function(err){
         console.warn('[update-check] source skipped', err);
-        return '';
+        return { buildId:'', updateNotes:[] };
       });
   }));
   var newest = '';
-  results.forEach(function(value){
+  var newestNotes = [];
+  results.forEach(function(info){
+    var value = String(info && info.buildId || '').trim();
     if(!value) return;
     if(!newest || compareHostedBuildIds(value, newest) > 0){
       newest = value;
+      newestNotes = normalizeHostedUpdateNotes(info && info.updateNotes);
+    }else if(value === newest && !newestNotes.length){
+      newestNotes = normalizeHostedUpdateNotes(info && info.updateNotes);
     }
   });
-  if(newest) return newest;
+  if(newest){
+    rememberHostedUpdateRemoteNotes(newest, newestNotes);
+    return newest;
+  }
   if(/^https?:$/.test(window.location.protocol)){
     try{
       var sameOriginFingerprint = await fetchJsonWithTimeout(new URL('version.json?updateCheck=' + stamp, window.location.href).toString(), 15000).then(function(data){
-        return String(data && data.buildId || '').trim();
+        var info = readVersionInfoFromVersionPayload(data);
+        rememberHostedUpdateRemoteNotes(info.buildId, info.updateNotes);
+        return info.buildId;
       });
       if(sameOriginFingerprint) return sameOriginFingerprint;
     }catch(errSameOrigin){
