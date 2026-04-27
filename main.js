@@ -50,7 +50,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-26T23:59:02Z';
+const APP_BUILD_ID = '2026-04-27T00:03:14Z';
+const APP_UPDATE_NOTES = [
+  '修复主屏 user 头像优先使用当前 char 的聊天头像。',
+  '优化 blocked chat：空白聊天室先出现，消息逐条送达，拒绝会显示系统提示。',
+  '更新弹窗改成黑白复古系统窗口，并固定展示更新介绍。'
+];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -799,7 +804,8 @@ function showHostedUpdateCard(){
 
 function updateHostedUpdateMeta(remoteFingerprint){
   var meta = document.getElementById('update-toast-meta');
-  if(!meta) return;
+  var notes = document.getElementById('update-toast-notes');
+  if(!meta && !notes) return;
   var remote = String(remoteFingerprint || pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
   var lines = [
     '当前版本：' + APP_BUILD_ID,
@@ -808,9 +814,17 @@ function updateHostedUpdateMeta(remoteFingerprint){
   if(lastHostedUpdateCheckStatus){
     lines.push('检查状态：' + lastHostedUpdateCheckStatus);
   }
-  meta.innerHTML = lines.map(function(line){
-    return line.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  }).join('<br>');
+  if(meta){
+    meta.innerHTML = lines.map(function(line){
+      return line.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    }).join('<br>');
+  }
+  if(notes){
+    notes.innerHTML = ['更新介绍：'].concat(APP_UPDATE_NOTES).map(function(line, idx){
+      var safe = String(line || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      return idx === 0 ? safe : ('- ' + safe);
+    }).join('<br>');
+  }
 }
 
 function compareHostedBuildIds(a, b){
