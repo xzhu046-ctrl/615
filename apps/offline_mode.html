@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-27T05:14:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T05:14:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T05:14:00Z"></script>
-<script src="../promptManager.js?v=2026-04-27T05:14:00Z"></script>
-<script src="../accountManager.js?v=2026-04-27T05:14:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T05:14:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T05:14:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T05:14:00Z"></script>
+<script src="../assetStore.js?v=2026-04-27T05:32:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-27T05:32:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-27T05:32:00Z"></script>
+<script src="../promptManager.js?v=2026-04-27T05:32:00Z"></script>
+<script src="../accountManager.js?v=2026-04-27T05:32:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-27T05:32:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-27T05:32:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-27T05:32:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1196,11 +1196,52 @@ function latestOfflineLaunchKey(){
 function offlineLaunchTokenKey(token){
   return scopedKey('offline_launch_token_' + String(token || '').trim());
 }
-function currentOfflineInviteRecordId(){
-  return String(
-    (session && session.invite && (session.invite.recordId || session.invite.id)) ||
-    ''
-  ).trim();
+function pushUniqueOfflineInviteId(list, value){
+  var safe = String(value || '').trim();
+  if(!safe || list.indexOf(safe) !== -1) return;
+  list.push(safe);
+}
+function collectOfflineInviteRecordIdsFromSource(source, list){
+  var out = Array.isArray(list) ? list : [];
+  if(!source || typeof source !== 'object') return out;
+  var invite = source.invite && typeof source.invite === 'object' ? source.invite : null;
+  var payload = source.payload && typeof source.payload === 'object' ? source.payload : null;
+  var launchRecord = source.offlineLaunchRecord && typeof source.offlineLaunchRecord === 'object' ? source.offlineLaunchRecord : null;
+  if(invite){
+    pushUniqueOfflineInviteId(out, invite.recordId);
+    pushUniqueOfflineInviteId(out, invite.inviteRecordId);
+    pushUniqueOfflineInviteId(out, invite.id);
+  }
+  pushUniqueOfflineInviteId(out, source.recordId);
+  pushUniqueOfflineInviteId(out, source.inviteRecordId);
+  if(payload) collectOfflineInviteRecordIdsFromSource(payload, out);
+  if(launchRecord) collectOfflineInviteRecordIdsFromSource(launchRecord, out);
+  return out;
+}
+function assignCurrentOfflineInviteRecordId(recordId){
+  var safeId = String(recordId || '').trim();
+  if(!safeId || !session || !session.invite || typeof session.invite !== 'object') return '';
+  session.invite.recordId = safeId;
+  session.invite.inviteRecordId = String(session.invite.inviteRecordId || safeId).trim() || safeId;
+  session.invite.id = String(session.invite.id || safeId).trim() || safeId;
+  return safeId;
+}
+function createOfflineInviteRecordId(){
+  try{
+    if(window.OfflineInviteStore && typeof window.OfflineInviteStore.createId === 'function'){
+      return window.OfflineInviteStore.createId('invite');
+    }
+  }catch(e){}
+  return 'invite_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+function currentOfflineInviteRecordId(options){
+  var opts = options && typeof options === 'object' ? options : {};
+  var ids = collectOfflineInviteRecordIdsFromSource(session, []);
+  if(ids.length) return ids[0];
+  if(opts.create && session && session.invite && typeof session.invite === 'object'){
+    return assignCurrentOfflineInviteRecordId(createOfflineInviteRecordId());
+  }
+  return '';
 }
 function getOfflineLaunchReadOnlyFlag(source){
   var payload = source && source.payload && typeof source.payload === 'object' ? source.payload : source;
@@ -1234,17 +1275,120 @@ function handleOfflineSettingsAction(){
   }
   openOfflineDrawer();
 }
+function getCurrentOfflineInviteStoreRecordIds(store, options){
+  var opts = options && typeof options === 'object' ? options : {};
+  var ids = collectOfflineInviteRecordIdsFromSource(session, []);
+  if(store && typeof store.getRecord === 'function'){
+    var existingIds = ids.filter(function(id){
+      try{ return !!store.getRecord(id); }catch(e){ return false; }
+    });
+    if(existingIds.length) return existingIds;
+  }
+  var records = [];
+  try{
+    records = store && typeof store.listRecords === 'function' ? store.listRecords() : [];
+  }catch(e){
+    records = [];
+  }
+  var invite = session && session.invite && typeof session.invite === 'object' ? session.invite : {};
+  var safeCharId = String((session && session.charId) || invite.charId || (character && character.id) || '').trim();
+  var inviteMessageId = String(invite.inviteMessageId || '').trim();
+  var replyMessageId = String(invite.replyMessageId || '').trim();
+  var location = String(invite.location || '').trim();
+  var scheduledDate = String(invite.scheduledDate || '').trim();
+  var scheduledTime = String(invite.scheduledTime || '').trim();
+  (Array.isArray(records) ? records : []).forEach(function(item){
+    if(!(item && typeof item === 'object')) return;
+    var itemId = String(item.id || '').trim();
+    if(!itemId) return;
+    var itemCharId = String(item.charId || '').trim();
+    if(safeCharId && itemCharId && itemCharId !== safeCharId) return;
+    var sameMessage = !!(
+      (inviteMessageId && String(item.inviteMessageId || '').trim() === inviteMessageId) ||
+      (replyMessageId && String(item.replyMessageId || '').trim() === replyMessageId)
+    );
+    var sameSchedule = !!(
+      safeCharId &&
+      location &&
+      String(item.location || '').trim() === location &&
+      (!scheduledDate || String(item.scheduledDate || '').trim() === scheduledDate) &&
+      (!scheduledTime || String(item.scheduledTime || '').trim() === scheduledTime)
+    );
+    if(sameMessage || sameSchedule) pushUniqueOfflineInviteId(ids, itemId);
+  });
+  if(store && typeof store.getRecord === 'function'){
+    var verifiedIds = ids.filter(function(id){
+      try{ return !!store.getRecord(id); }catch(e){ return false; }
+    });
+    if(verifiedIds.length) return verifiedIds;
+  }
+  if(!ids.length && opts.create) pushUniqueOfflineInviteId(ids, currentOfflineInviteRecordId({ create:true }));
+  return ids;
+}
+function buildCurrentOfflineInviteRecord(recordId, patch){
+  var invite = session && session.invite && typeof session.invite === 'object' ? session.invite : {};
+  var now = Date.now();
+  return Object.assign({}, invite, patch || {}, {
+    id: String(recordId || '').trim(),
+    threadId: String(invite.threadId || recordId || '').trim(),
+    charId: String(invite.charId || (session && session.charId) || (character && character.id) || '').trim(),
+    charName: String(invite.charName || (character && (character.nickname || character.name)) || '').trim(),
+    sourceRole: String(invite.sourceRole || 'user').trim() || 'user',
+    previewText: String(invite.previewText || invite.content || '').trim(),
+    createdAt: Number(invite.createdAt || (session && session.createdAt) || now) || now,
+    updatedAt: now
+  });
+}
+function applyOfflineInviteMeetPatchToSession(meetState, patch){
+  if(!session || typeof session !== 'object') return;
+  session.meetState = meetState;
+  session.updatedAt = Date.now();
+  if(session.invite && typeof session.invite === 'object'){
+    Object.assign(session.invite, patch || {});
+  }
+  if(meetState === 'complete'){
+    session.active = false;
+    session.minimized = false;
+    session.completedAt = Number((patch && patch.completedAt) || Date.now()) || Date.now();
+  }else if(meetState === 'continued'){
+    session.active = true;
+  }else if(meetState === 'ongoing'){
+    session.active = true;
+    session.minimized = false;
+  }
+}
 function patchCurrentOfflineInviteMeetState(meetState){
   var safeState = String(meetState || '').trim();
-  var recordId = currentOfflineInviteRecordId();
-  if(!safeState || !recordId || !(window.OfflineInviteStore && typeof window.OfflineInviteStore.patchRecord === 'function')) return;
+  if(!safeState) return;
+  var store = window.OfflineInviteStore;
+  if(!(store && typeof store.patchRecord === 'function')) return;
+  var now = Date.now();
+  var recordIds = getCurrentOfflineInviteStoreRecordIds(store, { create: safeState === 'complete' || safeState === 'ongoing' || safeState === 'continued' });
+  var recordId = recordIds[0] || '';
+  if(recordId) assignCurrentOfflineInviteRecordId(recordId);
   try{
     var patch = {
       meetState: safeState,
-      updatedAt: Date.now()
+      updatedAt: now
     };
-    if(safeState === 'complete') patch.status = 'completed';
-    window.OfflineInviteStore.patchRecord(recordId, patch);
+    if(safeState === 'complete'){
+      patch.status = 'completed';
+      patch.completedAt = now;
+    }
+    applyOfflineInviteMeetPatchToSession(safeState, patch);
+    var patched = false;
+    recordIds.forEach(function(id){
+      if(!id) return;
+      var before = null;
+      try{ before = typeof store.getRecord === 'function' ? store.getRecord(id) : null; }catch(e){}
+      if(before || typeof store.getRecord !== 'function'){
+        store.patchRecord(id, patch);
+        patched = true;
+      }
+    });
+    if(!patched && recordId && typeof store.upsertRecord === 'function'){
+      store.upsertRecord(buildCurrentOfflineInviteRecord(recordId, patch));
+    }
   }catch(err){}
 }
 function pendingOfflineResumeKey(charId){
@@ -1841,6 +1985,7 @@ async function syncCurrentSessionToArchive(status, reason){
 async function archiveCurrentOfflineMeet(status, reason){
   if(archivingOfflineMeet) return '';
   if(!session || !character || !character.id) return '';
+  if(status === 'ended') patchCurrentOfflineInviteMeetState('complete');
   saveSession();
   var snapshot = snapshotOfflineSessionState(session);
   if(!hasMeaningfulOfflineSession(snapshot)) return '';
@@ -11084,8 +11229,8 @@ async function exitOfflineMeet(){
     return;
   }
   try{
-    await archiveCurrentOfflineMeet('ended', 'goodbye');
     patchCurrentOfflineInviteMeetState('complete');
+    await archiveCurrentOfflineMeet('ended', 'goodbye');
   }catch(err){
     pushOfflineBackendLog('error', 'archive.exit', '正常存档失败，转入兜底退出', err);
     try{

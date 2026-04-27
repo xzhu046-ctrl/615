@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T05:14:00Z';
+const APP_BUILD_ID = '2026-04-27T05:32:00Z';
 const APP_UPDATE_NOTES = [
-  '约会 app 打开同一条旧邀约时保留已有线下聊天记录。',
-  '新 accepted 邀约仍然开新线下会话，不再误复用同角色旧会话。',
-  'freshStart 只在没有同邀约历史时生效，避免莫名清空旧记录。'
+  '先说再见会立即把当前邀约标记到 Complete。',
+  'Complete 邀约重开后进入只读模式，隐藏输入框、设置和记忆入口。',
+  '只读线下页右上角显示红色叉叉，点击会返回约会 app。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
