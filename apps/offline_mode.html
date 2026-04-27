@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-27T04:06:12Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T04:06:12Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T04:06:12Z"></script>
-<script src="../promptManager.js?v=2026-04-27T04:06:12Z"></script>
-<script src="../accountManager.js?v=2026-04-27T04:06:12Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T04:06:12Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T04:06:12Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../assetStore.js?v=2026-04-27T04:18:36Z"></script>
+<script src="../chatStorage.js?v=2026-04-27T04:18:36Z"></script>
+<script src="../metadataStore.js?v=2026-04-27T04:18:36Z"></script>
+<script src="../promptManager.js?v=2026-04-27T04:18:36Z"></script>
+<script src="../accountManager.js?v=2026-04-27T04:18:36Z"></script>
+<script src="../scheduleShared.js?v=2026-04-27T04:18:36Z"></script>
+<script src="../presenceShared.js?v=2026-04-27T04:18:36Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-27T04:18:36Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -46,6 +46,11 @@ body::before{content:'';position:fixed;inset:0;background:var(--offline-page-bg)
 .offline-stage-actions .offline-stage-action:first-child{display:none}
 .offline-stage-actions .offline-stage-action.settings{right:0}
 .offline-stage-actions .offline-stage-action.memory{top:44px;right:0;min-width:38px;height:30px;padding:0 5px;font:900 9px/1 var(--fontd);letter-spacing:.04em}
+.offline-readonly .offline-stage-action.settings{border-color:#8e1111;background:#b91c1c;color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.9) inset,4px 4px 0 rgba(99,0,0,.92)}
+.offline-readonly .offline-stage-action.settings svg{display:none}
+.offline-readonly .offline-stage-action.settings::before{content:'×';font:900 24px/1 var(--fontd)}
+.offline-readonly .offline-stage-action.memory,.offline-readonly .composer{display:none !important}
+.offline-readonly{--offline-composer-height:0px}
 .offline-stage-drawer-overlay{position:fixed;inset:0;z-index:125;background:rgba(17,17,17,.18);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .24s ease}
 .offline-stage-drawer-overlay.open{opacity:1;pointer-events:auto}
 .offline-stage-drawer{position:absolute;top:0;right:0;width:min(368px,calc(100vw - 20px));height:100%;padding:calc(env(safe-area-inset-top) + 14px) 10px calc(env(safe-area-inset-bottom) + 12px);transform:translateX(104%);transition:transform .28s ease}
@@ -590,7 +595,7 @@ box-shadow:0 0 0 2px rgba(255,255,255,.97),6px 6px 0 rgba(17,17,17,.94);padding:
       <button class="offline-stage-action" type="button" onclick="openExitMenu()" aria-label="离开选项">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
       </button>
-      <button class="offline-stage-action settings" type="button" onclick="openOfflineDrawer()" aria-label="线下设置">
+      <button class="offline-stage-action settings" id="offlineSettingsBtn" type="button" onclick="handleOfflineSettingsAction()" aria-label="线下设置">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M7 12h13"></path><path d="M10 17h10"></path></svg>
       </button>
       <button class="offline-stage-action memory" id="offlineMemoryBtn" type="button" onclick="openOfflineMemoryPanel()" aria-label="聊天记忆">★ 0</button>
@@ -921,6 +926,7 @@ var session = null;
 var character = null;
 var desiredOfflineCharId = '';
 var offlineEntryHome = false;
+var offlineReadOnlyMode = false;
 var offlineLobbyMode = 'date';
 var offlineLobbyModeConfirmed = false;
 var offlineLobbySelectedCharId = '';
@@ -1195,6 +1201,38 @@ function currentOfflineInviteRecordId(){
     (session && session.invite && (session.invite.recordId || session.invite.id)) ||
     ''
   ).trim();
+}
+function getOfflineLaunchReadOnlyFlag(source){
+  var payload = source && source.payload && typeof source.payload === 'object' ? source.payload : source;
+  var status = String(payload && payload.status || '').trim();
+  var meetState = String(payload && payload.meetState || '').trim();
+  return !!(source && source.readOnly) || !!(payload && payload.readOnly) || meetState === 'complete' || status === 'completed' || status === 'rejected' || status === 'declined';
+}
+function applyOfflineReadOnlyMode(){
+  document.body.classList.toggle('offline-readonly', !!offlineReadOnlyMode);
+  var settingsBtn = document.getElementById('offlineSettingsBtn');
+  if(settingsBtn){
+    settingsBtn.setAttribute('aria-label', offlineReadOnlyMode ? '返回约会' : '线下设置');
+    settingsBtn.title = offlineReadOnlyMode ? '返回约会' : '线下设置';
+  }
+  var input = document.getElementById('offlineInput');
+  if(input) input.disabled = !!offlineReadOnlyMode;
+}
+function returnToOfflineDateApp(){
+  try{
+    if(window.parent && window.parent !== window){
+      window.parent.postMessage({ type:'OPEN_APP_REPLACE', payload:'offline' }, '*');
+      return;
+    }
+  }catch(e){}
+  try{ location.href = 'offline.html'; }catch(err){}
+}
+function handleOfflineSettingsAction(){
+  if(offlineReadOnlyMode){
+    returnToOfflineDateApp();
+    return;
+  }
+  openOfflineDrawer();
 }
 function patchCurrentOfflineInviteMeetState(meetState){
   var safeState = String(meetState || '').trim();
@@ -1874,6 +1912,7 @@ function autoArchiveOfflineMeetIfNeeded(reason){
   var snapshot = snapshotOfflineSessionState(session);
   if(!hasMeaningfulOfflineSession(snapshot)) return;
   persistOfflineResumeSnapshot(character.id, snapshot);
+  patchCurrentOfflineInviteMeetState('continued');
   if(sending || offlineStatusGenerating || session.pendingOpening || session.pendingAnimation){
     try{
       upsertOfflineArchive(snapshot, {
@@ -10263,6 +10302,10 @@ async function generateOpeningIfNeeded(){
   }
 }
 async function sendOfflineTurn(){
+  if(offlineReadOnlyMode){
+    toast('这次邀约已经结束，只能阅读记录');
+    return;
+  }
   if(sending) return;
   var input = document.getElementById('offlineInput');
   var text = String((input && input.value) || '').trim();
@@ -10294,6 +10337,10 @@ async function sendOfflineTurn(){
 }
 async function requestOfflineReply(options){
   options = options || {};
+  if(offlineReadOnlyMode){
+    toast('这次邀约已经结束，只能阅读记录');
+    return false;
+  }
   if(sending) return;
   if(!session) return;
   setOfflineComposerBusy(true);
@@ -10914,6 +10961,10 @@ async function requestOfflineReply(options){
   }
 }
 async function rerollOfflineTurn(){
+  if(offlineReadOnlyMode){
+    toast('这次邀约已经结束，只能阅读记录');
+    return;
+  }
   if(sending || !session) return;
   var canRetryOpening = !!(session && session.invite && (session.pendingOpening || shouldBootOpeningFlow() || session.openingFailed));
   if((!Array.isArray(session.entries) || !session.entries.length) && canRetryOpening){
@@ -11335,6 +11386,7 @@ async function init(){
   ).trim().toLowerCase();
   offlineEntryHome = !hasExplicitLaunch;
   var launchInviteRecordId = getOfflineInviteRecordIdFromSource(launchSeed && launchSeed.payload ? launchSeed.payload : launchSeed);
+  offlineReadOnlyMode = getOfflineLaunchReadOnlyFlag(tokenLaunch || parentLaunch || launchSeed || null);
   var recordScopedSession = (!offlineEntryHome && launchInviteRecordId) ? await loadSessionByInviteRecordId(launchInviteRecordId) : null;
   var existingSession = (!offlineEntryHome && desiredOfflineCharId) ? await loadSessionByCharId(desiredOfflineCharId) : null;
   var resumeSession = (!offlineEntryHome && tokenLaunch && tokenLaunch.session) ? tokenLaunch.session : ((!offlineEntryHome && desiredOfflineCharId) ? await consumePendingOfflineResume(desiredOfflineCharId) : null);
@@ -11525,7 +11577,7 @@ async function init(){
     return syncOfflineStageSummariesToMemoryStore(getOfflineStageSummaries());
   }, 1800);
   bindOfflineDrawerControls();
-  patchCurrentOfflineInviteMeetState('ongoing');
+  if(!offlineReadOnlyMode) patchCurrentOfflineInviteMeetState('ongoing');
   await refreshOfflineDrawerMemoryModeFromStore().catch(function(){ return null; });
   syncOfflineDrawerControls();
   await refreshOfflineBackgroundFromSettings().catch(function(){
@@ -11533,6 +11585,7 @@ async function init(){
     applyOfflineCardBackgroundSource('');
   });
   refreshOfflineMemoryButton();
+  applyOfflineReadOnlyMode();
   refreshOfflineAvatarAssets();
   renderStory();
   primeOfflineStatusCards();

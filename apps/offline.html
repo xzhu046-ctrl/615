@@ -35,8 +35,10 @@ body{display:flex;justify-content:center}
   width:100%;
   max-width:430px;
   height:100vh;
+  height:100dvh;
   min-height:100vh;
-  padding:calc(var(--safe-top) - 6px) 14px calc(var(--safe-bottom) + 26px);
+  min-height:100dvh;
+  padding:calc(var(--safe-top) - 6px) 14px calc(var(--safe-bottom) + 10px);
   position:relative;
   overflow:hidden;
   display:flex;
@@ -151,6 +153,7 @@ body{display:flex;justify-content:center}
   justify-content:flex-start;
   gap:6px;
   background:rgba(255,255,255,.84);
+  cursor:pointer;
 }
 .day-chip.is-active{
   background:#111;
@@ -230,6 +233,17 @@ body{display:flex;justify-content:center}
   overscroll-behavior-y:auto;
 }
 .thread-list::-webkit-scrollbar{display:none}
+.thread-empty{
+  margin:8px 2px 0;
+  padding:22px 16px;
+  border:2px dashed rgba(17,17,17,.42);
+  background:rgba(255,255,255,.72);
+  color:#5f5f5f;
+  font-size:13px;
+  font-weight:900;
+  line-height:1.6;
+  text-align:center;
+}
 .thread-row{
   position:relative;
   min-height:144px;
@@ -426,7 +440,6 @@ body{display:flex;justify-content:center}
   background:#111;
 }
 .thread-stage.is-pending .thread-stage-dot{background:#b53b3b}
-.thread-stage.is-received .thread-stage-dot{background:#111}
 .thread-stage.is-accepted .thread-stage-dot{background:#fff}
 .thread-stage.is-complete .thread-stage-dot{background:#111}
 .thread-stage.is-continued .thread-stage-dot{background:#fff}
@@ -515,6 +528,7 @@ body{display:flex;justify-content:center}
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
+var currentSelectedDateKey = '';
 var avatarAssetCache = {};
 var offlineRenderVersion = 0;
 var latestOfflineRecords = [];
@@ -1144,19 +1158,15 @@ async function getOfflineRecords(){
 }
 
 function isPendingInviteRecord(item){
-  return String(item && item.sourceRole || '').trim() === 'user'
-    && String(item && item.status || 'pending').trim() === 'pending';
-}
-
-function isReceivedInviteRecord(item){
-  return String(item && item.sourceRole || '').trim() === 'assistant'
-    && String(item && item.status || 'pending').trim() === 'pending';
+  var status = String(item && item.status || 'pending').trim() || 'pending';
+  var meetState = String(item && item.meetState || '').trim();
+  return status === 'pending' && !meetState;
 }
 
 function isCompletedInviteRecord(item){
   var meetState = String(item && item.meetState || '').trim();
   var status = String(item && item.status || '').trim();
-  return meetState === 'complete' || status === 'completed' || status === 'rejected';
+  return meetState === 'complete' || status === 'completed' || status === 'rejected' || status === 'declined';
 }
 
 function isContinuedInviteRecord(item){
@@ -1184,9 +1194,6 @@ function getRecordStage(item){
   if(isPendingInviteRecord(item)){
     return { tone:'pending', label:'Pending', note:'pending', badge:'待回复' };
   }
-  if(isReceivedInviteRecord(item)){
-    return { tone:'received', label:'Received', note:'received', badge:'邀请' };
-  }
   if(isCompletedInviteRecord(item)){
     return { tone:'complete', label:'Complete', note:'complete', badge:'结束' };
   }
@@ -1209,7 +1216,9 @@ function getRecordPreview(item){
   var preview = String(item && item.previewText || '').trim();
   if(preview) return preview;
   var stage = getRecordStage(item);
-  if(stage.tone === 'received') return '对方发来了一个见面邀请，现在等你来决定要不要去。';
+  if(stage.tone === 'pending') return String(item && item.sourceRole || '').trim() === 'assistant'
+    ? '对方发来了一个见面邀请，现在还没有同意或拒绝。'
+    : '邀约已经发出去，现在还没有得到同意或拒绝。';
   if(stage.tone === 'complete') return '这次见面已经好好收尾，也算认真结束了。';
   if(stage.tone === 'continued') return '这次见面还没真正结束，只是先暂时离开了一下。';
   if(stage.tone === 'accepted') return '这次见面已经说定了，点进来就能直接进入线下。';
@@ -1250,10 +1259,15 @@ function toDateKey(date){
 }
 
 function getRecordDateObj(item){
-  var raw = String(item && item.scheduledDate || '').trim();
+  var raw = getRecordDateKey(item);
   if(!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return new Date();
   var parts = raw.split('-');
   return new Date(Number(parts[0]) || 0, Math.max(0, (Number(parts[1]) || 1) - 1), Number(parts[2]) || 1);
+}
+function getRecordDateKey(item){
+  var scheduled = String(item && item.scheduledDate || '').trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(scheduled)) return scheduled;
+  return toDateKeyFromTimestamp(item && (item.createdAt || item.updatedAt)) || toDateKey(new Date());
 }
 
 function formatMonthTitle(date){
@@ -1304,16 +1318,7 @@ function refreshThreadListElasticSpace(){
   var root = document.getElementById('threadList');
   if(!root) return;
   var spacer = root.querySelector('.thread-scroll-spacer');
-  if(!spacer){
-    spacer = document.createElement('div');
-    spacer.className = 'thread-scroll-spacer';
-    spacer.setAttribute('aria-hidden', 'true');
-    root.appendChild(spacer);
-  }
-  spacer.style.height = '0px';
-  var extra = Math.max(56, root.clientHeight - (root.scrollHeight - spacer.offsetHeight) + 56);
-  spacer.style.flex = '0 0 ' + extra + 'px';
-  spacer.style.height = extra + 'px';
+  if(spacer) spacer.remove();
 }
 
 function closeOpenThreadRows(exceptRow){
@@ -1353,7 +1358,10 @@ function finalizeThreadSwipe(row, offset){
 
 function filterRecords(records){
   var list = Array.isArray(records) ? records.slice() : [];
-  if(currentFilter === 'received') return list.filter(isReceivedInviteRecord);
+  var selectedDate = String(currentSelectedDateKey || toDateKey(new Date())).trim();
+  if(selectedDate){
+    list = list.filter(function(item){ return getRecordDateKey(item) === selectedDate; });
+  }
   if(currentFilter === 'complete') return list.filter(isCompletedInviteRecord);
   if(currentFilter === 'pending') return list.filter(isPendingInviteRecord);
   if(currentFilter === 'continued') return list.filter(isContinuedInviteRecord);
@@ -1361,7 +1369,7 @@ function filterRecords(records){
 }
 
 function pickSelectedRecord(records){
-  var list = Array.isArray(records) ? records : [];
+  var list = filterRecords(records);
   var focusId = readFocusId();
   var chosen = null;
   if(focusId){
@@ -1374,7 +1382,6 @@ function pickSelectedRecord(records){
     chosen = list.find(isOngoingInviteRecord)
       || list.find(isContinuedInviteRecord)
       || list.find(isAcceptedInviteRecord)
-      || list.find(isReceivedInviteRecord)
       || list.find(isPendingInviteRecord)
       || list[0]
       || null;
@@ -1387,12 +1394,8 @@ function pickSelectedRecord(records){
 function collectCalendarDots(records){
   var marks = Object.create(null);
   (Array.isArray(records) ? records : []).forEach(function(item){
-    var scheduledKey = String(item && item.scheduledDate || '').trim();
-    if(/^\d{4}-\d{2}-\d{2}$/.test(scheduledKey)) marks[scheduledKey] = true;
-    var createdKey = toDateKeyFromTimestamp(item && item.createdAt);
-    if(createdKey) marks[createdKey] = true;
-    var updatedKey = toDateKeyFromTimestamp(item && item.updatedAt);
-    if(updatedKey) marks[updatedKey] = true;
+    var key = getRecordDateKey(item);
+    if(key) marks[key] = true;
   });
   return marks;
 }
@@ -1400,12 +1403,11 @@ function collectCalendarDots(records){
 function renderMonthCard(records, selectedRecord){
   var root = document.getElementById('monthCard');
   if(!root) return;
-  var anchor = selectedRecord ? getRecordDateObj(selectedRecord) : new Date();
+  if(!currentSelectedDateKey) currentSelectedDateKey = selectedRecord ? getRecordDateKey(selectedRecord) : toDateKey(new Date());
+  var anchor = currentSelectedDateKey ? getRecordDateObj({ scheduledDate: currentSelectedDateKey }) : (selectedRecord ? getRecordDateObj(selectedRecord) : new Date());
   var week = buildWeekDays(anchor);
   var marks = collectCalendarDots(records);
-  var selectedDateKey = selectedRecord && String(selectedRecord.scheduledDate || '').trim()
-    ? String(selectedRecord.scheduledDate || '').trim()
-    : toDateKey(anchor);
+  var selectedDateKey = currentSelectedDateKey || toDateKey(anchor);
   root.innerHTML = ''
     + '<div class="month-row">'
     +   '<button class="month-exit" type="button" data-offline-exit aria-label="返回">♥</button>'
@@ -1420,11 +1422,11 @@ function renderMonthCard(records, selectedRecord){
         var key = toDateKey(item);
         var active = key === selectedDateKey ? ' is-active' : '';
         var dot = marks[key] ? '<div class="day-chip-dot"></div>' : '<div class="day-chip-ghost"></div>';
-        return '<div class="day-chip' + active + '">'
+        return '<button class="day-chip' + active + '" type="button" data-date-key="' + esc(key) + '">'
           + '<div class="day-chip-day">' + esc(item.getDate()) + '</div>'
           + '<div class="day-chip-meta">' + esc(formatLunarStub(item)) + '</div>'
           + dot
-          + '</div>';
+          + '</button>';
       }).join('')
     + '</div>';
 }
@@ -1432,16 +1434,17 @@ function renderMonthCard(records, selectedRecord){
 function renderFilterTabs(records){
   var root = document.getElementById('filterTabs');
   if(!root) return;
+  var dayRecords = (Array.isArray(records) ? records : []).filter(function(item){
+    return getRecordDateKey(item) === String(currentSelectedDateKey || toDateKey(new Date())).trim();
+  });
   var counts = {
-    all: records.length,
-    received: records.filter(isReceivedInviteRecord).length,
-    complete: records.filter(isCompletedInviteRecord).length,
-    pending: records.filter(isPendingInviteRecord).length,
-    continued: records.filter(isContinuedInviteRecord).length
+    all: dayRecords.length,
+    complete: dayRecords.filter(isCompletedInviteRecord).length,
+    pending: dayRecords.filter(isPendingInviteRecord).length,
+    continued: dayRecords.filter(isContinuedInviteRecord).length
   };
   var tabs = [
     { id:'all', label:'All' },
-    { id:'received', label:'Received' },
     { id:'pending', label:'Pending' },
     { id:'complete', label:'Complete' },
     { id:'continued', label:'To Be Continued' }
@@ -1457,7 +1460,7 @@ function renderThreadList(records, selectedRecord){
   if(!root) return;
   var list = filterRecords(records);
   if(!list.length){
-    root.innerHTML = '';
+    root.innerHTML = '<div class="thread-empty">这一天这个分类还没有邀约。</div>';
     return;
   }
   root.innerHTML = list.map(function(item){
@@ -1494,6 +1497,12 @@ async function renderOfflineApp(){
   var records = await getOfflineRecords();
   if(renderToken !== offlineRenderVersion) return;
   latestOfflineRecords = Array.isArray(records) ? records.slice() : [];
+  if(!currentSelectedDateKey) currentSelectedDateKey = toDateKey(new Date());
+  var focusId = readFocusId();
+  if(focusId){
+    var focusRecord = latestOfflineRecords.find(function(item){ return String(item && item.id || '') === focusId; }) || null;
+    if(focusRecord) currentSelectedDateKey = getRecordDateKey(focusRecord);
+  }
   var selected = pickSelectedRecord(records);
   renderMonthCard(records, selected);
   renderFilterTabs(records);
@@ -1518,15 +1527,18 @@ function openRecordInOfflineMode(item){
   try{
     localStorage.setItem(getScopedFocusKey(), safeId);
   }catch(err){}
+  var readOnly = isCompletedInviteRecord(item);
   var openPayload = {
     app:'offline_mode',
     charId:safeCharId,
     launchMode: 'resume',
     launchToken: launchToken,
     forceOpen: true,
+    readOnly: readOnly,
     offlineLaunchRecord:{
       mode: 'resume',
       launchToken: launchToken,
+      readOnly: readOnly,
       createdAt: Date.now(),
       charId:safeCharId,
       payload:{
@@ -1536,6 +1548,7 @@ function openRecordInOfflineMode(item){
         sourceRole:String(item.sourceRole || '').trim(),
         status:String(item.status || '').trim(),
         meetState:String(item.meetState || '').trim(),
+        readOnly: readOnly,
         location:String(item.location || '').trim(),
         scheduledDate:String(item.scheduledDate || '').trim(),
         scheduledTime:String(item.scheduledTime || '').trim(),
@@ -1610,6 +1623,13 @@ document.addEventListener('click', async function(event){
   var filterBtn = event.target && event.target.closest ? event.target.closest('[data-filter-id]') : null;
   if(filterBtn){
     currentFilter = String(filterBtn.getAttribute('data-filter-id') || 'all');
+    renderOfflineApp();
+    return;
+  }
+  var dayBtn = event.target && event.target.closest ? event.target.closest('[data-date-key]') : null;
+  if(dayBtn){
+    currentSelectedDateKey = String(dayBtn.getAttribute('data-date-key') || '').trim() || toDateKey(new Date());
+    currentSelectedId = '';
     renderOfflineApp();
     return;
   }
