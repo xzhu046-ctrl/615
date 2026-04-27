@@ -788,6 +788,7 @@ function forceCompleteOfflineRecords(ids, charId){
   if(store && typeof store.patchRecord === 'function'){
     var wanted = safeIds.reduce(function(map, id){ map[id] = true; return map; }, Object.create(null));
     var targetMap = safeIds.reduce(function(map, id){ map[id] = true; return map; }, Object.create(null));
+    var latestSameCharRecordId = '';
     try{
       if(typeof store.listRecords === 'function'){
         store.listRecords().forEach(function(record){
@@ -801,14 +802,19 @@ function forceCompleteOfflineRecords(ids, charId){
           if(safeCharId && String(record && record.charId || '').trim() === safeCharId){
             var status = String(record && record.status || '').trim();
             var meetState = String(record && record.meetState || '').trim();
+            var recordIdForChar = String(record && record.id || '').trim();
+            if(recordIdForChar && !latestSameCharRecordId && meetState !== 'complete' && status !== 'completed' && status !== 'rejected' && status !== 'declined'){
+              latestSameCharRecordId = recordIdForChar;
+            }
             if(status === 'accepted' || meetState === 'ongoing' || meetState === 'continued' || meetState === 'accepted' || meetState === 'scheduled'){
-              var activeRecordId = String(record && record.id || '').trim();
+              var activeRecordId = recordIdForChar;
               if(activeRecordId) targetMap[activeRecordId] = true;
             }
           }
         });
       }
     }catch(listErr){}
+    if(latestSameCharRecordId) targetMap[latestSameCharRecordId] = true;
     var targetIds = Object.keys(targetMap);
     var primaryId = targetIds[0] || safeIds[0] || '';
     targetIds.forEach(function(id){
