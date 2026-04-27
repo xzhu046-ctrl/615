@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T01:08:32Z';
+const APP_BUILD_ID = '2026-04-27T01:23:47Z';
 const APP_UPDATE_NOTES = [
-  '优化 blocked chat 拒绝后的动画队列，新系统提示和新消息不再空等卡顿。',
-  'blocked chat 会保留 char 被拉黑后发来的全部拉黑消息，不再裁掉前面的旧消息。',
-  '修复主屏第二页 user 头像和 user/char 名字预览同步，按当前 char 稳定回填配套头像。'
+  '线下心声改成旁白同款：渐变竖线、大双引号和虚线下划线。',
+  '收紧线下心声框高度，让短心声不再显得空。',
+  '线下番外改成独立的黑白复古文档窗口风格，不和更新弹窗/拉黑聊天室撞样式。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
