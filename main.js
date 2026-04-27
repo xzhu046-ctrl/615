@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T06:58:00Z';
+const APP_BUILD_ID = '2026-04-27T07:20:00Z';
 const APP_UPDATE_NOTES = [
-  '主页第二页 USER 头像改为跟随当前聊天的用户头像。',
-  '第二页头像入口会打开当前主页角色的聊天，不再跳到旧角色。',
-  'QQ 置顶确认按钮改为抗容量异常保存，按确认会关闭并刷新置顶状态。'
+  '约会结束相机页只保留彩色小相机和结束约会按钮。',
+  '相纸显影文字改到照片下方，大字显示并让三个点横向波动。',
+  '结束约会会再次强制标记 Complete，返回约会 app 后能进 Complete。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
