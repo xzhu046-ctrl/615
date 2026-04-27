@@ -2345,13 +2345,13 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
             </div>
             <div class="avatar-info cs-identity-inputs">
               <div class="cs-name-action-row">
-                <input class="cs-input cs-name-underline" id="csCharName" placeholder="真名" type="text" oninput="syncChatSettingsHero();syncChatSettingsFieldWidths()">
+                <input class="cs-input cs-name-underline" id="csCharName" placeholder="真名" type="text" oninput="handleChatSettingsIdentityInput()">
                 <div class="cs-card-actions">
                   <button class="cs-icon-btn" type="button" onclick="openChatExportCardPreview()" aria-label="导出角色卡"><img src="assets/分享.png" alt="导出"></button>
                   <button class="cs-icon-btn danger" id="blockToggleBtn" type="button" onclick="toggleBlockFromSettings()" aria-label="拉黑角色"><img src="assets/拉黑.png" alt="拉黑"></button>
                 </div>
               </div>
-              <input class="cs-input cs-name-underline nick" id="csCharNick" placeholder="昵称" type="text" oninput="syncChatSettingsHero();syncChatSettingsFieldWidths()">
+              <input class="cs-input cs-name-underline nick" id="csCharNick" placeholder="昵称" type="text" oninput="handleChatSettingsIdentityInput()">
             </div>
           </div>
           <div class="cs-stack" style="margin-top:10px">
@@ -2521,8 +2521,8 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
               <span class="avatar-pick-icon user" aria-hidden="true"></span><div class="avatar-pick-hint">换头像</div>
             </div>
             <div class="avatar-info cs-identity-inputs">
-              <input class="cs-input cs-name-underline" id="csUserName" placeholder="真名" type="text" oninput="syncChatSettingsHero();syncChatSettingsFieldWidths()">
-              <input class="cs-input cs-name-underline nick" id="csUserNick" placeholder="昵称" type="text" oninput="syncChatSettingsHero();syncChatSettingsFieldWidths()">
+              <input class="cs-input cs-name-underline" id="csUserName" placeholder="真名" type="text" oninput="handleChatSettingsIdentityInput()">
+              <input class="cs-input cs-name-underline nick" id="csUserNick" placeholder="昵称" type="text" oninput="handleChatSettingsIdentityInput()">
             </div>
           </div>
           <div class="cs-stack" style="margin-top:10px">
@@ -18116,7 +18116,7 @@ function revealBlockAppealItems(){
   if(blockAppealRenderTimer) clearTimeout(blockAppealRenderTimer);
   var log = document.getElementById('blockAppealLog');
   if(!log) return;
-  var items = Array.from(log.querySelectorAll('[data-block-appeal-item]'));
+  var items = Array.from(log.querySelectorAll('[data-block-appeal-item].pending'));
   var idx = 0;
   function step(){
     if(idx >= items.length) return;
@@ -18124,9 +18124,9 @@ function revealBlockAppealItems(){
     item.classList.remove('pending');
     item.classList.add('show');
     log.scrollTop = log.scrollHeight;
-    blockAppealRenderTimer = setTimeout(step, 420);
+    blockAppealRenderTimer = setTimeout(step, 180);
   }
-  blockAppealRenderTimer = setTimeout(step, 80);
+  blockAppealRenderTimer = setTimeout(step, 30);
 }
 function appendBlockAppealMessages(messages){
   if(!blockAppealState) blockAppealState = { from:'char', round:1, messages:[] };
@@ -18135,8 +18135,8 @@ function appendBlockAppealMessages(messages){
   blockAppealState.messages = [].concat(blockAppealState.messages || [], next).map(function(item){
     if(item && typeof item === 'object') return { kind:item.kind === 'system' ? 'system' : 'message', text:String(item.text || '').trim() };
     return { kind:'message', text:String(item || '').trim() };
-  }).filter(function(item){ return !!item.text; }).slice(-18);
-  blockAppealState.revealFrom = Math.max(0, previousCount - Math.max(0, previousCount + next.length - blockAppealState.messages.length));
+  }).filter(function(item){ return !!item.text; });
+  blockAppealState.revealFrom = previousCount;
   var firstMessage = blockAppealState.messages.find(function(item){ return item.kind !== 'system'; });
   blockAppealState.text = String(firstMessage && firstMessage.text || blockAppealState.text || '').trim();
   renderBlockAppealWindow();
@@ -18146,8 +18146,8 @@ function appendBlockAppealSystem(text){
   var previousCount = Array.isArray(blockAppealState.messages) ? blockAppealState.messages.length : 0;
   blockAppealState.messages = [].concat(blockAppealState.messages || [], [{ kind:'system', text:String(text || '').trim() }]).filter(function(item){
     return !!String(item && item.text || '').trim();
-  }).slice(-18);
-  blockAppealState.revealFrom = Math.max(0, previousCount - Math.max(0, previousCount + 1 - blockAppealState.messages.length));
+  });
+  blockAppealState.revealFrom = previousCount;
   renderBlockAppealWindow();
 }
 
@@ -28331,7 +28331,7 @@ function postSettingsPreviewSync(){
   var userImg = document.querySelector('#csUserAvatar img');
   var userAvatar = String((userImg && userImg.src) || '').trim();
   if(!isDefault) userAvatar = getActiveAccountProfileAvatar();
-  if(!(userAvatar && userAvatar.startsWith('data:'))) userAvatar = '';
+  if(!isRenderableAvatarSrc(userAvatar)) userAvatar = '';
   syncChatSettingsHero();
   var slim = compactChar(draft);
   persistActiveCharacterSnapshot(slim);
@@ -28344,6 +28344,12 @@ function postSettingsPreviewSync(){
     type:'BOND_WIDGET_PREVIEW',
     payload:{ char: slim, userName: userName, userAvatar: userAvatar }
   });
+}
+
+function handleChatSettingsIdentityInput(){
+  syncChatSettingsHero();
+  syncChatSettingsFieldWidths();
+  postSettingsPreviewSync();
 }
 
 function getAvatarActorDisplayName(actorRole){

@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T00:48:09Z';
+const APP_BUILD_ID = '2026-04-27T01:08:32Z';
 const APP_UPDATE_NOTES = [
-  '修复更新弹窗同一远端版本在同一会话里重复弹出的问题。',
-  '修复主屏第二页 user 头像掉回“你”的问题。',
-  'System Update 标题加大加粗，更像复古系统弹窗。'
+  '优化 blocked chat 拒绝后的动画队列，新系统提示和新消息不再空等卡顿。',
+  'blocked chat 会保留 char 被拉黑后发来的全部拉黑消息，不再裁掉前面的旧消息。',
+  '修复主屏第二页 user 头像和 user/char 名字预览同步，按当前 char 稳定回填配套头像。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -5321,6 +5321,31 @@ function getChatUserAvatar(charId){
   return loadAt(0);
 }
 
+function getImmediateChatUserAvatar(charId){
+  var activeId = getActiveAccountId();
+  var keys = [];
+  if(charId) keys.push(scopedKeyForAccount('user_avatar_' + charId, activeId));
+  if(charId) keys.push('user_avatar_' + charId);
+  keys.push(scopedKeyForAccount('user_avatar', activeId));
+  keys.push('user_avatar');
+  keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
+  keys.push('qq_profile_avatar_asset');
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var src = normalizeShellAssetSrc(localStorage.getItem(keys[i]) || '');
+      if(isRenderableShellAvatarSrc(src)) return src;
+    }catch(e){}
+  }
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      var avatar = normalizeShellAssetSrc((acct && acct.avatar) || '');
+      if(isRenderableShellAvatarSrc(avatar)) return avatar;
+    }
+  }catch(e){}
+  return '';
+}
+
 function getStoredChatMessages(charId){
   if(!charId) return [];
   try{
@@ -5478,7 +5503,9 @@ function renderBondWidget(character){
     if(c && c.id) loadStoredAsset('char_avatar_' + c.id).then(applyCharAvatar);
   }
   if(userAvatar){
+    userAvatar.dataset.charId = String((c && c.id) || '').trim();
     const applyUserAvatar = (src)=>{
+      if(String(userAvatar.dataset.charId || '') !== String((c && c.id) || '').trim()) return;
       const safeSrc = normalizeShellAssetSrc(src || '');
       const baseHtml = isRenderableShellAvatarSrc(safeSrc)
         ? '<span class="bond-avatar-base"><img src="' + safeSrc + '" alt=""></span>'
@@ -5492,7 +5519,7 @@ function renderBondWidget(character){
         userAvatar.innerHTML = baseHtml;
       }
     };
-    applyUserAvatar('');
+    applyUserAvatar(getImmediateChatUserAvatar(c && c.id));
     getChatUserAvatar(c && c.id).then(applyUserAvatar);
   }
 }
@@ -5514,6 +5541,7 @@ function applyBondWidgetPreview(payload){
     var userAvatarEl = document.getElementById('bond-user-avatar');
     if(userAvatarEl){
       var src = normalizeShellAssetSrc(preview.userAvatar.trim());
+      if(!isRenderableShellAvatarSrc(src)) src = getImmediateChatUserAvatar(c && c.id);
       var baseHtml = isRenderableShellAvatarSrc(src)
         ? '<span class="bond-avatar-base"><img src="' + src + '" alt=""></span>'
         : '<span class="bond-avatar-base">你</span>';
