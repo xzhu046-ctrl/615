@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-27T10:09:00Z"></script>
-<script src="../accountManager.js?v=2026-04-27T10:09:00Z"></script>
-<script src="../assetStore.js?v=2026-04-27T10:09:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T10:09:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T10:09:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T10:09:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T10:09:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T10:09:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-27T10:09:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-27T10:09:00Z"></script>
+<script src="../promptManager.js?v=2026-04-27T10:24:00Z"></script>
+<script src="../accountManager.js?v=2026-04-27T10:24:00Z"></script>
+<script src="../assetStore.js?v=2026-04-27T10:24:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-27T10:24:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-27T10:24:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-27T10:24:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-27T10:24:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-27T10:24:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-27T10:24:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-27T10:24:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -5353,10 +5353,19 @@ async function getVectorEmbedding(text){
     if(customBase) endpoint = customBase + '/v1/embeddings';
   }
   if(!endpoint) return null;
+  var controller = null;
+  var timer = null;
+  if(typeof AbortController !== 'undefined'){
+    controller = new AbortController();
+    timer = setTimeout(function(){
+      try{ controller.abort(); }catch(e){}
+    }, 1400);
+  }
   try{
     var resp = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      signal: controller ? controller.signal : undefined,
       body: JSON.stringify({ model:'text-embedding-3-small', input: src })
     });
     if(!resp.ok) return null;
@@ -5366,6 +5375,8 @@ async function getVectorEmbedding(text){
     return emb;
   }catch(err){
     return null;
+  }finally{
+    if(timer) clearTimeout(timer);
   }
 }
 async function mergeVectorExtractedMemories(store, extractedItems){
@@ -8805,6 +8816,22 @@ function shouldForceAvatarFocusCue(text){
   var clean = String(text || '').trim();
   if(!clean) return false;
   return /头像|avatar|情头|情侣头像|配对头像|图里|图上|看我头像|看下头像|看看头像|头像细节|长相|穿搭|构图|风格/.test(clean);
+}
+
+function shouldUseAvatarVisionForChat(latestUserText, msgs){
+  var clean = String(latestUserText || '').trim();
+  if(shouldForceAvatarFocusCue(clean)) return true;
+  if(/照片|图片|图像|自拍|相片|外貌|发型|眼睛|脸|表情|衣服|穿着|配色|画面|看起来|photo|image|picture|look|wear|hair|face|eyes/i.test(clean)){
+    return true;
+  }
+  var list = Array.isArray(msgs) ? msgs.slice(-6) : [];
+  return list.some(function(msg){
+    if(!msg) return false;
+    if(Array.isArray(msg.content)){
+      return msg.content.some(function(part){ return part && part.type === 'image_url'; });
+    }
+    return /\[图片\]|\[照片\]|image_message|图片消息|照片消息/i.test(String(msg.content || ''));
+  });
 }
 
 function buildAvatarVisionFocusedCue(latestUserText){
@@ -17470,6 +17497,29 @@ function getPromptGreeting(){
   return String(record && record.text || '').trim();
 }
 
+function buildCharacterAdherenceGuard(){
+  if(!character) return '';
+  var originalName = String(character.name || '').trim() || '角色';
+  var displayName = String(character.nickname || character.name || '').trim() || originalName;
+  var persona = String(character.personality || character.description || '').trim();
+  var scenario = String(character.scenario || '').trim();
+  var systemPrompt = String(character.system_prompt || '').trim();
+  var postRules = String(character.post_history_instructions || '').trim();
+  var lines = [
+    '【最高优先级：角色锁定】',
+    '你接下来必须像这个角色本人在手机里回消息，不是助手、不是旁白作者、不是总结器。',
+    '所有记忆、世界书、状态、头像识图、格式规则都只能辅助角色表达；一旦和角色人设冲突，优先服从这里的角色人设与角色补充规则。',
+    '回复前只在心里检查一句：这句话是不是这个人会说的、会这么分条发的。不要把检查过程写出来。',
+    '角色本名：' + originalName,
+    '当前显示名：' + displayName
+  ];
+  if(persona) lines.push('核心人设：' + persona.slice(0, 1800));
+  if(scenario) lines.push('关系/场景：' + scenario.slice(0, 900));
+  if(systemPrompt) lines.push('角色补充规则：' + systemPrompt.slice(0, 900));
+  if(postRules) lines.push('后置约束：' + postRules.slice(0, 700));
+  return lines.join('\n');
+}
+
 // ════════════════════════════════════════════
 //  System prompt builder (with worldbook)
 // ════════════════════════════════════════════
@@ -17616,8 +17666,9 @@ function buildSystemPrompt() {
   }
   var replyGuide = policyBundle.replyGuide || '';
   var formatGuard = policyBundle.formatGuard || '';
+  var characterGuard = buildCharacterAdherenceGuard();
 
-  return [pmPrompt, replyGuide].concat(parts.filter(Boolean)).concat([formatGuard]).join('\n\n---\n\n');
+  return [pmPrompt, replyGuide].concat(parts.filter(Boolean)).concat([characterGuard, formatGuard].filter(Boolean)).join('\n\n---\n\n');
 }
 
 async function callAIWithCustomPrompts(systemPrompt, userPrompt){
@@ -19382,13 +19433,6 @@ async function maybeRepairForbiddenNarratorReply(reply, provider, key, model, te
 async function callAI(provider, key) {
   var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider);
   var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '1');
-  if(character && character.id){
-    try{
-      avatarLibraryCache = await loadAvatarLibraryStore(character.id);
-    }catch(err){
-      console.warn('load avatar library before callAI failed', err);
-    }
-  }
   ensureMemeVisionForPrompt().catch(function(err){
     console.warn('ensureMemeVisionForPrompt failed', err);
   });
@@ -19408,36 +19452,47 @@ async function callAI(provider, key) {
   await prepareVectorPromptMemory(msgs);
   var avatarVisionPrompt = '';
   var sys = buildSystemPrompt();
-  try{
-    var currentAvatarFacts = await buildCurrentAvatarFactsBlock();
-    if(currentAvatarFacts){
-      sys = [sys, currentAvatarFacts].filter(Boolean).join('\n\n---\n\n');
+  var latestUserTextForAvatarCue = extractLatestUserTextForAvatarCue(msgs);
+  var shouldAttachAvatarContext = !!(character && character.id && shouldUseAvatarVisionForChat(latestUserTextForAvatarCue, msgs));
+  var shouldAttachAvatarVision = !!(shouldAttachAvatarContext && loadAvatarVisionEnabled(character.id));
+  if(shouldAttachAvatarContext){
+    try{
+      avatarLibraryCache = await loadAvatarLibraryStore(character.id);
+    }catch(err){
+      console.warn('load avatar library before callAI failed', err);
     }
-  }catch(currentAvatarFactsErr){
-    console.warn('buildCurrentAvatarFactsBlock failed', currentAvatarFactsErr);
-  }
-  try{
-    sys = await appendAvatarVisionContextToSystemPrompt(sys);
-  }catch(avatarVisionSysErr){
-    console.warn('appendAvatarVisionContextToSystemPrompt failed', avatarVisionSysErr);
-  }
-  try{
-    avatarVisionPrompt = await buildAvatarVisionLatestMessage();
-    if(!avatarVisionPrompt){
-      avatarVisionPrompt = await buildAvatarVisionPromptMessage();
+    try{
+      var currentAvatarFacts = await buildCurrentAvatarFactsBlock();
+      if(currentAvatarFacts){
+        sys = [sys, currentAvatarFacts].filter(Boolean).join('\n\n---\n\n');
+      }
+    }catch(currentAvatarFactsErr){
+      console.warn('buildCurrentAvatarFactsBlock failed', currentAvatarFactsErr);
     }
-  }catch(avatarVisionPromptErr){
-    console.warn('buildAvatarVisionLatestMessage failed', avatarVisionPromptErr);
+  }
+  if(shouldAttachAvatarVision){
+    try{
+      sys = await appendAvatarVisionContextToSystemPrompt(sys);
+    }catch(avatarVisionSysErr){
+      console.warn('appendAvatarVisionContextToSystemPrompt failed', avatarVisionSysErr);
+    }
+    try{
+      avatarVisionPrompt = await buildAvatarVisionLatestMessage();
+      if(!avatarVisionPrompt){
+        avatarVisionPrompt = await buildAvatarVisionPromptMessage();
+      }
+    }catch(avatarVisionPromptErr){
+      console.warn('buildAvatarVisionLatestMessage failed', avatarVisionPromptErr);
+    }
   }
   if(avatarVisionPrompt){
     msgs.unshift({ role:'user', content: avatarVisionPrompt });
   }
-  var latestUserTextForAvatarCue = extractLatestUserTextForAvatarCue(msgs);
-  var avatarFocusCue = buildAvatarVisionFocusedCue(latestUserTextForAvatarCue);
+  var avatarFocusCue = shouldAttachAvatarVision ? buildAvatarVisionFocusedCue(latestUserTextForAvatarCue) : '';
   if(avatarFocusCue){
     msgs.unshift({ role:'user', content: avatarFocusCue });
   }
-  if(provider === 'gemini' && shouldForceAvatarFocusCue(latestUserTextForAvatarCue)){
+  if(provider === 'gemini' && shouldAttachAvatarVision && shouldForceAvatarFocusCue(latestUserTextForAvatarCue)){
     try{
       var avatarVisionMessages = await buildAvatarVisionMessagesForPrompt(provider);
       if(Array.isArray(avatarVisionMessages) && avatarVisionMessages.length){
