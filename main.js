@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T00:03:14Z';
+const APP_BUILD_ID = '2026-04-27T00:18:40Z';
 const APP_UPDATE_NOTES = [
-  '修复主屏 user 头像优先使用当前 char 的聊天头像。',
-  '优化 blocked chat：空白聊天室先出现，消息逐条送达，拒绝会显示系统提示。',
-  '更新弹窗改成黑白复古系统窗口，并固定展示更新介绍。'
+  '修复主屏 user 头像读取：当前 char 的配套聊天头像会优先显示。',
+  '更新弹窗全面改成黑白复古 System 弹窗，不再沿用旧 toast 框架。',
+  '更新介绍会固定写进弹窗，方便一眼看到这版改了什么。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -629,7 +629,20 @@ function isGifFile(file){
 
 function loadStoredAsset(key){
   if(window.assetStore && typeof window.assetStore.load === 'function'){
-    return window.assetStore.load(key);
+    return window.assetStore.load(key).then(function(value){
+      if(value) return value;
+      try{
+        return localStorage.getItem(key) || '';
+      }catch(e){
+        return '';
+      }
+    }).catch(function(){
+      try{
+        return localStorage.getItem(key) || '';
+      }catch(e){
+        return '';
+      }
+    });
   }
   try{
     return Promise.resolve(localStorage.getItem(key) || '');
