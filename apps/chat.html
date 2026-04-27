@@ -18098,16 +18098,19 @@ function renderBlockAppealWindow(){
   }).filter(function(item){ return !!String(item && item.text || '').trim(); });
   var speaker = String((character && (character.nickname || character.name)) || '对方').trim() || '对方';
   var messageCount = messages.filter(function(item){ return item.kind !== 'system'; }).length;
+  var revealFrom = Math.max(0, Math.min(messages.length, Number(state.revealFrom || 0) || 0));
   if(status) status.textContent = messageCount ? (speaker + ' 发来 ' + messageCount + ' 条未送达消息') : '聊天室已建立，等待对方输入...';
   if(log){
     log.innerHTML = messages.map(function(item, idx){
+      var appearClass = idx >= revealFrom ? 'pending' : 'show';
       if(item.kind === 'system'){
-        return '<div class="block-appeal-system pending" data-block-appeal-item="' + idx + '">' + esc(item.text) + '</div>';
+        return '<div class="block-appeal-system ' + appearClass + '" data-block-appeal-item="' + idx + '">' + esc(item.text) + '</div>';
       }
-      return '<div class="block-appeal-msg pending" data-block-appeal-item="' + idx + '"><div class="block-appeal-bubble">' + esc(item.text) + '</div><div class="block-appeal-alert">!</div></div>';
+      return '<div class="block-appeal-msg ' + appearClass + '" data-block-appeal-item="' + idx + '"><div class="block-appeal-bubble">' + esc(item.text) + '</div><div class="block-appeal-alert">!</div></div>';
     }).join('');
     revealBlockAppealItems();
   }
+  if(blockAppealState) blockAppealState.revealFrom = messages.length;
 }
 function revealBlockAppealItems(){
   if(blockAppealRenderTimer) clearTimeout(blockAppealRenderTimer);
@@ -18127,20 +18130,24 @@ function revealBlockAppealItems(){
 }
 function appendBlockAppealMessages(messages){
   if(!blockAppealState) blockAppealState = { from:'char', round:1, messages:[] };
+  var previousCount = Array.isArray(blockAppealState.messages) ? blockAppealState.messages.length : 0;
   var next = normalizeBlockAppealMessages(messages).map(function(text){ return { kind:'message', text:text }; });
   blockAppealState.messages = [].concat(blockAppealState.messages || [], next).map(function(item){
     if(item && typeof item === 'object') return { kind:item.kind === 'system' ? 'system' : 'message', text:String(item.text || '').trim() };
     return { kind:'message', text:String(item || '').trim() };
   }).filter(function(item){ return !!item.text; }).slice(-18);
+  blockAppealState.revealFrom = Math.max(0, previousCount - Math.max(0, previousCount + next.length - blockAppealState.messages.length));
   var firstMessage = blockAppealState.messages.find(function(item){ return item.kind !== 'system'; });
   blockAppealState.text = String(firstMessage && firstMessage.text || blockAppealState.text || '').trim();
   renderBlockAppealWindow();
 }
 function appendBlockAppealSystem(text){
   if(!blockAppealState) blockAppealState = { from:'char', round:1, messages:[] };
+  var previousCount = Array.isArray(blockAppealState.messages) ? blockAppealState.messages.length : 0;
   blockAppealState.messages = [].concat(blockAppealState.messages || [], [{ kind:'system', text:String(text || '').trim() }]).filter(function(item){
     return !!String(item && item.text || '').trim();
   }).slice(-18);
+  blockAppealState.revealFrom = Math.max(0, previousCount - Math.max(0, previousCount + 1 - blockAppealState.messages.length));
   renderBlockAppealWindow();
 }
 
@@ -18234,7 +18241,9 @@ async function attemptCharAppeal(extra, round){
 function ignoreBlockAppeal(){
   var state = blockAppealState || { from: 'char', round: 1 };
   if(state.from === 'char'){
-    var angryName = String((character && (character.nickname || character.name)) || '对方').trim() || '对方';
+    var angryName = String(typeof getCurrentUserDisplayName === 'function' ? getCurrentUserDisplayName() : '').trim()
+      || String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim()
+      || '你';
     appendBlockAppealSystem(angryName + '还在生气');
     var profile = getAppealPersistenceProfile();
     var bs = loadBlockState();
