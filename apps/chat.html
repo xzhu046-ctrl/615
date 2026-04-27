@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../accountManager.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../assetStore.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../sunnySupport.js?v=2026-04-27T03:52:44Z"></script>
-<script src="offlineInvite.js?v=2026-04-27T03:52:44Z"></script>
+<script src="../promptManager.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../accountManager.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../assetStore.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../chatStorage.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../metadataStore.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../scheduleShared.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../presenceShared.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../sunnySupport.js?v=2026-04-27T04:06:12Z"></script>
+<script src="offlineInvite.js?v=2026-04-27T04:06:12Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -4222,7 +4222,11 @@ function defaultStructuredMemoryState(){
     relationship: '',
     emotions: [],
     shortTerm: [],
-    customCategories: {},
+    customCategories: {
+      A: { name:'代办与约定', mergeMode:'list' },
+      H: { name:'爱好习惯', mergeMode:'list' },
+      X: { name:'下次改正', mergeMode:'list' }
+    },
     custom: {},
     covered: 0,
     lastUpdated: 0
@@ -4243,7 +4247,8 @@ function normalizeLittleBrainShortTermItems(items){
       pinned: !!(it && it.pinned),
       label: String((it && it.label) || '').trim(),
       sourceType: String((it && it.sourceType) || '').trim(),
-      memoryCategory: String((it && it.memoryCategory) || '').trim()
+      memoryCategory: String((it && it.memoryCategory) || '').trim(),
+      sourceId: String((it && it.sourceId) || '').trim()
     };
   }).filter(function(it){ return !!it.text; }) : [];
 }
@@ -4273,7 +4278,11 @@ function normalizeStructuredMemoryState(raw){
   next.relationship = String(src.relationship || '').trim();
   next.emotions = Array.isArray(src.emotions) ? src.emotions.map(function(v){ return String(v || '').trim(); }).filter(Boolean) : [];
   next.shortTerm = normalizeLittleBrainShortTermItems(src.shortTerm);
-  next.customCategories = src.customCategories && typeof src.customCategories === 'object' ? cloneJsonSafe(src.customCategories, {}) : {};
+  next.customCategories = Object.assign(
+    {},
+    next.customCategories || {},
+    src.customCategories && typeof src.customCategories === 'object' ? cloneJsonSafe(src.customCategories, {}) : {}
+  );
   next.custom = src.custom && typeof src.custom === 'object' ? cloneJsonSafe(src.custom, {}) : {};
   next.covered = Math.max(0, Number(src.covered || 0) || 0);
   next.lastUpdated = Math.max(0, Number(src.lastUpdated || 0) || 0);
@@ -4408,7 +4417,8 @@ function parseLegacyMemorySummaryStore(rawText){
         manual: !!(it && it.manual),
         pinned: !!(it && it.pinned),
         label: String((it && it.label) || '').trim(),
-        sourceType: String((it && it.sourceType) || '').trim()
+        sourceType: String((it && it.sourceType) || '').trim(),
+        memoryCategory: String((it && it.memoryCategory) || '').trim()
       };
     }).filter(function(it){ return !!it.text; });
     var covered = computeMemoryCoveredFromItems(items);
@@ -4445,7 +4455,8 @@ function normalizeMemorySummaryStore(store){
       manual: !!(it && it.manual),
       pinned: !!(it && it.pinned),
       label: String((it && it.label) || '').trim(),
-      sourceType: String((it && it.sourceType) || '').trim()
+      sourceType: String((it && it.sourceType) || '').trim(),
+      memoryCategory: String((it && it.memoryCategory) || '').trim()
     };
   }).filter(function(it){ return !!it.text; }) : [];
   next.advancedMemory = normalizeAdvancedMemoryState(next.advancedMemory || null);
@@ -5082,7 +5093,10 @@ function getStructuredMemoryCategories(store){
     D: { name:'未来挂念', mergeMode:'list' },
     P: { name:'正在推进', mergeMode:'list' },
     R: { name:'关系温度', mergeMode:'timeline' },
-    M: { name:'关系温度', mergeMode:'list' }
+    M: { name:'关系温度', mergeMode:'list' },
+    A: { name:'代办与约定', mergeMode:'list' },
+    H: { name:'爱好习惯', mergeMode:'list' },
+    X: { name:'下次改正', mergeMode:'list' }
   }, custom);
 }
 function parseStructuredMemoryEntries(rawText, store){
@@ -5228,8 +5242,8 @@ function buildStructuredSummaryPrompt(slice, store){
   return [
     '你是"' + (getCurrentCharDisplayName() || '角色') + '"。请阅读对话，并把真正值得沉淀到你小脑瓜里的信息提取出来。',
     '输出格式必须是每行一条：[YYMMDD]分类:内容',
-    '分类只能用 F/E/D/P/R/M。',
-    'F=人物底稿（稳定偏好、事实、习惯、雷点，推荐 key=value），E=已经发生（重要事件），P=正在推进（还没结束、之后会继续影响互动的线），R/M=关系温度（关系变化与持续情绪），D=未来挂念（约定、以后想做、迟早要回收的挂念）。',
+    '分类只能用 F/E/D/P/R/M/A/H/X。',
+    'F=人物底稿（稳定身份、事实、雷点，推荐 key=value），E=已经发生（重要事件），P=正在推进（还没结束、之后会继续影响互动的线），R/M=关系温度（关系变化与持续情绪），D=未来挂念（以后想做、迟早要回收的挂念），A=代办与约定（明确答应、约好、待完成），H=爱好习惯（喜欢/讨厌/习惯/偏好），X=下次改正（char 记错、做错、误会 user 后需要改进的点）。',
     '只提取真正会进入你小脑瓜里的信息；普通闲聊、一次性问答、没有后续影响的内容不要记。',
     '不要重复已有记忆，不要输出解释。',
     '现有小脑瓜记忆：\n' + existing,
@@ -5638,15 +5652,21 @@ async function migrateMemoryModeIfNeeded(fromMode, toMode){
   if(!character || from === to) return;
   var store = ensureAdvancedMemoryOnStore(loadMemorySummaryStore());
   store.advancedMemory.mode = to;
+  var moved = 0;
   if(to === MEMORY_MODE_STRUCTURED){
     store.advancedMemory.structured = normalizeStructuredMemoryState(store.advancedMemory.structured || null);
+    var converted = convertDiaryMemoryItemsToLittleBrainShortTerm(store);
+    store = converted.store;
+    moved = converted.moved;
   }
   if(to === MEMORY_MODE_DIARY){
     store.items = Array.isArray(store.items) ? store.items : [];
   }
   saveMemorySummaryStore(store);
   refreshMemoryUi();
-  toast('记忆模式已切换为：' + (to === MEMORY_MODE_STRUCTURED ? ((getCurrentCharDisplayName() || '角色') + '的小脑瓜') : '日记模式'));
+  toast(to === MEMORY_MODE_STRUCTURED
+    ? ('记忆模式已切换为：' + (getCurrentCharDisplayName() || '角色') + '的小脑瓜' + (moved ? ('，已转入 ' + moved + ' 条日记') : ''))
+    : '记忆模式已切换为：日记模式');
 }
 function getMemorySummaryItems(){
   return loadMemorySummaryStore().items || [];
@@ -24067,6 +24087,9 @@ function inferLittleBrainDiaryCategory(item, structuredMem){
   if(combined.includes('关系温度')) return 'relationship';
   if(combined.includes('正在推进') || combined.includes('计划')) return 'plans';
   if(combined.includes('未来挂念') || combined.includes('决定')) return 'decisions';
+  if(combined.includes('代办') || combined.includes('约定') || combined.includes('答应') || combined.includes('待办') || combined.includes('todo')) return 'custom:A';
+  if(combined.includes('爱好') || combined.includes('习惯') || combined.includes('喜欢') || combined.includes('讨厌') || combined.includes('偏好')) return 'custom:H';
+  if(combined.includes('下次改正') || combined.includes('改正') || combined.includes('记错') || combined.includes('做错') || combined.includes('误会')) return 'custom:X';
   var customCategories = structuredMem && structuredMem.customCategories && typeof structuredMem.customCategories === 'object'
     ? structuredMem.customCategories
     : {};
@@ -24162,8 +24185,21 @@ function buildStructuredMemoryCardsHtml(structuredMem, diaryItems){
       return '<div class="mem-subrow muted"><div class="mem-subrow-head"><span class="mem-subrow-label">' + esc(kind.label) + '</span>' + littleBrainDateChipHtml(row) + '<div class="mem-subrow-actions"><button class="mem-mini-btn" type="button" onclick="openStructuredMemoryEditor(\'list-item\',' + idx + ',\'' + esc(kind.key) + '\')">编辑</button><button class="mem-mini-btn icon" type="button" data-memory-action="demote-list-item" data-memory-kind="' + escAttr(kind.key) + '" data-memory-idx="' + idx + '" aria-label="降级为短期">×</button></div></div><div class="mem-item-body">' + esc(stripLittleBrainDateMarks(row)) + '</div></div>';
     }).join('') : '<div class="mem-subempty">这里暂时还没有长期内容。</div>', rows.length + shortRows.length));
   });
+  [
+    { code:'A', label:'代办与约定' },
+    { code:'H', label:'爱好习惯' },
+    { code:'X', label:'下次改正' }
+  ].forEach(function(kind){
+    var rows = mem.custom && Array.isArray(mem.custom[kind.code]) ? mem.custom[kind.code] : [];
+    var shortRows = shortBuckets.custom && shortBuckets.custom[kind.code] ? shortBuckets.custom[kind.code] : [];
+    if(!rows.length && !shortRows.length) return;
+    blocks.push(buildLittleBrainSectionCard(kind.label, buildLittleBrainShortRows(shortRows), rows.length ? rows.map(function(row, idx){
+      return '<div class="mem-subrow muted"><div class="mem-subrow-head"><span class="mem-subrow-label">' + esc(kind.label) + '</span>' + littleBrainDateChipHtml(row) + '<div class="mem-subrow-actions"><button class="mem-mini-btn" type="button" onclick="openStructuredMemoryEditor(\'custom-item\',' + idx + ',\'' + esc(kind.code) + '\')">编辑</button><button class="mem-mini-btn icon" type="button" data-memory-action="demote-custom-item" data-memory-code="' + escAttr(kind.code) + '" data-memory-idx="' + idx + '" aria-label="降级为短期">×</button></div></div><div class="mem-item-body">' + esc(stripLittleBrainDateMarks(row)) + '</div></div>';
+    }).join('') : '<div class="mem-subempty">这里暂时还没有长期内容。</div>', rows.length + shortRows.length));
+  });
   if(mem.custom && typeof mem.custom === 'object'){
     Object.keys(mem.custom).forEach(function(code){
+      if(code === 'A' || code === 'H' || code === 'X') return;
       var rows = Array.isArray(mem.custom[code]) ? mem.custom[code] : [];
       var shortRows = (shortBuckets.custom && shortBuckets.custom[code]) ? shortBuckets.custom[code] : [];
       if(!rows.length && !shortRows.length) return;
@@ -24285,6 +24321,48 @@ function appendLittleBrainShortTermItem(store, text, label, category){
   });
   store.advancedMemory.structured.shortTerm = normalizeLittleBrainShortTermItems(shortList);
   return store;
+}
+function convertDiaryMemoryItemsToLittleBrainShortTerm(store){
+  var safe = ensureAdvancedMemoryOnStore(store || loadMemorySummaryStore());
+  var diaryItems = Array.isArray(safe.items) ? safe.items : [];
+  if(!diaryItems.length) return { store:safe, moved:0 };
+  var shortList = Array.isArray(safe.advancedMemory.structured.shortTerm) ? safe.advancedMemory.structured.shortTerm.slice() : [];
+  var seen = Object.create(null);
+  shortList.forEach(function(item){
+    var sourceId = String(item && item.sourceId || '').trim();
+    if(sourceId) seen['id:' + sourceId] = true;
+    var textKey = String(item && item.text || '').replace(/\s+/g, ' ').trim();
+    if(textKey) seen['text:' + textKey] = true;
+  });
+  var moved = 0;
+  diaryItems.forEach(function(item){
+    var text = String(item && item.text || '').replace(/\s+/g, ' ').trim();
+    if(!text) return;
+    var sourceId = String(item && item.id || '').trim();
+    if((sourceId && seen['id:' + sourceId]) || seen['text:' + text]) return;
+    var category = inferLittleBrainDiaryCategory(item, safe.advancedMemory.structured);
+    var label = String(item && item.label || '').trim() || getDiaryMemoryItemLabel(item, 0, diaryItems.length);
+    shortList.push({
+      id: 'st_' + Date.now().toString(36) + '_' + moved.toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+      from: Number(item && item.from || 0) || 0,
+      to: Number(item && item.to || 0) || 0,
+      text: text,
+      tokens: Number(item && item.tokens || 0) || approxTokenCount(text),
+      createdAt: Number(item && item.createdAt || Date.now()) || Date.now(),
+      updatedAt: Date.now(),
+      manual: !!(item && item.manual),
+      pinned: !!(item && item.pinned),
+      label: label,
+      sourceType: 'diary_migration',
+      memoryCategory: category,
+      sourceId: sourceId
+    });
+    if(sourceId) seen['id:' + sourceId] = true;
+    seen['text:' + text] = true;
+    moved += 1;
+  });
+  safe.advancedMemory.structured.shortTerm = normalizeLittleBrainShortTermItems(shortList);
+  return { store:safe, moved:moved };
 }
 function promoteDiaryMemoryItem(id){
   var safeId = String(id || '').trim();

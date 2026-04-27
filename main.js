@@ -50,12 +50,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T03:52:44Z';
+const APP_BUILD_ID = '2026-04-27T04:06:12Z';
 const APP_UPDATE_NOTES = [
-  '移除线下阶段总结的本地兜底，失败时不再偷偷替换成假总结。',
-  '切换小脑瓜记忆不再自动全量调用 AI，避免保存设置时撞 quota。',
-  '小脑瓜记忆面板改成新的贴纸感样式，日期显示不再像数据库编号。',
-  '番外生成补读 user persona，避免把女生 user 写成男生。'
+  '日记切到小脑瓜时会把已有日记转入小脑瓜短期分类。',
+  '小脑瓜新增代办与约定、爱好习惯、下次改正三个分类。',
+  '线下真实 quota 错误不再走轻量重试，只保留上下文超限重试。',
+  '线下自定义接口会带上 max_tokens，避免请求预算没有传过去。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';

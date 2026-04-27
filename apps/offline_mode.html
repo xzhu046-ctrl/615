@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../promptManager.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../accountManager.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T03:52:44Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T03:52:44Z"></script>
+<script src="../assetStore.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../chatStorage.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../metadataStore.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../promptManager.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../accountManager.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../scheduleShared.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../presenceShared.js?v=2026-04-27T04:06:12Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-27T04:06:12Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -7855,6 +7855,9 @@ function isOfflineContextLikeError(err){
 function isOfflineQuotaLikeError(err){
   return isOfflineQuotaExceededError(err) || isOfflineContextLikeError(err);
 }
+function shouldRetryOfflineWithCompactPrompt(err){
+  return isOfflineContextLikeError(err) && !isOfflineQuotaExceededError(err);
+}
 function isOfflineRateLimitError(err){
   return /rate limit|too many requests|请求太密|限流|429/.test(String(err && (err.message || err) || '').toLowerCase());
 }
@@ -8589,6 +8592,7 @@ async function callAI(systemPrompt, userPrompt, requestOptions){
     var customPayload = {
       model: customModel,
       temperature: temperature,
+      max_tokens: req.maxTokens || undefined,
       messages:[{ role:'system', content:systemPrompt }, { role:'user', content:userPrompt }]
     };
     var resCustom;
@@ -10198,7 +10202,7 @@ async function generateOpeningIfNeeded(){
       saveSession();
       renderStory();
     }
-    if(isOfflineQuotaLikeError(e)){
+    if(shouldRetryOfflineWithCompactPrompt(e)){
       try{
         var emergency = await tryEmergencyOfflineOpening(plan, openingMinChars);
         var emergencyLabels = nowLabels();
@@ -10850,7 +10854,7 @@ async function requestOfflineReply(options){
       saveSession();
       renderStory();
     }
-    if(isOfflineQuotaLikeError(e)){
+    if(shouldRetryOfflineWithCompactPrompt(e)){
       try{
         var emergencyReply = await tryEmergencyOfflineReply(bodyContext, thoughtChain, minChars);
         var emergencyLabels = nowLabels();
