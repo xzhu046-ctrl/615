@@ -740,6 +740,22 @@ function readCompletedOfflineInviteIds(){
   }, Object.create(null));
 }
 
+function writeCompletedOfflineInviteIds(map){
+  var list = Object.keys(map || {}).filter(Boolean);
+  try{ localStorage.setItem(getCompletedOfflineInviteIdsKey(), JSON.stringify(list)); }catch(err){}
+  try{ localStorage.setItem('offline_invite_completed_ids_v1', JSON.stringify(list)); }catch(err2){}
+  return list;
+}
+
+function markCompletedOfflineInviteIds(ids){
+  var map = readCompletedOfflineInviteIds();
+  (Array.isArray(ids) ? ids : []).forEach(function(id){
+    var safe = String(id || '').trim();
+    if(safe) map[safe] = true;
+  });
+  return writeCompletedOfflineInviteIds(map);
+}
+
 function isRecordForceCompleted(item){
   var completed = readCompletedOfflineInviteIds();
   return [
@@ -751,6 +767,33 @@ function isRecordForceCompleted(item){
     var safe = String(value || '').trim();
     return !!(safe && completed[safe]);
   });
+}
+
+function forceCompleteOfflineRecords(ids){
+  var safeIds = (Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
+  if(!safeIds.length) return;
+  markCompletedOfflineInviteIds(safeIds);
+  var now = Date.now();
+  var store = window.OfflineInviteStore || null;
+  if(store && typeof store.patchRecord === 'function'){
+    var primaryId = safeIds[0] || '';
+    safeIds.forEach(function(id){
+      try{
+        var existing = typeof store.getRecord === 'function' ? store.getRecord(id) : null;
+        if(existing || typeof store.getRecord !== 'function'){
+          store.patchRecord(id, { status:'completed', meetState:'complete', readOnly:true, completedAt:now, updatedAt:now });
+        }else if(id === primaryId && typeof store.upsertRecord === 'function'){
+          store.upsertRecord({ id:id, status:'completed', meetState:'complete', readOnly:true, completedAt:now, updatedAt:now });
+        }
+      }catch(err){
+        try{
+          if(id === primaryId && typeof store.upsertRecord === 'function'){
+            store.upsertRecord({ id:id, status:'completed', meetState:'complete', readOnly:true, completedAt:now, updatedAt:now });
+          }
+        }catch(ignore){}
+      }
+    });
+  }
 }
 
 function hideOfflineRecordIds(ids){
@@ -1761,6 +1804,14 @@ document.addEventListener('pointercancel', function(event){
 
 window.addEventListener('message', function(e){
   var data = e.data || {};
+  if(data.type === 'OFFLINE_INVITE_FORCE_COMPLETE'){
+    var payload = data.payload || {};
+    var ids = Array.isArray(payload.ids) ? payload.ids.slice() : [];
+    if(payload.inviteId) ids.push(payload.inviteId);
+    forceCompleteOfflineRecords(ids);
+    renderOfflineApp();
+    return;
+  }
   if(data.type === 'OFFLINE_INVITE_STORE_DIRTY' || data.type === 'OPEN_SHELL_NOTIFICATION'){
     renderOfflineApp();
   }

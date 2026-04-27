@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T09:05:00Z';
+const APP_BUILD_ID = '2026-04-27T09:26:00Z';
 const APP_UPDATE_NOTES = [
-  '删掉结束页的相机和假照片，改成黑白复古来电手机界面。',
-  '来电确认卡里展示 char 的收尾消息，并逐条弹出。',
-  '结束约会会用说再见前的邀约快照写入 Complete，避免归档后丢失目标。'
+  '结束页删掉手机外壳，改成被拉黑聊天室同款黑白复古窗口。',
+  '结束约会会把完成状态同步给主壳和约会 app，回到首页直接进 Complete。',
+  '收尾消息继续按 char 人设逐条弹出，结束按钮保留黑白复古按压感。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4588,6 +4588,32 @@ function openShellNotificationPayload(payload){
   }
 }
 
+function normalizeOfflineInviteCompleteIds(payload){
+  var ids = [];
+  if(payload && Array.isArray(payload.completedInviteIds)) ids = ids.concat(payload.completedInviteIds);
+  if(payload && Array.isArray(payload.ids)) ids = ids.concat(payload.ids);
+  if(payload && payload.inviteId) ids.push(payload.inviteId);
+  return ids.map(function(id){ return String(id || '').trim(); }).filter(Boolean);
+}
+
+function rememberCompletedOfflineInviteIds(ids){
+  var map = Object.create(null);
+  try{
+    JSON.parse(localStorage.getItem(scopedKeyForAccount('offline_invite_completed_ids_v1', getActiveAccountId())) || localStorage.getItem('offline_invite_completed_ids_v1') || '[]').forEach(function(id){
+      var safe = String(id || '').trim();
+      if(safe) map[safe] = true;
+    });
+  }catch(err){}
+  (Array.isArray(ids) ? ids : []).forEach(function(id){
+    var safe = String(id || '').trim();
+    if(safe) map[safe] = true;
+  });
+  var out = Object.keys(map);
+  try{ localStorage.setItem(scopedKeyForAccount('offline_invite_completed_ids_v1', getActiveAccountId()), JSON.stringify(out)); }catch(err2){}
+  try{ localStorage.setItem('offline_invite_completed_ids_v1', JSON.stringify(out)); }catch(err3){}
+  return out;
+}
+
 function showAppNotificationCard(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var shell = document.getElementById('app-notify-shell');
@@ -8161,6 +8187,13 @@ window.addEventListener('message',(e)=>{
       try{ localStorage.setItem(scopedKeyForAccount(OFFLINE_INVITE_FOCUS_KEY, getActiveAccountId()), String(payload.inviteId || '').trim()); }catch(err){}
       try{ localStorage.setItem(OFFLINE_INVITE_FOCUS_KEY, String(payload.inviteId || '').trim()); }catch(err){}
     }
+    if(appId === 'offline' && payload.forceComplete){
+      var completedIds = rememberCompletedOfflineInviteIds(normalizeOfflineInviteCompleteIds(payload));
+      postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), reason:'open_app_with' } });
+      setTimeout(function(){
+        postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), reason:'open_app_with_after_open' } });
+      }, 180);
+    }
     if(appId === 'offline' && payload.forceOpen){
       forceOpenApp('offline');
       return;
@@ -8189,6 +8222,10 @@ window.addEventListener('message',(e)=>{
   if(type==='OFFLINE_EXITED'){
     setMinimizedOfflineCharId('');
     removeAppFromStack('offline_mode');
+  }
+  if(type==='OFFLINE_INVITE_FORCE_COMPLETE'){
+    var forcedIds = rememberCompletedOfflineInviteIds(normalizeOfflineInviteCompleteIds(payload));
+    postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:Object.assign({}, payload || {}, { ids:forcedIds }) });
   }
   if(type==='QQ_BADGE_SYNC'){
     var activeAcctId = getActiveAccountId();
