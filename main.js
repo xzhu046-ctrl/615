@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T02:34:09Z';
+const APP_BUILD_ID = '2026-04-27T02:49:53Z';
 const APP_UPDATE_NOTES = [
-  '线下写作设置改为正文字数、段落数、心声字数三项。',
-  '正文字数只计算 text 正文，心声不再混进正文长度里。',
-  '线下番外弹窗缩小并精修，去掉左上角叉叉，点击周围即可退出。'
+  '线下写作设置的正文字数、段落数、心声字数全部改成 xx-xx 区间。',
+  '生成提示和校验同步按区间检查，正文不含心声，段落按实际段数平均分配。',
+  '导入预设兼容新旧字段，更新日志继续保持正常中文显示。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
