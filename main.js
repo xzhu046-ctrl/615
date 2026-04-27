@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T07:48:00Z';
+const APP_BUILD_ID = '2026-04-27T08:12:00Z';
 const APP_UPDATE_NOTES = [
-  '修复约会结束后通知同步失败误报档案保存失败的问题。',
-  '结束归档成功后，线上通知和记忆同步失败会单独记录重试。',
-  '主归档失败会走备用归档，只有主备都失败才提示档案保存失败。'
+  '结束约会按钮缩小，并改成黑边白线黑色阴影。',
+  '相纸点开后显示假照片，点击照片会翻到背面查看短笺。',
+  '相纸短笺会在展示和翻面时主动触发生成，Complete 后立即进入只读。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
