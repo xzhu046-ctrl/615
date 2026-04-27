@@ -50,12 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T04:45:00Z';
+const APP_BUILD_ID = '2026-04-27T05:02:00Z';
 const APP_UPDATE_NOTES = [
-  '更新弹窗资源版本同步刷新，更新日志样式会稳定生效。',
-  '线下记忆模式改为跟随线上角色的小脑瓜/日记设置。',
-  '约会 app 打开新的 accepted 邀约时不再带入同角色旧线下记录。',
-  '线下正文生成不再同时要求番外，番外单独生成，只允许正文影响番外。'
+  '更新弹窗标题固定显示“更新日志”，每条更新用 ❶︎ ❷︎ ❸︎ 样式编号。',
+  '主屏幕第二页 user 头像优先使用当前角色聊天头像，不再吃个人资料问号头像。',
+  '线下番外回到同轮生成，但正文先定稿，番外只能根据正文生成，不能反向混进正文。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -890,11 +889,12 @@ function updateHostedUpdateMeta(remoteFingerprint){
   }
   if(notes){
     var noteLines = getHostedUpdateNotes(remote);
+    var noteIcons = ['❶︎','❷︎','❸︎','❹︎','❺︎','❻︎','❼︎','❽︎','❾︎','❿︎'];
     notes.innerHTML = [
       '<div class="update-toast-notes-label">更新日志</div>',
       noteLines.map(function(line, idx){
         var safe = String(line || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
-        return '<div class="update-toast-note-line"><span class="update-toast-note-icon" aria-hidden="true">' + (idx + 1) + '</span><span class="update-toast-note-text">' + safe + '</span></div>';
+        return '<div class="update-toast-note-line"><span class="update-toast-note-icon" aria-hidden="true">' + (noteIcons[idx] || String(idx + 1)) + '</span><span class="update-toast-note-text">' + safe + '</span></div>';
       }).join('')
     ].join('');
   }
@@ -5399,17 +5399,8 @@ function getChatUserAvatar(charId){
   if(charId) keys.push('user_avatar_' + charId);
   keys.push(scopedKeyForAccount('user_avatar', activeId));
   keys.push('user_avatar');
-  keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
-  keys.push('qq_profile_avatar_asset');
   function loadAt(idx){
     if(idx >= keys.length){
-      try{
-        if(window.AccountManager){
-          var acct = window.AccountManager.getActive();
-          var avatar = String((acct && acct.avatar) || '').trim();
-          if(avatar) return Promise.resolve(avatar);
-        }
-      }catch(e){}
       return Promise.resolve('');
     }
     return loadStoredAsset(keys[idx]).then(function(src){
@@ -5427,21 +5418,12 @@ function getImmediateChatUserAvatar(charId){
   if(charId) keys.push('user_avatar_' + charId);
   keys.push(scopedKeyForAccount('user_avatar', activeId));
   keys.push('user_avatar');
-  keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
-  keys.push('qq_profile_avatar_asset');
   for(var i = 0; i < keys.length; i += 1){
     try{
       var src = normalizeShellAssetSrc(localStorage.getItem(keys[i]) || '');
       if(isRenderableShellAvatarSrc(src)) return src;
     }catch(e){}
   }
-  try{
-    if(window.AccountManager){
-      var acct = window.AccountManager.getActive();
-      var avatar = normalizeShellAssetSrc((acct && acct.avatar) || '');
-      if(isRenderableShellAvatarSrc(avatar)) return avatar;
-    }
-  }catch(e){}
   return '';
 }
 
@@ -8567,7 +8549,9 @@ function applyWidgetUserAvatarContent(target, src, fallback){
     target.innerHTML = '<img src="' + safeSrc + '" alt="">';
     return;
   }
-  target.textContent = String(fallback || '你').trim() || '你';
+  var safeFallback = String(fallback || '你').trim();
+  if(!safeFallback || /^[?？]+$/.test(safeFallback)) safeFallback = '你';
+  target.textContent = safeFallback;
 }
 
 function getDefaultWidgetCharacterQuote(role){
