@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T06:25:00Z';
+const APP_BUILD_ID = '2026-04-27T06:40:00Z';
 const APP_UPDATE_NOTES = [
-  '约会 app 增加强制 Complete 标记，结束后会稳定归入 Complete。',
-  '相纸显影改成两句话生成，等待时显示带动效的正在显影中。',
-  '点开相纸只显示假照片本体，不再出现多余按钮和外壳。'
+  'QQ 置顶和取消置顶的确认按钮改成稳定响应。',
+  '置顶弹窗会隔离长按后的触摸事件，不再吞掉取消或确认。',
+  '确认后会立刻刷新 QQ 列表并显示置顶状态。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';

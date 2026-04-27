@@ -828,12 +828,12 @@ body{
   box-shadow:3px 3px 0 #0f0f10;
   color:#7a7a80;
 }
-.pin-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);display:none;align-items:center;justify-content:center;z-index:60;padding:20px}
+.pin-overlay{position:fixed;inset:0;background:rgba(0,0,0,.3);display:none;align-items:center;justify-content:center;z-index:260;padding:20px;touch-action:manipulation}
 .pin-overlay.open{display:flex}
-.pin-card{width:min(280px,100%);background:var(--b);color:var(--w);border:2px solid var(--w);border-radius:18px;box-shadow:0 14px 30px rgba(0,0,0,.3), 4px 4px 0 #000;padding:16px 14px;display:flex;flex-direction:column;gap:14px;text-align:center}
+.pin-card{width:min(280px,100%);background:var(--b);color:var(--w);border:2px solid var(--w);border-radius:18px;box-shadow:0 14px 30px rgba(0,0,0,.3), 4px 4px 0 #000;padding:16px 14px;display:flex;flex-direction:column;gap:14px;text-align:center;pointer-events:auto}
 .pin-title{font-family:var(--fontd);font-size:16px;font-weight:900;line-height:1.4}
 .pin-actions{display:flex;gap:10px}
-.pin-btn{flex:1;padding:10px 0;border:2px solid var(--b);border-radius:12px;background:var(--w);color:var(--b);font-family:var(--fontd);font-size:12px;font-weight:900;cursor:pointer;box-shadow:2px 2px 0 #000}
+.pin-btn{flex:1;padding:10px 0;border:2px solid var(--b);border-radius:12px;background:var(--w);color:var(--b);font-family:var(--fontd);font-size:12px;font-weight:900;cursor:pointer;box-shadow:2px 2px 0 #000;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .pin-btn:active{transform:translate(2px,2px);box-shadow:0 0 0}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(12px);background:var(--b);color:var(--w);padding:9px 16px;border-radius:999px;font-size:12px;font-weight:800;opacity:0;pointer-events:none;transition:opacity .22s ease,transform .22s ease;z-index:70}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -1374,8 +1374,8 @@ body{
     <div class="pin-card">
       <div class="pin-title" id="pinTitle">要置顶此聊天吗？</div>
       <div class="pin-actions">
-        <button class="pin-btn" type="button" onclick="closePinConfirm()">取消</button>
-        <button class="pin-btn" type="button" onclick="confirmPinChat()">确认</button>
+        <button class="pin-btn" id="pinCancelBtn" type="button" onclick="return handlePinCancel(event)">取消</button>
+        <button class="pin-btn" id="pinConfirmBtn" type="button" onclick="return handlePinConfirm(event)">确认</button>
       </div>
     </div>
   </div>
@@ -2940,8 +2940,16 @@ function clearLongPress(){
   }
   activePressId = null;
 }
+function stopPinEvent(evt){
+  if(!evt) return;
+  evt.preventDefault();
+  evt.stopPropagation();
+  if(typeof evt.stopImmediatePropagation === 'function') evt.stopImmediatePropagation();
+}
 function openPinConfirm(id){
   if(!id) return false;
+  clearLongPress();
+  bindPinConfirmControls();
   pinConfirmId = id;
   pinConfirmMode = isChatPinned(id) ? 'unpin' : 'pin';
   var title = document.getElementById('pinTitle');
@@ -2950,7 +2958,8 @@ function openPinConfirm(id){
   if(overlay) overlay.classList.add('open');
   return true;
 }
-function closePinConfirm(){
+function closePinConfirm(evt){
+  stopPinEvent(evt);
   pinConfirmId = '';
   pinConfirmMode = 'pin';
   var overlay = document.getElementById('pinOverlay');
@@ -2959,7 +2968,8 @@ function closePinConfirm(){
 function handlePinOverlayClick(evt){
   if(evt.target === evt.currentTarget) closePinConfirm();
 }
-function confirmPinChat(){
+function confirmPinChat(evt){
+  stopPinEvent(evt);
   if(!pinConfirmId) return closePinConfirm();
   var mode = pinConfirmMode;
   if(mode === 'unpin'){
@@ -2970,6 +2980,36 @@ function confirmPinChat(){
   closePinConfirm();
   renderList();
   showToast(mode === 'unpin' ? '已取消置顶' : '已置顶到最上面');
+}
+function handlePinCancel(evt){
+  closePinConfirm(evt);
+  return false;
+}
+function handlePinConfirm(evt){
+  confirmPinChat(evt);
+  return false;
+}
+function bindPinConfirmControls(){
+  var overlay = document.getElementById('pinOverlay');
+  var cancel = document.getElementById('pinCancelBtn');
+  var confirm = document.getElementById('pinConfirmBtn');
+  if(overlay && overlay.dataset.pinControlsBound !== '1'){
+    overlay.dataset.pinControlsBound = '1';
+    overlay.addEventListener('pointerdown', function(evt){
+      if(evt.target === overlay) closePinConfirm(evt);
+    });
+  }
+  [
+    [cancel, handlePinCancel],
+    [confirm, handlePinConfirm]
+  ].forEach(function(pair){
+    var btn = pair[0];
+    var handler = pair[1];
+    if(!btn || btn.dataset.pinButtonBound === '1') return;
+    btn.dataset.pinButtonBound = '1';
+    btn.addEventListener('pointerdown', handler, true);
+    btn.addEventListener('click', handler, true);
+  });
 }
 function showToast(text){
   var toast = document.getElementById('toast');
@@ -3393,6 +3433,7 @@ window.addEventListener('message', async function(e){
 function forward(msg){
   try{ if(window.top && window.top!==window) window.top.postMessage(msg,'*'); }catch(e){}
 }
+bindPinConfirmControls();
 Promise.resolve(window.MetadataStore && typeof window.MetadataStore.init === 'function' ? window.MetadataStore.init() : null)
   .catch(function(){ return null; })
   .then(function(){
