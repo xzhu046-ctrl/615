@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-27T03:41:08Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T03:41:08Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T03:41:08Z"></script>
-<script src="../promptManager.js?v=2026-04-27T03:41:08Z"></script>
-<script src="../accountManager.js?v=2026-04-27T03:41:08Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T03:41:08Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T03:41:08Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T03:41:08Z"></script>
+<script src="../assetStore.js?v=2026-04-27T03:52:44Z"></script>
+<script src="../chatStorage.js?v=2026-04-27T03:52:44Z"></script>
+<script src="../metadataStore.js?v=2026-04-27T03:52:44Z"></script>
+<script src="../promptManager.js?v=2026-04-27T03:52:44Z"></script>
+<script src="../accountManager.js?v=2026-04-27T03:52:44Z"></script>
+<script src="../scheduleShared.js?v=2026-04-27T03:52:44Z"></script>
+<script src="../presenceShared.js?v=2026-04-27T03:52:44Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-27T03:52:44Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -3250,14 +3250,9 @@ async function generateOfflineStageSummary(force, overrideCount){
   var summaryLines = buildOfflineStageSummaryLines(startFloor, uptoCount);
   if(!summaryLines.length) return null;
   var label = '第' + String(startFloor) + '-' + String(uptoCount) + '幕阶段总结';
-  var parsed = null;
-  try{
-    var raw = await callAIWithTimeout(buildOfflineStageSummarySystemPrompt(label), summaryLines.join('\n'), Math.min(getOfflineReplyTimeoutMs(), 50000));
-    parsed = parseOfflineSummaryObject(raw);
-  }catch(stageSummaryErr){
-    pushOfflineBackendLog('warn', 'stage_summary.fallback', '阶段总结接口失败，使用本地压缩兜底', stageSummaryErr);
-  }
-  var text = normalizeOfflineSummaryText(parsed && parsed.summary || '', summaryLines.join(' '));
+  var raw = await callAIWithTimeout(buildOfflineStageSummarySystemPrompt(label), summaryLines.join('\n'), Math.min(getOfflineReplyTimeoutMs(), 50000));
+  var parsed = parseOfflineSummaryObject(raw);
+  var text = normalizeOfflineSummaryText(parsed && parsed.summary || '', '');
   if(!text) return null;
   var nextItem = {
     id: 'offline_stage_' + String(uptoCount),
@@ -7974,6 +7969,7 @@ function buildOfflineStatusSystemPrompt(options){
   options = options || {};
   var compactLevel = Math.max(0, Number(options.compactLevel) || 0);
   var profile = getOfflineSideStoryProfile(getOfflineUiPrefs().sideStoryType);
+  var userPersona = clipOfflinePromptText(getOfflineUserPersona(), offlinePromptLimit(isMobileOfflineRuntime() ? 900 : 1400, compactLevel, 280));
   var dateRule = profile.dateRule || (profile.key === 'nogrow'
     ? 'future_date 必须是过去某一天的具体日期与时间，要明显早于当前正文时间。'
     : 'future_date 必须是未来某一天的具体日期与时间。');
@@ -7988,6 +7984,8 @@ function buildOfflineStatusSystemPrompt(options){
     '不要正文，不要 thought_chain，不要 title，不要 quote。',
     'status_card 必须和这幕正文一起构成同一件事的番外侧页，严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt。',
     '任何番外都绝对不许 OOC：关系、称呼、身份、性格、世界观、性别、取向、亲疏距离都必须严格继承当前设定，不许乱改。',
+    'user 的姓名、性别、人称、身份必须严格来自“用户名字”和“用户 persona”；如果用户 persona 写的是女生/女性/she/her/女孩子，就绝对不许把 user 写成男生、男性、he/him 或男朋友。',
+    '不要凭模板默认 user 性别；设定没写清楚时也不要主动改性别或乱加与 persona 冲突的称呼。',
     '这次番外类型是：' + profile.label + '。',
     'future_title、future_note、artifact_label、artifact_html 里的所有可见文字都必须遵守当前语言模式，不要夹带另一种语言的解释。',
     buildOfflineStrictLanguageRule('future_title、future_note、artifact_label 与 artifact_html 里的可见文字'),
@@ -8003,6 +8001,8 @@ function buildOfflineStatusSystemPrompt(options){
     '如果返回 artifact_html：只能用简单安全的 HTML/CSS，小物件要像可以直接展示的小卡片；不许 script，不许外链，不许 iframe，不许事件属性。',
     '这条番外不参与正文主线，不写回主线剧情，只是正文之外的一张侧页。',
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
+    '用户名字：' + resolveUserName(),
+    '用户 persona：' + (userPersona || '未提供'),
     buildOfflineCoreSettingSummary(compactLevel),
     onlineChatText ? ('最近线上聊天（压缩）：\n' + onlineChatText) : '最近线上聊天：无',
     historyText ? ('最近线下记录（压缩）：\n' + historyText) : '最近线下记录：无'
