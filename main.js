@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T10:24:00Z';
+const APP_BUILD_ID = '2026-04-27T10:43:00Z';
 const APP_UPDATE_NOTES = [
-  '线上聊天回复前会优先锁住角色人设，减少客服腔和跑偏。',
-  '普通聊天不再每轮加载头像识图链路，回复会更快开始。',
-  '小脑瓜向量检索加了短超时，卡住时会先用关键词记忆继续聊。'
+  '约会结束会按角色兜底标记 complete，避免旧邀约卡在未结束。',
+  '结束小聊天室每条消息补上方形角色头像、已读和时间。',
+  '结束小聊天室顶栏改成绿点在线，不再显示 typing。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -8204,9 +8204,9 @@ window.addEventListener('message',(e)=>{
     if(appId === 'offline' && payload.forceComplete){
       var completedIds = rememberCompletedOfflineInviteIds(normalizeOfflineInviteCompleteIds(payload));
       rememberOfflineInviteForceCompletePayload(completedIds, payload, 'open_app_with');
-      postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), reason:'open_app_with' } });
+      postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), charId:String(payload.charId || '').trim(), reason:'open_app_with' } });
       setTimeout(function(){
-        postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), reason:'open_app_with_after_open' } });
+        postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), charId:String(payload.charId || '').trim(), reason:'open_app_with_after_open' } });
       }, 180);
     }
     if(appId === 'offline' && payload.forceOpen){

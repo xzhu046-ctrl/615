@@ -778,9 +778,10 @@ function isRecordForceCompleted(item){
   });
 }
 
-function forceCompleteOfflineRecords(ids){
+function forceCompleteOfflineRecords(ids, charId){
   var safeIds = (Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
-  if(!safeIds.length) return;
+  var safeCharId = String(charId || '').trim();
+  if(!safeIds.length && !safeCharId) return;
   markCompletedOfflineInviteIds(safeIds);
   var now = Date.now();
   var store = window.OfflineInviteStore || null;
@@ -797,6 +798,14 @@ function forceCompleteOfflineRecords(ids){
               if(recordId) targetMap[recordId] = true;
             }
           });
+          if(safeCharId && String(record && record.charId || '').trim() === safeCharId){
+            var status = String(record && record.status || '').trim();
+            var meetState = String(record && record.meetState || '').trim();
+            if(status === 'accepted' || meetState === 'ongoing' || meetState === 'continued' || meetState === 'accepted' || meetState === 'scheduled'){
+              var activeRecordId = String(record && record.id || '').trim();
+              if(activeRecordId) targetMap[activeRecordId] = true;
+            }
+          }
         });
       }
     }catch(listErr){}
@@ -833,7 +842,7 @@ function consumePendingForceCompleteOfflineRecords(){
     var payload = item && item.value && typeof item.value === 'object' ? item.value : {};
     var ids = Array.isArray(payload.ids) ? payload.ids.slice() : [];
     if(payload.inviteId) ids.push(payload.inviteId);
-    forceCompleteOfflineRecords(ids);
+    forceCompleteOfflineRecords(ids, payload.charId);
     try{ localStorage.removeItem(item.key); }catch(err){}
   });
 }
@@ -1850,7 +1859,7 @@ window.addEventListener('message', function(e){
     var payload = data.payload || {};
     var ids = Array.isArray(payload.ids) ? payload.ids.slice() : [];
     if(payload.inviteId) ids.push(payload.inviteId);
-    forceCompleteOfflineRecords(ids);
+    forceCompleteOfflineRecords(ids, payload.charId);
     renderOfflineApp();
     return;
   }
