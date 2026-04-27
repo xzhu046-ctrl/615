@@ -716,6 +716,43 @@ function writeHiddenOfflineRecordIds(map){
   try{ localStorage.setItem('offline_invite_hidden_ids_v1', JSON.stringify(list)); }catch(err2){}
 }
 
+function getCompletedOfflineInviteIdsKey(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
+      return window.parent.scopedKeyForAccount('offline_invite_completed_ids_v1', window.parent.getActiveAccountId());
+    }
+  }catch(err){}
+  return 'offline_invite_completed_ids_v1';
+}
+
+function readCompletedOfflineInviteIds(){
+  var ids = [];
+  try{
+    ids = JSON.parse(localStorage.getItem(getCompletedOfflineInviteIdsKey()) || localStorage.getItem('offline_invite_completed_ids_v1') || '[]');
+  }catch(err){
+    ids = [];
+  }
+  if(!Array.isArray(ids)) ids = [];
+  return ids.reduce(function(map, value){
+    var safe = String(value || '').trim();
+    if(safe) map[safe] = true;
+    return map;
+  }, Object.create(null));
+}
+
+function isRecordForceCompleted(item){
+  var completed = readCompletedOfflineInviteIds();
+  return [
+    item && item.id,
+    item && item.threadId,
+    item && item.inviteMessageId,
+    item && item.replyMessageId
+  ].some(function(value){
+    var safe = String(value || '').trim();
+    return !!(safe && completed[safe]);
+  });
+}
+
 function hideOfflineRecordIds(ids){
   var hidden = readHiddenOfflineRecordIds();
   (Array.isArray(ids) ? ids : []).forEach(function(id){
@@ -1182,7 +1219,7 @@ function isPendingInviteRecord(item){
 function isCompletedInviteRecord(item){
   var meetState = String(item && item.meetState || '').trim();
   var status = String(item && item.status || '').trim();
-  return meetState === 'complete' || status === 'completed' || status === 'rejected' || status === 'declined';
+  return isRecordForceCompleted(item) || meetState === 'complete' || status === 'completed' || status === 'rejected' || status === 'declined';
 }
 
 function isContinuedInviteRecord(item){

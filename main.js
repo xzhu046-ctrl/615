@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T06:12:00Z';
+const APP_BUILD_ID = '2026-04-27T06:25:00Z';
 const APP_UPDATE_NOTES = [
-  '结束约会会同步写入邀约 store 和聊天卡片状态。',
-  '约会列表会保护 Complete 状态，不再被旧 accepted 记录盖掉。',
-  '结尾相机改回彩色，生成前相纸只显示正在显影中。'
+  '约会 app 增加强制 Complete 标记，结束后会稳定归入 Complete。',
+  '相纸显影改成两句话生成，等待时显示带动效的正在显影中。',
+  '点开相纸只显示假照片本体，不再出现多余按钮和外壳。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
