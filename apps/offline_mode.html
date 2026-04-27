@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-27T10:50:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T10:50:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T10:50:00Z"></script>
-<script src="../promptManager.js?v=2026-04-27T10:50:00Z"></script>
-<script src="../accountManager.js?v=2026-04-27T10:50:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T10:50:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T10:50:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T10:50:00Z"></script>
+<script src="../assetStore.js?v=2026-04-27T10:58:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-27T10:58:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-27T10:58:00Z"></script>
+<script src="../promptManager.js?v=2026-04-27T10:58:00Z"></script>
+<script src="../accountManager.js?v=2026-04-27T10:58:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-27T10:58:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-27T10:58:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-27T10:58:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -54,6 +54,13 @@ body::before{content:'';position:fixed;inset:0;background:var(--offline-page-bg)
 .offline-goodbye-camera-overlay{position:fixed;inset:0;z-index:210;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(255,255,255,.26);backdrop-filter:blur(18px) saturate(116%);-webkit-backdrop-filter:blur(18px) saturate(116%)}
 .offline-goodbye-camera-overlay.open{display:flex}
 .offline-goodbye-window{width:min(354px,calc(100vw - 28px));border:2px solid #111;background:#fff;color:#111;box-shadow:4px 4px 0 rgba(17,17,17,.94);font-family:'Courier New',monospace;overflow:hidden;display:flex;flex-direction:column}
+.offline-goodbye-window.is-inline{width:min(354px,100%);margin:14px auto 8px;flex:0 0 auto}
+.offline-goodbye-window.is-inline .offline-goodbye-chat-body{max-height:none;min-height:0}
+.offline-goodbye-window.is-inline .offline-goodbye-panel{padding-bottom:12px}
+.offline-goodbye-window.is-inline .offline-goodbye-view-panel{grid-template-columns:1fr}
+.offline-goodbye-saved-view{border:2px solid #111;background:#fff;box-shadow:1px 1px 0 #111;padding:7px 8px}
+.offline-goodbye-saved-view-title{font:900 10px/1.1 var(--font);color:#111}
+.offline-goodbye-saved-view-text{margin-top:5px;font:900 11px/1.45 var(--font);white-space:pre-wrap;word-break:break-word;color:#111}
 .offline-goodbye-titlebar{height:34px;display:grid;grid-template-columns:54px 1fr 44px;align-items:center;border-bottom:2px solid #111;background:#fff;color:#111}
 .offline-goodbye-titlebar::before{content:"● ● ●";padding-left:9px;font:900 10px/1 'Courier New',monospace;letter-spacing:2px;color:#111}
 .offline-goodbye-titlebar::after{content:"□ ×";justify-self:end;padding-right:9px;font:900 14px/1 'Courier New',monospace;letter-spacing:3px;color:#111}
@@ -5497,6 +5504,71 @@ function renderPaperStoryCard(entry, idx, isChar){
     '</div>' +
   '</div>';
 }
+function readOfflineGoodbyeChatPayloadFromStorage(recordId){
+  var keys = offlineGoodbyeChatKeyCandidates(recordId);
+  for(var i = 0; i < keys.length; i += 1){
+    var key = keys[i];
+    try{
+      var raw = localStorage.getItem(key) || '';
+      if(!raw) continue;
+      var parsed = JSON.parse(raw);
+      if(parsed && typeof parsed === 'object' && String(parsed.text || '').trim()) return parsed;
+    }catch(e){}
+  }
+  return null;
+}
+function getStoredOfflineGoodbyeChatPayload(){
+  var direct = session && session.goodbyeChat && typeof session.goodbyeChat === 'object' ? session.goodbyeChat : null;
+  if(direct && String(direct.text || '').trim()) return direct;
+  var invite = session && session.invite && typeof session.invite === 'object' ? session.invite : {};
+  var inviteDirect = invite && invite.goodbyeChat && typeof invite.goodbyeChat === 'object' ? invite.goodbyeChat : null;
+  if(inviteDirect && String(inviteDirect.text || '').trim()) return inviteDirect;
+  var ids = collectOfflineInviteRecordIdsFromSource(session || {}, []);
+  pushUniqueOfflineInviteId(ids, getFocusedOfflineInviteRecordId());
+  for(var i = 0; i < ids.length; i += 1){
+    var stored = readOfflineGoodbyeChatPayloadFromStorage(ids[i]);
+    if(stored) return stored;
+  }
+  return null;
+}
+function renderOfflineGoodbyeInlineChat(){
+  if(!offlineReadOnlyMode) return '';
+  var payload = getStoredOfflineGoodbyeChatPayload();
+  var text = String(payload && payload.text || '').trim();
+  if(!text) return '';
+  var parsed = parseOfflineGoodbyePayload(text);
+  var messages = (Array.isArray(parsed.messages) ? parsed.messages : []).filter(Boolean);
+  if(!messages.length) return '';
+  var sourceName = String((character && (character.nickname || character.name)) || (session && session.invite && session.invite.charName) || 'unknown caller').trim() || 'unknown caller';
+  var previousSnapshot = offlineGoodbyePhotoSnapshot;
+  offlineGoodbyePhotoSnapshot = Object.assign({}, session || {}, payload || {});
+  var rows = messages.map(function(message, idx){
+    return renderOfflineGoodbyeMessage(message, idx);
+  }).join('');
+  offlineGoodbyePhotoSnapshot = previousSnapshot;
+  var views = (Array.isArray(parsed.views) ? parsed.views : []).filter(function(item){
+    return !!String(item && item.text || '').trim();
+  });
+  var viewHtml = views.length ? ('<div class="offline-goodbye-view-panel">'
+    + views.map(function(item){
+      return '<div class="offline-goodbye-saved-view">'
+        + '<div class="offline-goodbye-saved-view-title">' + esc(String(item.title || '查看').trim() || '查看') + '</div>'
+        + '<div class="offline-goodbye-saved-view-text">' + esc(String(item.text || '').trim()) + '</div>'
+        + '</div>';
+    }).join('')
+    + '</div>') : '';
+  return '<div class="offline-goodbye-window is-inline">'
+    + '<div class="offline-goodbye-titlebar"><span>after-date.chat / saved</span></div>'
+    + '<div class="offline-goodbye-panel">'
+    + '<div class="offline-goodbye-meta">'
+    + '<p class="offline-goodbye-name">' + esc(sourceName) + '</p>'
+    + '<p class="offline-goodbye-status"><span class="offline-goodbye-status-dot" aria-hidden="true"></span>在线</p>'
+    + '</div>'
+    + '<div class="offline-goodbye-chat-body">' + rows + '</div>'
+    + viewHtml
+    + '</div>'
+    + '</div>';
+}
 function renderStory(){
   var wrap = document.getElementById('storyList');
   if(!wrap) return;
@@ -5534,7 +5606,7 @@ function renderStory(){
   wrap.innerHTML = list.map(function(entry, idx){
     var isChar = entry.role !== 'user';
     return renderPaperStoryCard(entry, idx, isChar);
-  }).join('');
+  }).join('') + renderOfflineGoodbyeInlineChat();
   var last = list[list.length - 1] || {};
   var statusEl = document.getElementById('offlineStatus');
   if(statusEl) statusEl.textContent = '线下模式 · ' + ((character && (character.nickname || character.name)) || 'Char');
@@ -11524,6 +11596,19 @@ function completedOfflineInviteIdsKey(){
 function forceCompleteOfflineInviteQueueKey(){
   return scopedKey('offline_invite_force_complete_payload_v1');
 }
+function offlineGoodbyeChatRecordKey(recordId){
+  return scopedKey('offline_goodbye_chat_' + String(recordId || '').trim());
+}
+function offlineGoodbyeChatKeyCandidates(recordId){
+  var safeId = String(recordId || '').trim();
+  if(!safeId) return [];
+  var keys = [offlineGoodbyeChatRecordKey(safeId), 'offline_goodbye_chat_' + safeId];
+  try{
+    var acctId = activeAccountId();
+    if(acctId) keys.unshift('offline_goodbye_chat_' + safeId + '__acct_' + acctId);
+  }catch(e){}
+  return Array.from(new Set(keys.filter(Boolean)));
+}
 function markOfflineInviteIdsCompleted(ids){
   var list = Array.isArray(ids) ? ids : [];
   var map = Object.create(null);
@@ -11722,12 +11807,46 @@ function renderOfflineGoodbyeMessage(message, idx){
     + '</div>'
     + '</div>';
 }
+function persistOfflineGoodbyeChatText(text){
+  var clean = String(text || '').trim();
+  if(!clean) return null;
+  var parsed = parseOfflineGoodbyePayload(clean);
+  var ids = collectOfflineInviteRecordIdsFromSource(offlineGoodbyePhotoSnapshot || {}, []);
+  collectOfflineInviteRecordIdsFromSource(session || {}, ids);
+  (Array.isArray(offlineGoodbyeCompletedInviteIds) ? offlineGoodbyeCompletedInviteIds : []).forEach(function(id){
+    pushUniqueOfflineInviteId(ids, id);
+  });
+  pushUniqueOfflineInviteId(ids, getFocusedOfflineInviteRecordId());
+  var charId = String((offlineGoodbyePhotoSnapshot && (offlineGoodbyePhotoSnapshot.charId || offlineGoodbyePhotoSnapshot.characterId)) || (offlineGoodbyePhotoSnapshot && offlineGoodbyePhotoSnapshot.invite && offlineGoodbyePhotoSnapshot.invite.charId) || (session && (session.charId || session.characterId)) || (session && session.invite && session.invite.charId) || (character && character.id) || '').trim();
+  var payload = {
+    text: clean,
+    messages: parsed.messages || [],
+    views: parsed.views || [],
+    inviteIds: ids.slice(),
+    charId: charId,
+    createdAt: Number(offlineGoodbyePhotoSnapshot && (offlineGoodbyePhotoSnapshot.completedAt || offlineGoodbyePhotoSnapshot.updatedAt || offlineGoodbyePhotoSnapshot.createdAt) || Date.now()) || Date.now(),
+    updatedAt: Date.now()
+  };
+  if(offlineGoodbyePhotoSnapshot && typeof offlineGoodbyePhotoSnapshot === 'object') offlineGoodbyePhotoSnapshot.goodbyeChat = payload;
+  if(session && typeof session === 'object' && hasMeaningfulOfflineSession(session)){
+    session.goodbyeChat = payload;
+    if(session.invite && typeof session.invite === 'object') session.invite.goodbyeChat = payload;
+    try{ saveSession(); }catch(e){}
+  }
+  ids.forEach(function(id){
+    offlineGoodbyeChatKeyCandidates(id).forEach(function(key){
+      try{ saveOfflineJsonRecord(key, payload); }catch(e){}
+    });
+  });
+  return payload;
+}
 function setOfflineGoodbyePhotoText(text){
   var clean = String(text || '').trim();
   offlineGoodbyePhotoText = clean;
   var parsed = parseOfflineGoodbyePayload(clean);
   offlineGoodbyePhotoMessages = parsed.messages;
   offlineGoodbyeViewItems = parsed.views;
+  if(clean) persistOfflineGoodbyeChatText(clean);
   var letter = document.getElementById('offlineGoodbyePhotoLetter');
   var sign = document.getElementById('offlineGoodbyePhotoSign');
   var hint = document.getElementById('offlineGoodbyeHint');

@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T10:50:00Z';
+const APP_BUILD_ID = '2026-04-27T10:58:00Z';
 const APP_UPDATE_NOTES = [
-  '只读约会页右上角红叉也会同步 complete 状态。',
-  '红叉返回约会 App 时会带上角色和当前邀约记录。',
-  '修正只读退出后约会列表不刷新的问题。'
+  '结束页生成的小聊天室会按邀约保存下来。',
+  '阅读模式会在记录最后带上保存过的小聊天室。',
+  '重新进入已完成约会时不会重新生成收尾内容。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
