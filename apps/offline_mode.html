@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-27T04:18:36Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T04:18:36Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T04:18:36Z"></script>
-<script src="../promptManager.js?v=2026-04-27T04:18:36Z"></script>
-<script src="../accountManager.js?v=2026-04-27T04:18:36Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T04:18:36Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T04:18:36Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T04:18:36Z"></script>
+<script src="../assetStore.js?v=2026-04-27T04:45:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-27T04:45:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-27T04:45:00Z"></script>
+<script src="../promptManager.js?v=2026-04-27T04:45:00Z"></script>
+<script src="../accountManager.js?v=2026-04-27T04:45:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-27T04:45:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-27T04:45:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-27T04:45:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -2284,6 +2284,7 @@ function buildOfflineCharacterFromSnapshot(snapshot){
     offlineInviteStyle: String(snapshot.offlineInviteStyle || '').trim(),
     offlineSummaryEvery: Number(snapshot.offlineSummaryEvery || 5),
     offlineSummaryAuto: snapshot.offlineSummaryAuto != null ? !!snapshot.offlineSummaryAuto : true,
+    memoryMode: String(snapshot.memoryMode || '').trim(),
     offlineSideStoryType: String(snapshot.offlineSideStoryType || 'future'),
     translationEnabled: !!snapshot.translationEnabled,
     replyLanguage: normalizeReplyLanguage(snapshot.replyLanguage || snapshot.language || 'zh'),
@@ -3948,10 +3949,11 @@ async function persistOfflineDrawerMemoryMode(options){
 }
 async function refreshOfflineDrawerMemoryModeFromStore(){
   if(!character || !character.id) return;
-  var mirrorMode = readOfflineSharedMemoryModeMirror(character.id);
   var store = await loadOnlineMemorySummaryStoreByCharId(character.id);
   var storeMode = getOfflineMemoryModeFromStore(store);
-  var nextMode = mirrorMode || storeMode || (String(character && character.memoryMode || '').trim() === 'structured' ? 'structured' : 'diary');
+  var charRaw = String(character && character.memoryMode || '').trim();
+  var charMode = charRaw === 'structured' ? 'structured' : (charRaw === 'diary' ? 'diary' : '');
+  var nextMode = charMode || storeMode || 'diary';
   if(storeMode !== nextMode){
     try{
       store.advancedMemory = normalizeOfflineAdvancedMemoryState(store.advancedMemory);
@@ -5075,7 +5077,7 @@ function renderStory(){
         ? ('线下首幕生成失败了，还没有拿到可用正文。' + (failureText ? ('\n\n失败原因：' + failureText + '\n\n点左下角 ↻ 再试一次。') : '\n\n点左下角 ↻ 再试一次。'))
         : '',
       title: (session && session.openingFailed) ? '首幕生成失败' : '…',
-      quote: (session && session.openingFailed) ? '这次不再用 fallback 糊过去。' : '…',
+      quote: (session && session.openingFailed) ? '这次不再用占位内容糊过去。' : '…',
       timeLabel: '现在',
       meta: ''
     }, 0, true);
@@ -6111,19 +6113,8 @@ async function generateOfflineLeanScene(context, options){
         targetChars: primaryTargetChars
       }, opts.onUpdate);
     }catch(streamErr){
-      pushOfflineBackendLog('warn', 'offline.stream.fallback', '流式正文失败，自动回退到非流式正文', streamErr);
-      text = await generateOfflineBodyTextOnly(String(context || '').trim(), {
-        compactLevel: compactLevel,
-        timeoutMs: timeoutMs,
-        targetChars: primaryTargetChars
-      });
-      if(typeof opts.onUpdate === 'function'){
-        await progressivelyRevealOfflineText(String(text || '').trim(), opts.onUpdate, {
-          tickMs: 18,
-          minStep: 3,
-          maxStep: 10
-        });
-      }
+      pushOfflineBackendLog('warn', 'offline.stream.failed', '流式正文失败，停止本轮生成', streamErr);
+      throw streamErr;
     }
   }else{
     text = await generateOfflineBodyTextOnly(String(context || '').trim(), {
@@ -6717,14 +6708,10 @@ function getOfflineMemoryModeFromStore(store){
   var safe = normalizeOnlineMemorySummaryStore(store || defaultOnlineMemorySummaryStore());
   var advanced = normalizeOfflineAdvancedMemoryState(safe.advancedMemory);
   var storeMode = advanced.mode === 'structured' ? 'structured' : 'diary';
-  var mirrorMode = '';
-  try{
-    mirrorMode = character && character.id ? readOfflineSharedMemoryModeMirror(character.id) : '';
-  }catch(e){ mirrorMode = ''; }
-  if(mirrorMode === 'structured' || mirrorMode === 'diary') return mirrorMode;
-  var charMode = String(character && character.memoryMode || '').trim() === 'structured' ? 'structured' : '';
+  var charRaw = String(character && character.memoryMode || '').trim();
+  var charMode = charRaw === 'structured' ? 'structured' : (charRaw === 'diary' ? 'diary' : '');
   if(charMode) return charMode;
-  if(storeMode === 'structured') return 'structured';
+  if(storeMode === 'structured' || storeMode === 'diary') return storeMode;
   var hasStructuredContent = false;
   if(String(advanced.structured.relationship || '').trim()) hasStructuredContent = true;
   if(!hasStructuredContent && Object.keys(advanced.structured.facts || {}).length) hasStructuredContent = true;
@@ -7895,7 +7882,7 @@ function isOfflineQuotaLikeError(err){
   return isOfflineQuotaExceededError(err) || isOfflineContextLikeError(err);
 }
 function shouldRetryOfflineWithCompactPrompt(err){
-  return isOfflineContextLikeError(err) && !isOfflineQuotaExceededError(err);
+  return false;
 }
 function isOfflineRateLimitError(err){
   return /rate limit|too many requests|请求太密|限流|429/.test(String(err && (err.message || err) || '').toLowerCase());
@@ -8088,39 +8075,22 @@ function buildOfflineSystemPrompt(options){
   var compactScenario = clipOfflinePromptText(scenario, offlinePromptLimit(500, compactLevel, 180));
   var compactSystemPrompt = clipOfflinePromptText(systemPrompt, offlinePromptLimit(isMobileOfflineRuntime() ? 1000 : 1600, compactLevel, 320));
   var openingReference = clipOfflinePromptText(String((character && (character.first_mes || '')) || '').trim(), offlinePromptLimit(500, compactLevel, 180));
-  var sideStoryProfile = getOfflineSideStoryProfile(getOfflineUiPrefs().sideStoryType);
-  var sideStoryDateRule = sideStoryProfile.key === 'nogrow'
-    ? 'future_date 是过去某一天的具体日期与时间，要明显早于当前正文时间。'
-    : 'future_date 是未来某一天的具体日期与时间。';
-  var statusJsonShape = sideStoryProfile.artifactRule
-    ? '{"future_date":"...","future_title":"...","future_note":"...","artifact_label":"...","artifact_html":"..."}'
-    : '{"future_date":"...","future_title":"...","future_note":"..."}';
   var lines = [
     '你在生成“线下见面模式”的下一段剧情。',
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
-    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"status_card":' + statusJsonShape + ',"title":"...","quote":"...","text":"...","asides":["..."],"heart":"...","artifact_label":"...","artifact_html":"...","artifact_after_paragraph":0,"scene_summary":"..."}',
+    '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["..."],"heart":"...","artifact_label":"...","artifact_html":"...","artifact_after_paragraph":0,"scene_summary":"..."}',
     'text 必须写成足量的线下面对面正文，细节感更强，不要写成短回复，不要写成一小段，也不要写成小说章节标题。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个简体中文字符左右，不要太正经，但必须贴人设。',
     'quote 是顶部 char 语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个简体中文字符左右。',
-    'status_card 是独立番外侧页，只会出现在番外按钮/弹窗里，绝对不要把番外标题、番外说明、番外 artifact 写进 text 正文或正文 artifact_html。',
-    'status_card 不能乱编模板：future_date、future_title、future_note 都要严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 与当前气氛。',
-    '任何番外都绝对不许 OOC：关系、称呼、身份、性格、世界观、性别、取向、亲疏距离都必须严格继承当前设定，不许乱改。',
-    'status_card 里的所有可见文字必须遵守当前语言模式，不要夹带另一种语言的解释。',
-    '所有番外类型都允许自然使用 ~~划掉的嘴硬句子~~ 来表现口是心非、临时反悔或自己打自己脸；如果用了，就必须真正贴合人设与语气，不要乱用。',
-    '这次番外类型是：' + sideStoryProfile.label + '。',
-    sideStoryDateRule,
-    sideStoryProfile.titleRule,
-    sideStoryProfile.noteRule,
-    sideStoryProfile.noteLengthRule || '',
-    sideStoryProfile.artifactRule || '',
-    sideStoryProfile.artifactRule ? '如果 status_card 里包含 artifact_html，重点必须放在小物件本体的设计感和完成度上，文字只是陪衬，不要写太长。' : '',
-    '如果 status_card 里包含 artifact_html：只能用简单安全的 HTML/CSS，小物件要能直接展示；不许 script，不许外链，不许 iframe，不许事件属性。整个小物件必须严格适配手机弹窗宽度，不许任何文字、边角、贴纸、标题、装饰超出容器。',
+    '这一轮只写正文，不生成番外，不输出 status_card；番外会在正文完成后单独生成。',
+    '番外绝对不能影响正文：不要把番外标题、番外日期、番外说明、未来片段、侧页 artifact 或任何 status_card 内容写进 text 正文或正文 artifact_html。',
+    '正文绝对不许 OOC：关系、称呼、身份、性格、世界观、性别、取向、亲疏距离都必须严格继承当前设定，不许乱改。',
     '在线下模式正文里，text 是正文，不包含 asides 心声；正文总长度必须写在 ' + storyPrefs.bodyMinChars + '-' + storyPrefs.bodyMaxChars + ' 个中文字符之间，心声字数绝对不要算进正文。',
     'text 必须分成 ' + storyPrefs.paragraphMinCount + '-' + storyPrefs.paragraphMaxCount + ' 个自然段；每段按“正文总字数 ÷ 实际段落数”自然平均分配，没到正文下限 ' + storyPrefs.minChars + ' 字就继续扩写正文，不要靠心声凑数。',
-    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；title、quote 和正文旁白固定简体中文；status_card 严格使用当前语言设置；只有 asides 和引号里的角色台词严格使用当前语言设置。',
+    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；title、quote 和正文旁白固定简体中文；只有 asides 和引号里的角色台词严格使用当前语言设置。',
     '不要把整段正文旁白切成外语；title、quote 和外层旁白也绝对不许变成外语。',
-    '灰色旁白心声、引号台词、番外 future_title、future_note 和小物件里的可见文字，必须严格使用当前语言设置的原文，不要偷回中文，不要乱跳成英文。',
+    '灰色旁白心声、引号台词和正文小物件里的可见文字，必须严格使用当前语言设置的原文，不要偷回中文，不要乱跳成英文。',
     offlinePerspectiveRuleLine(storyPrefs.perspective),
     offlineForbiddenWordRuleLine(),
     '正文的镜头和感知中心必须是 char 本人：重点写 char 看到的、听到的、想到的、做出的动作和反应。',
@@ -8137,10 +8107,10 @@ function buildOfflineSystemPrompt(options){
     '灰色旁白心声要像活人脑内更长一点的欲言又止、嘴硬、自我警告、心里发烫或一秒露馅，不要总结局面，不要讲大道理，不要复述正文。',
     'heart 是右上角爱心里的短心声，2-10 个字。',
     '正文 artifact_label / artifact_html 只用于 text 正文里真实出现、能被角色当场看到或拿到的小物件，比如信、纸条、票据、截图、搜索页、证件、小网页；没有就必须留空字符串。',
-    '正文 artifact_html 绝对不能使用 status_card 的番外 artifact，不能承载 future_title、future_note 或任何番外设定；番外 artifact 只属于 status_card。',
+    '正文 artifact_html 绝对不能使用番外 artifact，不能承载 future_title、future_note、未来/过去侧页或任何番外设定；番外只属于番外弹窗。',
     '如果返回了正文小卡片，可以额外返回 artifact_after_paragraph，表示把它插在第几段后面；不写或写 0 就默认放在正文最后。',
     'scene_summary 是这一幕的幕摘要，固定使用简体中文，控制在 28-90 个中文字符之间，像会被收进记忆里的压缩摘要。',
-    '这一轮要一次性把 thought_chain、正文、独立番外 status_card、幕摘要生成好；正文小卡片只有在正文内确实出现实物时才生成，不要把番外拿来充数。',
+    '这一轮要一次性把 thought_chain、正文和幕摘要生成好；正文小卡片只有在正文内确实出现实物时才生成，不要把番外拿来充数。',
     '下笔前必须先读并吸收这些信息，再决定怎么回复：角色 persona、用户 persona、世界书、记忆总结、最近线上聊天、最近线下记录、scenario、system prompt。',
     '这已经是一场自然开始的线下见面，不要提“邀请/赴约/约会申请/你邀请我”这种元叙事说法。',
     '角色 persona 决定 char 的语气、习惯、亲密方式和反应逻辑；用户 persona 决定 char 对 user 的理解、称呼、照顾方式和互动边界。',
@@ -8184,9 +8154,9 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["..."],"artifact_label":"...","artifact_html":"...","artifact_after_paragraph":0}，不要代码块，不要解释。',
     '这次直接写完整第一幕正文：text 是正文，不包含 asides 心声；正文总长度必须写在 ' + storyPrefs.bodyMinChars + '-' + storyPrefs.bodyMaxChars + ' 个中文字符之间，并且必须分成 ' + storyPrefs.paragraphMinCount + '-' + storyPrefs.paragraphMaxCount + ' 个自然段。',
-    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；title、quote 和正文旁白固定简体中文；status_card 严格使用当前语言设置；只有 asides 和引号里的台词严格使用当前语言设置。',
+    '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；title、quote 和正文旁白固定简体中文；只有 asides 和引号里的台词严格使用当前语言设置。',
     '不要把整段正文旁白切成外语；title、quote 和外层旁白也绝对不许变成外语。',
-    '灰色旁白心声、引号台词、番外 future_title、future_note 和小物件里的可见文字，必须严格使用当前语言设置的原文，不要偷回中文，不要乱跳成英文。',
+    '灰色旁白心声、引号台词和正文小物件里的可见文字，必须严格使用当前语言设置的原文，不要偷回中文，不要乱跳成英文。',
     '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个简体中文字符，不要太正经，但必须贴人设。',
     'quote 是顶部 char 语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个简体中文字符。',
@@ -11057,7 +11027,7 @@ async function summarizeOfflineMemory(){
     var raw = await callAIWithTimeout(systemPrompt, userPrompt, 6000);
     return String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
   }catch(e){
-    return '线下见面中，两人的互动进一步推进了关系，并围绕当下氛围展开了更贴近现实的交流。';
+    return '';
   }
 }
 function summarizeOfflineMemoryLocally(snapshot){
@@ -11386,6 +11356,10 @@ async function init(){
   ).trim().toLowerCase();
   offlineEntryHome = !hasExplicitLaunch;
   var launchInviteRecordId = getOfflineInviteRecordIdFromSource(launchSeed && launchSeed.payload ? launchSeed.payload : launchSeed);
+  var launchFreshStart = !!(
+    (launchSeed && launchSeed.freshStart) ||
+    (launchSeed && launchSeed.payload && launchSeed.payload.freshStart)
+  );
   offlineReadOnlyMode = getOfflineLaunchReadOnlyFlag(tokenLaunch || parentLaunch || launchSeed || null);
   var recordScopedSession = (!offlineEntryHome && launchInviteRecordId) ? await loadSessionByInviteRecordId(launchInviteRecordId) : null;
   var existingSession = (!offlineEntryHome && desiredOfflineCharId) ? await loadSessionByCharId(desiredOfflineCharId) : null;
@@ -11430,7 +11404,7 @@ async function init(){
     character = Object.assign({}, character || {}, rosterResolvedCharacter);
   }
   if(launchSeed && launchSeed.payload){
-    if(reusableInviteSession){
+    if(reusableInviteSession && !launchFreshStart){
       session = reusableInviteSession;
       session.charId = String(launchCharId || desiredOfflineCharId || session.charId || '').trim();
       session.charSnapshot = explicitSnapshot || session.charSnapshot || launchSeed.charSnapshot || null;
@@ -11507,9 +11481,10 @@ async function init(){
       Array.isArray(session.entries) &&
       session.entries.length &&
       (
-        !launchInviteRecordId ||
+        !launchFreshStart &&
+        (!launchInviteRecordId ||
         !currentInviteRecordId ||
-        launchInviteRecordId === currentInviteRecordId
+        launchInviteRecordId === currentInviteRecordId)
       )
     );
     session.active = true;
