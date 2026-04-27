@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T10:00:00Z';
+const APP_BUILD_ID = '2026-04-27T10:09:00Z';
 const APP_UPDATE_NOTES = [
-  '结束页参考 QQ 爱模板的结构重做成黑白网页聊天室。',
-  '右侧新增可查看面板：余温记录、下次线索、未发出的句子。',
-  '收尾提示词改成同时生成聊天短句和查看面板内容。'
+  '结束页收回成拉黑同款小窗口，并保留网页式顶栏。',
+  '等待回复时会显示正在输入中的小气泡，不再空白。',
+  '收尾解析放宽，AI 没按格式返回也会拆成聊天气泡。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
