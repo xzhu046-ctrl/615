@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T05:02:00Z';
+const APP_BUILD_ID = '2026-04-27T05:14:00Z';
 const APP_UPDATE_NOTES = [
-  '更新弹窗标题固定显示“更新日志”，每条更新用 ❶︎ ❷︎ ❸︎ 样式编号。',
-  '主屏幕第二页 user 头像优先使用当前角色聊天头像，不再吃个人资料问号头像。',
-  '线下番外回到同轮生成，但正文先定稿，番外只能根据正文生成，不能反向混进正文。'
+  '约会 app 打开同一条旧邀约时保留已有线下聊天记录。',
+  '新 accepted 邀约仍然开新线下会话，不再误复用同角色旧会话。',
+  'freshStart 只在没有同邀约历史时生效，避免莫名清空旧记录。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
