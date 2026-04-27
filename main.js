@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T09:26:00Z';
+const APP_BUILD_ID = '2026-04-27T09:34:00Z';
 const APP_UPDATE_NOTES = [
-  '结束页删掉手机外壳，改成被拉黑聊天室同款黑白复古窗口。',
-  '结束约会会把完成状态同步给主壳和约会 app，回到首页直接进 Complete。',
-  '收尾消息继续按 char 人设逐条弹出，结束按钮保留黑白复古按压感。'
+  '结束页改成温馨小聊天室，不再显示 blocked chat 和红色感叹号。',
+  'char 的收尾话会保留换行并拆成多条气泡，不再挤成一大段。',
+  '更新日志同步为这次的小聊天室与收尾消息修正。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
