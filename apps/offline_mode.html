@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-27T03:29:12Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T03:29:12Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T03:29:12Z"></script>
-<script src="../promptManager.js?v=2026-04-27T03:29:12Z"></script>
-<script src="../accountManager.js?v=2026-04-27T03:29:12Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T03:29:12Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T03:29:12Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T03:29:12Z"></script>
+<script src="../assetStore.js?v=2026-04-27T03:41:08Z"></script>
+<script src="../chatStorage.js?v=2026-04-27T03:41:08Z"></script>
+<script src="../metadataStore.js?v=2026-04-27T03:41:08Z"></script>
+<script src="../promptManager.js?v=2026-04-27T03:41:08Z"></script>
+<script src="../accountManager.js?v=2026-04-27T03:41:08Z"></script>
+<script src="../scheduleShared.js?v=2026-04-27T03:41:08Z"></script>
+<script src="../presenceShared.js?v=2026-04-27T03:41:08Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-27T03:41:08Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -2233,6 +2233,7 @@ function buildOfflineCharacterFromSnapshot(snapshot){
     imageData: String(snapshot.imageData || '').trim(),
     description: String(snapshot.description || '').trim(),
     personality: String(snapshot.personality || '').trim(),
+    userNameProfile: String(snapshot.userNameProfile || '').trim(),
     scenario: String(snapshot.scenario || '').trim(),
     system_prompt: String(snapshot.system_prompt || '').trim(),
     first_mes: String(snapshot.first_mes || '').trim(),
@@ -3249,8 +3250,13 @@ async function generateOfflineStageSummary(force, overrideCount){
   var summaryLines = buildOfflineStageSummaryLines(startFloor, uptoCount);
   if(!summaryLines.length) return null;
   var label = '第' + String(startFloor) + '-' + String(uptoCount) + '幕阶段总结';
-  var raw = await callAIWithTimeout(buildOfflineStageSummarySystemPrompt(label), summaryLines.join('\n'), Math.min(getOfflineReplyTimeoutMs(), 50000));
-  var parsed = parseOfflineSummaryObject(raw);
+  var parsed = null;
+  try{
+    var raw = await callAIWithTimeout(buildOfflineStageSummarySystemPrompt(label), summaryLines.join('\n'), Math.min(getOfflineReplyTimeoutMs(), 50000));
+    parsed = parseOfflineSummaryObject(raw);
+  }catch(stageSummaryErr){
+    pushOfflineBackendLog('warn', 'stage_summary.fallback', '阶段总结接口失败，使用本地压缩兜底', stageSummaryErr);
+  }
   var text = normalizeOfflineSummaryText(parsed && parsed.summary || '', summaryLines.join(' '));
   if(!text) return null;
   var nextItem = {
@@ -3636,10 +3642,39 @@ async function openOfflineStatusHistoryItem(entryIndex){
 }
 function resolveUserName(){
   var charId = character && character.id ? String(character.id) : '';
-  return (charId ? localStorage.getItem(scopedKey('user_name_' + charId)) : '')
-    || localStorage.getItem(scopedKey('user_name'))
-    || localStorage.getItem('user_name')
-    || 'User';
+  var embedded = String(character && character.userNameProfile || '').trim();
+  if(embedded) return embedded;
+  if(charId){
+    try{
+      var rosterChar = findCharacterById(charId);
+      var rosterName = String(rosterChar && rosterChar.userNameProfile || '').trim();
+      if(rosterName) return rosterName;
+    }catch(e){}
+  }
+  var sessionName = String(
+    (session && (session.userName || (session.invite && session.invite.userName))) ||
+    ''
+  ).trim();
+  if(sessionName) return sessionName;
+  var scopedCharName = '';
+  try{ scopedCharName = charId ? String(localStorage.getItem(scopedKey('user_name_' + charId)) || localStorage.getItem('user_name_' + charId) || '').trim() : ''; }catch(e){}
+  if(scopedCharName) return scopedCharName;
+  try{
+    var scopedName = String(localStorage.getItem(scopedKey('user_name')) || '').trim();
+    if(scopedName) return scopedName;
+  }catch(e){}
+  try{
+    if(window.AccountManager && typeof window.AccountManager.getActive === 'function'){
+      var acct = window.AccountManager.getActive();
+      var acctName = String(acct && acct.name || '').trim();
+      if(acctName) return acctName;
+    }
+  }catch(e){}
+  try{
+    var globalName = String(localStorage.getItem('user_name') || '').trim();
+    if(globalName) return globalName;
+  }catch(e){}
+  return 'User';
 }
 function getOfflineUserPersona(){
   return String(
@@ -5512,35 +5547,6 @@ function formatOfflineHistory(limit){
 function formatOfflineHistoryForPrompt(detailLimit, summaryLimit){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   if(!list.length) return '';
-  var recentCount = Math.max(1, Number(detailLimit) || 4);
-  var maxSummaries = Math.max(0, Number(summaryLimit) || 6);
-  var splitIndex = Math.max(0, list.length - recentCount);
-  var older = list.slice(0, splitIndex);
-  var recent = list.slice(splitIndex);
-  var lines = [];
-  older.forEach(function(entry){
-    if(!entry) return;
-    if(entry.role === 'user'){
-      var userText = String(entry.text || '').replace(/\s+/g, ' ').trim();
-      if(userText) lines.push('用户：' + clipOfflinePromptText(userText, 88));
-      return;
-    }
-    var summary = String(entry.summaryText || '').replace(/\s+/g, ' ').trim();
-    if(summary) lines.push('角色（旧幕摘要）：' + clipOfflinePromptText(summary, 120));
-  });
-  if(maxSummaries > 0 && lines.length > maxSummaries){
-    lines = lines.slice(-maxSummaries);
-  }
-  recent.forEach(function(entry){
-    if(!entry) return;
-    var text = String(entry.text || '').replace(/\s+/g, ' ').trim();
-    if(text) lines.push((entry.role === 'user' ? '用户：' : '角色：') + text);
-  });
-  return lines.join('\n');
-}
-function formatOfflineHistoryForPrompt(detailLimit, summaryLimit){
-  var list = Array.isArray(session && session.entries) ? session.entries : [];
-  if(!list.length) return '';
   var recentCount = Math.max(2, Number(detailLimit) || 4);
   var summaryCount = Math.max(0, Number(summaryLimit) || 6);
   var totalFloorCount = countOfflineStoryFloors();
@@ -5559,11 +5565,12 @@ function formatOfflineHistoryForPrompt(detailLimit, summaryLimit){
       olderLines.push('阶段总结（' + String(item.label || '') + '）：' + clipOfflinePromptText(String(item.summary || '').trim(), 160));
     });
   }
+  var floorNo = 0;
   list.forEach(function(entry){
     if(!entry) return;
     var text = String(entry.text || '').replace(/\s+/g, ' ').trim();
     if(!text) return;
-    var floorNo = list.indexOf(entry) + 1;
+    floorNo += 1;
     if(floorNo <= hiddenFloorCount) return;
     if(floorNo >= fullTextStartFloor){
       recentLines.push((entry.role === 'user' ? '用户：' : '角色：') + text);
@@ -5574,7 +5581,7 @@ function formatOfflineHistoryForPrompt(detailLimit, summaryLimit){
       return;
     }
     var summary = String(entry.summaryText || '').replace(/\s+/g, ' ').trim();
-    if(summary) olderLines.push('角色（旧幕摘要）：' + clipOfflinePromptText(summary, 120));
+    olderLines.push('角色（旧幕摘要）：' + clipOfflinePromptText(summary || text, 120));
   });
   if(summaryCount > 0 && olderLines.length > summaryCount){
     olderLines = olderLines.slice(-summaryCount);
@@ -10276,6 +10283,7 @@ async function sendOfflineTurn(){
   session.entries.push(userEntry);
   if(input) input.value = '';
   saveSession();
+  queueOfflineStageSummaryGeneration();
   renderStory();
   keepOfflineComposerVisible();
   setOfflineComposerBusy(false);
