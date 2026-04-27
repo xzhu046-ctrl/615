@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-27T07:34:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T07:34:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T07:34:00Z"></script>
-<script src="../promptManager.js?v=2026-04-27T07:34:00Z"></script>
-<script src="../accountManager.js?v=2026-04-27T07:34:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T07:34:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T07:34:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T07:34:00Z"></script>
+<script src="../assetStore.js?v=2026-04-27T07:48:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-27T07:48:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-27T07:48:00Z"></script>
+<script src="../promptManager.js?v=2026-04-27T07:48:00Z"></script>
+<script src="../accountManager.js?v=2026-04-27T07:48:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-27T07:48:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-27T07:48:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-27T07:48:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1648,20 +1648,6 @@ async function completeCurrentOfflineInviteEverywhere(reason){
   try{ window.parent.postMessage({ type:'OFFLINE_INVITE_STORE_DIRTY', payload:{ reason: reason || 'complete', ids: ids } }, '*'); }catch(e){}
   return ids;
 }
-function isCurrentOfflineInviteCompleted(){
-  try{
-    var state = String(session && session.meetState || '').trim();
-    var status = String(session && session.invite && session.invite.status || '').trim();
-    if(state === 'complete' || status === 'completed') return true;
-    var store = window.OfflineInviteStore || null;
-    var ids = getCurrentOfflineInviteStoreRecordIds(store, { create:false });
-    for(var i = 0; i < ids.length; i += 1){
-      var record = store && typeof store.getRecord === 'function' ? store.getRecord(ids[i]) : null;
-      if(record && (String(record.meetState || '').trim() === 'complete' || String(record.status || '').trim() === 'completed')) return true;
-    }
-  }catch(e){}
-  return false;
-}
 function pendingOfflineResumeKey(charId){
   return scopedKey('offline_resume_' + String(charId || ''));
 }
@@ -2051,14 +2037,23 @@ async function upsertOfflineArchive(snapshot, options){
 }
 async function queueOfflineEndArtifacts(targetCharId, snapshot){
   if(!targetCharId || !snapshot) return;
-  localStorage.setItem(pendingOfflineNoticeKey(targetCharId), JSON.stringify({
-    text: '[系统提示：这次线下见面结束了，你们回到了线上聊天。]',
-    createdAt: Date.now()
-  }));
+  try{
+    localStorage.setItem(pendingOfflineNoticeKey(targetCharId), JSON.stringify({
+      text: '[系统提示：这次线下见面结束了，你们回到了线上聊天。]',
+      createdAt: Date.now()
+    }));
+  }catch(e){
+    saveOfflineJsonRecord(pendingOfflineNoticeKey(targetCharId), {
+      text: '[系统提示：这次线下见面结束了，你们回到了线上聊天。]',
+      createdAt: Date.now()
+    }, { localFallback:false });
+  }
   try{
     await mergeOfflineStageSummariesIntoOnlineMemoryStore(targetCharId, snapshot);
     localStorage.removeItem(pendingOfflineMemoryKey(targetCharId));
-  }catch(e){}
+  }catch(e){
+    pushOfflineBackendLog('warn', 'archive.end_artifacts', '结束后的通知或记忆同步稍后重试', e);
+  }
 }
 function defaultOnlineMemorySummaryStore(){
   return { covered: 0, progress: 0, items: [], advancedMemory: null };
@@ -2271,7 +2266,9 @@ async function archiveCurrentOfflineMeet(status, reason){
       session.archiveId = archiveId;
     }
     if(status === 'ended'){
-      await queueOfflineEndArtifacts(character.id, snapshot);
+      await queueOfflineEndArtifacts(character.id, snapshot).catch(function(err){
+        pushOfflineBackendLog('warn', 'archive.end_artifacts', '归档已完成，结束通知稍后同步', err);
+      });
       clearLiveOfflineSession(character.id, snapshot);
       session = { active:false, entries:[], minimized:false, archiveId:archiveId || '' };
     }else{
@@ -11661,15 +11658,17 @@ async function exitOfflineMeet(){
       await forceFallbackArchivePersist('ended', 'goodbye_fallback');
       var fallbackSnapshot = snapshotOfflineSessionState(session);
       if(fallbackSnapshot){
-        await queueOfflineEndArtifacts(character.id, fallbackSnapshot);
+        await queueOfflineEndArtifacts(character.id, fallbackSnapshot).catch(function(err){
+          pushOfflineBackendLog('warn', 'archive.end_artifacts.fallback', '备用归档已完成，结束通知稍后同步', err);
+        });
       }
       clearLiveOfflineSession(character.id, fallbackSnapshot);
       session = { active:false, entries:[], minimized:false, archiveId:session && session.archiveId || '' };
-      if(!isCurrentOfflineInviteCompleted()) toast('约会已结束，档案稍后会继续同步');
+      toast('档案已用备用方式保存');
     }catch(fallbackErr){
       pushOfflineBackendLog('error', 'archive.exit.fallback', '兜底存档也失败，改为仅保存恢复快照', fallbackErr);
       try{ persistOfflineResumeSnapshot(character.id, snapshotOfflineSessionState(session)); }catch(ignore){}
-      if(!isCurrentOfflineInviteCompleted()) toast('约会已结束，档案稍后会继续同步');
+      toast('档案保存失败，先帮你保住这次内容');
     }
   }
   showOfflineGoodbyeCamera(goodbyeSnapshot);
