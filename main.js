@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-27T02:05:26Z';
+const APP_BUILD_ID = '2026-04-27T02:18:44Z';
 const APP_UPDATE_NOTES = [
-  '线下番外改成参考图那种黑白贴纸卡片，背景是毛玻璃透明，不再是蓝色底。',
-  '线下正文段落首字放大，阅读时更像排版好的故事页。',
-  '线下设置新增段落字数和心声字数，心声长度会跟着设置写入生成规则。'
+  '修复更新弹窗从 GitHub Contents API 读取中文日志时出现乱码的问题。',
+  '远端 version.json 的更新介绍改为旧版本也能正确识别的转义格式。',
+  '更新弹窗现在会用 UTF-8 解码远端日志，不再把中文读成乱码。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -974,11 +974,29 @@ function readVersionInfoFromVersionPayload(data){
   };
 }
 
+function decodeBase64Utf8(encoded){
+  var binary = atob(String(encoded || '').replace(/\s+/g, ''));
+  if(typeof TextDecoder === 'function'){
+    var bytes = new Uint8Array(binary.length);
+    for(var i = 0; i < binary.length; i += 1){
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+  try{
+    return decodeURIComponent(Array.prototype.map.call(binary, function(ch){
+      return '%' + ('00' + ch.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+  }catch(err){
+    return binary;
+  }
+}
+
 function decodeGithubContentsVersionInfo(payload){
   try{
     var encoded = String(payload && payload.content || '').replace(/\s+/g, '');
     if(!encoded) return { buildId:'', updateNotes:[] };
-    var decoded = atob(encoded);
+    var decoded = decodeBase64Utf8(encoded);
     return readVersionInfoFromVersionPayload(JSON.parse(decoded));
   }catch(err){
     return { buildId:'', updateNotes:[] };
