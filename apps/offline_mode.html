@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-27T07:20:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T07:20:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T07:20:00Z"></script>
-<script src="../promptManager.js?v=2026-04-27T07:20:00Z"></script>
-<script src="../accountManager.js?v=2026-04-27T07:20:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T07:20:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T07:20:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T07:20:00Z"></script>
+<script src="../assetStore.js?v=2026-04-27T07:34:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-27T07:34:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-27T07:34:00Z"></script>
+<script src="../promptManager.js?v=2026-04-27T07:34:00Z"></script>
+<script src="../accountManager.js?v=2026-04-27T07:34:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-27T07:34:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-27T07:34:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-27T07:34:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -51,7 +51,7 @@ body::before{content:'';position:fixed;inset:0;background:var(--offline-page-bg)
 .offline-readonly .offline-stage-action.settings::before{content:'×';font:900 24px/1 var(--fontd)}
 .offline-readonly .offline-stage-action.memory,.offline-readonly .composer{display:none !important}
 .offline-readonly{--offline-composer-height:0px}
-.offline-goodbye-camera-overlay{position:fixed;inset:0;z-index:210;display:none;align-items:center;justify-content:center;padding:24px;background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none}
+.offline-goodbye-camera-overlay{position:fixed;inset:0;z-index:210;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(255,255,255,.18);backdrop-filter:blur(18px) saturate(120%);-webkit-backdrop-filter:blur(18px) saturate(120%)}
 .offline-goodbye-camera-overlay.open{display:flex}
 .offline-goodbye-camera-panel{width:min(354px,100%);padding:0;border:0;background:transparent;box-shadow:none;display:flex;flex-direction:column;align-items:center;gap:18px}
 .offline-goodbye-camera-title{display:none}
@@ -96,7 +96,7 @@ body::before{content:'';position:fixed;inset:0;background:var(--offline-page-bg)
 .toy-camera-body::before{border:0;background:var(--cam-accent);box-shadow:inset 0 .1em .2em rgba(0,0,0,.1)}
 .toy-camera-button{background:var(--cam-shutter);border:0;border-radius:.3em .3em 0 0;box-shadow:0 .2em 0 #cc3643,inset 0 .1em .1em rgba(255,255,255,.3)}
 .toy-camera-lens{background:#2d3436;border:.3em solid var(--cam-dark)}
-.toy-camera-photo{border:0;border-radius:.4em;box-shadow:0 .2em .5em rgba(0,0,0,.1),inset 0 0 0 .2em #f1f2f6}
+.toy-camera-photo{border:0;border-radius:.4em;box-shadow:0 .2em .5em rgba(0,0,0,.1),inset 0 0 0 .2em #f1f2f6;cursor:pointer}
 .photo-image{border:0;border-radius:.2em;background:#74b9ff}
 .photo-image::after{border:0;background:#ffeaa7}
 .photo-text{background:#dfe6e9;border-radius:.1em}
@@ -1647,6 +1647,20 @@ async function completeCurrentOfflineInviteEverywhere(reason){
   focusOfflineInviteInDateApp(ids[0] || '');
   try{ window.parent.postMessage({ type:'OFFLINE_INVITE_STORE_DIRTY', payload:{ reason: reason || 'complete', ids: ids } }, '*'); }catch(e){}
   return ids;
+}
+function isCurrentOfflineInviteCompleted(){
+  try{
+    var state = String(session && session.meetState || '').trim();
+    var status = String(session && session.invite && session.invite.status || '').trim();
+    if(state === 'complete' || status === 'completed') return true;
+    var store = window.OfflineInviteStore || null;
+    var ids = getCurrentOfflineInviteStoreRecordIds(store, { create:false });
+    for(var i = 0; i < ids.length; i += 1){
+      var record = store && typeof store.getRecord === 'function' ? store.getRecord(ids[i]) : null;
+      if(record && (String(record.meetState || '').trim() === 'complete' || String(record.status || '').trim() === 'completed')) return true;
+    }
+  }catch(e){}
+  return false;
 }
 function pendingOfflineResumeKey(charId){
   return scopedKey('offline_resume_' + String(charId || ''));
@@ -11651,11 +11665,11 @@ async function exitOfflineMeet(){
       }
       clearLiveOfflineSession(character.id, fallbackSnapshot);
       session = { active:false, entries:[], minimized:false, archiveId:session && session.archiveId || '' };
-      toast('档案保存异常，已用兜底方式退出');
+      if(!isCurrentOfflineInviteCompleted()) toast('约会已结束，档案稍后会继续同步');
     }catch(fallbackErr){
       pushOfflineBackendLog('error', 'archive.exit.fallback', '兜底存档也失败，改为仅保存恢复快照', fallbackErr);
       try{ persistOfflineResumeSnapshot(character.id, snapshotOfflineSessionState(session)); }catch(ignore){}
-      toast('档案保存失败，先帮你保住这次内容');
+      if(!isCurrentOfflineInviteCompleted()) toast('约会已结束，档案稍后会继续同步');
     }
   }
   showOfflineGoodbyeCamera(goodbyeSnapshot);
