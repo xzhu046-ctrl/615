@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-28T10:38:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T10:38:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T10:45:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T10:45:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -1534,6 +1534,47 @@ function collapseCompletedDuplicateInviteRecords(records){
   });
 }
 
+function dedupeCompletedInviteRecords(records){
+  var list = Array.isArray(records) ? records.slice() : [];
+  if(!list.length) return list;
+  var chosenByKey = Object.create(null);
+  var duplicateIds = [];
+  function dedupeKey(item){
+    var charKey = String((item && item.charId) || (item && item.charName) || '').trim();
+    if(!charKey) return '';
+    return [
+      charKey,
+      getRecordDateKey(item),
+      String(item && item.location || '').trim(),
+      String((item && item.scheduledTime) || (item && item.timeLabel) || '').trim()
+    ].join('::');
+  }
+  list.forEach(function(item, index){
+    if(!isCompletedInviteRecord(item)) return;
+    var key = dedupeKey(item);
+    if(!key) return;
+    var current = chosenByKey[key];
+    var stamp = Number(item && (item.completedAt || item.updatedAt || item.createdAt) || 0) || 0;
+    if(!current){
+      chosenByKey[key] = { index:index, stamp:stamp };
+      return;
+    }
+    if(stamp >= current.stamp){
+      duplicateIds.push(String(list[current.index] && list[current.index].id || '').trim());
+      chosenByKey[key] = { index:index, stamp:stamp };
+    }else{
+      duplicateIds.push(String(item && item.id || '').trim());
+    }
+  });
+  var hiddenDuplicate = duplicateIds.reduce(function(map, id){
+    if(id) map[id] = true;
+    return map;
+  }, Object.create(null));
+  return list.filter(function(item){
+    return !hiddenDuplicate[String(item && item.id || '').trim()];
+  });
+}
+
 async function getOfflineRecords(){
   var fromStore = getOfflineRecordsFromStore();
   var map = Object.create(null);
@@ -1549,7 +1590,7 @@ async function getOfflineRecords(){
     var safeId = String(item && item.id || '').trim();
     return !!(item && safeId && !hiddenIds[safeId] && (String(item.charId || '').trim() || String(item.charName || '').trim()));
   });
-  return collapseCompletedDuplicateInviteRecords(records);
+  return dedupeCompletedInviteRecords(collapseCompletedDuplicateInviteRecords(records));
 }
 
 function isPendingInviteRecord(item){

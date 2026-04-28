@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T10:38:00Z';
+const APP_BUILD_ID = '2026-04-28T10:45:00Z';
 const APP_UPDATE_NOTES = [
-  '约会列表会把同日同角色的 accepted 副本归并为 complete。',
-  '同角色完成状态同时按 charId 和角色名识别。',
-  'Complete 记录会优先成为选中的约会卡片。'
+  '约会列表会把同日同角色的重复 complete 卡片合并。',
+  '结束约会后只保留最新的完成记录，不再显示两条一样的。',
+  '同角色完成状态继续同时按 charId 和角色名识别。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
