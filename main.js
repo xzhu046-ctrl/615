@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T02:12:00Z';
+const APP_BUILD_ID = '2026-04-28T02:46:00Z';
 const APP_UPDATE_NOTES = [
-  '阅读模式红叉新增捕获层兜底，先返回约会 App 再补完成标记。',
-  '小脑瓜自动记忆先进短期候选，长期改为手动升级。',
-  '小脑瓜面板恢复滚动，状态词保持高频但轻量。'
+  '主屏 user 头像加固，图片加载失败不再变问号。',
+  '线上回复减少等待和返工，短句口语优先。',
+  '阅读模式红叉改为点击、触摸、指针三路都能返回约会 App。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4616,11 +4616,12 @@ function rememberCompletedOfflineInviteIds(ids){
 
 function rememberOfflineInviteForceCompletePayload(ids, payload, reason){
   var safeIds = (Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
-  if(!safeIds.length) return;
+  var charId = String(payload && payload.charId || '').trim();
+  if(!safeIds.length && !charId) return;
   var data = {
     ids:safeIds,
     inviteId:String((payload && payload.inviteId) || safeIds[0] || '').trim(),
-    charId:String(payload && payload.charId || '').trim(),
+    charId:charId,
     reason:String(reason || 'complete').trim(),
     at:Date.now()
   };
@@ -8632,12 +8633,25 @@ function formatWidgetConversationLine(text, fallback){
 function applyWidgetUserAvatarContent(target, src, fallback){
   if(!target) return;
   var safeSrc = normalizeShellAssetSrc(src || '');
-  if(isRenderableShellAvatarSrc(safeSrc)){
-    target.innerHTML = '<img src="' + safeSrc + '" alt="">';
-    return;
-  }
   var safeFallback = String(fallback || '你').trim();
   if(!safeFallback || /^[?？]+$/.test(safeFallback)) safeFallback = '你';
+  if(isRenderableShellAvatarSrc(safeSrc)){
+    target.textContent = '';
+    target.dataset.avatarSrc = safeSrc;
+    var img = document.createElement('img');
+    img.alt = '';
+    img.decoding = 'async';
+    img.loading = 'eager';
+    img.onerror = function(){
+      if(target.dataset.avatarSrc !== safeSrc) return;
+      target.innerHTML = '';
+      target.textContent = safeFallback;
+    };
+    img.src = safeSrc;
+    target.appendChild(img);
+    return;
+  }
+  target.dataset.avatarSrc = '';
   target.textContent = safeFallback;
 }
 
@@ -8870,7 +8884,7 @@ function setWidgetCharacter(c){
     if(userRoleEl) userRoleEl.textContent = String(userLabel || 'USER').trim() || 'USER';
     if(sideNameEl) sideNameEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
     getChatUserAvatar(c.id).then(function(userSrc){
-      applyWidgetUserAvatarContent(userAvEl, userSrc, String(userLabel || '你').slice(0, 2));
+      applyWidgetUserAvatarContent(userAvEl, userSrc, '你');
     });
   }else{
     var emptyCharRoleEl = document.getElementById('wgt-char-role');

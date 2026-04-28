@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-28T02:12:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T02:12:00Z"></script>
-<script src="../assetStore.js?v=2026-04-28T02:12:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T02:12:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T02:12:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T02:12:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T02:12:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T02:12:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-28T02:12:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-28T02:12:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T02:46:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T02:46:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T02:46:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T02:46:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T02:46:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T02:46:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T02:46:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T02:46:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-28T02:46:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-28T02:46:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -5524,7 +5524,7 @@ async function retrieveVectorRelevantMemories(store, queryText){
   }
   var weights = mem.settings && mem.settings.scoreWeights ? mem.settings.scoreWeights : { semantic: 0.4, keyword: 0.3, importance: 0.15, emotion: 0.1, recency: 0.05 };
   var queryTokens = vectorTokenize(query);
-  var queryEmbedding = await getVectorEmbedding(query);
+  var queryEmbedding = null;
   var scored = frags.map(function(frag){
     var semantic = queryEmbedding && Array.isArray(frag.embedding) ? vectorCosineSimilarity(queryEmbedding, frag.embedding) : 0;
     var keyword = Math.max(
@@ -17729,7 +17729,7 @@ function buildSystemPrompt() {
 
   var wbAll = [].concat(wbBefore, wbMid, wbAfter).join('\n\n');
   var curGreeting = getPromptGreeting();
-  var recentHistoryPrompt = formatChatForModel(getVisibleChatForModel().slice(-20)).slice(0, 4800);
+  var recentHistoryPrompt = formatChatForModel(getVisibleChatForModel().slice(-10)).slice(0, 2400);
   var policyBundle = (promptManager && typeof promptManager.chatPolicyBundle === 'function')
     ? promptManager.chatPolicyBundle()
     : {};
@@ -19532,7 +19532,7 @@ async function callAI(provider, key) {
   ensureMemeVisionForPrompt().catch(function(err){
     console.warn('ensureMemeVisionForPrompt failed', err);
   });
-  var msgs = getVisibleChatForModel().map(function(m){
+  var msgs = getVisibleChatForModel().slice(-14).map(function(m){
     if(!m) return null;
     if(m.hidden){
       if(m.role === 'system'){
@@ -19599,9 +19599,12 @@ async function callAI(provider, key) {
     }
   }
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
-  reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
-  reply = await maybeRepairNarratorReply(reply, provider, key, model, temperature, sys, msgs);
-  reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, sys, msgs);
+  if(/"type"\s*:\s*"rich_html"|"rich_html"\s*:|"html"\s*:/i.test(String(reply || ''))){
+    reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
+  }
+  if(narratorSettingEnabled() === false && /"type"\s*:\s*"narrator"|narrator_message/i.test(String(reply || ''))){
+    reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, sys, msgs);
+  }
   if(shouldEnforceForeignReplyLanguage()){
     var lang = getCharacterReplyLanguage();
     var option = getReplyLanguageOption(lang);
@@ -19618,9 +19621,12 @@ async function callAI(provider, key) {
         content:'请把你刚才那条 assistant 回复按同样结构重写成' + (option && (option.nativeLabel || option.label) || '目标语言') + '原文，不要再输出中文正文。'
       }]);
       reply = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs) || reply;
-      reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
-      reply = await maybeRepairNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
-      reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
+      if(/"type"\s*:\s*"rich_html"|"rich_html"\s*:|"html"\s*:/i.test(String(reply || ''))){
+        reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
+      }
+      if(narratorSettingEnabled() === false && /"type"\s*:\s*"narrator"|narrator_message/i.test(String(reply || ''))){
+        reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
+      }
     }
   }
   return reply;
