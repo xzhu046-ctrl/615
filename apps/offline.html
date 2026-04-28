@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-28T09:16:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T09:16:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T09:42:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T09:42:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -727,6 +727,15 @@ function getCompletedOfflineInviteIdsKey(){
   return 'offline_invite_completed_ids_v1';
 }
 
+function getCompletedOfflineInviteMarkersKey(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
+      return window.parent.scopedKeyForAccount('offline_invite_completed_markers_v1', window.parent.getActiveAccountId());
+    }
+  }catch(err){}
+  return 'offline_invite_completed_markers_v1';
+}
+
 function getForceCompleteOfflineInvitePayloadKey(){
   try{
     if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
@@ -767,6 +776,63 @@ function markCompletedOfflineInviteIds(ids){
   return writeCompletedOfflineInviteIds(map);
 }
 
+function readCompletedOfflineInviteMarkers(){
+  var list = [];
+  try{
+    list = JSON.parse(localStorage.getItem(getCompletedOfflineInviteMarkersKey()) || localStorage.getItem('offline_invite_completed_markers_v1') || '[]');
+  }catch(err){
+    list = [];
+  }
+  if(!Array.isArray(list)) list = [];
+  return list.map(function(item){
+    return {
+      charId: String(item && item.charId || '').trim(),
+      charName: String(item && item.charName || item && item.name || '').trim(),
+      at: Number(item && item.at || 0) || 0
+    };
+  }).filter(function(item){ return item.charId || item.charName; });
+}
+
+function writeCompletedOfflineInviteMarkers(list){
+  var safe = (Array.isArray(list) ? list : []).filter(function(item){
+    return item && (item.charId || item.charName);
+  }).slice(-80);
+  try{ localStorage.setItem(getCompletedOfflineInviteMarkersKey(), JSON.stringify(safe)); }catch(err){}
+  try{ localStorage.setItem('offline_invite_completed_markers_v1', JSON.stringify(safe)); }catch(err2){}
+}
+
+function markCompletedOfflineInviteMarker(charId, charName){
+  var safeCharId = String(charId || '').trim();
+  var safeCharName = String(charName || '').trim();
+  if(!safeCharId && !safeCharName) return;
+  var now = Date.now();
+  var list = readCompletedOfflineInviteMarkers().filter(function(item){
+    var sameId = safeCharId && item.charId === safeCharId;
+    var sameName = safeCharName && item.charName === safeCharName;
+    return !(sameId || sameName);
+  });
+  list.push({ charId:safeCharId, charName:safeCharName, at:now });
+  writeCompletedOfflineInviteMarkers(list);
+}
+
+function isRecordCoveredByCompletedMarker(item){
+  if(!(item && typeof item === 'object')) return false;
+  var status = String(item.status || '').trim();
+  var meetState = String(item.meetState || '').trim();
+  var active = status === 'accepted' || meetState === 'scheduled' || meetState === 'ongoing' || meetState === 'continued' || meetState === 'accepted';
+  var closed = status === 'completed' || status === 'rejected' || status === 'declined' || meetState === 'complete' || meetState === 'completed';
+  if(!active || closed) return false;
+  var charId = String(item.charId || '').trim();
+  var charName = String(item.charName || '').trim();
+  var stamp = Number(item.createdAt || item.updatedAt || 0) || 0;
+  return readCompletedOfflineInviteMarkers().some(function(marker){
+    var sameChar = !!(marker.charId && charId && marker.charId === charId)
+      || !!(marker.charName && charName && marker.charName === charName);
+    if(!sameChar) return false;
+    return !stamp || !marker.at || stamp <= marker.at + 5 * 60 * 1000;
+  });
+}
+
 function normalizeOfflineInviteCompleteIds(payload){
   var ids = [];
   if(payload && Array.isArray(payload.completedInviteIds)) ids = ids.concat(payload.completedInviteIds);
@@ -782,7 +848,7 @@ function normalizeOfflineInviteCompleteIds(payload){
 
 function isRecordForceCompleted(item){
   var completed = readCompletedOfflineInviteIds();
-  return [
+  var idHit = [
     item && item.id,
     item && item.recordId,
     item && item.inviteRecordId,
@@ -793,6 +859,7 @@ function isRecordForceCompleted(item){
     var safe = String(value || '').trim();
     return !!(safe && completed[safe]);
   });
+  return idHit || isRecordCoveredByCompletedMarker(item);
 }
 
 function normalizeCompletedOfflineRecord(item){
@@ -817,6 +884,7 @@ function forceCompleteOfflineRecords(ids, charId, charName){
   var safeCharName = String(charName || '').trim();
   if(!safeIds.length && !safeCharId && !safeCharName) return;
   markCompletedOfflineInviteIds(safeIds);
+  markCompletedOfflineInviteMarker(safeCharId, safeCharName);
   var now = Date.now();
   var store = window.OfflineInviteStore || null;
   if(store && typeof store.patchRecord === 'function'){

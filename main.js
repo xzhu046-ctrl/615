@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T09:16:00Z';
+const APP_BUILD_ID = '2026-04-28T09:42:00Z';
 const APP_UPDATE_NOTES = [
-  '结束约会会按真实邀约、角色 id 和角色名一起标记 Complete。',
-  '已结束记录会保留只读和完成时间，不再被存储清洗回 accepted。',
-  '角色发邀约时地点会更具体，现在/马上见的邀约也会写进日程。'
+  '约会 app 会用完成标记压住旧 accepted 卡片，不再让结束状态被覆盖。',
+  '线上普通回复只按自然断点分气泡，不再按字数硬拆。',
+  'user 自己写的邀约地点会原样保留，只有角色主动邀约会要求具体地点。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';

@@ -256,7 +256,9 @@ function buildOfflineInvitePayload(sourceRole, overrides){
   data.charName = String(data.charName || (threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '').trim();
   data.mood = String(data.mood || '').trim() || '(｡･ω･｡)';
   data.weather = normalizeOfflineWeatherIcon(data.weather);
-  data.location = normalizeOfflineInviteLocation(data.location) || '街角那家靠窗的小店门口';
+  data.location = normalizedSourceRole === 'assistant'
+    ? (normalizeOfflineInviteLocation(data.location) || '街角那家靠窗的小店门口')
+    : String(data.location || '').trim();
   data.timeLabel = String(data.timeLabel || labels.timeLabel);
   data.dateLabel = String(data.dateLabel || labels.dateLabel);
   data.status = String(data.status || 'pending');

@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-28T09:16:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T09:16:00Z"></script>
-<script src="../assetStore.js?v=2026-04-28T09:16:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T09:16:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T09:16:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T09:16:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T09:16:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T09:16:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-28T09:16:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-28T09:16:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T09:42:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T09:42:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T09:42:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T09:42:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T09:42:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T09:42:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T09:42:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T09:42:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-28T09:42:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-28T09:42:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -18966,7 +18966,7 @@ function buildChatExtendedFormatPrompt(){
     '备注/昵称只是称呼标签，不一定是本名。你不能因为备注名就认定那是对方的法律姓名或唯一正式名字。',
     '时间感知要自然：白天/下午一般不必反复催睡，但若对方明确说困、刚聊到作息或连续熬夜，也可以顺着关心一句。',
     '如果系统给了“时间流逝/隔了多久才回”，只把它当作现实节奏背景：别硬续过期即时场景，也别固定解释为什么没回。少说“刚看到/刚忙完/手机没电/睡着了/处理事情去了”这类模板借口；除非非常贴当前角色，否则直接接对方内容更自然。',
-    '聊天感要像真人：默认两三条短消息，短句、停顿、补充自然发生；别整坨发，也别像被尺子量过一样机械切碎。不要一条塞进又长又绕、读起来喘不过气的大复句；一个意思说完就收住，下一点另起一句或另起一条，分开要自然。',
+    '聊天感要像真人：默认两三条短消息，短句、停顿、补充自然发生；一条 text 尽量 8-22 个中文字，超过就主动换成下一条 <msg>。别整坨发，也别像被尺子量过一样机械切碎。不要一条塞进又长又绕、读起来喘不过气的大复句；一个意思说完就收住，下一点另起一句或另起一条，分开要自然。',
     '别有“AI 在完成回复任务”的味道：少用安抚模板、总结模板和反复提问收尾，不要每轮都“我理解/我知道/没关系/我会陪着你”。角色该嘴硬就嘴硬，该绕开就绕开，该短短刺一下也可以。',
     '日常 text 结尾别老带句号，也别为了句子完整把口语补成书面长句。像真人发消息那样，意思到了就自然停住。',
     'rich_html 是机器输出协议，不是角色台词。角色不能在正文里解释“我在写代码/html/css/js”，但你生成卡片时必须把完整 html/css/js 放进 rich_html JSON 字段里，不能改成普通文字解释。',
@@ -26302,11 +26302,11 @@ function buildInnerVoiceHistoryForPrompt(limit){
 function autoSplitLongAssistantText(text){
   var normalized = String(text || '').replace(/\s+/g, ' ').trim();
   if(!normalized) return [];
-  if(normalized.length <= 34 && !/[。！？!?；;]\s*.+/.test(normalized)) return [];
+  if(normalized.length <= 26 && !/[。！？!?；;，,、]\s*.+/.test(normalized)) return [];
   var units = normalized.match(/[^。！？!?；;]+[。！？!?；;]?/g) || [];
-  if(!units.length || units.length === 1){
-    if(normalized.length <= 52) return [];
-    units = normalized.match(/.{1,22}/g) || [normalized];
+  var hasLongUnit = units.some(function(unit){ return String(unit || '').trim().length > 30; });
+  if(!units.length || units.length === 1 || hasLongUnit){
+    units = normalized.match(/[^。！？!?；;，,、]+[。！？!?；;，,、]?/g) || [];
   }
   if(!units.length || units.length === 1) return [];
   var out = [];
@@ -26315,19 +26315,15 @@ function autoSplitLongAssistantText(text){
   units.forEach(function(unit){
     var piece = String(unit || '').trim();
     if(!piece) return;
-    var tooLong = piece.length > 24;
-    var exceedBucket = bucket && (bucket.length + piece.length > 30 || sentenceCount >= 2);
+    var tooLong = piece.length > 30;
+    var exceedBucket = bucket && (bucket.length + piece.length > 24 || sentenceCount >= 1);
     if(exceedBucket){
       out.push(bucket.trim());
       bucket = '';
       sentenceCount = 0;
     }
     if(tooLong && !bucket){
-      var hardParts = piece.match(/.{1,18}/g) || [piece];
-      hardParts.forEach(function(hard){
-        var safeHard = String(hard || '').trim();
-        if(safeHard) out.push(safeHard);
-      });
+      out.push(piece);
       return;
     }
     bucket += piece;
