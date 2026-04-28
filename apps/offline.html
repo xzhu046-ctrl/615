@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-28T23:40:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T23:40:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T23:58:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T23:58:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -743,6 +743,15 @@ function getForceCompleteOfflineInvitePayloadKey(){
     }
   }catch(err){}
   return 'offline_invite_force_complete_payload_v1';
+}
+
+function getExitCompleteOfflineInviteIntentKey(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
+      return window.parent.scopedKeyForAccount('offline_invite_exit_complete_intent_v1', window.parent.getActiveAccountId());
+    }
+  }catch(err){}
+  return 'offline_invite_exit_complete_intent_v1';
 }
 
 function readCompletedOfflineInviteIds(){
@@ -1091,6 +1100,27 @@ function consumePendingForceCompleteOfflineRecords(){
     return item && item.value && typeof item.value === 'object' ? item.value : {};
   });
   return lastConsumedForceCompletePayloads.slice();
+}
+
+function consumePendingExitCompleteOfflineIntents(){
+  var payloads = [];
+  [getExitCompleteOfflineInviteIntentKey(), 'offline_invite_exit_complete_intent_v1'].forEach(function(key){
+    try{
+      var raw = localStorage.getItem(key) || '';
+      if(raw) payloads.push({ key:key, value:JSON.parse(raw) });
+    }catch(err){}
+  });
+  payloads.forEach(function(item){
+    var payload = item && item.value && typeof item.value === 'object' ? item.value : {};
+    var ids = normalizeOfflineInviteCompleteIds(payload);
+    var hasTarget = ids.length || String(payload.charId || '').trim() || String(payload.charName || payload.name || '').trim();
+    if(!hasTarget) return;
+    forceCompleteOfflineRecords(ids, payload.charId, payload.charName || payload.name);
+    try{ localStorage.removeItem(item.key); }catch(err){}
+  });
+  return payloads.map(function(item){
+    return item && item.value && typeof item.value === 'object' ? item.value : {};
+  });
 }
 
 function forceCompleteRenderedRecords(records, payloads){
@@ -2033,7 +2063,7 @@ function renderThreadList(records, selectedRecord){
 
 async function renderOfflineApp(){
   var renderToken = ++offlineRenderVersion;
-  var forcePayloads = consumePendingForceCompleteOfflineRecords();
+  var forcePayloads = consumePendingForceCompleteOfflineRecords().concat(consumePendingExitCompleteOfflineIntents());
   var records = await getOfflineRecords();
   records = forceCompleteRenderedRecords(records, forcePayloads);
   if(renderToken !== offlineRenderVersion) return;
@@ -2276,6 +2306,7 @@ window.addEventListener('message', function(e){
   }
   if(data.type === 'OFFLINE_INVITE_STORE_DIRTY' || data.type === 'OPEN_SHELL_NOTIFICATION'){
     consumePendingForceCompleteOfflineRecords();
+    consumePendingExitCompleteOfflineIntents();
     renderOfflineApp();
   }
 });
@@ -2283,6 +2314,7 @@ window.addEventListener('message', function(e){
 window.addEventListener('storage', function(e){
   if(e && /offline_invite/i.test(String(e.key || ''))){
     consumePendingForceCompleteOfflineRecords();
+    consumePendingExitCompleteOfflineIntents();
     renderOfflineApp();
   }
 });
@@ -2290,14 +2322,17 @@ window.addEventListener('storage', function(e){
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible'){
     consumePendingForceCompleteOfflineRecords();
+    consumePendingExitCompleteOfflineIntents();
     renderOfflineApp();
   }
 });
 
 consumePendingForceCompleteOfflineRecords();
+consumePendingExitCompleteOfflineIntents();
 renderOfflineApp();
 setInterval(function(){
   consumePendingForceCompleteOfflineRecords();
+  consumePendingExitCompleteOfflineIntents();
   renderOfflineApp();
 }, 20000);
 </script>

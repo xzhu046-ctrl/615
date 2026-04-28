@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T23:40:00Z';
+const APP_BUILD_ID = '2026-04-28T23:58:00Z';
 const APP_UPDATE_NOTES = [
-  '结束约会会立即写 completed ids/markers，不再等归档或跳转。',
-  '诊断报告会额外带上线下子页面当前 invite/session 状态。',
-  '继续保留手机主屏幕强制刷新和 complete 自愈。'
+  '线下页返回约会主页面时会写 exit complete intent，避免 iOS 丢消息。',
+  '约会主页面会主动读取这条完成意图并把 active invite 标为 complete。',
+  '诊断报告新增 exitCompleteIntent，方便确认完成意图有没有落地。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1622,6 +1622,7 @@ async function collectPhoneDebugReport(){
   lines.push('completedIds=' + readPhoneDebugStorageKey('offline_invite_completed_ids_v1'));
   lines.push('completedMarkers=' + readPhoneDebugStorageKey('offline_invite_completed_markers_v1'));
   lines.push('forceCompletePayload=' + readPhoneDebugStorageKey('offline_invite_force_complete_payload_v1'));
+  lines.push('exitCompleteIntent=' + readPhoneDebugStorageKey('offline_invite_exit_complete_intent_v1'));
   lines.push('recentLogs:');
   if(logs.length) logs.forEach(function(line){ lines.push('  ' + line); });
   else lines.push('  (none)');
@@ -8604,6 +8605,10 @@ window.addEventListener('message',(e)=>{
     openApp('chat');
   }
   if(type==='OFFLINE_EXITED'){
+    if(payload && payload.forceComplete){
+      var exitedForcedIds = forceCompleteOfflineInviteRecordsFromPayload(payload, 'offline_exited');
+      postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:Object.assign({}, payload || {}, { ids:exitedForcedIds, reason:'offline_exited' }) });
+    }
     setMinimizedOfflineCharId('');
     removeAppFromStack('offline_mode');
   }
