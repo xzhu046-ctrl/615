@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T08:43:00Z';
+const APP_BUILD_ID = '2026-04-28T09:16:00Z';
 const APP_UPDATE_NOTES = [
-  '结束约会不再创建临时邀约 id，避免标记到不存在的记录。',
-  '约会 app 渲染前会把结束信号应用到当前列表里的真实记录。',
-  '即使旧 id 对不上，也会把当前 accepted/on date 邀约显示为 Complete。'
+  '结束约会会按真实邀约、角色 id 和角色名一起标记 Complete。',
+  '已结束记录会保留只读和完成时间，不再被存储清洗回 accepted。',
+  '角色发邀约时地点会更具体，现在/马上见的邀约也会写进日程。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4623,11 +4623,13 @@ function rememberCompletedOfflineInviteIds(ids){
 function rememberOfflineInviteForceCompletePayload(ids, payload, reason){
   var safeIds = (Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
   var charId = String(payload && payload.charId || '').trim();
-  if(!safeIds.length && !charId) return;
+  var charName = String(payload && (payload.charName || payload.name) || '').trim();
+  if(!safeIds.length && !charId && !charName) return;
   var data = {
     ids:safeIds,
     inviteId:String((payload && payload.inviteId) || safeIds[0] || '').trim(),
     charId:charId,
+    charName:charName,
     reason:String(reason || 'complete').trim(),
     at:Date.now()
   };
@@ -4647,6 +4649,7 @@ function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
   var store = window.OfflineInviteStore || null;
   if(!(store && typeof store.listRecords === 'function')) return ids;
   var charId = String(payload.charId || '').trim();
+  var charName = String(payload.charName || payload.name || '').trim();
   var wanted = Object.create(null);
   ids.forEach(function(id){
     var safe = String(id || '').trim();
@@ -4669,7 +4672,9 @@ function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
         record.replyMessageId
       ].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
       if(aliases.some(function(value){ return !!wanted[value]; })) targetMap[recordId] = true;
-      if(charId && String(record.charId || '').trim() === charId){
+      var sameChar = !!(charId && String(record.charId || '').trim() === charId)
+        || !!(charName && String(record.charName || '').trim() === charName);
+      if(sameChar){
         var status = String(record.status || '').trim();
         var meetState = String(record.meetState || '').trim();
         var active = status === 'accepted' || meetState === 'scheduled' || meetState === 'ongoing' || meetState === 'continued' || meetState === 'accepted';
@@ -4691,6 +4696,10 @@ function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
     targetMap[latestActiveId] = true;
   }
   var targetIds = Object.keys(targetMap).filter(Boolean);
+  var existingTargetIds = targetIds.filter(function(id){
+    try{ return !!(typeof store.getRecord === 'function' && store.getRecord(id)); }catch(err){ return false; }
+  });
+  if(existingTargetIds.length) targetIds = existingTargetIds;
   if(targetIds.length) ids = rememberCompletedOfflineInviteIds(ids.concat(targetIds));
   var now = Date.now();
   targetIds.forEach(function(id){
@@ -8382,9 +8391,9 @@ window.addEventListener('message',(e)=>{
     }
     if(appId === 'offline' && payload.forceComplete){
       var completedIds = forceCompleteOfflineInviteRecordsFromPayload(payload, 'open_app_with');
-      postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), charId:String(payload.charId || '').trim(), reason:'open_app_with' } });
+      postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), charId:String(payload.charId || '').trim(), charName:String(payload.charName || payload.name || '').trim(), reason:'open_app_with' } });
       setTimeout(function(){
-        postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), charId:String(payload.charId || '').trim(), reason:'open_app_with_after_open' } });
+        postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), charId:String(payload.charId || '').trim(), charName:String(payload.charName || payload.name || '').trim(), reason:'open_app_with_after_open' } });
       }, 180);
     }
     if(appId === 'offline' && payload.forceOpen){

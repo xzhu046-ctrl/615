@@ -57,6 +57,18 @@ function getOfflineInviteSignatureName(payload, role){
   return getOfflineInviteDisplayName(role === 'user' ? 'user' : 'assistant');
 }
 
+function normalizeOfflineInviteLocation(value){
+  var raw = String(value || '').replace(/\s+/g, ' ').trim();
+  if(!raw) return '';
+  if(/^(老地方|附近|楼下|门口|外面|家里|学校|公司|图书馆|咖啡店|餐厅|公园|车站|商场|你家|我家)$/i.test(raw)){
+    return raw + '，靠近能一眼认出来的具体入口或座位';
+  }
+  if(raw.length < 4 && !/[0-9一二三四五六七八九十楼层号门店区路街巷口]/.test(raw)){
+    return raw + '附近那个有明确招牌的位置';
+  }
+  return raw;
+}
+
 function buildOfflineInviteDefaultSchedule(){
   var now = new Date();
   var next = new Date(now.getTime() + 2 * 60 * 60 * 1000);
@@ -244,7 +256,7 @@ function buildOfflineInvitePayload(sourceRole, overrides){
   data.charName = String(data.charName || (threadCharacter && (threadCharacter.nickname || threadCharacter.name)) || '').trim();
   data.mood = String(data.mood || '').trim() || '(｡･ω･｡)';
   data.weather = normalizeOfflineWeatherIcon(data.weather);
-  data.location = String(data.location || '').trim() || '老地方';
+  data.location = normalizeOfflineInviteLocation(data.location) || '街角那家靠窗的小店门口';
   data.timeLabel = String(data.timeLabel || labels.timeLabel);
   data.dateLabel = String(data.dateLabel || labels.dateLabel);
   data.status = String(data.status || 'pending');
@@ -541,6 +553,12 @@ async function syncAcceptedOfflineInviteToSchedule(payload, acceptedPayload){
   var shared = getOfflineInviteScheduleApi();
   var safeCharId = String((acceptedPayload && acceptedPayload.charId) || (payload && payload.charId) || (character && character.id) || '').trim();
   var safeDateKey = String((acceptedPayload && acceptedPayload.scheduledDate) || (payload && payload.scheduledDate) || '').trim();
+  var isImmediate = !!(acceptedPayload && acceptedPayload.immediate) || !!(payload && payload.immediate) || String((acceptedPayload && acceptedPayload.timeLabel) || (payload && payload.timeLabel) || '').trim() === '现在';
+  var immediateClock = null;
+  if(!safeDateKey && isImmediate){
+    immediateClock = getOfflineInviteLocalClockNow();
+    safeDateKey = String(immediateClock.dateKey || '').trim();
+  }
   if(!shared || !safeCharId || !safeDateKey) return '';
   var state = shared.normalizeState(await shared.loadState());
   var charState = shared.getCharState(state, safeCharId);
@@ -553,6 +571,11 @@ async function syncAcceptedOfflineInviteToSchedule(payload, acceptedPayload){
   var safeDateLabel = String((acceptedPayload && acceptedPayload.dateLabel) || (payload && payload.dateLabel) || '').trim();
   var safeTimeLabel = String((acceptedPayload && acceptedPayload.timeLabel) || (payload && payload.timeLabel) || '').trim();
   var safeLocation = String((acceptedPayload && acceptedPayload.location) || (payload && payload.location) || '').trim();
+  var safeStartTime = String((acceptedPayload && acceptedPayload.scheduledTime) || (payload && payload.scheduledTime) || '').trim();
+  if(!safeStartTime && isImmediate){
+    immediateClock = immediateClock || getOfflineInviteLocalClockNow();
+    safeStartTime = String(immediateClock.nowTime || '').trim();
+  }
   var scheduleNote = String((acceptedPayload && acceptedPayload.scheduleNote) || (payload && payload.scheduleNote) || '').trim();
   if(!scheduleNote){
     scheduleNote = [
@@ -567,7 +590,7 @@ async function syncAcceptedOfflineInviteToSchedule(payload, acceptedPayload){
   });
   day.timeline.push({
     id: scheduleEntryId,
-    start: String(acceptedPayload && acceptedPayload.scheduledTime || '').trim(),
+    start: safeStartTime,
     end: '',
     title: '和' + userName + '赴约',
     note: scheduleNote,

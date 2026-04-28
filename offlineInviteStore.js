@@ -58,6 +58,8 @@
       timeLabel: String(item.timeLabel || '').trim(),
       status: String(item.status || 'pending').trim() || 'pending',
       meetState: String(item.meetState || '').trim(),
+      readOnly: !!item.readOnly,
+      completedAt: Number(item.completedAt || 0) || 0,
       reminderState: String(item.reminderState || 'pending').trim() || 'pending',
       snoozeUntil: Number(item.snoozeUntil || 0) || 0,
       remindedAt: Number(item.remindedAt || 0) || 0,
