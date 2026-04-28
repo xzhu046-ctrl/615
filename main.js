@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T09:42:00Z';
+const APP_BUILD_ID = '2026-04-28T09:52:00Z';
 const APP_UPDATE_NOTES = [
-  '约会 app 会用完成标记压住旧 accepted 卡片，不再让结束状态被覆盖。',
-  '线上普通回复只按自然断点分气泡，不再按字数硬拆。',
-  'user 自己写的邀约地点会原样保留，只有角色主动邀约会要求具体地点。'
+  '线上回复条数改为跟随聊天设置的 min/max，不再写死数量。',
+  '短句提示改成短气泡但可多条，减少两句式死板回复。',
+  '邀约地点不再由程序补字，只在提示词里要求角色自己写具体。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
