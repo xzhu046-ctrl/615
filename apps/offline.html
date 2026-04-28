@@ -795,6 +795,10 @@ function normalizeCompletedOfflineRecord(item){
 
 function forceCompleteOfflineRecords(ids, charId){
   var safeIds = (Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
+  try{
+    var focusId = String(readFocusId() || '').trim();
+    if(focusId && safeIds.indexOf(focusId) === -1) safeIds.unshift(focusId);
+  }catch(focusErr){}
   var safeCharId = String(charId || '').trim();
   if(!safeIds.length && !safeCharId) return;
   markCompletedOfflineInviteIds(safeIds);
@@ -804,6 +808,7 @@ function forceCompleteOfflineRecords(ids, charId){
     var wanted = safeIds.reduce(function(map, id){ map[id] = true; return map; }, Object.create(null));
     var targetMap = safeIds.reduce(function(map, id){ map[id] = true; return map; }, Object.create(null));
     var latestSameCharRecordId = '';
+    var latestActiveRecordId = '';
     try{
       if(typeof store.listRecords === 'function'){
         store.listRecords().forEach(function(record){
@@ -826,10 +831,21 @@ function forceCompleteOfflineRecords(ids, charId){
               if(activeRecordId) targetMap[activeRecordId] = true;
             }
           }
+          var anyStatus = String(record && record.status || '').trim();
+          var anyMeetState = String(record && record.meetState || '').trim();
+          var anyRecordId = String(record && record.id || '').trim();
+          var anyActive = anyStatus === 'accepted' || anyMeetState === 'ongoing' || anyMeetState === 'continued' || anyMeetState === 'accepted' || anyMeetState === 'scheduled';
+          var anyClosed = anyStatus === 'completed' || anyStatus === 'rejected' || anyStatus === 'declined' || anyMeetState === 'complete' || anyMeetState === 'completed';
+          if(anyRecordId && anyActive && !anyClosed && !latestActiveRecordId) latestActiveRecordId = anyRecordId;
         });
       }
     }catch(listErr){}
     if(latestSameCharRecordId) targetMap[latestSameCharRecordId] = true;
+    if(!Object.keys(targetMap).some(function(id){
+      try{ return !!(typeof store.getRecord === 'function' && store.getRecord(id)); }catch(err){ return false; }
+    }) && latestActiveRecordId){
+      targetMap[latestActiveRecordId] = true;
+    }
     var targetIds = Object.keys(targetMap);
     markCompletedOfflineInviteIds(targetIds);
     var primaryId = targetIds[0] || safeIds[0] || '';

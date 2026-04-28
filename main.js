@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T08:19:00Z';
+const APP_BUILD_ID = '2026-04-28T08:31:00Z';
 const APP_UPDATE_NOTES = [
-  '结束约会会由外层主程序直接把当前邀约写成 complete。',
-  'complete 写入会同时按邀约 id、thread id 和当前角色匹配记录。',
-  '红叉叉返回约会 app 前会先完成标记，避免继续显示同意。'
+  '结束约会返回时会优先标记约会 app 当前 focus 的邀约。',
+  '如果旧邀约 id 丢失，会兜底标记最近仍在 accepted/on date 的记录。',
+  '避免结束后跳回约会 app 仍显示同意和 accepted。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4637,7 +4637,12 @@ function rememberOfflineInviteForceCompletePayload(ids, payload, reason){
 
 function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
   payload = payload && typeof payload === 'object' ? payload : {};
-  var ids = rememberCompletedOfflineInviteIds(normalizeOfflineInviteCompleteIds(payload));
+  var rawIds = normalizeOfflineInviteCompleteIds(payload);
+  try{
+    var focusId = String(localStorage.getItem(scopedKeyForAccount(OFFLINE_INVITE_FOCUS_KEY, getActiveAccountId())) || localStorage.getItem(OFFLINE_INVITE_FOCUS_KEY) || '').trim();
+    if(focusId && rawIds.indexOf(focusId) === -1) rawIds.unshift(focusId);
+  }catch(focusErr){}
+  var ids = rememberCompletedOfflineInviteIds(rawIds);
   rememberOfflineInviteForceCompletePayload(ids, payload, reason || 'force_complete');
   var store = window.OfflineInviteStore || null;
   if(!(store && typeof store.listRecords === 'function')) return ids;
@@ -4649,6 +4654,7 @@ function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
   });
   var targetMap = Object.assign(Object.create(null), wanted);
   var latestSameCharId = '';
+  var latestActiveId = '';
   try{
     store.listRecords().forEach(function(record){
       if(!(record && typeof record === 'object')) return;
@@ -4671,9 +4677,19 @@ function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
         if(active && !closed) targetMap[recordId] = true;
         if(!latestSameCharId && !closed) latestSameCharId = recordId;
       }
+      var anyStatus = String(record.status || '').trim();
+      var anyMeetState = String(record.meetState || '').trim();
+      var anyActive = anyStatus === 'accepted' || anyMeetState === 'scheduled' || anyMeetState === 'ongoing' || anyMeetState === 'continued' || anyMeetState === 'accepted';
+      var anyClosed = anyStatus === 'completed' || anyStatus === 'rejected' || anyStatus === 'declined' || anyMeetState === 'complete' || anyMeetState === 'completed';
+      if(anyActive && !anyClosed && !latestActiveId) latestActiveId = recordId;
     });
   }catch(err){}
   if(!Object.keys(targetMap).length && latestSameCharId) targetMap[latestSameCharId] = true;
+  if(!Object.keys(targetMap).some(function(id){
+    try{ return !!(typeof store.getRecord === 'function' && store.getRecord(id)); }catch(err){ return false; }
+  }) && latestActiveId){
+    targetMap[latestActiveId] = true;
+  }
   var targetIds = Object.keys(targetMap).filter(Boolean);
   if(targetIds.length) ids = rememberCompletedOfflineInviteIds(ids.concat(targetIds));
   var now = Date.now();
