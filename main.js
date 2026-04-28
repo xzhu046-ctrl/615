@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T10:08:00Z';
+const APP_BUILD_ID = '2026-04-28T10:22:00Z';
 const APP_UPDATE_NOTES = [
-  '结束线下约会后会同步标记 complete，不再停在 accepted/同意。',
-  '线下正文加入反车轱辘话约束，减少重复安抚和原地打转。',
-  '聊天回复条数继续跟随 min/max，邀约地点交给角色自己写具体。'
+  '修正旧邀约重建后又显示 accepted/同意的问题。',
+  'Complete 状态现在在列表渲染时优先级最高。',
+  '线下反重复提示继续保留，减少车轱辘式回复。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';

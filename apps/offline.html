@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-28T10:08:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T10:08:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T10:22:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T10:22:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -829,7 +829,9 @@ function isRecordCoveredByCompletedMarker(item){
     var sameChar = !!(marker.charId && charId && marker.charId === charId)
       || !!(marker.charName && charName && marker.charName === charName);
     if(!sameChar) return false;
-    return !createdAt || !marker.at || createdAt <= marker.at + 5 * 60 * 1000;
+    if(!marker.at) return true;
+    if(createdAt && createdAt <= marker.at + 5 * 60 * 1000) return true;
+    return Date.now() <= marker.at + 6 * 60 * 60 * 1000;
   });
 }
 
@@ -882,6 +884,24 @@ function forceCompleteOfflineRecords(ids, charId, charName){
   }catch(focusErr){}
   var safeCharId = String(charId || '').trim();
   var safeCharName = String(charName || '').trim();
+  if((!safeCharId && !safeCharName) && safeIds.length){
+    try{
+      var candidates = [];
+      if(Array.isArray(latestOfflineRecords)) candidates = candidates.concat(latestOfflineRecords);
+      var store = window.OfflineInviteStore || null;
+      if(store && typeof store.listRecords === 'function') candidates = candidates.concat(store.listRecords());
+      candidates.some(function(record){
+        var aliases = [record && record.id, record && record.recordId, record && record.inviteRecordId, record && record.threadId, record && record.inviteMessageId, record && record.replyMessageId]
+          .map(function(value){ return String(value || '').trim(); })
+          .filter(Boolean);
+        var hit = aliases.some(function(value){ return safeIds.indexOf(value) !== -1; });
+        if(!hit) return false;
+        safeCharId = String(record && record.charId || '').trim();
+        safeCharName = String(record && record.charName || '').trim();
+        return !!(safeCharId || safeCharName);
+      });
+    }catch(resolveErr){}
+  }
   if(!safeIds.length && !safeCharId && !safeCharName) return;
   markCompletedOfflineInviteIds(safeIds);
   markCompletedOfflineInviteMarker(safeCharId, safeCharName);
@@ -1437,8 +1457,8 @@ function buildFallbackRecordFromChatEntry(entry, charMeta){
     inviteMessageId: String(payload.inviteMessageId || normalized.id || '').trim(),
     replyMessageId: String(payload.replyMessageId || '').trim(),
     scheduleEntryId: String(payload.scheduleEntryId || '').trim(),
-    createdAt: Number(normalized.sentAt || Date.now()) || Date.now(),
-    updatedAt: Number(normalized.sentAt || Date.now()) || Date.now()
+    createdAt: Number(payload.createdAt || normalized.sentAt || payload.updatedAt || Date.now()) || Date.now(),
+    updatedAt: Number(payload.updatedAt || payload.createdAt || normalized.sentAt || Date.now()) || Date.now()
   };
 }
 
@@ -1523,11 +1543,11 @@ function isUpcomingInviteRecord(item){
 
 function getRecordStage(item){
   var status = String(item && item.status || 'pending').trim() || 'pending';
-  if(isPendingInviteRecord(item)){
-    return { tone:'pending', label:'Pending', note:'pending', badge:'待回复' };
-  }
   if(isCompletedInviteRecord(item)){
     return { tone:'complete', label:'Complete', note:'complete', badge:'结束' };
+  }
+  if(isPendingInviteRecord(item)){
+    return { tone:'pending', label:'Pending', note:'pending', badge:'待回复' };
   }
   if(isContinuedInviteRecord(item)){
     return { tone:'continued', label:'To Be Continued', note:'to be continued', badge:'待续' };
