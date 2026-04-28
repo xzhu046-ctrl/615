@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-28T06:36:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T06:36:00Z"></script>
-<script src="../assetStore.js?v=2026-04-28T06:36:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T06:36:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T06:36:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T06:36:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T06:36:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T06:36:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-28T06:36:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-28T06:36:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T06:52:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T06:52:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T06:52:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T06:52:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T06:52:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T06:52:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T06:52:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T06:52:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-28T06:52:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-28T06:52:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -9326,6 +9326,51 @@ function getDefaultInnerVoiceCss(){
     '.inner-voice-paper::before{background:#111;color:#fff;}',
     '.inner-voice-headline,.inner-voice-copy,.inner-voice-strike{color:#111;}'
   ].join('\n');
+}
+
+function normalizeInnerVoicePromptText(text){
+  return String(text || '').replace(/\r\n?/g, '\n').trim();
+}
+
+function isDefaultInnerVoicePromptText(text){
+  return normalizeInnerVoicePromptText(text) === normalizeInnerVoicePromptText(getDefaultInnerVoicePrompt());
+}
+
+function extractInnerVoicePromptInstruction(text){
+  var raw = normalizeInnerVoicePromptText(text);
+  if(!raw) return '';
+  var markers = [
+    '这次请生成',
+    '重点：',
+    '不要写成',
+    '只围绕当前上下文',
+    'headline 写成',
+    'body 写成',
+    'strike 写成',
+    '输出只包含'
+  ];
+  var best = -1;
+  markers.forEach(function(marker){
+    var idx = raw.indexOf(marker);
+    if(idx >= 0 && (best < 0 || idx < best)) best = idx;
+  });
+  if(best > 0 && /[{}:;]/.test(raw.slice(0, best))){
+    return raw.slice(best).trim();
+  }
+  return raw;
+}
+
+function getCustomInnerVoicePromptForAi(){
+  var savedPrompt = normalizeInnerVoicePromptText(character && character.innerVoicePrompt);
+  if(savedPrompt && !isDefaultInnerVoicePromptText(savedPrompt)){
+    return extractInnerVoicePromptInstruction(savedPrompt);
+  }
+  var savedCss = normalizeInnerVoicePromptText(character && character.innerVoiceCss);
+  var extractedFromCss = extractInnerVoicePromptInstruction(savedCss);
+  if(extractedFromCss && extractedFromCss !== savedCss && !isDefaultInnerVoicePromptText(extractedFromCss)){
+    return extractedFromCss;
+  }
+  return '';
 }
 
 function getDefaultHeaderThemeCss(){
@@ -26283,16 +26328,26 @@ async function refreshInnerVoiceFromAi(seedText){
     ? promptManager.chatPolicyBundle()
     : {};
   var innerVoiceStyle = normalizeInnerVoiceStyle(character && character.innerVoiceStyle || 'newspaper');
-  var stylePromptBundle = buildInnerVoiceStylePromptBundle(innerVoiceStyle);
-  var customInnerVoicePrompt = getCurrentInnerVoicePrompt();
+  var customInnerVoicePrompt = getCustomInnerVoicePromptForAi();
+  var hasCustomInnerVoicePrompt = !!customInnerVoicePrompt;
+  var stylePromptBundle = hasCustomInnerVoicePrompt ? { system:'', user:'' } : buildInnerVoiceStylePromptBundle(innerVoiceStyle);
   var baseSys = policyBundle.innerVoiceSystem || [
     '你是角色本人的“内心独白生成器”。',
     '仅返回 JSON：{"headline":"...","body":"...","strike":"..."}，不要 markdown，不要解释。',
     '必须严格代入角色此刻的连续心理活动，先读懂最近对话、记忆总结、世界书和刚发出的回复，再写。',
-    'headline、body、strike 必须严格按黑白报纸头条的版式来写。',
+    hasCustomInnerVoicePrompt
+      ? 'headline、body、strike 必须严格按用户自定义心声提示词指定的版式来写，默认黑白报纸版式完全禁用。'
+      : 'headline、body、strike 必须严格按黑白报纸头条的版式来写。',
     '不要复读用户原句，不要输出文件名，不要输出空字符串。'
   ].join('\n');
-  if(stylePromptBundle.system){
+  if(hasCustomInnerVoicePrompt){
+    baseSys += '\n' + [
+      '【用户自定义心声版式优先】',
+      '不要写成报纸、公告、标题、小作文或现代卡片，除非用户自定义提示词明确要求。',
+      '不要把默认报纸头条的措辞、结构、节奏混入本次心声。',
+      '只允许沿着用户自定义提示词指定的版式、语气和字段用途写。'
+    ].join('\n');
+  }else if(stylePromptBundle.system){
     baseSys += '\n' + stylePromptBundle.system;
   }
   var innerVoiceLanguagePrompt = buildInnerVoiceLanguagePrompt();

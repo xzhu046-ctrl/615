@@ -250,10 +250,12 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
       languageInstruction = ''
     } = ctx;
     const styleGuide = this.innerVoiceStyleGuide(innerVoiceStyle);
+    const userCustomPrompt = String(customPrompt || '').trim();
+    const isCustomStyle = !!userCustomPrompt;
     return [
       `角色名：${name}`,
       `角色人设：${String(persona || '').slice(0, 1200)}`,
-      `当前心声样式：${styleGuide.label}`,
+      `当前心声样式：${isCustomStyle ? '用户自定义心声版式' : styleGuide.label}`,
       languageInstruction
         ? `语言要求：${String(languageMode || '').trim() ? `${languageMode}。` : ''}${String(languageInstruction).trim()}`
         : '语言要求：默认使用简体中文。',
@@ -261,7 +263,9 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
       memory ? `最近记忆总结：\n${String(memory || '').slice(0, 1800)}` : '最近记忆总结：无',
       history ? `最近对话：\n${history}` : '最近对话：无',
       latestReply ? `本轮角色回复：${latestReply}` : '',
-      String(customPrompt || styleGuide.prompt).trim()
+      isCustomStyle
+        ? `用户自定义心声提示词（最高优先级，必须覆盖默认心声版式）：\n${userCustomPrompt}`
+        : String(styleGuide.prompt).trim()
     ].join('\n\n');
   }
 }
