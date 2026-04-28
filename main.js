@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T12:18:00Z';
+const APP_BUILD_ID = '2026-04-28T23:40:00Z';
 const APP_UPDATE_NOTES = [
-  '主屏幕新增可复制的诊断小窗口，用来确认手机是否真的刷新。',
-  '诊断里会列出版本、远端版本、Service Worker、cache 和约会状态。',
-  '继续保留强制刷新代码缓存和 complete 自愈逻辑。'
+  '结束约会会立即写 completed ids/markers，不再等归档或跳转。',
+  '诊断报告会额外带上线下子页面当前 invite/session 状态。',
+  '继续保留手机主屏幕强制刷新和 complete 自愈。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1579,6 +1579,14 @@ async function collectPhoneDebugReport(){
   }catch(errOffline){
     offlineSummary = { error:String(errOffline && errOffline.message || errOffline) };
   }
+  var childOfflineMode = '';
+  try{
+    if(frame && frame.contentWindow && typeof frame.contentWindow.collectOfflineModeDebugReport === 'function'){
+      childOfflineMode = formatPhoneDebugValue(frame.contentWindow.collectOfflineModeDebugReport());
+    }
+  }catch(errChild){
+    childOfflineMode = 'child offline debug failed: ' + (errChild && errChild.message || errChild);
+  }
   var logs = readBackendLogs().slice(-25).map(function(entry){
     return [
       new Date(Number(entry.ts || Date.now())).toISOString(),
@@ -1610,6 +1618,7 @@ async function collectPhoneDebugReport(){
   swLines.forEach(function(line){ lines.push('  ' + line); });
   lines.push('caches=' + formatPhoneDebugValue(cacheLines));
   lines.push('offlineInviteSummary=' + formatPhoneDebugValue(offlineSummary));
+  lines.push('childOfflineMode=' + (childOfflineMode || ''));
   lines.push('completedIds=' + readPhoneDebugStorageKey('offline_invite_completed_ids_v1'));
   lines.push('completedMarkers=' + readPhoneDebugStorageKey('offline_invite_completed_markers_v1'));
   lines.push('forceCompletePayload=' + readPhoneDebugStorageKey('offline_invite_force_complete_payload_v1'));
