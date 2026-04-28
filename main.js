@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T04:55:00Z';
+const APP_BUILD_ID = '2026-04-28T05:06:00Z';
 const APP_UPDATE_NOTES = [
-  '线下自动总结改成在角色回复完成后触发，不再抢在用户输入后乱跑。',
-  '自动总结成功后会直接显示总结区，不再藏到手动总结后面。',
-  '自动总结失败会记录原因，打开设置时能看到明确提示。'
+  '从约会列表打开旧邀约不再携带 fresh start，避免旧记录被空白覆盖。',
+  '线下 fresh invite 初始化不再清空已有 entries。',
+  '结束约会会把同一邀约的所有记录 id 都写成完成态。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
