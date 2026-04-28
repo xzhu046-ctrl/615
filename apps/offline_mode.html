@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-28T07:16:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T07:16:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T07:16:00Z"></script>
-<script src="../promptManager.js?v=2026-04-28T07:16:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T07:16:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T07:16:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T07:16:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T07:16:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T07:31:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T07:31:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T07:31:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T07:31:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T07:31:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T07:31:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T07:31:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T07:31:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1646,6 +1646,68 @@ function patchCurrentOfflineInviteMeetState(meetState){
     syncCurrentOfflineInviteMeetStateToChat(safeState, patch, recordIds).catch(function(){});
   }catch(err){}
 }
+function completeOfflineInviteRecordsInStore(ids, charId, sourceOverride){
+  var store = window.OfflineInviteStore || null;
+  if(!(store && typeof store.listRecords === 'function')) return [];
+  var now = Date.now();
+  var source = sourceOverride && typeof sourceOverride === 'object' ? sourceOverride : session;
+  var invite = source && source.invite && typeof source.invite === 'object' ? source.invite : {};
+  var safeCharId = String(charId || (source && (source.charId || source.characterId)) || invite.charId || desiredOfflineCharId || (character && character.id) || '').trim();
+  var targetMap = Object.create(null);
+  (Array.isArray(ids) ? ids : []).forEach(function(id){
+    var safeId = String(id || '').trim();
+    if(safeId) targetMap[safeId] = true;
+  });
+  ['recordId','inviteRecordId','id','threadId','inviteMessageId','replyMessageId'].forEach(function(key){
+    var safeId = String(invite && invite[key] || '').trim();
+    if(safeId) targetMap[safeId] = true;
+  });
+  try{
+    store.listRecords().forEach(function(record){
+      if(!(record && typeof record === 'object')) return;
+      var recordId = String(record.id || '').trim();
+      var recordAliases = [
+        record.id,
+        record.recordId,
+        record.inviteRecordId,
+        record.threadId,
+        record.inviteMessageId,
+        record.replyMessageId
+      ].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
+      var aliasMatched = recordAliases.some(function(value){ return !!targetMap[value]; });
+      var recordCharId = String(record.charId || '').trim();
+      var status = String(record.status || '').trim();
+      var meetState = String(record.meetState || '').trim();
+      var activeSameChar = !!(
+        safeCharId &&
+        recordCharId === safeCharId &&
+        status !== 'completed' &&
+        status !== 'rejected' &&
+        status !== 'declined' &&
+        meetState !== 'complete' &&
+        (status === 'accepted' || meetState === 'scheduled' || meetState === 'ongoing' || meetState === 'continued' || meetState === 'accepted')
+      );
+      if((aliasMatched || activeSameChar) && recordId) targetMap[recordId] = true;
+    });
+  }catch(e){}
+  var targetIds = Object.keys(targetMap).filter(Boolean);
+  var patch = { status:'completed', meetState:'complete', readOnly:true, completedAt:now, updatedAt:now };
+  targetIds.forEach(function(id){
+    try{
+      if(typeof store.patchRecord === 'function' && store.getRecord && store.getRecord(id)){
+        store.patchRecord(id, patch);
+      }else if(typeof store.upsertRecord === 'function'){
+        store.upsertRecord(buildCurrentOfflineInviteRecord(id, patch, source));
+      }
+    }catch(e){
+      try{
+        if(typeof store.upsertRecord === 'function') store.upsertRecord(buildCurrentOfflineInviteRecord(id, patch, source));
+      }catch(ignore){}
+    }
+  });
+  if(targetIds.length) markOfflineInviteIdsCompleted(targetIds);
+  return targetIds;
+}
 async function completeCurrentOfflineInviteEverywhere(reason, sourceOverride){
   var now = Date.now();
   var patch = { status:'completed', meetState:'complete', completedAt:now, readOnly:true, updatedAt:now };
@@ -1665,6 +1727,8 @@ async function completeCurrentOfflineInviteEverywhere(reason, sourceOverride){
   markOfflineInviteIdsCompleted(ids);
   writeOfflineInviteForceCompletePayload(ids, source, reason || 'complete');
   applyOfflineInviteMeetPatchToSession('complete', patch);
+  var storeCompletedIds = completeOfflineInviteRecordsInStore(ids, patch.charId || (source && source.charId) || (invite && invite.charId), source);
+  storeCompletedIds.forEach(function(id){ pushUniqueOfflineInviteId(ids, id); });
   if(store && typeof store.upsertRecord === 'function'){
     var primaryId = String(ids[0] || '').trim();
     ids.forEach(function(id){

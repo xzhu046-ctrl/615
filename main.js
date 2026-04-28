@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T07:16:00Z';
+const APP_BUILD_ID = '2026-04-28T07:31:00Z';
 const APP_UPDATE_NOTES = [
-  '线下邀约点进去现在默认等 user 先说第一句。',
-  '空邀约不会再自动生成 char 首幕抢先开场。',
-  'user 发出第一条线下消息后，char 才会按正常回复流程继续。'
+  '结束约会会直接写回约会 app 主邀约记录为 completed。',
+  '约会 app 渲染前会先消费 complete 队列，避免继续显示同意。',
+  'complete 判定现在兼容 meetState completed/ended，标签优先显示结束。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
