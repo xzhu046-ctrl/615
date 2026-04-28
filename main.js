@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T08:06:00Z';
+const APP_BUILD_ID = '2026-04-28T08:19:00Z';
 const APP_UPDATE_NOTES = [
-  '修复线下约会只读模式红叉叉退出没有反应的问题。',
-  '红叉叉现在会直接让外层切回约会 app，不再只依赖消息跳转。',
-  '结束约会返回前会继续写入 complete 队列和当前邀约焦点。'
+  '结束约会会由外层主程序直接把当前邀约写成 complete。',
+  'complete 写入会同时按邀约 id、thread id 和当前角色匹配记录。',
+  '红叉叉返回约会 app 前会先完成标记，避免继续显示同意。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4635,6 +4635,75 @@ function rememberOfflineInviteForceCompletePayload(ids, payload, reason){
   try{ localStorage.setItem('offline_invite_force_complete_payload_v1', JSON.stringify(data)); }catch(err2){}
 }
 
+function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var ids = rememberCompletedOfflineInviteIds(normalizeOfflineInviteCompleteIds(payload));
+  rememberOfflineInviteForceCompletePayload(ids, payload, reason || 'force_complete');
+  var store = window.OfflineInviteStore || null;
+  if(!(store && typeof store.listRecords === 'function')) return ids;
+  var charId = String(payload.charId || '').trim();
+  var wanted = Object.create(null);
+  ids.forEach(function(id){
+    var safe = String(id || '').trim();
+    if(safe) wanted[safe] = true;
+  });
+  var targetMap = Object.assign(Object.create(null), wanted);
+  var latestSameCharId = '';
+  try{
+    store.listRecords().forEach(function(record){
+      if(!(record && typeof record === 'object')) return;
+      var recordId = String(record.id || '').trim();
+      if(!recordId) return;
+      var aliases = [
+        record.id,
+        record.recordId,
+        record.inviteRecordId,
+        record.threadId,
+        record.inviteMessageId,
+        record.replyMessageId
+      ].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
+      if(aliases.some(function(value){ return !!wanted[value]; })) targetMap[recordId] = true;
+      if(charId && String(record.charId || '').trim() === charId){
+        var status = String(record.status || '').trim();
+        var meetState = String(record.meetState || '').trim();
+        var active = status === 'accepted' || meetState === 'scheduled' || meetState === 'ongoing' || meetState === 'continued' || meetState === 'accepted';
+        var closed = status === 'completed' || status === 'rejected' || status === 'declined' || meetState === 'complete' || meetState === 'completed';
+        if(active && !closed) targetMap[recordId] = true;
+        if(!latestSameCharId && !closed) latestSameCharId = recordId;
+      }
+    });
+  }catch(err){}
+  if(!Object.keys(targetMap).length && latestSameCharId) targetMap[latestSameCharId] = true;
+  var targetIds = Object.keys(targetMap).filter(Boolean);
+  if(targetIds.length) ids = rememberCompletedOfflineInviteIds(ids.concat(targetIds));
+  var now = Date.now();
+  targetIds.forEach(function(id){
+    try{
+      var existing = typeof store.getRecord === 'function' ? store.getRecord(id) : null;
+      var patch = { status:'completed', meetState:'complete', readOnly:true, completedAt:now, updatedAt:now };
+      if(existing && typeof store.upsertRecord === 'function'){
+        store.upsertRecord(Object.assign({}, existing, patch, { id:id }));
+      }else if(typeof store.patchRecord === 'function'){
+        store.patchRecord(id, patch);
+      }else if(typeof store.upsertRecord === 'function'){
+        store.upsertRecord(Object.assign({}, patch, {
+          id:id,
+          charId:charId,
+          charName:String(payload.charName || ''),
+          sourceRole:'user',
+          previewText:String(payload.previewText || '')
+        }));
+      }
+    }catch(err){
+      try{
+        if(typeof store.patchRecord === 'function') store.patchRecord(id, { status:'completed', meetState:'complete', readOnly:true, completedAt:now, updatedAt:now });
+      }catch(ignore){}
+    }
+  });
+  return ids;
+}
+window.forceCompleteOfflineInviteRecordsFromPayload = forceCompleteOfflineInviteRecordsFromPayload;
+
 function showAppNotificationCard(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var shell = document.getElementById('app-notify-shell');
@@ -8296,8 +8365,7 @@ window.addEventListener('message',(e)=>{
       try{ localStorage.setItem(OFFLINE_INVITE_FOCUS_KEY, String(payload.inviteId || '').trim()); }catch(err){}
     }
     if(appId === 'offline' && payload.forceComplete){
-      var completedIds = rememberCompletedOfflineInviteIds(normalizeOfflineInviteCompleteIds(payload));
-      rememberOfflineInviteForceCompletePayload(completedIds, payload, 'open_app_with');
+      var completedIds = forceCompleteOfflineInviteRecordsFromPayload(payload, 'open_app_with');
       postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), charId:String(payload.charId || '').trim(), reason:'open_app_with' } });
       setTimeout(function(){
         postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:String(payload.inviteId || '').trim(), charId:String(payload.charId || '').trim(), reason:'open_app_with_after_open' } });
@@ -8339,8 +8407,7 @@ window.addEventListener('message',(e)=>{
     removeAppFromStack('offline_mode');
   }
   if(type==='OFFLINE_INVITE_FORCE_COMPLETE'){
-    var forcedIds = rememberCompletedOfflineInviteIds(normalizeOfflineInviteCompleteIds(payload));
-    rememberOfflineInviteForceCompletePayload(forcedIds, payload, 'message');
+    var forcedIds = forceCompleteOfflineInviteRecordsFromPayload(payload, 'message');
     postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:Object.assign({}, payload || {}, { ids:forcedIds }) });
   }
   if(type==='QQ_BADGE_SYNC'){
