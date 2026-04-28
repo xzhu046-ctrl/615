@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T08:31:00Z';
+const APP_BUILD_ID = '2026-04-28T08:43:00Z';
 const APP_UPDATE_NOTES = [
-  '结束约会返回时会优先标记约会 app 当前 focus 的邀约。',
-  '如果旧邀约 id 丢失，会兜底标记最近仍在 accepted/on date 的记录。',
-  '避免结束后跳回约会 app 仍显示同意和 accepted。'
+  '结束约会不再创建临时邀约 id，避免标记到不存在的记录。',
+  '约会 app 渲染前会把结束信号应用到当前列表里的真实记录。',
+  '即使旧 id 对不上，也会把当前 accepted/on date 邀约显示为 Complete。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';

@@ -537,6 +537,7 @@ var offlineRenderVersion = 0;
 var latestOfflineRecords = [];
 var offlineSwipeState = null;
 var pendingDeleteRecordId = '';
+var lastConsumedForceCompletePayloads = [];
 
 function esc(text){
   return String(text == null ? '' : text)
@@ -766,6 +767,19 @@ function markCompletedOfflineInviteIds(ids){
   return writeCompletedOfflineInviteIds(map);
 }
 
+function normalizeOfflineInviteCompleteIds(payload){
+  var ids = [];
+  if(payload && Array.isArray(payload.completedInviteIds)) ids = ids.concat(payload.completedInviteIds);
+  if(payload && Array.isArray(payload.ids)) ids = ids.concat(payload.ids);
+  if(payload && payload.inviteId) ids.push(payload.inviteId);
+  if(payload && payload.recordId) ids.push(payload.recordId);
+  if(payload && payload.inviteRecordId) ids.push(payload.inviteRecordId);
+  if(payload && payload.threadId) ids.push(payload.threadId);
+  return ids.map(function(id){ return String(id || '').trim(); }).filter(function(id, idx, arr){
+    return !!id && arr.indexOf(id) === idx;
+  });
+}
+
 function isRecordForceCompleted(item){
   var completed = readCompletedOfflineInviteIds();
   return [
@@ -883,6 +897,58 @@ function consumePendingForceCompleteOfflineRecords(){
     forceCompleteOfflineRecords(ids, payload.charId);
     try{ localStorage.removeItem(item.key); }catch(err){}
   });
+  lastConsumedForceCompletePayloads = payloads.map(function(item){
+    return item && item.value && typeof item.value === 'object' ? item.value : {};
+  });
+  return lastConsumedForceCompletePayloads.slice();
+}
+
+function forceCompleteRenderedRecords(records, payloads){
+  var list = Array.isArray(records) ? records : [];
+  var sources = Array.isArray(payloads) ? payloads : [];
+  if(!sources.length) return list;
+  var ids = [];
+  var charIds = [];
+  sources.forEach(function(payload){
+    normalizeOfflineInviteCompleteIds(payload).forEach(function(id){
+      if(id && ids.indexOf(id) === -1) ids.push(id);
+    });
+    var charId = String(payload && payload.charId || '').trim();
+    if(charId && charIds.indexOf(charId) === -1) charIds.push(charId);
+  });
+  try{
+    var focusId = String(readFocusId() || '').trim();
+    if(focusId && ids.indexOf(focusId) === -1) ids.unshift(focusId);
+  }catch(err){}
+  var targetIds = [];
+  list.forEach(function(record){
+    if(!(record && typeof record === 'object')) return;
+    var aliases = [record.id, record.recordId, record.inviteRecordId, record.threadId, record.inviteMessageId, record.replyMessageId]
+      .map(function(value){ return String(value || '').trim(); })
+      .filter(Boolean);
+    var idHit = aliases.some(function(value){ return ids.indexOf(value) !== -1; });
+    var charHit = charIds.length && charIds.indexOf(String(record.charId || '').trim()) !== -1;
+    if(idHit || (charHit && (isAcceptedInviteRecord(record) || isOngoingInviteRecord(record) || isContinuedInviteRecord(record)))){
+      aliases.forEach(function(value){ if(value && targetIds.indexOf(value) === -1) targetIds.push(value); });
+    }
+  });
+  if(!targetIds.length){
+    var active = list.find(function(record){
+      return record && (isAcceptedInviteRecord(record) || isOngoingInviteRecord(record) || isContinuedInviteRecord(record));
+    });
+    if(active){
+      [active.id, active.threadId, active.inviteMessageId, active.replyMessageId].forEach(function(value){
+        var safe = String(value || '').trim();
+        if(safe && targetIds.indexOf(safe) === -1) targetIds.push(safe);
+      });
+    }
+  }
+  if(targetIds.length){
+    markCompletedOfflineInviteIds(targetIds);
+    forceCompleteOfflineRecords(targetIds, charIds[0] || '');
+    return list.map(function(record){ return normalizeCompletedOfflineRecord(record); });
+  }
+  return list;
 }
 
 function hideOfflineRecordIds(ids){
@@ -1681,8 +1747,9 @@ function renderThreadList(records, selectedRecord){
 
 async function renderOfflineApp(){
   var renderToken = ++offlineRenderVersion;
-  consumePendingForceCompleteOfflineRecords();
+  var forcePayloads = consumePendingForceCompleteOfflineRecords();
   var records = await getOfflineRecords();
+  records = forceCompleteRenderedRecords(records, forcePayloads);
   if(renderToken !== offlineRenderVersion) return;
   latestOfflineRecords = Array.isArray(records) ? records.slice() : [];
   if(!currentSelectedDateKey) currentSelectedDateKey = toDateKey(new Date());
