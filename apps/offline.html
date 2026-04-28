@@ -769,12 +769,26 @@ function isRecordForceCompleted(item){
   var completed = readCompletedOfflineInviteIds();
   return [
     item && item.id,
+    item && item.recordId,
+    item && item.inviteRecordId,
     item && item.threadId,
     item && item.inviteMessageId,
     item && item.replyMessageId
   ].some(function(value){
     var safe = String(value || '').trim();
     return !!(safe && completed[safe]);
+  });
+}
+
+function normalizeCompletedOfflineRecord(item){
+  if(!(item && isRecordForceCompleted(item))) return item;
+  var now = Date.now();
+  return Object.assign({}, item, {
+    status:'completed',
+    meetState:'complete',
+    readOnly:true,
+    completedAt:Number(item.completedAt || now) || now,
+    updatedAt:Number(item.updatedAt || item.completedAt || now) || now
   });
 }
 
@@ -816,6 +830,7 @@ function forceCompleteOfflineRecords(ids, charId){
     }catch(listErr){}
     if(latestSameCharRecordId) targetMap[latestSameCharRecordId] = true;
     var targetIds = Object.keys(targetMap);
+    markCompletedOfflineInviteIds(targetIds);
     var primaryId = targetIds[0] || safeIds[0] || '';
     targetIds.forEach(function(id){
       try{
@@ -1202,7 +1217,7 @@ async function collectOfflineChatSources(){
 
 function mergeOfflineRecordMaps(target, record){
   if(!record) return;
-  var safe = Object.assign({}, record);
+  var safe = normalizeCompletedOfflineRecord(Object.assign({}, record));
   var id = String(safe.id || '').trim();
   if(!id) return;
   var existing = target[id];
@@ -1304,6 +1319,8 @@ async function getOfflineRecords(){
   fallback.forEach(function(item){ mergeOfflineRecordMaps(map, item); });
   return Object.keys(map).map(function(id){ return map[id]; }).sort(function(a, b){
     return (Number(b.updatedAt || b.createdAt || 0) || 0) - (Number(a.updatedAt || a.createdAt || 0) || 0);
+  }).map(function(item){
+    return normalizeCompletedOfflineRecord(item);
   }).filter(function(item){
     var safeId = String(item && item.id || '').trim();
     return !!(item && safeId && !hiddenIds[safeId] && (String(item.charId || '').trim() || String(item.charName || '').trim()));
@@ -1319,7 +1336,7 @@ function isPendingInviteRecord(item){
 function isCompletedInviteRecord(item){
   var meetState = String(item && item.meetState || '').trim();
   var status = String(item && item.status || '').trim();
-  return isRecordForceCompleted(item) || meetState === 'complete' || status === 'completed' || status === 'rejected' || status === 'declined';
+  return isRecordForceCompleted(item) || meetState === 'complete' || status === 'completed' || status === 'rejected' || status === 'declined' || (!!(item && item.readOnly) && !!(item && item.completedAt));
 }
 
 function isContinuedInviteRecord(item){

@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-28T03:52:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T03:52:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T03:52:00Z"></script>
-<script src="../promptManager.js?v=2026-04-28T03:52:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T03:52:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T03:52:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T03:52:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T03:52:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T04:18:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T04:18:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T04:18:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T04:18:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T04:18:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T04:18:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T04:18:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T04:18:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1351,6 +1351,12 @@ function getOfflineLaunchReadOnlyFlag(source){
   var status = String(payload && payload.status || '').trim();
   var meetState = String(payload && payload.meetState || '').trim();
   return !!(source && source.readOnly) || !!(payload && payload.readOnly) || meetState === 'complete' || status === 'completed' || status === 'rejected' || status === 'declined';
+}
+function offlineInviteSourcesShareRecordId(left, right){
+  var leftIds = collectOfflineInviteRecordIdsFromSource(left, []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
+  var rightIds = collectOfflineInviteRecordIdsFromSource(right, []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
+  if(!leftIds.length || !rightIds.length) return false;
+  return leftIds.some(function(id){ return rightIds.indexOf(id) !== -1; });
 }
 function applyOfflineReadOnlyMode(){
   document.body.classList.toggle('offline-readonly', !!offlineReadOnlyMode);
@@ -8119,6 +8125,133 @@ function getOfflineRecentOnlineSnippet(){
 function getOfflineRecentOnlineSnippetByBudget(maxChars){
   return clipOfflinePromptText(session && session.chatHistory ? session.chatHistory : '', maxChars);
 }
+function getOfflineOnlineContextWindow(){
+  var value = Number(character && character.contextWindow);
+  if(!Number.isFinite(value) || value <= 0){
+    try{
+      var key = character && character.id ? scopedKey('ctx_window_' + character.id) : '';
+      value = Number(key ? localStorage.getItem(key) : 0);
+    }catch(e){
+      value = 0;
+    }
+  }
+  if(!Number.isFinite(value) || value <= 0) value = 30;
+  return Math.max(6, Math.min(120, Math.round(value)));
+}
+function normalizeOfflineOnlineChatEntry(raw){
+  if(Array.isArray(raw)){
+    return {
+      id:String(raw[0] || '').trim(),
+      role:String(raw[1] || '').trim(),
+      type:String(raw[2] || '').trim(),
+      content:typeof raw[3] === 'string' ? raw[3] : String(raw[3] || ''),
+      sentAt:Number(raw[4] || 0) || 0,
+      hidden:!!raw[7]
+    };
+  }
+  if(raw && typeof raw === 'object'){
+    return {
+      id:String(raw.id || '').trim(),
+      role:String(raw.role || '').trim(),
+      type:String(raw.type || '').trim(),
+      content:typeof raw.content === 'string' ? raw.content : String(raw.content || ''),
+      sentAt:Number(raw.sentAt || raw.createdAt || 0) || 0,
+      hidden:!!raw.hidden
+    };
+  }
+  return null;
+}
+function offlineOnlineChatStorageKeyCandidates(charId){
+  var keys = offlineModeChatStorageKeyCandidates(charId);
+  try{
+    var scoped = scopedKey('chat_' + String(charId || '').trim());
+    if(scoped) keys.push(scoped);
+  }catch(e){}
+  return keys.filter(function(key, idx, arr){ return key && arr.indexOf(key) === idx; });
+}
+function formatOfflineOnlineChatHistory(history){
+  var list = Array.isArray(history) ? history : [];
+  var limit = getOfflineOnlineContextWindow();
+  var charLabel = String((character && (character.nickname || character.name)) || 'Char').trim() || 'Char';
+  var userLabel = resolveUserName() || 'User';
+  var rows = [];
+  for(var i = 0; i < list.length; i += 1){
+    var entry = normalizeOfflineOnlineChatEntry(list[i]);
+    if(!entry || entry.hidden) continue;
+    var role = String(entry.role || '').trim();
+    if(role !== 'user' && role !== 'assistant') continue;
+    var type = String(entry.type || 'text').trim().toLowerCase();
+    if(type === 'offline_invite' || type === 'offlineinvite') continue;
+    var text = String(entry.content || '').replace(/\s+/g, ' ').trim();
+    if(!text) continue;
+    if(type !== 'text'){
+      text = '[' + type + '] ' + text;
+    }
+    rows.push((role === 'user' ? userLabel : charLabel) + '：' + clipOfflinePromptText(text, 180));
+  }
+  return rows.slice(Math.max(0, rows.length - limit)).join('\n').trim();
+}
+async function loadOfflineRecentOnlineContextForCharacter(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return '';
+  var bestHistory = [];
+  var bestUpdatedAt = 0;
+  var keys = offlineOnlineChatStorageKeyCandidates(safeId);
+  var storage = null;
+  try{
+    storage = window.parent && window.parent !== window && window.parent.PhoneStorage ? window.parent.PhoneStorage : window.PhoneStorage;
+  }catch(e){
+    storage = window.PhoneStorage || null;
+  }
+  if(storage && typeof storage.get === 'function'){
+    for(var i = 0; i < keys.length; i += 1){
+      try{
+        var record = await storage.get('chats', keys[i]);
+        if(record && Array.isArray(record.history) && record.history.length){
+          var updatedAt = Number(record.updatedAt || 0) || 0;
+          if(!bestHistory.length || updatedAt >= bestUpdatedAt || record.history.length > bestHistory.length){
+            bestHistory = record.history;
+            bestUpdatedAt = updatedAt;
+          }
+        }
+      }catch(err){}
+    }
+  }
+  if(storage && typeof storage.list === 'function'){
+    try{
+      var records = await storage.list('chats');
+      (Array.isArray(records) ? records : []).forEach(function(record){
+        if(!(record && typeof record === 'object')) return;
+        if(String(record.charId || '').trim() !== safeId) return;
+        var history = Array.isArray(record.history) ? record.history : [];
+        if(!history.length) return;
+        var updatedAt = Number(record.updatedAt || 0) || 0;
+        if(!bestHistory.length || updatedAt >= bestUpdatedAt || history.length > bestHistory.length){
+          bestHistory = history;
+          bestUpdatedAt = updatedAt;
+        }
+      });
+    }catch(listErr){}
+  }
+  for(var k = 0; k < keys.length; k += 1){
+    try{
+      var raw = localStorage.getItem(keys[k]) || '';
+      if(!raw) continue;
+      var parsed = JSON.parse(raw);
+      var history = Array.isArray(parsed && parsed.history) ? parsed.history : (Array.isArray(parsed && parsed.messages) ? parsed.messages : []);
+      if(history.length && (!bestHistory.length || history.length > bestHistory.length)){
+        bestHistory = history;
+      }
+    }catch(localErr){}
+  }
+  return formatOfflineOnlineChatHistory(bestHistory);
+}
+async function refreshOfflineRecentOnlineContext(){
+  if(!session || !character || !character.id) return '';
+  var text = await loadOfflineRecentOnlineContextForCharacter(character.id);
+  session.chatHistory = text || '';
+  return session.chatHistory;
+}
 function getOfflineWorldbookSnippet(){
   if(!character || !character.id) return '';
   function isEntryEnabled(entry){
@@ -8205,10 +8338,15 @@ function buildOfflineOpeningCoreSettingSummary(compactLevel){
   var userWeather = buildWeatherMoodPrompt(getOfflineWeatherSnapshot('user'));
   var inviteWeather = String(session && session.invite && session.invite.weather || '').trim();
   var weatherRule = [inviteWeather, charWeather, userWeather].filter(Boolean).join('；');
+  var scheduleRule = clipOfflinePromptText(
+    buildOfflineSchedulePromptBlock(),
+    offlinePromptLimit(isMobileOfflineRuntime() ? 260 : 420, level, 120)
+  );
   return [
     '角色 persona：' + (persona || '未提供'),
     '用户 persona：' + (userPersona || '未提供'),
     weatherRule ? ('当前天气/温度/昼夜线索：' + weatherRule) : '当前天气/温度/昼夜线索：无',
+    scheduleRule ? ('当前时间/日程感知：\n' + scheduleRule) : '当前时间/日程感知：无',
     buildOfflineReplyLanguagePromptLine(),
     scenario ? ('场景设定：' + scenario) : '场景设定：无',
     systemPrompt ? ('角色补充规则：' + systemPrompt) : '角色补充规则：无',
@@ -8745,9 +8883,18 @@ function buildOfflineOpeningChunkSystemPrompt(){
 }
 function buildOfflineUserPrompt(userText){
   var compactLevel = Math.max(0, Number(arguments[1]) || 0);
+  var onlineChatText = getOfflineRecentOnlineSnippetByBudget(offlinePromptLimit(isMobileOfflineRuntime() ? 820 : 1200, compactLevel, 260));
+  var liveContext = buildOfflineSchedulePromptBlock();
+  var weatherRule = [
+    String(session && session.invite && session.invite.weather || '').trim(),
+    buildWeatherMoodPrompt(getOfflineWeatherSnapshot('char')),
+    buildWeatherMoodPrompt(getOfflineWeatherSnapshot('user'))
+  ].filter(Boolean).join('；');
   return [
     '这是一次已经开始的线下见面，请顺着当前氛围继续。',
     buildOfflineInvitePromptLine('见面起点：'),
+    '最近线上聊天（按聊天设置读取）：\n' + (onlineChatText || '无'),
+    '当前时间/天气/日程：\n' + (clipOfflinePromptText([weatherRule ? ('天气：' + weatherRule) : '', liveContext || ''].filter(Boolean).join('\n') || '无', offlinePromptLimit(isMobileOfflineRuntime() ? 620 : 900, compactLevel, 220)) || '无'),
     '最近线下记录：\n' + (clipOfflinePromptText(formatOfflineHistoryForPrompt(compactLevel >= 2 ? 3 : 4, compactLevel >= 2 ? 4 : 6) || '无', offlinePromptLimit(isMobileOfflineRuntime() ? 1200 : 1800, compactLevel, 360)) || '无'),
     '用户刚刚线下说：' + String(userText || '').trim()
   ].filter(Boolean).join('\n\n');
@@ -9841,6 +9988,9 @@ function getOfflineInviteRecordIdFromSource(source){
       source.recordId ||
       source.inviteRecordId ||
       source.id ||
+      source.threadId ||
+      source.inviteMessageId ||
+      source.replyMessageId ||
       (source.invite && (source.invite.recordId || source.invite.inviteRecordId || source.invite.id))
     ) || ''
   ).trim();
@@ -12360,7 +12510,7 @@ async function init(){
     if(!hasMeaningfulOfflineSession(candidate)) return null;
     var candidateCharId = String(candidate.charId || (candidate.invite && candidate.invite.charId) || '').trim();
     if(candidateCharId && candidateCharId !== String(launchCharId || desiredOfflineCharId || '').trim()) return null;
-    if(launchInviteRecordId && getOfflineInviteRecordIdFromSource(candidate) !== launchInviteRecordId) return null;
+    if(launchInviteRecordId && !offlineInviteSourcesShareRecordId(candidate, launchSeed && launchSeed.payload ? launchSeed.payload : launchSeed)) return null;
     return candidate;
   }
   var reusableInviteSession = [
@@ -12472,6 +12622,7 @@ async function init(){
       session.entries.length &&
       (
         (launchInviteRecordId && currentInviteRecordId && launchInviteRecordId === currentInviteRecordId) ||
+        (launchInviteRecordId && offlineInviteSourcesShareRecordId(session, launchSeed && launchSeed.payload ? launchSeed.payload : launchSeed)) ||
         (!launchFreshStart && (!launchInviteRecordId || !currentInviteRecordId))
       )
     );
@@ -12514,6 +12665,12 @@ async function init(){
   }
   if(normalizeOfflineStatusPendingFlags() && character && character.id){
     saveSession();
+  }
+  if(session && character && character.id){
+    try{
+      await refreshOfflineRecentOnlineContext();
+      saveSession();
+    }catch(e){}
   }
   try{
     localStorage.setItem(scopedKey('offline_invite_debug_latest'), JSON.stringify(Object.assign({}, (function(){
