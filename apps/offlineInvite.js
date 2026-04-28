@@ -1004,7 +1004,8 @@ async function openOfflineSession(payload){
     invite: payload,
     entries: [],
     pendingAnimation: true,
-    pendingOpening: true,
+    pendingOpening: false,
+    waitForUserFirstTurn: true,
     chatHistory: history,
     updatedAt: Date.now()
   };

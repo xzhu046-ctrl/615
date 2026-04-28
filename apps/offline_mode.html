@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-28T07:03:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T07:03:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T07:03:00Z"></script>
-<script src="../promptManager.js?v=2026-04-28T07:03:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T07:03:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T07:03:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T07:03:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T07:03:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T07:16:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T07:16:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T07:16:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T07:16:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T07:16:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T07:16:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T07:16:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T07:16:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -10123,6 +10123,17 @@ function hasAssistantOpeningEntry(){
     return entry && entry.role === 'assistant' && !isOfflinePlaceholderEntry(entry) && String(entry.text || '').trim();
   });
 }
+function hasUserOfflineEntry(){
+  var list = Array.isArray(session && session.entries) ? session.entries : [];
+  return list.some(function(entry){
+    return entry && entry.role === 'user' && String(entry.text || '').trim();
+  });
+}
+function shouldWaitForOfflineUserFirstTurn(){
+  if(!session || !session.invite) return false;
+  if(hasUserOfflineEntry()) return false;
+  return !!session.waitForUserFirstTurn;
+}
 function sanitizeOfflineSessionState(){
   if(!session || typeof session !== 'object') return false;
   var dirty = false;
@@ -10391,6 +10402,7 @@ function shouldBootOpeningFlow(){
   if(session.active === false) return false;
   if(!session.invite) return false;
   if(session.openingFailed) return false;
+  if(shouldWaitForOfflineUserFirstTurn()) return false;
   return !hasAssistantOpeningEntry();
 }
 async function generateOpeningIfNeeded(){
@@ -11119,6 +11131,9 @@ async function sendOfflineTurn(){
   };
   Object.assign(userEntry, buildOfflineEntryMeta(userEntry, 'user', labels, { generationMs: 0 }));
   session.entries.push(userEntry);
+  session.waitForUserFirstTurn = false;
+  session.pendingOpening = false;
+  session.pendingAnimation = false;
   if(input) input.value = '';
   saveSession();
   queueOfflineStageSummaryGeneration();
@@ -11134,6 +11149,10 @@ async function requestOfflineReply(options){
   }
   if(sending) return;
   if(!session) return;
+  if(shouldWaitForOfflineUserFirstTurn()){
+    toast('先由你说第一句');
+    return false;
+  }
   setOfflineComposerBusy(true);
   closeThoughtBubbles();
   sending = true;
@@ -11757,6 +11776,10 @@ async function rerollOfflineTurn(){
   }
   if(sending || !session) return;
   var canRetryOpening = !!(session && session.invite && (session.pendingOpening || shouldBootOpeningFlow() || session.openingFailed));
+  if(shouldWaitForOfflineUserFirstTurn()){
+    toast('先由你说第一句');
+    return;
+  }
   if((!Array.isArray(session.entries) || !session.entries.length) && canRetryOpening){
     session.active = true;
     session.openingFailed = false;
@@ -12702,7 +12725,8 @@ async function init(){
         invite: launchSeed.payload || null,
         entries: [],
         pendingAnimation: !offlineReadOnlyMode,
-        pendingOpening: !offlineReadOnlyMode,
+        pendingOpening: false,
+        waitForUserFirstTurn: !offlineReadOnlyMode,
         chatHistory: String(launchSeed.chatHistory || ''),
         updatedAt: Date.now()
       };
@@ -12790,6 +12814,7 @@ async function init(){
     session.active = true;
     session.pendingOpening = false;
     session.pendingAnimation = false;
+    if(!offlineReadOnlyMode && session.waitForUserFirstTurn !== false) session.waitForUserFirstTurn = true;
   }
   if(session && session.minimized){
     session.minimized = false;
@@ -12847,7 +12872,7 @@ async function init(){
   runOfflineInitTask(function(){ return hydrateOfflineMemorySnippet(); }, 2200);
   renderStory();
   syncOfflineViewport();
-  if(!offlineReadOnlyMode && session && session.invite && !hasAssistantOpeningEntry() && (session.pendingOpening || shouldBootOpeningFlow())){
+  if(!offlineReadOnlyMode && session && session.invite && !shouldWaitForOfflineUserFirstTurn() && !hasAssistantOpeningEntry() && (session.pendingOpening || shouldBootOpeningFlow())){
     session.active = true;
     session.openingFailed = false;
     session.lastOpeningError = '';

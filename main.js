@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T07:03:00Z';
+const APP_BUILD_ID = '2026-04-28T07:16:00Z';
 const APP_UPDATE_NOTES = [
-  '心声 headline、body、strike 现在支持有限 HTML 渲染。',
-  '自定义心声里的 span class 和 data 属性会保留给 CSS 使用。',
-  '心声渲染会剥离危险事件属性，避免自定义 HTML 破坏页面。'
+  '线下邀约点进去现在默认等 user 先说第一句。',
+  '空邀约不会再自动生成 char 首幕抢先开场。',
+  'user 发出第一条线下消息后，char 才会按正常回复流程继续。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
