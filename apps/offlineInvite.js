@@ -750,16 +750,6 @@ function primeOfflineLaunchCharacterSnapshot(charSnapshot){
   }catch(e){}
   try{ localStorage.setItem('activeCharacter', serialized); }catch(e){}
 }
-function persistOfflineLaunchTokenRecord(token, record){
-  var safeToken = String(token || '').trim();
-  if(!safeToken) return;
-  var serialized = '';
-  try{ serialized = JSON.stringify(record || {}); }catch(e){ serialized = ''; }
-  if(!serialized) return;
-  try{ localStorage.setItem(offlineLaunchTokenStorageKey(safeToken), serialized); }catch(e){}
-  try{ localStorage.setItem('offline_launch_token_' + safeToken, serialized); }catch(e){}
-}
-
 function pendingOfflineBootstrapStorageKey(charId){
   return accountScopedKey('offline_bootstrap_' + String(charId || '').trim());
 }
@@ -999,60 +989,7 @@ async function openOfflineSession(payload){
     updatedAt: Date.now()
   };
   persistOfflineSession(nextSession, targetCharId);
-  try{
-    localStorage.setItem(pendingOfflineBootstrapStorageKey(targetCharId), JSON.stringify({
-      charId: targetCharId,
-      charSnapshot: charSnapshot,
-      session: nextSession
-    }));
-  }catch(e){}
-  try{
-    localStorage.setItem('offline_bootstrap_' + targetCharId, JSON.stringify({
-      charId: targetCharId,
-      charSnapshot: charSnapshot,
-      session: nextSession
-    }));
-  }catch(e){}
-  try{
-    localStorage.setItem(pendingOfflineLaunchStorageKey(targetCharId), JSON.stringify({
-      charId: targetCharId,
-      charSnapshot: charSnapshot,
-      payload: payload,
-      chatHistory: history,
-      createdAt: Date.now()
-    }));
-  }catch(e){}
-  try{
-    localStorage.setItem('offline_launch_' + targetCharId, JSON.stringify({
-      charId: targetCharId,
-      charSnapshot: charSnapshot,
-      payload: payload,
-      chatHistory: history,
-      createdAt: Date.now()
-    }));
-  }catch(e){}
-  try{
-    localStorage.setItem(latestOfflineLaunchStorageKey(), JSON.stringify({
-      launchToken: launchToken,
-      charId: targetCharId,
-      charSnapshot: charSnapshot,
-      payload: payload,
-      chatHistory: history,
-      createdAt: Date.now()
-    }));
-  }catch(e){}
-  try{
-    localStorage.setItem('offline_launch_latest', JSON.stringify({
-      launchToken: launchToken,
-      charId: targetCharId,
-      charSnapshot: charSnapshot,
-      payload: payload,
-      chatHistory: history,
-      createdAt: Date.now()
-    }));
-  }catch(e){}
   latestLaunchRecord.session = nextSession;
-  persistOfflineLaunchTokenRecord(launchToken, latestLaunchRecord);
   try{
     var focusRecordId = ensureOfflineInviteRecordId(payload || {});
     if(focusRecordId){
