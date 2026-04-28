@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T11:42:00Z';
+const APP_BUILD_ID = '2026-04-28T12:09:00Z';
 const APP_UPDATE_NOTES = [
-  'iOS 主屏幕继续保留 App 模式，旧图标里的本地数据不会被断开。',
-  '更新只刷新代码缓存和 Service Worker，不清聊天、角色和约会数据。',
-  '启动时会申请持久化存储，降低手机系统自动清理本地数据的风险。'
+  '刷新按钮会注销旧 Service Worker 并清掉代码缓存。',
+  '修复“点过刷新但没换成功”后不再弹更新的卡死状态。',
+  '约会列表会用结束后小聊天室和 ended 归档反推 complete。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -863,7 +863,15 @@ function clearAcceptedHostedUpdateBuildIfCurrent(){
 function isAcceptedHostedRemoteBuild(fingerprint){
   var value = String(fingerprint || '').trim();
   if(!value) return false;
-  return value === getAcceptedHostedUpdateBuild();
+  if(compareHostedBuildIds(APP_BUILD_ID, value) >= 0) return true;
+  var accepted = getAcceptedHostedUpdateBuild();
+  if(accepted === value){
+    try{
+      localStorage.removeItem(HOSTED_UPDATE_ACCEPTED_BUILD_KEY);
+      localStorage.removeItem(HOSTED_UPDATE_ACCEPTED_AT_KEY);
+    }catch(e){}
+  }
+  return false;
 }
 
 function showHostedUpdateCard(){
@@ -1211,17 +1219,25 @@ async function primeLatestCoreFiles(){
   await Promise.all(targets.map(function(path){
     var url = new URL(path || './', window.location.href);
     url.searchParams.set('refreshBuild', String(stamp));
-    return fetch(url.toString(), { cache:'reload' }).catch(function(){ return null; });
+    return fetch(url.toString(), { cache:'no-store' }).catch(function(){ return null; });
   }));
+}
+
+async function unregisterHostedServiceWorkers(){
+  if(!('serviceWorker' in navigator) || typeof navigator.serviceWorker.getRegistrations !== 'function') return;
+  try{
+    var registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all((Array.isArray(registrations) ? registrations : []).map(function(reg){
+      return reg && typeof reg.unregister === 'function' ? reg.unregister().catch(function(){ return false; }) : false;
+    }));
+  }catch(e){}
 }
 
 async function clearHostedUpdateCaches(){
   if(typeof caches !== 'undefined' && caches && typeof caches.keys === 'function'){
     try{
       var names = await caches.keys();
-      await Promise.all(names
-        .filter(function(name){ return String(name || '').indexOf('phone-shell') === 0; })
-        .map(function(name){ return caches.delete(name).catch(function(){ return null; }); }));
+      await Promise.all(names.map(function(name){ return caches.delete(name).catch(function(){ return null; }); }));
     }catch(e){}
   }
 }
@@ -1443,98 +1459,10 @@ function refreshInstalledApp(evt){
   };
   Promise.resolve()
     .then(function(){ return flushCurrentAppState(); })
+    .then(function(){ return unregisterHostedServiceWorkers(); })
     .then(function(){ return clearHostedUpdateCaches(); })
     .then(function(){ return primeLatestCoreFiles(); })
     .then(function(){
-      if(!('serviceWorker' in navigator)) return null;
-      return navigator.serviceWorker.ready.catch(function(){ return null; }).then(function(readyReg){
-        return readyReg || navigator.serviceWorker.getRegistration();
-      }).then(function(reg){
-        if(!reg) return null;
-        var waitingOrKnownBuild = String(
-          readBuildIdFromServiceWorkerUrl(reg.waiting && reg.waiting.scriptURL)
-          || pendingRemoteAppFingerprint
-          || shownHostedUpdateFingerprint
-          || getLastSeenHostedRemoteBuild()
-          || targetBuild
-          || APP_BUILD_ID
-        ).trim() || APP_BUILD_ID;
-        targetBuild = waitingOrKnownBuild;
-        setAcceptedHostedUpdateBuild(targetBuild);
-        markHostedUpdatePromptShown(targetBuild);
-        if(reg.waiting){
-          swControllerRefreshPending = true;
-          pendingHostedRefreshBuild = String(targetBuild || readBuildIdFromServiceWorkerUrl(reg.waiting && reg.waiting.scriptURL) || APP_BUILD_ID);
-          reg.waiting.postMessage({ type:'SKIP_WAITING' });
-          setTimeout(function(){
-            if(swControllerRefreshPending){
-              finishReload();
-            }
-          }, 2000);
-          return 'waiting';
-        }
-        return reg.update().then(function(){
-          if(reg.waiting){
-            swControllerRefreshPending = true;
-            pendingHostedRefreshBuild = String(targetBuild || readBuildIdFromServiceWorkerUrl(reg.waiting && reg.waiting.scriptURL) || APP_BUILD_ID);
-            reg.waiting.postMessage({ type:'SKIP_WAITING' });
-            setTimeout(function(){
-              if(swControllerRefreshPending){
-                finishReload();
-              }
-            }, 2000);
-            return 'waiting';
-          }
-          return navigator.serviceWorker.register(getServiceWorkerUrl(targetBuild), { updateViaCache:'none' }).then(function(nextReg){
-            if(nextReg && nextReg.waiting){
-              swControllerRefreshPending = true;
-              pendingHostedRefreshBuild = String(targetBuild || readBuildIdFromServiceWorkerUrl(nextReg.waiting && nextReg.waiting.scriptURL) || APP_BUILD_ID);
-              nextReg.waiting.postMessage({ type:'SKIP_WAITING' });
-              setTimeout(function(){
-                if(swControllerRefreshPending){
-                  finishReload();
-                }
-              }, 2000);
-              return 'waiting';
-            }
-            if(nextReg && nextReg.installing){
-              return new Promise(function(resolve){
-                var installing = nextReg.installing;
-                var settled = false;
-                var settle = function(value){
-                  if(settled) return;
-                  settled = true;
-                  resolve(value);
-                };
-                installing.addEventListener('statechange', function(){
-                  if(installing.state === 'installed' && nextReg.waiting){
-                    swControllerRefreshPending = true;
-                    pendingHostedRefreshBuild = String(targetBuild || readBuildIdFromServiceWorkerUrl(nextReg.waiting && nextReg.waiting.scriptURL) || APP_BUILD_ID);
-                    nextReg.waiting.postMessage({ type:'SKIP_WAITING' });
-                    setTimeout(function(){
-                      if(swControllerRefreshPending){
-                        finishReload();
-                      }
-                    }, 2000);
-                    settle('waiting');
-                    return;
-                  }
-                  if(installing.state === 'redundant'){
-                    settle('updated');
-                  }
-                });
-                setTimeout(function(){
-                  settle('updated');
-                }, 2500);
-              });
-            }
-            return 'updated';
-          });
-        }).catch(function(){ return null; });
-      });
-    })
-    .then(function(result){
-      if(result === 'waiting') return;
       finishReload();
     })
     .catch(function(err){

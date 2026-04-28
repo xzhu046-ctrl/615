@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-28T11:42:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T11:42:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T12:09:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T12:09:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -815,13 +815,113 @@ function markCompletedOfflineInviteMarker(charId, charName){
   writeCompletedOfflineInviteMarkers(list);
 }
 
-function isRecordCoveredByCompletedMarker(item){
+function getOfflineRecordAliasIds(item){
+  return [
+    item && item.id,
+    item && item.recordId,
+    item && item.inviteRecordId,
+    item && item.threadId,
+    item && item.inviteMessageId,
+    item && item.replyMessageId
+  ].map(function(value){ return String(value || '').trim(); }).filter(function(value, idx, arr){
+    return !!value && arr.indexOf(value) === idx;
+  });
+}
+
+function isActiveOpenInviteRecordForCompletion(item){
   if(!(item && typeof item === 'object')) return false;
   var status = String(item.status || '').trim();
   var meetState = String(item.meetState || '').trim();
   var active = status === 'accepted' || meetState === 'scheduled' || meetState === 'ongoing' || meetState === 'continued' || meetState === 'accepted';
   var closed = status === 'completed' || status === 'rejected' || status === 'declined' || meetState === 'complete' || meetState === 'completed';
-  if(!active || closed) return false;
+  return active && !closed;
+}
+
+function readOfflineLocalJson(key){
+  try{
+    var raw = localStorage.getItem(String(key || '').trim()) || '';
+    if(!raw) return null;
+    return JSON.parse(raw);
+  }catch(err){
+    return null;
+  }
+}
+
+function getOfflineGoodbyeChatKeyCandidates(recordId){
+  var safeId = String(recordId || '').trim();
+  if(!safeId) return [];
+  var raw = 'offline_goodbye_chat_' + safeId;
+  var keys = [getScopedOfflineStorageKey(raw), raw];
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.getActiveAccountId === 'function'){
+      var acctId = String(window.parent.getActiveAccountId() || '').trim();
+      if(acctId) keys.push(raw + '__acct_' + acctId);
+    }
+  }catch(err){}
+  return keys.filter(function(key, idx, arr){
+    return !!key && arr.indexOf(key) === idx;
+  });
+}
+
+function hasStoredOfflineGoodbyeChatForRecord(item){
+  if(!(item && typeof item === 'object') || !isActiveOpenInviteRecordForCompletion(item)) return false;
+  var direct = item.goodbyeChat || (item.invite && item.invite.goodbyeChat);
+  if(direct && typeof direct === 'object' && (String(direct.text || '').trim() || (Array.isArray(direct.messages) && direct.messages.length))){
+    return true;
+  }
+  var aliases = getOfflineRecordAliasIds(item);
+  for(var i = 0; i < aliases.length; i += 1){
+    var keys = getOfflineGoodbyeChatKeyCandidates(aliases[i]);
+    for(var k = 0; k < keys.length; k += 1){
+      var payload = readOfflineLocalJson(keys[k]);
+      if(!(payload && typeof payload === 'object')) continue;
+      var inviteIds = Array.isArray(payload.inviteIds) ? payload.inviteIds.map(function(id){ return String(id || '').trim(); }) : [];
+      var hasBody = String(payload.text || '').trim() || (Array.isArray(payload.messages) && payload.messages.length) || (Array.isArray(payload.views) && payload.views.length);
+      if(hasBody && (!inviteIds.length || inviteIds.some(function(id){ return aliases.indexOf(id) !== -1; }))) return true;
+    }
+  }
+  return false;
+}
+
+function readOfflineArchiveIndexCandidates(){
+  var keys = [getScopedOfflineStorageKey('offline_meet_archives'), 'offline_meet_archives'].filter(function(key, idx, arr){
+    return !!key && arr.indexOf(key) === idx;
+  });
+  var out = [];
+  keys.forEach(function(key){
+    var parsed = readOfflineLocalJson(key);
+    if(Array.isArray(parsed)) out = out.concat(parsed);
+  });
+  return out;
+}
+
+function hasEndedOfflineArchiveForRecord(item){
+  if(!(item && typeof item === 'object') || !isActiveOpenInviteRecordForCompletion(item)) return false;
+  var charId = String(item.charId || '').trim();
+  var charName = String(item.charName || '').trim();
+  if(!charId && !charName) return false;
+  var createdAt = Number(item.createdAt || item.updatedAt || 0) || 0;
+  var recordDay = getRecordDateKey(item);
+  return readOfflineArchiveIndexCandidates().some(function(entry){
+    if(!(entry && typeof entry === 'object')) return false;
+    var sameChar = !!(charId && String(entry.charId || '').trim() === charId)
+      || !!(charName && String(entry.charName || '').trim() === charName);
+    if(!sameChar) return false;
+    var status = String(entry.status || '').trim();
+    if(status !== 'ended' && status !== 'complete' && status !== 'completed') return false;
+    var endedAt = Number(entry.endedAt || entry.updatedAt || entry.createdAt || 0) || 0;
+    if(createdAt && endedAt && createdAt <= endedAt + 10 * 60 * 1000) return true;
+    return !!(recordDay && endedAt && recordDay === toDateKey(new Date(endedAt)));
+  });
+}
+
+function isRecordCoveredByCompletionArtifact(item){
+  return hasStoredOfflineGoodbyeChatForRecord(item) || hasEndedOfflineArchiveForRecord(item);
+}
+
+function isRecordCoveredByCompletedMarker(item){
+  if(!(item && typeof item === 'object')) return false;
+  if(!isActiveOpenInviteRecordForCompletion(item)) return false;
   var charId = String(item.charId || '').trim();
   var charName = String(item.charName || '').trim();
   var createdAt = Number(item.createdAt || 0) || 0;
@@ -850,23 +950,18 @@ function normalizeOfflineInviteCompleteIds(payload){
 
 function isRecordForceCompleted(item){
   var completed = readCompletedOfflineInviteIds();
-  var idHit = [
-    item && item.id,
-    item && item.recordId,
-    item && item.inviteRecordId,
-    item && item.threadId,
-    item && item.inviteMessageId,
-    item && item.replyMessageId
-  ].some(function(value){
+  var idHit = getOfflineRecordAliasIds(item).some(function(value){
     var safe = String(value || '').trim();
     return !!(safe && completed[safe]);
   });
-  return idHit || isRecordCoveredByCompletedMarker(item);
+  return idHit || isRecordCoveredByCompletedMarker(item) || isRecordCoveredByCompletionArtifact(item);
 }
 
 function normalizeCompletedOfflineRecord(item){
   if(!(item && isRecordForceCompleted(item))) return item;
   var now = Date.now();
+  markCompletedOfflineInviteIds(getOfflineRecordAliasIds(item));
+  markCompletedOfflineInviteMarker(item && item.charId, item && item.charName);
   return Object.assign({}, item, {
     status:'completed',
     meetState:'complete',
