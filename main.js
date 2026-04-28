@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T10:56:00Z';
+const APP_BUILD_ID = '2026-04-28T11:08:00Z';
 const APP_UPDATE_NOTES = [
-  '手机端刷新会强制更新约会 app 本体，不只更新外壳。',
-  '所有 app 子页面都会带当前构建时间戳，避免旧缓存继续显示 accepted。',
-  '约会列表继续合并同日同角色的重复 complete 卡片。'
+  '约会页加载时会自动修正同角色残留 accepted 旧记录。',
+  '结束标记会同时记录角色名、昵称和 charId，适配手机旧数据。',
+  '同角色完成记录会把 24 小时内的旧 active 邀约归并为 complete。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';

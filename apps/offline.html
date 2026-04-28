@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-28T10:56:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T10:56:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T11:08:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T11:08:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -1496,6 +1496,7 @@ function collapseCompletedDuplicateInviteRecords(records){
   var list = Array.isArray(records) ? records.slice() : [];
   if(!list.length) return list;
   var completedByCharDay = Object.create(null);
+  var completedByChar = Object.create(null);
   list.forEach(function(item){
     if(!isCompletedInviteRecord(item)) return;
     var charKeys = [item && item.charId, item && item.charName].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
@@ -1504,6 +1505,7 @@ function collapseCompletedDuplicateInviteRecords(records){
     var stamp = Number(item && (item.completedAt || item.updatedAt || item.createdAt) || Date.now()) || Date.now();
     charKeys.forEach(function(charKey){
       completedByCharDay[charKey + '::' + dayKey] = Math.max(Number(completedByCharDay[charKey + '::' + dayKey] || 0) || 0, stamp);
+      completedByChar[charKey] = Math.max(Number(completedByChar[charKey] || 0) || 0, stamp);
     });
   });
   return list.map(function(item){
@@ -1516,9 +1518,14 @@ function collapseCompletedDuplicateInviteRecords(records){
     var completedAt = charKeys.reduce(function(max, charKey){
       return Math.max(max, Number(completedByCharDay[charKey + '::' + dayKey] || 0) || 0);
     }, 0);
+    if(!completedAt){
+      completedAt = charKeys.reduce(function(max, charKey){
+        return Math.max(max, Number(completedByChar[charKey] || 0) || 0);
+      }, 0);
+    }
     if(!completedAt) return item;
     var createdAt = Number(item.createdAt || item.updatedAt || 0) || 0;
-    if(createdAt && createdAt > completedAt + 6 * 60 * 60 * 1000) return item;
+    if(createdAt && createdAt > completedAt + 24 * 60 * 60 * 1000) return item;
     var aliases = [item.id, item.recordId, item.inviteRecordId, item.threadId, item.inviteMessageId, item.replyMessageId]
       .map(function(value){ return String(value || '').trim(); })
       .filter(Boolean);
