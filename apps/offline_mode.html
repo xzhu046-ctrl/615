@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-27T11:04:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-27T11:04:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-27T11:04:00Z"></script>
-<script src="../promptManager.js?v=2026-04-27T11:04:00Z"></script>
-<script src="../accountManager.js?v=2026-04-27T11:04:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-27T11:04:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-27T11:04:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-27T11:04:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T02:00:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T02:00:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T02:00:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T02:00:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T02:00:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T02:00:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T02:00:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T02:00:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -634,7 +634,7 @@ box-shadow:0 0 0 2px rgba(255,255,255,.97),6px 6px 0 rgba(17,17,17,.94);padding:
       <button class="offline-stage-action" type="button" onclick="openExitMenu()" aria-label="离开选项">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
       </button>
-      <button class="offline-stage-action settings" id="offlineSettingsBtn" type="button" onclick="handleOfflineSettingsAction()" aria-label="线下设置">
+      <button class="offline-stage-action settings" id="offlineSettingsBtn" type="button" onclick="handleOfflineSettingsAction(event)" aria-label="线下设置">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M7 12h13"></path><path d="M10 17h10"></path></svg>
       </button>
       <button class="offline-stage-action memory" id="offlineMemoryBtn" type="button" onclick="openOfflineMemoryPanel()" aria-label="聊天记忆">★ 0</button>
@@ -1357,9 +1357,11 @@ function returnToOfflineDateApp(){
   }catch(e){}
   try{ location.href = 'offline.html'; }catch(err){}
 }
-function handleOfflineSettingsAction(){
+function handleOfflineSettingsAction(event){
+  if(event && typeof event.preventDefault === 'function') event.preventDefault();
+  if(event && typeof event.stopPropagation === 'function') event.stopPropagation();
   if(offlineReadOnlyMode){
-    openOfflineDateApp(currentOfflineInviteFocusId());
+    exitReadOnlyOfflineInviteToDateApp(event);
     return;
   }
   openOfflineDrawer();
@@ -11645,6 +11647,13 @@ function openOfflineDateApp(recordId){
   var completedIds = (Array.isArray(offlineGoodbyeCompletedInviteIds) ? offlineGoodbyeCompletedInviteIds.slice() : []).filter(function(id){ return String(id || '').trim(); });
   if(focusId && completedIds.indexOf(focusId) < 0) completedIds.unshift(focusId);
   var charId = String((offlineGoodbyePhotoSnapshot && (offlineGoodbyePhotoSnapshot.charId || offlineGoodbyePhotoSnapshot.characterId)) || (offlineGoodbyePhotoSnapshot && offlineGoodbyePhotoSnapshot.invite && offlineGoodbyePhotoSnapshot.invite.charId) || (session && (session.charId || session.characterId)) || (session && session.invite && session.invite.charId) || (character && character.id) || '').trim();
+  if(!completedIds.length && charId){
+    try{
+      var store = window.OfflineInviteStore || null;
+      completedIds = getCurrentOfflineInviteStoreRecordIds(store, { create:true }, offlineGoodbyePhotoSnapshot || session || { charId:charId });
+      focusId = String(focusId || completedIds[0] || '').trim();
+    }catch(e){}
+  }
   focusOfflineInviteInDateApp(focusId);
   if(completedIds.length) markOfflineInviteIdsCompleted(completedIds);
   writeOfflineInviteForceCompletePayload(completedIds, offlineGoodbyePhotoSnapshot || session, 'open_date_app');
@@ -11657,6 +11666,32 @@ function openOfflineDateApp(recordId){
     }
   }catch(e){}
   try{ location.href = 'offline.html'; }catch(err){}
+}
+function exitReadOnlyOfflineInviteToDateApp(event){
+  if(event && typeof event.preventDefault === 'function') event.preventDefault();
+  if(event && typeof event.stopPropagation === 'function') event.stopPropagation();
+  var btn = event && event.currentTarget ? event.currentTarget : document.getElementById('offlineSettingsBtn');
+  var initialFocusId = String(currentOfflineInviteFocusId() || '').trim();
+  var opened = false;
+  function openOnce(recordId){
+    if(opened) return;
+    opened = true;
+    if(btn) btn.disabled = false;
+    openOfflineDateApp(recordId || initialFocusId || '');
+  }
+  if(btn) btn.disabled = true;
+  try{
+    var completePromise = completeCurrentOfflineInviteEverywhere('readonly_exit', session);
+    setTimeout(function(){ openOnce(initialFocusId); }, 220);
+    Promise.resolve(completePromise).then(function(ids){
+      var nextId = Array.isArray(ids) && ids.length ? ids[0] : initialFocusId;
+      openOnce(nextId);
+    }).catch(function(){
+      openOnce(initialFocusId);
+    });
+  }catch(err){
+    openOnce(initialFocusId);
+  }
 }
 function getOfflineEntryPlainText(entry){
   return String(entry && (entry.text || entry.content || '') || '').replace(/\s+/g, ' ').trim();
