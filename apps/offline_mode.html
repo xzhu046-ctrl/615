@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-28T05:06:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T05:06:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T05:06:00Z"></script>
-<script src="../promptManager.js?v=2026-04-28T05:06:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T05:06:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T05:06:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T05:06:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T05:06:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T05:32:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T05:32:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T05:32:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T05:32:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T05:32:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T05:32:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T05:32:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T05:32:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -3503,6 +3503,36 @@ function isFreshOfflineLaunchSeed(seed){
   if(!createdAt) return false;
   return Math.abs(Date.now() - createdAt) <= 15000;
 }
+function hasOfflineLaunchRecordIdentity(seed){
+  if(!seed || typeof seed !== 'object') return false;
+  var payload = seed.payload && typeof seed.payload === 'object' ? seed.payload : {};
+  return [
+    seed.launchToken,
+    seed.recordId,
+    seed.inviteRecordId,
+    seed.id,
+    seed.threadId,
+    seed.inviteMessageId,
+    seed.replyMessageId,
+    payload.launchToken,
+    payload.recordId,
+    payload.inviteRecordId,
+    payload.id,
+    payload.threadId,
+    payload.inviteMessageId,
+    payload.replyMessageId
+  ].some(function(value){ return !!String(value || '').trim(); });
+}
+function isUsableOfflineLaunchSeed(seed){
+  if(!seed || typeof seed !== 'object') return false;
+  if(isFreshOfflineLaunchSeed(seed)) return true;
+  var payload = seed.payload && typeof seed.payload === 'object' ? seed.payload : {};
+  var mode = String(seed.mode || payload.launchMode || payload.mode || '').trim().toLowerCase();
+  if((mode === 'resume' || mode === 'readonly' || mode === 'read_only') && hasOfflineLaunchRecordIdentity(seed)) return true;
+  if((seed.readOnly || payload.readOnly) && hasOfflineLaunchRecordIdentity(seed)) return true;
+  if(seed.freshStart || payload.freshStart) return isFreshOfflineLaunchSeed(seed);
+  return false;
+}
 function runOfflineInitTask(promiseFactory, timeoutMs){
   return new Promise(function(resolve){
     var settled = false;
@@ -6265,6 +6295,21 @@ function getOfflineStoryPrefs(){
     presetName:presetName
   };
 }
+function getOfflineAsideCustomPromptLine(){
+  var offlinePrompt = String(character && character.offlineAsidePrompt || '').trim();
+  var innerPrompt = String(character && character.innerVoicePrompt || '').trim();
+  var defaultInnerPrompt = [
+    '这次请生成黑白报纸头条风格的角色心声。',
+    '只围绕当前上下文、最近聊天、当前关系和角色刚刚那句回复来写。',
+    'headline 要像抓人的黑白头版标题，短一点，狠一点。',
+    'body 写成 2-4 句像报道内文又像脑内独白的正文。',
+    'strike 写成一条被自己划掉的句子、词或差点说出口的念头。',
+    '不要写解释，不要写多余格式，不要混入别的心声版式。'
+  ].join('\n');
+  var prompt = offlinePrompt || (innerPrompt && innerPrompt !== defaultInnerPrompt ? innerPrompt : '');
+  if(!prompt) return '';
+  return '用户自定义心声提示词（必须影响 asides 灰色旁白心声的语气、内容和取向；但不要破坏 JSON 格式、asides 数量、char 第一人称和字数范围）：' + clipOfflinePromptText(prompt, 900);
+}
 function shouldUseOfflineLeanMode(){
   return true;
 }
@@ -8679,6 +8724,7 @@ function buildOfflineBodySystemPrompt(options){
     'asides 是第一人称心声，数量必须等于正文段落数：正文每一段结束后都对应 1 句心声。',
     '每句 asides 都必须永远使用 char 的第一人称，每句控制在 ' + storyPrefs.asideMinChars + '-' + storyPrefs.asideMaxChars + ' 个中文字符之间；心声字数不计入 text 正文字数。',
     '这些心声要像活人脑子里一闪而过的小反应、小嘴硬或小失控，不要写总结、解释、分析、抒情排比，更不要写成 AI 读后感。',
+    getOfflineAsideCustomPromptLine(),
     'asides 不要加括号、书名号、方括号、破折号或任何前后缀，只返回干净的一句原文。',
     '如果这幕正文里自然提到了白名单风格的小东西，比如信、纸条、便签、聊天截图、票据、收据、搜索页、记录页、证件、作业页、海报、小网页、小卡片、小物件，你可以额外返回 artifact_label 和 artifact_html，把它做成一张能直接展示的 HTML/CSS 小卡片。',
     'artifact_label 写这张小卡片的名字；artifact_html 只能用简单安全的 HTML/CSS，不许 script，不许外链，不许 iframe，不许事件属性。',
@@ -8846,6 +8892,7 @@ function buildOfflineSystemPrompt(options){
     'asides 是正文中会穿插出现的灰色旁白心声，数量必须等于正文自然段数量：每一段结束后都给 1 句对应心声。',
     '每句 asides 都必须永远使用 char 的第一人称，每句控制在 ' + storyPrefs.asideMinChars + '-' + storyPrefs.asideMaxChars + ' 个中文字符之间；心声字数不计入 text 正文字数，不要自行添加引号或竖线字符，绝对不要打断一个还没说完的句子。',
     '灰色旁白心声要像活人脑内更长一点的欲言又止、嘴硬、自我警告、心里发烫或一秒露馅，不要总结局面，不要讲大道理，不要复述正文。',
+    getOfflineAsideCustomPromptLine(),
     'heart 是右上角爱心里的短心声，2-10 个字。',
     '正文 artifact_label / artifact_html 只用于 text 正文里真实出现、能被角色当场看到或拿到的小物件，比如信、纸条、票据、截图、搜索页、证件、小网页；没有就必须留空字符串。',
     '正文 artifact_html 绝对不能使用番外 artifact，不能承载 future_title、future_note、未来/过去侧页或任何番外设定；番外只属于番外弹窗。',
@@ -8916,6 +8963,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
     'asides 是正文中会穿插出现的灰色旁白心声，数量必须等于正文自然段数量：每一段结束后都给 1 句对应心声。',
     '每句 asides 都必须永远使用 char 的第一人称，每句控制在 ' + storyPrefs.asideMinChars + '-' + storyPrefs.asideMaxChars + ' 个中文字符之间；心声字数不计入 text 正文字数，不要自行添加引号或竖线字符，绝对不要打断一个还没说完的句子。',
     '灰色旁白心声要像活人脑内更长一点的欲言又止、嘴硬、自我警告、心里发烫或一秒露馅，不要总结局面，不要讲大道理，不要复述正文。',
+    getOfflineAsideCustomPromptLine(),
     '如果首幕里自然出现了信、纸条、便签、票据、收据、搜索页、聊天截图、记录页、证件、网页、小海报、小物件这些白名单风格的东西，可以额外返回 artifact_label 和 artifact_html；没有自然提到就留空，不要硬做。',
     'artifact_html 只能是简单安全的 HTML/CSS 小卡片，不许 script，不许外链，不许 iframe，不许事件属性；artifact_label 写这张卡片的名字。',
     '如果返回了正文小卡片，可以额外返回 artifact_after_paragraph，表示把它插在第几段后面；不写或写 0 就默认放在正文最后。',
@@ -12501,21 +12549,21 @@ async function init(){
     explicitLaunchToken = String(initUrl.searchParams.get('__offlineLaunchToken') || '').trim();
     offlineLaunchSource = String(initUrl.searchParams.get('__offlineSource') || '').trim();
     parentLaunch = consumeParentPendingOfflineLaunch(explicitLaunchToken, explicitOfflineCharId);
-    if(parentLaunch && !isFreshOfflineLaunchSeed(parentLaunch)) parentLaunch = null;
+    if(parentLaunch && !isUsableOfflineLaunchSeed(parentLaunch)) parentLaunch = null;
     if(explicitLaunchToken){
       tokenLaunch = parentLaunch || consumeOfflineLaunchToken(explicitLaunchToken);
-      if(tokenLaunch && !isFreshOfflineLaunchSeed(tokenLaunch)) tokenLaunch = null;
+      if(tokenLaunch && !isUsableOfflineLaunchSeed(tokenLaunch)) tokenLaunch = null;
     }
     if(explicitOfflineCharId){
       scopedLaunch = consumePendingOfflineLaunch(explicitOfflineCharId);
-      if(!isFreshOfflineLaunchSeed(scopedLaunch)) scopedLaunch = null;
+      if(!isUsableOfflineLaunchSeed(scopedLaunch)) scopedLaunch = null;
     }
     if(tokenLaunch){
       launchSeed = tokenLaunch;
       offlineLaunchSource = String(tokenLaunch.mode || offlineLaunchSource || 'invite').trim() || 'invite';
     }else if(scopedLaunch){
       launchSeed = scopedLaunch;
-      offlineLaunchSource = 'invite';
+      offlineLaunchSource = String(scopedLaunch.mode || offlineLaunchSource || 'invite').trim() || 'invite';
     }
     hasExplicitLaunch = !!(
       explicitOfflineCharId ||
@@ -12539,8 +12587,8 @@ async function init(){
   }
   if(hasExplicitLaunch && !launchSeed && desiredOfflineCharId){
     launchSeed = consumePendingOfflineLaunch(desiredOfflineCharId);
-    if(launchSeed && isFreshOfflineLaunchSeed(launchSeed)){
-      offlineLaunchSource = 'invite';
+    if(launchSeed && isUsableOfflineLaunchSeed(launchSeed)){
+      offlineLaunchSource = String(launchSeed.mode || offlineLaunchSource || 'invite').trim() || 'invite';
     }else{
       launchSeed = null;
     }

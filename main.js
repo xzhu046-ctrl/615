@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T05:06:00Z';
+const APP_BUILD_ID = '2026-04-28T05:32:00Z';
 const APP_UPDATE_NOTES = [
-  '从约会列表打开旧邀约不再携带 fresh start，避免旧记录被空白覆盖。',
-  '线下 fresh invite 初始化不再清空已有 entries。',
-  '结束约会会把同一邀约的所有记录 id 都写成完成态。'
+  '旧约会恢复入口会保留 recordId/threadId，不再把旧记录当空白新约会打开。',
+  '结束约会和红叉退出会把同一邀约的所有关联 id 一起标成 complete。',
+  '线下心声会吃到自定义心声提示词，聊天设置也不再覆盖线下设置。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -7747,6 +7747,35 @@ function clonePendingOfflineLaunchRecord(record){
   }
 }
 
+function persistPendingOfflineLaunchRecord(record, charId, token){
+  var data = clonePendingOfflineLaunchRecord(record);
+  if(!data) return;
+  var payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
+  var safeCharId = String(charId || data.charId || payload.charId || '').trim();
+  var safeToken = String(token || data.launchToken || payload.launchToken || '').trim();
+  try{
+    data.charId = safeCharId || data.charId || payload.charId || '';
+    data.launchToken = safeToken || data.launchToken || payload.launchToken || '';
+    if(!data.createdAt) data.createdAt = Date.now();
+  }catch(err){}
+  var keys = [];
+  try{
+    if(safeToken){
+      keys.push(scopedKeyForAccount('offline_launch_token_' + safeToken, getActiveAccountId()));
+      keys.push('offline_launch_token_' + safeToken);
+    }
+    if(safeCharId){
+      keys.push(scopedKeyForAccount('offline_launch_' + safeCharId, getActiveAccountId()));
+      keys.push('offline_launch_' + safeCharId);
+    }
+    keys.push(scopedKeyForAccount('offline_launch_latest', getActiveAccountId()));
+    keys.push('offline_launch_latest');
+  }catch(err){}
+  keys.filter(Boolean).forEach(function(key){
+    try{ localStorage.setItem(key, JSON.stringify(data)); }catch(err){}
+  });
+}
+
 function consumePendingOfflineLaunchRecord(options){
   var record = clonePendingOfflineLaunchRecord(pendingOpenOfflineLaunchRecord);
   if(!record) return null;
@@ -8071,11 +8100,14 @@ window.forceOpenApp = forceOpenApp;
 
 function forceOpenOfflineMode(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
-  pendingOpenOfflineCharId = String(payload.charId || '').trim();
+  var launchRecord = clonePendingOfflineLaunchRecord(payload.offlineLaunchRecord || null);
+  var launchPayload = launchRecord && launchRecord.payload && typeof launchRecord.payload === 'object' ? launchRecord.payload : {};
+  pendingOpenOfflineCharId = String(payload.charId || (launchRecord && launchRecord.charId) || launchPayload.charId || '').trim();
   pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
-  pendingOpenOfflineLaunchMode = String(payload.launchMode || '').trim();
-  pendingOpenOfflineLaunchToken = String(payload.launchToken || '').trim();
-  pendingOpenOfflineLaunchRecord = clonePendingOfflineLaunchRecord(payload.offlineLaunchRecord || null);
+  pendingOpenOfflineLaunchMode = String(payload.launchMode || (launchRecord && launchRecord.mode) || launchPayload.launchMode || launchPayload.mode || '').trim();
+  pendingOpenOfflineLaunchToken = String(payload.launchToken || (launchRecord && launchRecord.launchToken) || launchPayload.launchToken || '').trim();
+  pendingOpenOfflineLaunchRecord = launchRecord;
+  persistPendingOfflineLaunchRecord(pendingOpenOfflineLaunchRecord, pendingOpenOfflineCharId, pendingOpenOfflineLaunchToken);
   try{ localStorage.setItem(scopedKeyForAccount('activeOfflineCharacterId', getActiveAccountId()), pendingOpenOfflineCharId); }catch(err){}
   try{ localStorage.setItem('activeOfflineCharacterId', pendingOpenOfflineCharId); }catch(err){}
   forceOpenApp('offline_mode');
@@ -8278,11 +8310,14 @@ window.addEventListener('message',(e)=>{
       return;
     }
     if(appId === 'offline_mode'){
-      pendingOpenOfflineCharId = String(payload.charId || '').trim();
+      var launchRecord = clonePendingOfflineLaunchRecord(payload.offlineLaunchRecord || null);
+      var launchPayload = launchRecord && launchRecord.payload && typeof launchRecord.payload === 'object' ? launchRecord.payload : {};
+      pendingOpenOfflineCharId = String(payload.charId || (launchRecord && launchRecord.charId) || launchPayload.charId || '').trim();
       pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
-      pendingOpenOfflineLaunchMode = String(payload.launchMode || '').trim();
-      pendingOpenOfflineLaunchToken = String(payload.launchToken || '').trim();
-      pendingOpenOfflineLaunchRecord = clonePendingOfflineLaunchRecord(payload.offlineLaunchRecord || null);
+      pendingOpenOfflineLaunchMode = String(payload.launchMode || (launchRecord && launchRecord.mode) || launchPayload.launchMode || launchPayload.mode || '').trim();
+      pendingOpenOfflineLaunchToken = String(payload.launchToken || (launchRecord && launchRecord.launchToken) || launchPayload.launchToken || '').trim();
+      pendingOpenOfflineLaunchRecord = launchRecord;
+      persistPendingOfflineLaunchRecord(pendingOpenOfflineLaunchRecord, pendingOpenOfflineCharId, pendingOpenOfflineLaunchToken);
       try{ localStorage.setItem(scopedKeyForAccount('activeOfflineCharacterId', getActiveAccountId()), pendingOpenOfflineCharId); }catch(err){}
       try{ localStorage.setItem('activeOfflineCharacterId', pendingOpenOfflineCharId); }catch(err){}
       if(payload.forceOpen){
