@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-28T03:36:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T03:36:00Z"></script>
-<script src="../assetStore.js?v=2026-04-28T03:36:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T03:36:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T03:36:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T03:36:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T03:36:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T03:36:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-28T03:36:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-28T03:36:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T03:52:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T03:52:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T03:52:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T03:52:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T03:52:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T03:52:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T03:52:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T03:52:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-28T03:52:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-28T03:52:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -16012,6 +16012,8 @@ function compactChar(c){
   if(!imageData){
     imageData = normalizeAvatarSrc(c.avatarUrl || '');
   }
+  var userAvatarProfile = normalizeAvatarSrc(c.userAvatarProfile || c.userAvatar || '');
+  if(/^data:/i.test(userAvatarProfile)) userAvatarProfile = '';
   function copyList(list){
     return Array.isArray(list) ? list.map(function(item){
       if(item && typeof item === 'object'){
@@ -16061,6 +16063,7 @@ function compactChar(c){
     chatSignature:String(c.chatSignature || '').slice(0,80),
     userNameProfile:String(c.userNameProfile||''),
     userNicknameNote:String(c.userNicknameNote||''),
+    userAvatarProfile:userAvatarProfile,
     userPersonaProfile:String(c.userPersonaProfile||''),
     importedMemeCategory:String(c.importedMemeCategory || ''),
     authorRulesEnabled:c.authorRulesEnabled !== false,
@@ -28847,6 +28850,7 @@ function postSettingsPreviewSync(){
   var userAvatar = String((userImg && userImg.src) || '').trim();
   if(!isDefault) userAvatar = getActiveAccountProfileAvatar();
   if(!isRenderableAvatarSrc(userAvatar)) userAvatar = '';
+  draft.userAvatarProfile = /^data:/i.test(userAvatar) ? '' : normalizeAvatarSrc(userAvatar);
   syncChatSettingsHero();
   var slim = compactChar(draft);
   persistActiveCharacterSnapshot(slim);
@@ -29004,6 +29008,7 @@ async function applyRoleAvatarChange(targetRole, src, options){
     }
     await saveStoredAsset(userKey('user_avatar'), cleanSrc);
     await saveStoredAsset('user_avatar_' + character.id, cleanSrc);
+    character.userAvatarProfile = /^data:/i.test(cleanSrc) ? '' : normalizeAvatarSrc(cleanSrc);
     var uav = document.getElementById('csUserAvatar');
     if(uav){
       setAvatarNodeFromSource(uav, cleanSrc, String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你', true);
@@ -29426,6 +29431,11 @@ async function saveChatSettings() {
   var un = isDefault ? document.getElementById('csUserName').value.trim() : getActiveAccountProfileName();
   var unick = document.getElementById('csUserNick').value.trim();
   var up = isDefault ? document.getElementById('csUserPersona').value.trim() : '';
+  var settingsUserImg = document.querySelector('#csUserAvatar img');
+  var settingsUserAvatar = String((settingsUserImg && settingsUserImg.src) || '').trim();
+  if(!isDefault) settingsUserAvatar = getActiveAccountProfileAvatar();
+  if(!isRenderableAvatarSrc(settingsUserAvatar)) settingsUserAvatar = '';
+  var settingsUserAvatarProfile = /^data:/i.test(settingsUserAvatar) ? '' : normalizeAvatarSrc(settingsUserAvatar);
   var cn = document.getElementById('csCharName').value.trim();
   var ck = document.getElementById('csCharNick').value.trim();
   var oldCharDisplayName = getCurrentCharDisplayName();
@@ -29565,6 +29575,7 @@ async function saveChatSettings() {
     await syncImportedCharacterResources(character);
     character.userNameProfile = isDefault ? un : '';
     character.userNicknameNote = unick;
+    character.userAvatarProfile = settingsUserAvatarProfile;
     character.userPersonaProfile = isDefault ? up : '';
     var nextUserDisplayName = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
     var forceGreetingRefresh = oldUserDisplayName !== nextUserDisplayName || oldGreetingRegexEnabled !== shouldRenderGreetingWithRegex();

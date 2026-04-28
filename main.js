@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T03:36:00Z';
+const APP_BUILD_ID = '2026-04-28T03:52:00Z';
 const APP_UPDATE_NOTES = [
-  '聊天美化每个分类补齐自己的默认 CSS，打开不再是空白。',
-  '预览改用真实消息结构，char 在左、user 在右。',
-  '亲属卡、SURPRISE、语音和引用预览改成对应真实样式。'
+  '主屏 user 头像改成和 char 一样的稳定解析链路。',
+  'user 头像优先读取当前聊天和角色专属头像，不再被个人设置抢走。',
+  '主页第一页和第二页的 user 头像都加了异步防覆盖。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -102,6 +102,7 @@ let chatInputFocusActive = false;
 let chatReportedKeyboardShift = 0;
 var shellActiveCharacterCache = {};
 var shellActiveChatIdCache = {};
+var persistedShellActiveCharacter = null;
 var backendLogBroadcastQueued = false;
 var shellConsoleBridgeInstalled = false;
 
@@ -551,6 +552,7 @@ function hydrateShellActiveCharacterState(){
     var chatId = String(results[1] || '').trim();
     if(charData && typeof charData === 'object' && charData.id){
       shellActiveCharacterCache[cacheKey] = charData;
+      persistedShellActiveCharacter = charData;
     }
     if(chatId) shellActiveChatIdCache[cacheKey] = chatId;
     return {
@@ -1654,6 +1656,8 @@ function slimChar(c){
   if(!imageData) imageData = normalizeShellAssetSrc(c.avatarUrl || '');
   var userPersonaProfile = String(c.userPersonaProfile || '');
   if(userPersonaProfile.length > 240) userPersonaProfile = '';
+  var userAvatarProfile = normalizeShellAssetSrc(c.userAvatarProfile || c.userAvatar || '');
+  if(/^data:/i.test(userAvatarProfile)) userAvatarProfile = '';
   function copyList(list){
     return Array.isArray(list) ? list.map(function(item){
       if(item && typeof item === 'object'){
@@ -1700,6 +1704,7 @@ function slimChar(c){
     chatSignature:String(c.chatSignature||''),
     userNameProfile:String(c.userNameProfile||''),
     userNicknameNote:String(c.userNicknameNote||''),
+    userAvatarProfile:userAvatarProfile,
     userPersonaProfile:userPersonaProfile
   };
 }
@@ -5387,6 +5392,7 @@ function persistShellActiveCharacter(character){
   var cacheKey = getShellAccountCacheKey(accountId);
   shellActiveCharacterCache[cacheKey] = slim;
   shellActiveChatIdCache[cacheKey] = String((slim && slim.id) || '');
+  persistedShellActiveCharacter = slim;
   saveLargeState(shellActiveCharacterStorageId(accountId), slim).catch(function(){ return null; });
   saveLargeState(shellActiveChatIdStorageId(accountId), String((slim && slim.id) || '')).catch(function(){ return null; });
   if(isDefaultAccountActive()){
@@ -5456,7 +5462,72 @@ function getBondWidgetUserName(charData, fallbackName){
   return String(chatUser || 'USER').trim() || 'USER';
 }
 
-function getChatUserAvatar(charId){
+function getForegroundChatUserAvatar(charId){
+  try{
+    var frame = document.getElementById('app-iframe');
+    var win = frame && frame.contentWindow ? frame.contentWindow : null;
+    if(!win || currentApp !== 'chat') return '';
+    var liveChar = win.character || null;
+    if(charId && liveChar && liveChar.id && String(liveChar.id || '') !== String(charId || '')) return '';
+    var doc = win.document;
+    var selectors = ['#csUserAvatar img', '#listenAlongUserAvatar img'];
+    for(var i = 0; i < selectors.length; i += 1){
+      var node = doc ? doc.querySelector(selectors[i]) : null;
+      var src = normalizeShellAssetSrc((node && (node.getAttribute('src') || node.src)) || '');
+      if(isRenderableShellAvatarSrc(src)) return src;
+    }
+  }catch(err){}
+  return '';
+}
+
+function collectShellUserAvatarCandidates(charId, character){
+  var activeId = getActiveAccountId();
+  var id = String(charId || (character && character.id) || '').trim();
+  var candidates = [];
+  function push(value){
+    var safe = normalizeShellAssetSrc(value || '');
+    if(safe && candidates.indexOf(safe) === -1) candidates.push(safe);
+  }
+  push(getForegroundChatUserAvatar(id));
+  push(character && (character.userAvatarProfile || character.userAvatar));
+  try{
+    var activeChar = getActiveCharacterData();
+    if(activeChar && (!id || String(activeChar.id || '') === id)){
+      push(activeChar.userAvatarProfile || activeChar.userAvatar);
+    }
+  }catch(err){}
+  try{
+    var persisted = persistedShellActiveCharacter || null;
+    if(persisted && (!id || String(persisted.id || '') === id)){
+      push(persisted.userAvatarProfile || persisted.userAvatar);
+    }
+  }catch(err2){}
+  try{
+    getStoredCharactersSnapshot().forEach(function(item){
+      if(item && (!id || String(item.id || '') === id)){
+        push(item.userAvatarProfile || item.userAvatar);
+      }
+    });
+  }catch(err3){}
+  var keys = [];
+  if(id) keys.push(scopedKeyForAccount('user_avatar_' + id, activeId));
+  if(id) keys.push('user_avatar_' + id);
+  keys.push(scopedKeyForAccount('user_avatar', activeId));
+  keys.push('user_avatar');
+  if(!isDefaultAccountActive()) keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
+  keys.forEach(function(key){
+    try{ push(localStorage.getItem(key) || ''); }catch(err4){}
+  });
+  push(getActiveAccountProfileAvatar());
+  return candidates;
+}
+
+function getChatUserAvatar(charId, character){
+  var candidates = collectShellUserAvatarCandidates(charId, character);
+  for(var i = 0; i < candidates.length; i += 1){
+    var candidate = normalizeShellAssetSrc(candidates[i] || '');
+    if(isRenderableShellAvatarSrc(candidate)) return Promise.resolve(candidate);
+  }
   var activeId = getActiveAccountId();
   var keys = [];
   if(charId) keys.push(scopedKeyForAccount('user_avatar_' + charId, activeId));
@@ -5477,22 +5548,12 @@ function getChatUserAvatar(charId){
   return loadAt(0);
 }
 
-function getImmediateChatUserAvatar(charId){
-  var activeId = getActiveAccountId();
-  var keys = [];
-  if(charId) keys.push(scopedKeyForAccount('user_avatar_' + charId, activeId));
-  if(charId) keys.push('user_avatar_' + charId);
-  keys.push(scopedKeyForAccount('user_avatar', activeId));
-  keys.push('user_avatar');
-  if(!isDefaultAccountActive()) keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
-  for(var i = 0; i < keys.length; i += 1){
-    try{
-      var src = normalizeShellAssetSrc(localStorage.getItem(keys[i]) || '');
-      if(isRenderableShellAvatarSrc(src) && !/^blob:/i.test(src)) return src;
-    }catch(e){}
+function getImmediateChatUserAvatar(charId, character){
+  var candidates = collectShellUserAvatarCandidates(charId, character);
+  for(var i = 0; i < candidates.length; i += 1){
+    var src = normalizeShellAssetSrc(candidates[i] || '');
+    if(isRenderableShellAvatarSrc(src) && !/^blob:/i.test(src)) return src;
   }
-  var accountAvatar = getActiveAccountProfileAvatar();
-  if(isRenderableShellAvatarSrc(accountAvatar) && !/^blob:/i.test(accountAvatar)) return accountAvatar;
   return '';
 }
 
@@ -5658,7 +5719,7 @@ function renderBondWidget(character){
       if(String(userAvatar.dataset.charId || '') !== String((c && c.id) || '').trim()) return;
       const safeSrc = normalizeShellAssetSrc(src || '');
       const baseHtml = isRenderableShellAvatarSrc(safeSrc)
-        ? '<span class="bond-avatar-base"><img src="' + safeSrc + '" alt=""></span>'
+        ? '<span class="bond-avatar-base"><img src="' + escapeHtmlAttr(safeSrc) + '" alt="" onerror="this.closest(\'.bond-avatar-base\').textContent=\'你\'"></span>'
         : '<span class="bond-avatar-base">你</span>';
       const frameUrl = getActiveBondAvatarFrameUrl('user');
       if(frameUrl){
@@ -5669,8 +5730,10 @@ function renderBondWidget(character){
         userAvatar.innerHTML = baseHtml;
       }
     };
-    applyUserAvatar(getImmediateChatUserAvatar(c && c.id));
-    getChatUserAvatar(c && c.id).then(applyUserAvatar);
+    applyUserAvatar(getImmediateChatUserAvatar(c && c.id, c));
+    getChatUserAvatar(c && c.id, c).then(function(src){
+      if(isRenderableShellAvatarSrc(src)) applyUserAvatar(src);
+    });
   }
 }
 
@@ -5691,9 +5754,9 @@ function applyBondWidgetPreview(payload){
     var userAvatarEl = document.getElementById('bond-user-avatar');
     if(userAvatarEl){
       var src = normalizeShellAssetSrc(preview.userAvatar.trim());
-      if(!isRenderableShellAvatarSrc(src)) src = getImmediateChatUserAvatar(c && c.id);
+      if(!isRenderableShellAvatarSrc(src)) src = getImmediateChatUserAvatar(c && c.id, c);
       var baseHtml = isRenderableShellAvatarSrc(src)
-        ? '<span class="bond-avatar-base"><img src="' + src + '" alt=""></span>'
+        ? '<span class="bond-avatar-base"><img src="' + escapeHtmlAttr(src) + '" alt="" onerror="this.closest(\'.bond-avatar-base\').textContent=\'你\'"></span>'
         : '<span class="bond-avatar-base">你</span>';
       var frameUrl = getActiveBondAvatarFrameUrl('user');
       if(frameUrl){
@@ -8876,6 +8939,7 @@ function setWidgetCharacter(c){
   const userAvEl = document.getElementById('wgt-user-avatar');
   const sideNameEl = document.getElementById('wgt-side-name');
   var liveAvatarSrc = getCharacterAvatarForBg(c || null);
+  if(userAvEl) userAvEl.dataset.charId = String((c && c.id) || '').trim();
   if(c && c.id){
     var userLabel = getBondWidgetUserName(c, getChatUserName(c.id));
     var charRoleEl = document.getElementById('wgt-char-role');
@@ -8883,8 +8947,10 @@ function setWidgetCharacter(c){
     if(charRoleEl) charRoleEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
     if(userRoleEl) userRoleEl.textContent = String(userLabel || 'USER').trim() || 'USER';
     if(sideNameEl) sideNameEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
-    applyWidgetUserAvatarContent(userAvEl, getImmediateChatUserAvatar(c.id), '你');
-    getChatUserAvatar(c.id).then(function(userSrc){
+    applyWidgetUserAvatarContent(userAvEl, getImmediateChatUserAvatar(c.id, c), '你');
+    getChatUserAvatar(c.id, c).then(function(userSrc){
+      if(!isRenderableShellAvatarSrc(userSrc)) return;
+      if(userAvEl && String(userAvEl.dataset.charId || '') !== String(c.id || '')) return;
       applyWidgetUserAvatarContent(userAvEl, userSrc, '你');
     });
   }else{
