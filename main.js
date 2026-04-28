@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T06:12:00Z';
+const APP_BUILD_ID = '2026-04-28T06:24:00Z';
 const APP_UPDATE_NOTES = [
-  '从线下页返回约会 app 时会先清掉线下页栈，不再退出后弹回空白旧邀约。',
-  '旧邀约如果只剩空 session，会自动重新进入首幕生成，不再停在空白页面。',
-  '约会 app 左滑删除按钮修复点击层级和捕获事件，删除确认可以稳定打开。'
+  '线下返回约会 app 改成 replace 导航，不再 push 出会回弹的空白旧邀约。',
+  '主壳会自动去掉重复 app 栈，继续退出约会 app 时不会再绕回线下页。',
+  '结束约会返回列表时继续同步 complete 标记和焦点邀约。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -8126,6 +8126,9 @@ function replaceApp(id){
     }else{
       appStack.push(id);
     }
+    for(var i = appStack.length - 2; i >= 0; i -= 1){
+      if(appStack[i] === id) appStack.splice(i, 1);
+    }
     currentApp = null;
     renderApp(id);
   });
@@ -8300,7 +8303,12 @@ window.addEventListener('message',(e)=>{
       }, 180);
     }
     if(appId === 'offline' && payload.forceOpen){
-      forceOpenApp('offline');
+      if(currentApp === 'offline_mode' || payload.replace){
+        removeAppFromStack('offline_mode');
+        replaceApp('offline');
+      }else{
+        forceOpenApp('offline');
+      }
       return;
     }
     if(appId === 'offline_mode'){
