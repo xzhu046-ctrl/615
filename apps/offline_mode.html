@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-28T06:24:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T06:24:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T06:24:00Z"></script>
-<script src="../promptManager.js?v=2026-04-28T06:24:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T06:24:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T06:24:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T06:24:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T06:24:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T06:36:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T06:36:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T06:36:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T06:36:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T06:36:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T06:36:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T06:36:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T06:36:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -11968,47 +11968,46 @@ function openOfflineDateApp(recordId){
 function exitReadOnlyOfflineInviteToDateApp(event){
   if(event && typeof event.preventDefault === 'function') event.preventDefault();
   if(event && typeof event.stopPropagation === 'function') event.stopPropagation();
-  var nowClick = Date.now();
-  if(window.__offlineReadonlyExitClickAt && nowClick - window.__offlineReadonlyExitClickAt < 500) return;
-  window.__offlineReadonlyExitClickAt = nowClick;
-  var btn = event && event.currentTarget ? event.currentTarget : document.getElementById('offlineSettingsBtn');
+  if(event && typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+  if(window.__offlineReadonlyExitBusy) return;
+  window.__offlineReadonlyExitBusy = true;
   var initialFocusId = String(currentOfflineInviteFocusId() || '').trim();
-  var opened = false;
-  function openOnce(recordId){
-    if(opened) return;
-    opened = true;
-    if(btn) btn.disabled = false;
-    openOfflineDateApp(recordId || initialFocusId || '');
-  }
+  var immediateIds = [];
+  var immediateCharId = '';
   offlineReadOnlyMode = true;
   try{ document.body.classList.add('offline-readonly'); }catch(e){}
   try{
-    var immediateIds = collectOfflineInviteRecordIdsFromSource(session, []);
+    immediateIds = collectOfflineInviteRecordIdsFromSource(session, []);
     if(initialFocusId && immediateIds.indexOf(initialFocusId) < 0) immediateIds.unshift(initialFocusId);
-    markOfflineInviteIdsCompleted(immediateIds);
-    writeOfflineInviteForceCompletePayload(immediateIds, session, 'readonly_exit_immediate');
+    immediateCharId = String((session && (session.charId || session.characterId)) || (session && session.invite && session.invite.charId) || desiredOfflineCharId || getStoredActiveOfflineCharacterId() || (character && character.id) || '').trim();
+    if(immediateIds.length) markOfflineInviteIdsCompleted(immediateIds);
+    writeOfflineInviteForceCompletePayload(immediateIds, session || { charId:immediateCharId }, 'readonly_exit_immediate');
     focusOfflineInviteInDateApp(initialFocusId);
-    var immediateCharId = String((session && (session.charId || session.characterId)) || (session && session.invite && session.invite.charId) || desiredOfflineCharId || getStoredActiveOfflineCharacterId() || (character && character.id) || '').trim();
     try{ window.parent.postMessage({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:immediateIds, inviteId:initialFocusId, charId:immediateCharId, reason:'readonly_exit_immediate' } }, '*'); }catch(e1){}
-    try{ window.parent.postMessage({ type:'OPEN_APP_WITH', payload:{ app:'offline', forceOpen:true, inviteId:initialFocusId, charId:immediateCharId, completedInviteIds:immediateIds, forceComplete:true } }, '*'); }catch(e2){}
   }catch(markErr){}
   try{
-    var completePromise = completeCurrentOfflineInviteEverywhere('readonly_exit', session);
-    setTimeout(function(){ openOnce(initialFocusId); }, 80);
-    Promise.resolve(completePromise).then(function(ids){
-      var nextId = Array.isArray(ids) && ids.length ? ids[0] : initialFocusId;
-      openOnce(nextId);
+    Promise.resolve(completeCurrentOfflineInviteEverywhere('readonly_exit', session)).then(function(ids){
+      var completedIds = Array.isArray(ids) && ids.length ? ids : immediateIds;
+      var nextId = String((completedIds && completedIds[0]) || initialFocusId || '').trim();
+      if(completedIds && completedIds.length){
+        markOfflineInviteIdsCompleted(completedIds);
+        writeOfflineInviteForceCompletePayload(completedIds, session || { charId:immediateCharId }, 'readonly_exit_after_open');
+      }
+      try{ window.parent.postMessage({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:completedIds, inviteId:nextId, charId:immediateCharId, reason:'readonly_exit_after_open' } }, '*'); }catch(repostErr){}
     }).catch(function(){
-      openOnce(initialFocusId);
+      try{ window.parent.postMessage({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:{ ids:immediateIds, inviteId:initialFocusId, charId:immediateCharId, reason:'readonly_exit_after_open_failed' } }, '*'); }catch(repostFailErr){}
     });
-  }catch(err){
-    openOnce(initialFocusId);
-  }
+  }catch(err){}
+  openOfflineDateApp(initialFocusId || (immediateIds && immediateIds[0]) || '');
+  setTimeout(function(){ window.__offlineReadonlyExitBusy = false; }, 800);
 }
 function handleReadOnlyExitControlEvent(event){
   var btn = event && event.target && event.target.closest ? event.target.closest('#offlineSettingsBtn,#offlineReadOnlyExitBtn') : null;
   if(!btn) return;
   if(document.body && document.body.classList && document.body.classList.contains('offline-readonly')){
+    if(event && typeof event.preventDefault === 'function') event.preventDefault();
+    if(event && typeof event.stopPropagation === 'function') event.stopPropagation();
+    if(event && typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
     exitReadOnlyOfflineInviteToDateApp(event);
   }
 }
