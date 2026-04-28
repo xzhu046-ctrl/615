@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T11:24:00Z';
+const APP_BUILD_ID = '2026-04-28T11:42:00Z';
 const APP_UPDATE_NOTES = [
-  'iOS 主屏幕图标改为浏览器模式，避免独立 PWA 数据容器不同步。',
-  '旧的独立主屏幕图标会提示从 Safari 重新添加一次。',
-  '约会 app 子页面继续强制带构建时间戳，减少旧缓存残留。'
+  'iOS 主屏幕继续保留 App 模式，旧图标里的本地数据不会被断开。',
+  '更新只刷新代码缓存和 Service Worker，不清聊天、角色和约会数据。',
+  '启动时会申请持久化存储，降低手机系统自动清理本地数据的风险。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -593,20 +593,15 @@ function isStandaloneMode(){
   return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
 }
 
-function getIosStandaloneStorageNoticeKey(){
-  return scopedKeyForAccount('ios_standalone_storage_notice_v1', getActiveAccountId());
-}
-
-function maybeWarnIosStandaloneStorage(){
+function requestAppPersistentStorage(){
   try{
-    var isIos = /iPad|iPhone|iPod/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    if(!isIos || !isStandaloneMode()) return;
-    var key = getIosStandaloneStorageNoticeKey();
-    if(localStorage.getItem(key) === APP_BUILD_ID) return;
-    localStorage.setItem(key, APP_BUILD_ID);
-    setTimeout(function(){
-      showToast('iOS 主屏幕旧图标使用独立数据容器；请从 Safari 重新添加一次，新图标会和浏览器同步。');
-    }, 1200);
+    if(window.PhoneStorage && typeof window.PhoneStorage.requestPersistentStorage === 'function'){
+      window.PhoneStorage.requestPersistentStorage();
+      return;
+    }
+    if(navigator.storage && typeof navigator.storage.persist === 'function'){
+      navigator.storage.persist().catch(function(){});
+    }
   }catch(err){}
 }
 
@@ -9566,7 +9561,7 @@ function restoreState(){
   bindTextNormalization();
   renderOfflineMiniLauncher();
   bindHostedServiceWorker();
-  maybeWarnIosStandaloneStorage();
+  requestAppPersistentStorage();
   syncAppHeight();
   applyPhoneFrameVisibility(getPhoneFrameVisibility(), false);
   bindHomePager();
