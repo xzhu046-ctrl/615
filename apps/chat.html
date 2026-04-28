@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-28T06:52:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T06:52:00Z"></script>
-<script src="../assetStore.js?v=2026-04-28T06:52:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T06:52:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T06:52:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T06:52:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T06:52:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T06:52:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-28T06:52:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-28T06:52:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T07:03:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T07:03:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T07:03:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T07:03:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T07:03:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T07:03:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T07:03:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T07:03:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-28T07:03:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-28T07:03:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -25989,14 +25989,48 @@ function renderInnerVoiceOverlay(){
   if(!title || !body) return;
   applyInnerVoiceCustomCss(getCurrentInnerVoiceCss());
   var store = loadInnerVoiceStore();
+  function sanitizeInnerVoiceHtml(raw){
+    var text = String(raw || '');
+    if(!text) return '';
+    var template = document.createElement('template');
+    template.innerHTML = text;
+    var allowedTags = {
+      SPAN:true, DIV:true, P:true, BR:true,
+      B:true, STRONG:true, I:true, EM:true,
+      S:true, DEL:true, U:true, SMALL:true,
+      MARK:true, CODE:true
+    };
+    var allowedAttrs = { class:true, title:true, role:true, 'aria-label':true };
+    function cleanNode(node){
+      Array.prototype.slice.call(node.childNodes || []).forEach(cleanNode);
+      if(node.nodeType !== 1) return;
+      var tag = String(node.tagName || '').toUpperCase();
+      if(!allowedTags[tag]){
+        var frag = document.createDocumentFragment();
+        while(node.firstChild) frag.appendChild(node.firstChild);
+        node.parentNode.replaceChild(frag, node);
+        return;
+      }
+      Array.prototype.slice.call(node.attributes || []).forEach(function(attr){
+        var name = String(attr.name || '').toLowerCase();
+        var value = String(attr.value || '');
+        var allowed = allowedAttrs[name] || /^data-[a-z0-9_-]+$/.test(name);
+        if(!allowed || /^on/i.test(name) || /javascript:/i.test(value)){
+          node.removeAttribute(attr.name);
+        }
+      });
+    }
+    cleanNode(template.content);
+    return template.innerHTML;
+  }
   function renderInnerVoicePaper(item){
     var headline = String((item && item.headline) || '').trim() || '暂无头条';
     var copy = String((item && item.body) || '').trim() || '这期晚报暂时还没印出来。';
     var strike = String((item && item.strike) || '').trim();
     return '<article class="inner-voice-paper">' +
-      '<div class="inner-voice-headline">' + esc(headline) + '</div>' +
-      (strike ? ('<div class="inner-voice-strike"><s>' + esc(strike) + '</s></div>') : '') +
-      '<div class="inner-voice-copy">' + esc(copy) + '</div>' +
+      '<div class="inner-voice-headline">' + sanitizeInnerVoiceHtml(headline) + '</div>' +
+      (strike ? ('<div class="inner-voice-strike"><s>' + sanitizeInnerVoiceHtml(strike) + '</s></div>') : '') +
+      '<div class="inner-voice-copy">' + sanitizeInnerVoiceHtml(copy) + '</div>' +
     '</article>';
   }
   function renderInnerVoiceTranslateWrap(item){

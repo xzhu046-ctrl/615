@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T06:52:00Z';
+const APP_BUILD_ID = '2026-04-28T07:03:00Z';
 const APP_UPDATE_NOTES = [
-  '线上心声生成现在会真正优先读取用户自定义提示词。',
-  '有自定义心声提示时会禁用默认报刊版式，不再偷偷混入头条模板。',
-  '心声 prompt 如果和 CSS 混在一起，会自动提取生成说明再交给 AI。'
+  '心声 headline、body、strike 现在支持有限 HTML 渲染。',
+  '自定义心声里的 span class 和 data 属性会保留给 CSS 使用。',
+  '心声渲染会剥离危险事件属性，避免自定义 HTML 破坏页面。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
