@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T11:08:00Z';
+const APP_BUILD_ID = '2026-04-28T11:24:00Z';
 const APP_UPDATE_NOTES = [
-  '约会页加载时会自动修正同角色残留 accepted 旧记录。',
-  '结束标记会同时记录角色名、昵称和 charId，适配手机旧数据。',
-  '同角色完成记录会把 24 小时内的旧 active 邀约归并为 complete。'
+  'iOS 主屏幕图标改为浏览器模式，避免独立 PWA 数据容器不同步。',
+  '旧的独立主屏幕图标会提示从 Safari 重新添加一次。',
+  '约会 app 子页面继续强制带构建时间戳，减少旧缓存残留。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -591,6 +591,23 @@ function applyPhoneFrameVisibility(visible, persist){
 
 function isStandaloneMode(){
   return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+}
+
+function getIosStandaloneStorageNoticeKey(){
+  return scopedKeyForAccount('ios_standalone_storage_notice_v1', getActiveAccountId());
+}
+
+function maybeWarnIosStandaloneStorage(){
+  try{
+    var isIos = /iPad|iPhone|iPod/.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if(!isIos || !isStandaloneMode()) return;
+    var key = getIosStandaloneStorageNoticeKey();
+    if(localStorage.getItem(key) === APP_BUILD_ID) return;
+    localStorage.setItem(key, APP_BUILD_ID);
+    setTimeout(function(){
+      showToast('iOS 主屏幕旧图标使用独立数据容器；请从 Safari 重新添加一次，新图标会和浏览器同步。');
+    }, 1200);
+  }catch(err){}
 }
 
 let stableShellAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
@@ -9549,6 +9566,7 @@ function restoreState(){
   bindTextNormalization();
   renderOfflineMiniLauncher();
   bindHostedServiceWorker();
+  maybeWarnIosStandaloneStorage();
   syncAppHeight();
   applyPhoneFrameVisibility(getPhoneFrameVisibility(), false);
   bindHomePager();
