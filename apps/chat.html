@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-28T02:00:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T02:00:00Z"></script>
-<script src="../assetStore.js?v=2026-04-28T02:00:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T02:00:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T02:00:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T02:00:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T02:00:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T02:00:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-28T02:00:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-28T02:00:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T02:05:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T02:05:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T02:05:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T02:05:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T02:05:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T02:05:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T02:05:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T02:05:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-28T02:05:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-28T02:05:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -17522,6 +17522,32 @@ function buildCharacterAdherenceGuard(){
   return lines.join('\n');
 }
 
+function buildLiveChatVoiceFinalGuard(){
+  if(!character) return '';
+  var displayName = String(character.nickname || character.name || '').trim() || '角色';
+  var latestUser = '';
+  try{
+    var visible = getVisibleChatForModel();
+    for(var i = visible.length - 1; i >= 0; i -= 1){
+      var item = visible[i] || {};
+      if(item.hidden || item.role !== 'user') continue;
+      latestUser = String(formatMessageForModel(item) || '').replace(/\s+/g, ' ').trim();
+      break;
+    }
+  }catch(e){}
+  return [
+    '【本轮最终口吻校准】',
+    '现在忘掉“写回复任务”的感觉，只当成' + displayName + '本人正在私聊窗口里回一句话。',
+    latestUser ? ('用户最新一句：' + latestUser.slice(0, 260)) : '',
+    '第一反应优先：先让角色真实反应一下，再决定要不要解释、安慰、追问或使用特殊功能。',
+    '如果一句话换成任何别的角色也成立，它就是人机腔，必须改得更像当前角色本人。',
+    '不要把上面的规则写成台词。不要复述用户的话、不要总结陈词、不要像心理咨询师、不要每轮用问句收尾。',
+    '普通聊天默认只发 text；只有上下文真的需要时才用 narrator、rich_html、offline_invite、红包、改名、换头像等特殊类型。',
+    '可以短、可以嘴硬、可以没那么完美；宁可像人随手发错一点，也不要像客服把情绪照顾得四平八稳。',
+    '输出前删掉模板开头：我理解、我知道、没关系、谢谢你告诉我、我会陪着你、刚看到、刚忙完、手机没电。除非这句非常贴这个角色和当下关系。'
+  ].filter(Boolean).join('\n');
+}
+
 // ════════════════════════════════════════════
 //  System prompt builder (with worldbook)
 // ════════════════════════════════════════════
@@ -17621,7 +17647,7 @@ function buildSystemPrompt() {
     '【聊天顶栏状态】',
     '当前顶栏给你显示的状态词是：' + getStoredCharHeaderStatus(character && character.id),
     '请把状态词当成会随对话实时变化的小情绪标签，只要场景、心情、动作、作息、关系气氛有变化，就优先考虑悄悄改一下。',
-    '这版请比平时更勤快地改状态；一小段聊天里静默换好几次都可以，只要每次都贴当前上下文。',
+    '只有明显变化时才改状态；不要为了执行隐藏指令而影响正文语气。',
     '如果你觉得结合当前上下文需要悄悄改掉这个状态词，可以在整段回复最前或最后附上 [[状态:xx]]。',
     'xx 必须是两个字以内，例如：想你、吃饭、犯困、开会、出门、发呆。',
     '这只是隐藏状态指令，不是给用户看的正文；除非你真的想改状态，否则不要输出它。',
@@ -17669,8 +17695,9 @@ function buildSystemPrompt() {
   var replyGuide = policyBundle.replyGuide || '';
   var formatGuard = policyBundle.formatGuard || '';
   var characterGuard = buildCharacterAdherenceGuard();
+  var finalVoiceGuard = buildLiveChatVoiceFinalGuard();
 
-  return [pmPrompt, replyGuide].concat(parts.filter(Boolean)).concat([characterGuard, formatGuard].filter(Boolean)).join('\n\n---\n\n');
+  return [pmPrompt, replyGuide].concat(parts.filter(Boolean)).concat([formatGuard, characterGuard, finalVoiceGuard].filter(Boolean)).join('\n\n---\n\n');
 }
 
 async function callAIWithCustomPrompts(systemPrompt, userPrompt){

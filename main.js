@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T02:00:00Z';
+const APP_BUILD_ID = '2026-04-28T02:05:00Z';
 const APP_UPDATE_NOTES = [
-  '阅读模式红叉会立即返回约会 App，并继续补齐完成标记。',
-  '线上聊天减少模板腔和机械安抚。',
-  '时间间隔提示不再强迫角色编恢复理由。'
+  '线上聊天新增最终口吻校准，优先角色本人的第一反应。',
+  '降低隐藏状态指令对正文语气的干扰。',
+  '强压客服腔、心理咨询腔和万能安抚模板。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
