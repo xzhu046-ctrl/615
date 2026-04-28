@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T02:05:00Z';
+const APP_BUILD_ID = '2026-04-28T02:12:00Z';
 const APP_UPDATE_NOTES = [
-  '线上聊天新增最终口吻校准，优先角色本人的第一反应。',
-  '降低隐藏状态指令对正文语气的干扰。',
-  '强压客服腔、心理咨询腔和万能安抚模板。'
+  '阅读模式红叉新增捕获层兜底，先返回约会 App 再补完成标记。',
+  '小脑瓜自动记忆先进短期候选，长期改为手动升级。',
+  '小脑瓜面板恢复滚动，状态词保持高频但轻量。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
