@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T05:45:00Z';
+const APP_BUILD_ID = '2026-04-28T05:58:00Z';
 const APP_UPDATE_NOTES = [
-  '一次性线下 launch payload 不再写入 localStorage，避免继续挤爆存储空间。',
-  '约会入口改回父页面内存交接，旧约会仍保留 recordId/threadId 来恢复记录。',
-  '更新了旧版归档恢复入口，恢复 token 也不再塞进 localStorage。'
+  '一次性线下 launch payload 改存 PhoneStorage 大存储，不再挤 localStorage。',
+  '新邀约 bootstrap 和恢复 token 都会走 IndexedDB，旧约会仍按 recordId/threadId 恢复。',
+  '保留旧 localStorage 读取兼容，但新的线下入口数据不会再往那里塞。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -7747,6 +7747,31 @@ function clonePendingOfflineLaunchRecord(record){
   }
 }
 
+function persistPendingOfflineLaunchRecord(record, charId, token){
+  var data = clonePendingOfflineLaunchRecord(record);
+  if(!data || !(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function')) return;
+  var payload = data.payload && typeof data.payload === 'object' ? data.payload : {};
+  var safeCharId = String(charId || data.charId || payload.charId || '').trim();
+  var safeToken = String(token || data.launchToken || payload.launchToken || '').trim();
+  data.charId = safeCharId || data.charId || payload.charId || '';
+  data.launchToken = safeToken || data.launchToken || payload.launchToken || '';
+  if(!data.createdAt) data.createdAt = Date.now();
+  var keys = [];
+  if(safeToken){
+    keys.push(scopedKeyForAccount('offline_launch_token_' + safeToken, getActiveAccountId()));
+    keys.push('offline_launch_token_' + safeToken);
+  }
+  if(safeCharId){
+    keys.push(scopedKeyForAccount('offline_launch_' + safeCharId, getActiveAccountId()));
+    keys.push('offline_launch_' + safeCharId);
+  }
+  keys.push(scopedKeyForAccount('offline_launch_latest', getActiveAccountId()));
+  keys.push('offline_launch_latest');
+  Array.from(new Set(keys.filter(Boolean))).forEach(function(key){
+    window.PhoneStorage.putJson(key, data).catch(function(){});
+  });
+}
+
 function consumePendingOfflineLaunchRecord(options){
   var record = clonePendingOfflineLaunchRecord(pendingOpenOfflineLaunchRecord);
   if(!record) return null;
@@ -8078,6 +8103,7 @@ function forceOpenOfflineMode(payload){
   pendingOpenOfflineLaunchMode = String(payload.launchMode || (launchRecord && launchRecord.mode) || launchPayload.launchMode || launchPayload.mode || '').trim();
   pendingOpenOfflineLaunchToken = String(payload.launchToken || (launchRecord && launchRecord.launchToken) || launchPayload.launchToken || '').trim();
   pendingOpenOfflineLaunchRecord = launchRecord;
+  persistPendingOfflineLaunchRecord(pendingOpenOfflineLaunchRecord, pendingOpenOfflineCharId, pendingOpenOfflineLaunchToken);
   forceOpenApp('offline_mode');
 }
 window.forceOpenOfflineMode = forceOpenOfflineMode;
@@ -8285,6 +8311,7 @@ window.addEventListener('message',(e)=>{
       pendingOpenOfflineLaunchMode = String(payload.launchMode || (launchRecord && launchRecord.mode) || launchPayload.launchMode || launchPayload.mode || '').trim();
       pendingOpenOfflineLaunchToken = String(payload.launchToken || (launchRecord && launchRecord.launchToken) || launchPayload.launchToken || '').trim();
       pendingOpenOfflineLaunchRecord = launchRecord;
+      persistPendingOfflineLaunchRecord(pendingOpenOfflineLaunchRecord, pendingOpenOfflineCharId, pendingOpenOfflineLaunchToken);
       if(payload.forceOpen){
         forceOpenApp('offline_mode');
         return;

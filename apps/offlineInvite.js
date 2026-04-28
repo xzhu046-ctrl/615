@@ -729,8 +729,21 @@ function writeOfflineInviteDebug(partial){
 function persistOfflineSession(session, charIdOverride){
   var targetCharId = String(charIdOverride || (character && character.id) || '').trim();
   if(!targetCharId) return;
+  var key = offlineSessionStorageKey(targetCharId);
+  if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
+    window.PhoneStorage.putJson(key, session || {}).catch(function(){});
+    try{
+      localStorage.setItem(key, JSON.stringify({
+        charId: targetCharId,
+        active: session && session.active !== false,
+        updatedAt: Number(session && session.updatedAt || Date.now()) || Date.now(),
+        __offlineStub: true
+      }));
+    }catch(e){}
+    return;
+  }
   try{
-    localStorage.setItem(offlineSessionStorageKey(targetCharId), JSON.stringify(session || {}));
+    localStorage.setItem(key, JSON.stringify(session || {}));
   }catch(e){}
   try{
     localStorage.setItem('offline_meet_session_' + targetCharId, JSON.stringify(session || {}));
@@ -749,6 +762,13 @@ function primeOfflineLaunchCharacterSnapshot(charSnapshot){
     }
   }catch(e){}
   try{ localStorage.setItem('activeCharacter', serialized); }catch(e){}
+}
+function saveOfflineLaunchJson(key, data){
+  var safeKey = String(key || '').trim();
+  if(!safeKey || !data || typeof data !== 'object') return;
+  if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
+    window.PhoneStorage.putJson(safeKey, data).catch(function(){});
+  }
 }
 function pendingOfflineBootstrapStorageKey(charId){
   return accountScopedKey('offline_bootstrap_' + String(charId || '').trim());
@@ -990,6 +1010,48 @@ async function openOfflineSession(payload){
   };
   persistOfflineSession(nextSession, targetCharId);
   latestLaunchRecord.session = nextSession;
+  saveOfflineLaunchJson(pendingOfflineBootstrapStorageKey(targetCharId), {
+    charId: targetCharId,
+    charSnapshot: charSnapshot,
+    session: nextSession
+  });
+  saveOfflineLaunchJson('offline_bootstrap_' + targetCharId, {
+    charId: targetCharId,
+    charSnapshot: charSnapshot,
+    session: nextSession
+  });
+  saveOfflineLaunchJson(pendingOfflineLaunchStorageKey(targetCharId), {
+    charId: targetCharId,
+    charSnapshot: charSnapshot,
+    payload: payload,
+    chatHistory: history,
+    createdAt: Date.now()
+  });
+  saveOfflineLaunchJson('offline_launch_' + targetCharId, {
+    charId: targetCharId,
+    charSnapshot: charSnapshot,
+    payload: payload,
+    chatHistory: history,
+    createdAt: Date.now()
+  });
+  saveOfflineLaunchJson(latestOfflineLaunchStorageKey(), {
+    launchToken: launchToken,
+    charId: targetCharId,
+    charSnapshot: charSnapshot,
+    payload: payload,
+    chatHistory: history,
+    createdAt: Date.now()
+  });
+  saveOfflineLaunchJson('offline_launch_latest', {
+    launchToken: launchToken,
+    charId: targetCharId,
+    charSnapshot: charSnapshot,
+    payload: payload,
+    chatHistory: history,
+    createdAt: Date.now()
+  });
+  saveOfflineLaunchJson(offlineLaunchTokenStorageKey(launchToken), latestLaunchRecord);
+  saveOfflineLaunchJson('offline_launch_token_' + launchToken, latestLaunchRecord);
   try{
     var focusRecordId = ensureOfflineInviteRecordId(payload || {});
     if(focusRecordId){

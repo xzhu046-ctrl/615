@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-28T05:45:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T05:45:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T05:45:00Z"></script>
-<script src="../promptManager.js?v=2026-04-28T05:45:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T05:45:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T05:45:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T05:45:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T05:45:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T05:58:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T05:58:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T05:58:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T05:58:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T05:58:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T05:58:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T05:58:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T05:58:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -3422,13 +3422,19 @@ async function loadSession(){
   }
   return fallback.session || null;
 }
-function consumePendingOfflineBootstrap(charId){
+async function consumePendingOfflineBootstrap(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return null;
   var keys = [pendingOfflineBootstrapKey(safeId), 'offline_bootstrap_' + safeId];
   for(var i = 0; i < keys.length; i += 1){
     var key = keys[i];
     try{
+      var stored = await loadOfflineJsonRecord(key, isOfflineResumePayload);
+      if(stored){
+        removeOfflineJsonRecord(key);
+        var storedSession = stored && stored.session ? stored.session : stored;
+        if(storedSession && typeof storedSession === 'object') return storedSession;
+      }
       var raw = localStorage.getItem(key);
       if(!raw) continue;
       localStorage.removeItem(key);
@@ -3439,13 +3445,18 @@ function consumePendingOfflineBootstrap(charId){
   }
   return null;
 }
-function consumePendingOfflineLaunch(charId){
+async function consumePendingOfflineLaunch(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return null;
   var keys = [pendingOfflineLaunchKey(safeId), 'offline_launch_' + safeId];
   for(var i = 0; i < keys.length; i += 1){
     var key = keys[i];
     try{
+      var stored = await loadOfflineJsonRecord(key);
+      if(stored && typeof stored === 'object'){
+        removeOfflineJsonRecord(key);
+        return stored;
+      }
       var raw = localStorage.getItem(key);
       if(!raw) continue;
       localStorage.removeItem(key);
@@ -3455,11 +3466,16 @@ function consumePendingOfflineLaunch(charId){
   }
   return null;
 }
-function consumeLatestPendingOfflineLaunch(){
+async function consumeLatestPendingOfflineLaunch(){
   var keys = [latestOfflineLaunchKey(), 'offline_launch_latest'];
   for(var i = 0; i < keys.length; i += 1){
     var key = keys[i];
     try{
+      var stored = await loadOfflineJsonRecord(key);
+      if(stored && typeof stored === 'object'){
+        removeOfflineJsonRecord(key);
+        return stored;
+      }
       var raw = localStorage.getItem(key);
       if(!raw) continue;
       localStorage.removeItem(key);
@@ -3469,13 +3485,18 @@ function consumeLatestPendingOfflineLaunch(){
   }
   return null;
 }
-function consumeOfflineLaunchToken(token){
+async function consumeOfflineLaunchToken(token){
   var safeToken = String(token || '').trim();
   if(!safeToken) return null;
   var keys = [offlineLaunchTokenKey(safeToken), 'offline_launch_token_' + safeToken];
   for(var i = 0; i < keys.length; i += 1){
     var key = keys[i];
     try{
+      var stored = await loadOfflineJsonRecord(key);
+      if(stored && typeof stored === 'object'){
+        removeOfflineJsonRecord(key);
+        return stored;
+      }
       var raw = localStorage.getItem(key);
       if(!raw) continue;
       localStorage.removeItem(key);
@@ -12551,11 +12572,11 @@ async function init(){
     parentLaunch = consumeParentPendingOfflineLaunch(explicitLaunchToken, explicitOfflineCharId);
     if(parentLaunch && !isUsableOfflineLaunchSeed(parentLaunch)) parentLaunch = null;
     if(explicitLaunchToken){
-      tokenLaunch = parentLaunch || consumeOfflineLaunchToken(explicitLaunchToken);
+      tokenLaunch = parentLaunch || await consumeOfflineLaunchToken(explicitLaunchToken);
       if(tokenLaunch && !isUsableOfflineLaunchSeed(tokenLaunch)) tokenLaunch = null;
     }
     if(explicitOfflineCharId){
-      scopedLaunch = consumePendingOfflineLaunch(explicitOfflineCharId);
+      scopedLaunch = await consumePendingOfflineLaunch(explicitOfflineCharId);
       if(!isUsableOfflineLaunchSeed(scopedLaunch)) scopedLaunch = null;
     }
     if(tokenLaunch){
@@ -12586,7 +12607,7 @@ async function init(){
     hasExplicitLaunch = true;
   }
   if(hasExplicitLaunch && !launchSeed && desiredOfflineCharId){
-    launchSeed = consumePendingOfflineLaunch(desiredOfflineCharId);
+    launchSeed = await consumePendingOfflineLaunch(desiredOfflineCharId);
     if(launchSeed && isUsableOfflineLaunchSeed(launchSeed)){
       offlineLaunchSource = String(launchSeed.mode || offlineLaunchSource || 'invite').trim() || 'invite';
     }else{
@@ -12617,7 +12638,7 @@ async function init(){
   var recordScopedSession = (!offlineEntryHome && launchInviteRecordId) ? await loadSessionByInviteRecordId(launchInviteRecordId) : null;
   var existingSession = (!offlineEntryHome && desiredOfflineCharId) ? await loadSessionByCharId(desiredOfflineCharId) : null;
   var resumeSession = (!offlineEntryHome && tokenLaunch && tokenLaunch.session) ? tokenLaunch.session : ((!offlineEntryHome && desiredOfflineCharId) ? await consumePendingOfflineResume(desiredOfflineCharId) : null);
-  var bootSession = (!offlineEntryHome && desiredOfflineCharId) ? consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
+  var bootSession = (!offlineEntryHome && desiredOfflineCharId) ? await consumePendingOfflineBootstrap(desiredOfflineCharId) : null;
   var archiveSession = (!offlineEntryHome && desiredOfflineCharId && launchInviteRecordId) ? await findOfflineArchiveSessionForInvite(desiredOfflineCharId, launchInviteRecordId) : null;
   function pickMatchingInviteSession(candidate){
     if(!(candidate && typeof candidate === 'object')) return null;
