@@ -50,11 +50,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T02:46:00Z';
+const APP_BUILD_ID = '2026-04-28T03:20:00Z';
 const APP_UPDATE_NOTES = [
-  '主屏 user 头像加固，图片加载失败不再变问号。',
-  '线上回复减少等待和返工，短句口语优先。',
-  '阅读模式红叉改为点击、触摸、指针三路都能返回约会 App。'
+  '主屏 user 头像改用即时加异步双层加载，并和 char 一样裁切隐藏溢出。',
+  '小脑瓜面板和分类页签恢复滑动，所有小标题都会展示。',
+  '阅读模式新增独立红叉热区，避免原设置按钮点不到。',
+  '聊天美化新增横向分类按钮，气泡/转账/红包/亲属卡/SURPRISE 都有实时预览和预设。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -8883,6 +8884,7 @@ function setWidgetCharacter(c){
     if(charRoleEl) charRoleEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
     if(userRoleEl) userRoleEl.textContent = String(userLabel || 'USER').trim() || 'USER';
     if(sideNameEl) sideNameEl.textContent = String((c.nickname || c.name || 'CHAR')).trim() || 'CHAR';
+    applyWidgetUserAvatarContent(userAvEl, getImmediateChatUserAvatar(c.id), '你');
     getChatUserAvatar(c.id).then(function(userSrc){
       applyWidgetUserAvatarContent(userAvEl, userSrc, '你');
     });
