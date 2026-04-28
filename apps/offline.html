@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-28T10:22:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T10:22:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T10:38:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T10:38:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -1492,6 +1492,48 @@ async function loadOfflineRecordsFromChatsFallback(){
   });
 }
 
+function collapseCompletedDuplicateInviteRecords(records){
+  var list = Array.isArray(records) ? records.slice() : [];
+  if(!list.length) return list;
+  var completedByCharDay = Object.create(null);
+  list.forEach(function(item){
+    if(!isCompletedInviteRecord(item)) return;
+    var charKeys = [item && item.charId, item && item.charName].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
+    if(!charKeys.length) return;
+    var dayKey = getRecordDateKey(item);
+    var stamp = Number(item && (item.completedAt || item.updatedAt || item.createdAt) || Date.now()) || Date.now();
+    charKeys.forEach(function(charKey){
+      completedByCharDay[charKey + '::' + dayKey] = Math.max(Number(completedByCharDay[charKey + '::' + dayKey] || 0) || 0, stamp);
+    });
+  });
+  return list.map(function(item){
+    if(!(item && typeof item === 'object')) return item;
+    if(isCompletedInviteRecord(item)) return normalizeCompletedOfflineRecord(item);
+    if(!(isAcceptedInviteRecord(item) || isOngoingInviteRecord(item) || isContinuedInviteRecord(item))) return item;
+    var charKeys = [item.charId, item.charName].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
+    if(!charKeys.length) return item;
+    var dayKey = getRecordDateKey(item);
+    var completedAt = charKeys.reduce(function(max, charKey){
+      return Math.max(max, Number(completedByCharDay[charKey + '::' + dayKey] || 0) || 0);
+    }, 0);
+    if(!completedAt) return item;
+    var createdAt = Number(item.createdAt || item.updatedAt || 0) || 0;
+    if(createdAt && createdAt > completedAt + 6 * 60 * 60 * 1000) return item;
+    var aliases = [item.id, item.recordId, item.inviteRecordId, item.threadId, item.inviteMessageId, item.replyMessageId]
+      .map(function(value){ return String(value || '').trim(); })
+      .filter(Boolean);
+    if(aliases.length) markCompletedOfflineInviteIds(aliases);
+    markCompletedOfflineInviteMarker(item.charId, item.charName);
+    return normalizeCompletedOfflineRecord(Object.assign({}, item, {
+      status:'completed',
+      meetState:'complete',
+      readOnly:true,
+      completedAt:completedAt,
+      updatedAt:Math.max(Number(item.updatedAt || 0) || 0, completedAt)
+    }));
+  });
+}
+
 async function getOfflineRecords(){
   var fromStore = getOfflineRecordsFromStore();
   var map = Object.create(null);
@@ -1499,7 +1541,7 @@ async function getOfflineRecords(){
   fromStore.forEach(function(item){ mergeOfflineRecordMaps(map, item); });
   var fallback = await loadOfflineRecordsFromChatsFallback();
   fallback.forEach(function(item){ mergeOfflineRecordMaps(map, item); });
-  return Object.keys(map).map(function(id){ return map[id]; }).sort(function(a, b){
+  var records = Object.keys(map).map(function(id){ return map[id]; }).sort(function(a, b){
     return (Number(b.updatedAt || b.createdAt || 0) || 0) - (Number(a.updatedAt || a.createdAt || 0) || 0);
   }).map(function(item){
     return normalizeCompletedOfflineRecord(item);
@@ -1507,6 +1549,7 @@ async function getOfflineRecords(){
     var safeId = String(item && item.id || '').trim();
     return !!(item && safeId && !hiddenIds[safeId] && (String(item.charId || '').trim() || String(item.charName || '').trim()));
   });
+  return collapseCompletedDuplicateInviteRecords(records);
 }
 
 function isPendingInviteRecord(item){
@@ -1731,7 +1774,8 @@ function pickSelectedRecord(records){
     chosen = list.find(function(item){ return String(item.id || '') === currentSelectedId; }) || null;
   }
   if(!chosen){
-    chosen = list.find(isOngoingInviteRecord)
+    chosen = list.find(isCompletedInviteRecord)
+      || list.find(isOngoingInviteRecord)
       || list.find(isContinuedInviteRecord)
       || list.find(isAcceptedInviteRecord)
       || list.find(isPendingInviteRecord)

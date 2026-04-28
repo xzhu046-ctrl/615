@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T10:22:00Z';
+const APP_BUILD_ID = '2026-04-28T10:38:00Z';
 const APP_UPDATE_NOTES = [
-  '修正旧邀约重建后又显示 accepted/同意的问题。',
-  'Complete 状态现在在列表渲染时优先级最高。',
-  '线下反重复提示继续保留，减少车轱辘式回复。'
+  '约会列表会把同日同角色的 accepted 副本归并为 complete。',
+  '同角色完成状态同时按 charId 和角色名识别。',
+  'Complete 记录会优先成为选中的约会卡片。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
