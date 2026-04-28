@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T09:52:00Z';
+const APP_BUILD_ID = '2026-04-28T10:08:00Z';
 const APP_UPDATE_NOTES = [
-  '线上回复条数改为跟随聊天设置的 min/max，不再写死数量。',
-  '短句提示改成短气泡但可多条，减少两句式死板回复。',
-  '邀约地点不再由程序补字，只在提示词里要求角色自己写具体。'
+  '结束线下约会后会同步标记 complete，不再停在 accepted/同意。',
+  '线下正文加入反车轱辘话约束，减少重复安抚和原地打转。',
+  '聊天回复条数继续跟随 min/max，邀约地点交给角色自己写具体。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4637,6 +4637,30 @@ function rememberOfflineInviteForceCompletePayload(ids, payload, reason){
   try{ localStorage.setItem('offline_invite_force_complete_payload_v1', JSON.stringify(data)); }catch(err2){}
 }
 
+function rememberCompletedOfflineInviteMarker(payload){
+  var charId = String(payload && payload.charId || '').trim();
+  var charName = String(payload && (payload.charName || payload.name) || '').trim();
+  if(!charId && !charName) return;
+  var readKey = scopedKeyForAccount('offline_invite_completed_markers_v1', getActiveAccountId());
+  var list = [];
+  try{ list = JSON.parse(localStorage.getItem(readKey) || localStorage.getItem('offline_invite_completed_markers_v1') || '[]'); }catch(err){ list = []; }
+  if(!Array.isArray(list)) list = [];
+  list = list.map(function(item){
+    return {
+      charId:String(item && item.charId || '').trim(),
+      charName:String(item && (item.charName || item.name) || '').trim(),
+      at:Number(item && item.at || 0) || 0
+    };
+  }).filter(function(item){
+    if(!(item.charId || item.charName)) return false;
+    return !((charId && item.charId === charId) || (charName && item.charName === charName));
+  });
+  list.push({ charId:charId, charName:charName, at:Date.now() });
+  list = list.slice(-80);
+  try{ localStorage.setItem(readKey, JSON.stringify(list)); }catch(writeErr){}
+  try{ localStorage.setItem('offline_invite_completed_markers_v1', JSON.stringify(list)); }catch(writeErr2){}
+}
+
 function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
   payload = payload && typeof payload === 'object' ? payload : {};
   var rawIds = normalizeOfflineInviteCompleteIds(payload);
@@ -4646,6 +4670,7 @@ function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
   }catch(focusErr){}
   var ids = rememberCompletedOfflineInviteIds(rawIds);
   rememberOfflineInviteForceCompletePayload(ids, payload, reason || 'force_complete');
+  rememberCompletedOfflineInviteMarker(payload);
   var store = window.OfflineInviteStore || null;
   if(!(store && typeof store.listRecords === 'function')) return ids;
   var charId = String(payload.charId || '').trim();
