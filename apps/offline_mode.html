@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-28T04:18:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T04:18:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T04:18:00Z"></script>
-<script src="../promptManager.js?v=2026-04-28T04:18:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T04:18:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T04:18:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T04:18:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T04:18:00Z"></script>
+<script src="../assetStore.js?v=2026-04-28T04:42:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-28T04:42:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-28T04:42:00Z"></script>
+<script src="../promptManager.js?v=2026-04-28T04:42:00Z"></script>
+<script src="../accountManager.js?v=2026-04-28T04:42:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-28T04:42:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-28T04:42:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-28T04:42:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1748,7 +1748,10 @@ function offlineInviteRecordIdFromSnapshot(snapshot){
     snapshot.recordId ||
     snapshot.inviteRecordId ||
     snapshot.id ||
-    (snapshot.invite && (snapshot.invite.recordId || snapshot.invite.inviteRecordId || snapshot.invite.id)) ||
+    snapshot.threadId ||
+    snapshot.inviteMessageId ||
+    snapshot.replyMessageId ||
+    (snapshot.invite && (snapshot.invite.recordId || snapshot.invite.inviteRecordId || snapshot.invite.id || snapshot.invite.threadId || snapshot.invite.inviteMessageId || snapshot.invite.replyMessageId)) ||
     ''
   ).trim();
 }
@@ -1766,10 +1769,10 @@ async function findOfflineArchiveSessionForInvite(charId, inviteRecordId){
     var itemCharId = String(item.charId || snapshot.charId || '').trim();
     if(safeCharId && itemCharId && itemCharId !== safeCharId) return;
     var archiveInviteId = offlineInviteRecordIdFromSnapshot(snapshot) || String(item.inviteRecordId || item.recordId || '').trim();
-    if(safeInviteId && archiveInviteId && archiveInviteId !== safeInviteId) return;
+    if(safeInviteId && archiveInviteId && archiveInviteId !== safeInviteId && !offlineInviteSourcesShareRecordId(snapshot, { id:safeInviteId, recordId:safeInviteId, inviteRecordId:safeInviteId, threadId:safeInviteId, inviteMessageId:safeInviteId, replyMessageId:safeInviteId })) return;
     snapshot.archiveId = String(snapshot.archiveId || item.id || '').trim();
     snapshot.inviteRecordId = archiveInviteId || safeInviteId || '';
-    if(safeInviteId && archiveInviteId === safeInviteId){
+    if(safeInviteId && (archiveInviteId === safeInviteId || offlineInviteSourcesShareRecordId(snapshot, { id:safeInviteId, recordId:safeInviteId, inviteRecordId:safeInviteId, threadId:safeInviteId, inviteMessageId:safeInviteId, replyMessageId:safeInviteId }))){
       bestExact = pickBetterOfflineSessionCandidate(bestExact, snapshot);
     }else{
       bestLoose = pickBetterOfflineSessionCandidate(bestLoose, snapshot);
@@ -2325,8 +2328,20 @@ async function archiveCurrentOfflineMeet(status, reason){
       await queueOfflineEndArtifacts(character.id, snapshot).catch(function(err){
         pushOfflineBackendLog('warn', 'archive.end_artifacts', '归档已完成，结束通知稍后同步', err);
       });
-      clearLiveOfflineSession(character.id, snapshot);
-      session = { active:false, entries:[], minimized:false, archiveId:archiveId || '' };
+      session.active = false;
+      session.minimized = false;
+      session.readOnly = true;
+      session.completedAt = Number(session.completedAt || Date.now()) || Date.now();
+      session.archiveId = archiveId || session.archiveId || '';
+      if(session.invite && typeof session.invite === 'object'){
+        session.invite.status = 'completed';
+        session.invite.meetState = 'complete';
+        session.invite.readOnly = true;
+        session.invite.completedAt = Number(session.invite.completedAt || session.completedAt) || session.completedAt;
+      }
+      saveSession();
+      removeOfflineJsonRecord(pendingOfflineResumeKey(character.id));
+      removeOfflineJsonRecord('offline_resume_' + String(character.id || '').trim());
     }else{
       session.archiveId = archiveId || session.archiveId || '';
       session.active = true;
@@ -3282,8 +3297,11 @@ function mergeOfflineEntryListsPreservingHistory(longEntries, currentEntries){
 function loadBestLocalOfflineSessionSnapshotForSave(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return null;
-  var currentInviteId = getOfflineInviteRecordIdFromSource(session);
-  var recordKeys = currentInviteId ? offlineSessionRecordKeyCandidates(currentInviteId) : [];
+  var currentInviteIds = collectOfflineInviteRecordIdsFromSource(session, []);
+  var currentInviteId = currentInviteIds[0] || '';
+  var recordKeys = currentInviteIds.reduce(function(keys, id){
+    return keys.concat(offlineSessionRecordKeyCandidates(id));
+  }, []);
   var best = null;
   recordKeys.concat(offlineSessionKeyCandidates(safeId)).forEach(function(key){
     try{
@@ -3291,7 +3309,7 @@ function loadBestLocalOfflineSessionSnapshotForSave(charId){
       if(!raw) return;
       var parsed = JSON.parse(raw);
       if(!isOfflineSessionPayload(parsed)) return;
-      if(currentInviteId && getOfflineInviteRecordIdFromSource(parsed) !== currentInviteId) return;
+      if(currentInviteId && !offlineInviteSourcesShareRecordId(parsed, session)) return;
       best = pickBetterOfflineSessionCandidate(best, parsed);
     }catch(e){}
   });
@@ -3327,10 +3345,14 @@ function saveSession(){
   session.charId = String(character.id || '').trim();
   session.charSnapshot = Object.assign({}, session.charSnapshot || {}, buildOfflineCharacterFromSnapshot(character));
   session.updatedAt = Date.now();
-  var inviteRecordId = getOfflineInviteRecordIdFromSource(session);
-  if(inviteRecordId){
-    saveOfflineJsonRecord(offlineSessionRecordKey(inviteRecordId), session);
-    saveOfflineJsonRecord('offline_meet_session_record_' + String(inviteRecordId || '').trim(), session);
+  var inviteRecordIds = collectOfflineInviteRecordIdsFromSource(session, []);
+  pushUniqueOfflineInviteId(inviteRecordIds, getFocusedOfflineInviteRecordId());
+  if(inviteRecordIds.length){
+    inviteRecordIds.forEach(function(inviteRecordId){
+      offlineSessionRecordKeyCandidates(inviteRecordId).forEach(function(key){
+        saveOfflineJsonRecord(key, session);
+      });
+    });
   }else{
     saveOfflineJsonRecord(offlineSessionKey(character.id), session);
     saveOfflineJsonRecord('offline_meet_session_' + String(character.id || '').trim(), session);
@@ -3350,7 +3372,7 @@ async function loadSessionByInviteRecordId(recordId){
   for(var k = 0; k < keys.length; k += 1){
     var parsed = await loadOfflineJsonRecord(keys[k], isOfflineSessionPayload);
     if(!parsed || typeof parsed !== 'object') continue;
-    if(getOfflineInviteRecordIdFromSource(parsed) !== safeId) continue;
+    if(!offlineInviteSourcesShareRecordId(parsed, { id:safeId, recordId:safeId, inviteRecordId:safeId, threadId:safeId, inviteMessageId:safeId, replyMessageId:safeId })) continue;
     if(!best){
       best = parsed;
       continue;
@@ -3711,7 +3733,7 @@ function collectOfflineStageSummarySource(floorLimit){
 }
 function buildOfflineStageSummaryLines(startScene, endScene){
   var lines = [];
-  var list = Array.isArray(session && session.entries) ? session.entries : [];
+  var list = getOfflineStoryEntries();
   for(var i = 0; i < list.length; i += 1){
     var entry = list[i];
     var text = String(entry && entry.text || '').replace(/\s+/g, ' ').trim();
@@ -3736,7 +3758,8 @@ async function generateOfflineStageSummary(force, overrideCount){
   var cadence = Math.max(3, Number(overrideCount || ui.summaryEvery) || 5);
   var totalFloorCount = countOfflineStoryFloors();
   if(!totalFloorCount) return null;
-  var uptoCount = force ? totalFloorCount : (totalFloorCount - (totalFloorCount % cadence));
+  var requestedUptoCount = Math.max(0, Number(arguments[2]) || 0);
+  var uptoCount = force ? totalFloorCount : (requestedUptoCount ? Math.min(totalFloorCount, requestedUptoCount) : (totalFloorCount - (totalFloorCount % cadence)));
   if(!uptoCount) return null;
   var existing = getOfflineStageSummaries().find(function(item){
     return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) === uptoCount;
@@ -3746,7 +3769,7 @@ async function generateOfflineStageSummary(force, overrideCount){
   var lastCovered = getOfflineStageSummaryCoveredCount();
   var startFloor = force ? Math.max(1, uptoCount - cadence + 1) : (lastCovered + 1);
   if((uptoCount - startFloor + 1) < Math.min(cadence, uptoCount) && !force) return null;
-  var sourceEntries = (Array.isArray(session && session.entries) ? session.entries : []).slice(Math.max(0, startFloor - 1), uptoCount).filter(function(entry){
+  var sourceEntries = getOfflineStoryEntries().slice(Math.max(0, startFloor - 1), uptoCount).filter(function(entry){
     return entry && String(entry.text || '').trim();
   });
   if(!sourceEntries.length) return null;
@@ -3788,24 +3811,34 @@ async function generateOfflineStageSummary(force, overrideCount){
 }
 function queueOfflineStageSummaryGeneration(){
   if(!session) return;
-  var ui = getOfflineUiPrefs();
+  var ui = offlineDrawerDraft || getOfflineUiPrefs();
   if(!ui.summaryAuto) return;
   var cadence = Math.max(3, Number(ui.summaryEvery) || 5);
   var floorCount = countOfflineStoryFloors();
-  var targetFloor = floorCount - (floorCount % cadence);
+  var covered = getOfflineStageSummaryCoveredCount();
+  var targetFloor = 0;
+  for(var next = cadence; next <= floorCount; next += cadence){
+    if(next > covered && !getOfflineStageSummaries().some(function(item){
+      return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) === next;
+    })){
+      targetFloor = next;
+      break;
+    }
+  }
   if(!targetFloor) return;
   var key = 'stage::' + String(targetFloor);
   if(offlineStageSummaryQueue[key]) return;
-  if(getOfflineStageSummaries().some(function(item){
-    return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) === targetFloor;
-  })) return;
   offlineStageSummaryQueue[key] = true;
   Promise.resolve().then(function(){
-    return generateOfflineStageSummary(false);
+    return generateOfflineStageSummary(false, cadence, targetFloor);
   }).catch(function(err){
+    pushOfflineBackendLog('warn', 'offline.stage_summary.auto', '自动阶段总结生成失败', err);
     console.warn('offline stage summary generation failed', err);
   }).finally(function(){
     delete offlineStageSummaryQueue[key];
+    if(countOfflineStoryFloors() >= targetFloor + cadence){
+      setTimeout(queueOfflineStageSummaryGeneration, 200);
+    }
   });
 }
 async function manualOfflineStageSummary(overrideCount){
@@ -5951,11 +5984,14 @@ function getOfflineSceneNumber(entry){
   }
   return 1;
 }
-function countOfflineStoryFloors(){
+function getOfflineStoryEntries(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   return list.filter(function(entry){
-    return entry && String(entry.text || '').trim();
-  }).length;
+    return entry && !isOfflinePlaceholderEntry(entry) && String(entry.text || '').trim();
+  });
+}
+function countOfflineStoryFloors(){
+  return getOfflineStoryEntries().length;
 }
 function normalizeOfflineSummaryText(raw, fallbackText){
   var text = String(raw || '').replace(/\s+/g, ' ').trim();
@@ -12221,8 +12257,21 @@ async function exitOfflineMeet(){
           pushOfflineBackendLog('warn', 'archive.end_artifacts.fallback', '备用归档已完成，结束通知稍后同步', err);
         });
       }
-      clearLiveOfflineSession(character.id, fallbackSnapshot);
-      session = { active:false, entries:[], minimized:false, archiveId:session && session.archiveId || '' };
+      if(session && typeof session === 'object'){
+        session.active = false;
+        session.minimized = false;
+        session.readOnly = true;
+        session.completedAt = Number(session.completedAt || Date.now()) || Date.now();
+        if(session.invite && typeof session.invite === 'object'){
+          session.invite.status = 'completed';
+          session.invite.meetState = 'complete';
+          session.invite.readOnly = true;
+          session.invite.completedAt = Number(session.invite.completedAt || session.completedAt) || session.completedAt;
+        }
+        saveSession();
+      }
+      removeOfflineJsonRecord(pendingOfflineResumeKey(character.id));
+      removeOfflineJsonRecord('offline_resume_' + String(character.id || '').trim());
       toast('档案已用备用方式保存');
     }catch(fallbackErr){
       pushOfflineBackendLog('error', 'archive.exit.fallback', '兜底存档也失败，改为仅保存恢复快照', fallbackErr);

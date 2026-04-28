@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T04:18:00Z';
+const APP_BUILD_ID = '2026-04-28T04:42:00Z';
 const APP_UPDATE_NOTES = [
-  '线下模式会按聊天设置读取最近线上上下文。',
-  '线下生成补上当前时间、天气和日程感知。',
-  '旧约会重新打开不再清空，红叉结束后列表会标记完成。'
+  '结束约会会保留完整线下聊天并稳定进入完成分类。',
+  '旧约会重新打开会用同一条邀约的全部记录 id 找回原记录。',
+  '线下自动总结会补齐错过的阶段总结，不再聊过头还不启动。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
