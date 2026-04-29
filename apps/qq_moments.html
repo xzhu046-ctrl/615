@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-29T10:54:00Z"></script>
-<script src="../assetStore.js?v=2026-04-29T10:54:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T10:54:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T10:54:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T11:03:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T11:03:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T11:03:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T11:03:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -74,12 +74,20 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 .post.delete-mode{position:relative;padding-left:44px}
 .post-select{position:absolute;left:12px;top:14px;width:22px;height:22px;border-radius:999px;border:var(--bd);background:#fff;box-shadow:1px 1px 0 #0a0a0a;font-family:var(--fontd);font-size:12px;font-weight:900;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .post-select.selected{background:#d73c3c;color:#fff}
-.post-head{display:flex;align-items:center;justify-content:flex-start;gap:10px}
+.post-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .post-left{display:flex;align-items:center;gap:12px;min-width:0}
 .post-av{width:48px;height:48px;border:none;border-radius:999px;background:center/cover no-repeat #111;box-shadow:none;flex-shrink:0;color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--fontd);font-size:15px;font-weight:900;letter-spacing:.04em}
 .post-name{font-family:var(--fontd);font-size:17px;font-weight:900;letter-spacing:0}
 .post-time{margin-top:2px;font-size:12px;color:#8a8a8a;font-weight:900;letter-spacing:.14em;text-transform:uppercase}
 .post-text{font-size:20px;font-weight:500;line-height:1.55;white-space:pre-wrap;word-break:break-word;color:#111;letter-spacing:0}
+.post-edit-btn{width:28px;height:28px;border:none;border-radius:999px;background:transparent;padding:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.post-edit-btn:focus,.post-edit-btn:focus-visible{outline:none}
+.post-edit-btn img{width:18px;height:18px;object-fit:contain;display:block;filter:grayscale(1) brightness(0)}
+.post-edit-card{border:2px solid rgba(17,17,17,.88);border-radius:0 20px 20px 0;background:linear-gradient(90deg,rgba(255,255,255,.98),rgba(255,255,255,.98)) padding-box,linear-gradient(180deg,#111 0,#111 60%,transparent 60%,transparent 100%) left/4px 12px repeat-y;padding:12px 12px 12px 16px;display:flex;flex-direction:column;gap:10px}
+.post-edit-input{width:100%;min-height:112px;border:none;background:transparent;resize:none;outline:none;font-size:15px;font-weight:700;line-height:1.7;color:#111}
+.post-edit-actions{display:flex;justify-content:flex-end;gap:8px}
+.post-edit-done{border:2px solid #111;border-radius:999px;background:#111;color:#fff;padding:7px 16px;font-family:var(--fontd);font-size:12px;font-weight:900;cursor:pointer}
+.post-edit-cancel{border:2px solid #111;border-radius:999px;background:#fff;color:#111;padding:7px 14px;font-family:var(--fontd);font-size:12px;font-weight:900;cursor:pointer}
 .moment-translate-wrap{display:flex;flex-direction:column;align-items:flex-start;gap:7px}
 .moment-translate-btn{min-width:0;height:26px;padding:0;border:none;border-radius:0;background:transparent;color:#6d6d6d;font-family:var(--fontd);font-size:13px;font-weight:900;letter-spacing:0;box-shadow:none;cursor:pointer}
 .moment-translate-btn:active{transform:translate(1px,1px);box-shadow:0 0 0}
@@ -402,6 +410,7 @@ let publishState = {
 let deleteMode = false;
 let deleteSelection = [];
 let replyTarget = {};
+let editingPostId = '';
 let pendingDeleteComment = { postId:'', commentId:'' };
 let currentImageViewerPostId = '';
 let currentProfileCharId = '';
@@ -1110,6 +1119,49 @@ function applyLikeButtonState(btn, post, likes, isLiked){
   btn.innerHTML = buildLikeButtonInner(post, likes, isLiked);
 }
 
+function renderPostContentEditor(post){
+  return '<div class="post-edit-card">'
+    + '<textarea class="post-edit-input" id="postEditInput-' + esc(post.id) + '" placeholder="编辑这条内容...">' + esc(post && post.text || '') + '</textarea>'
+    + '<div class="post-edit-actions">'
+    + '<button class="post-edit-cancel" type="button" onclick="cancelEditPost()">取消</button>'
+    + '<button class="post-edit-done" type="button" onclick="saveEditPost(\'' + esc(post.id) + '\')">完成</button>'
+    + '</div>'
+    + '</div>';
+}
+
+function startEditPost(postId){
+  if(deleteMode) return;
+  editingPostId = String(postId || '');
+  renderFeed();
+  setTimeout(()=>{
+    const input = document.getElementById('postEditInput-' + editingPostId);
+    if(input && typeof input.focus === 'function') input.focus();
+  }, 0);
+}
+
+function cancelEditPost(){
+  editingPostId = '';
+  renderFeed();
+}
+
+function saveEditPost(postId){
+  const id = String(postId || '');
+  const input = document.getElementById('postEditInput-' + id);
+  const next = input ? String(input.value || '').trim() : '';
+  if(!next){
+    showToast('内容不能为空');
+    return;
+  }
+  const posts = getPosts();
+  const idx = posts.findIndex((item)=>String(item && item.id || '') === id);
+  if(idx === -1) return;
+  posts[idx].text = next;
+  savePosts(posts);
+  editingPostId = '';
+  renderFeed();
+  showToast('已保存');
+}
+
 function renderFeed(){
   const host = document.getElementById('feedList');
   if(!host) return;
@@ -1126,6 +1178,7 @@ function renderFeed(){
     const postAvatarStyle = getPostAvatarStyleValue(post);
     const currentLikeName = getCurrentBubbleName();
     const isLiked = likes.indexOf(currentLikeName) !== -1;
+    const isEditing = String(editingPostId || '') === String(post && post.id || '');
     return '<article class="post' + (deleteMode ? ' delete-mode' : '') + '">'
       + (deleteMode ? '<button class="post-select' + (isSelected ? ' selected' : '') + '" type="button" data-delete-post="' + esc(post.id) + '">' + (isSelected ? '✓' : '') + '</button>' : '')
       + '<div class="post-head">'
@@ -1133,11 +1186,12 @@ function renderFeed(){
       + '<div class="post-av" style="background-image:' + postAvatarStyle + ';background-size:cover;background-position:center;background-repeat:no-repeat;">' + (postAvatarStyle === 'none' ? '<span>' + esc(getInitials(actorName)) + '</span>' : '') + '</div>'
       + '<div><div class="post-name">' + esc(actorName) + '</div><div class="post-time">' + esc(fmtTime(post.createdAt)) + '</div></div>'
       + '</div>'
+      + (!deleteMode ? '<button class="post-edit-btn" type="button" aria-label="编辑内容" onclick="startEditPost(\'' + esc(post.id) + '\')"><img src="assets/编辑.png" alt=""></button>' : '')
       + '</div>'
       + (post.type === 'dynamic' && hasMomentRealImage(post) ? '<button class="post-image-button" type="button" data-post-id="' + esc(post.id) + '"><img class="post-image-real" data-moment-image-id="' + esc(post.id) + '" alt=""></button>' : '')
       + (post.type === 'dynamic' && !hasMomentRealImage(post) && post.imageText ? '<button class="image-card-button" type="button" data-post-id="' + esc(post.id) + '"></button>' : '')
-      + (post.text ? '<div class="post-text">' + esc(post.text) + '</div>' : '')
-      + renderMomentCaptionTranslation(post)
+      + (isEditing ? renderPostContentEditor(post) : (post.text ? '<div class="post-text">' + esc(post.text) + '</div>' : ''))
+      + (isEditing ? '' : renderMomentCaptionTranslation(post))
       + '<div class="post-action-row">'
       + '<div class="like-text">' + esc(formatLikeText(likes)) + '</div>'
       + '<button class="like-btn' + (isLiked ? ' liked' : '') + (isLiked && hasCatLikeEasterEgg(post) ? ' cat-liked' : '') + '" type="button" data-like-post="' + esc(post.id) + '" onclick="togglePostLike(\'' + esc(post.id) + '\')">'
