@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-29T07:58:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T07:58:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T07:58:00Z"></script>
-<script src="../promptManager.js?v=2026-04-29T07:58:00Z"></script>
-<script src="../accountManager.js?v=2026-04-29T07:58:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-29T07:58:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-29T07:58:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T07:58:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T08:12:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T08:12:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T08:12:00Z"></script>
+<script src="../promptManager.js?v=2026-04-29T08:12:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T08:12:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-29T08:12:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-29T08:12:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T08:12:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1325,10 +1325,13 @@ function getFocusedOfflineInviteRecordId(){
   }catch(e){}
   return '';
 }
-function collectOfflineInviteRecordIdsFromSource(source, list){
+function collectOfflineInviteRecordIdsFromSource(source, list, options){
+  var opts = options && typeof options === 'object' ? options : {};
   var out = Array.isArray(list) ? list : [];
-  pushUniqueOfflineInviteId(out, lockedOfflineInviteRecordId);
-  pushUniqueOfflineInviteId(out, activeOfflineInviteRecordId);
+  if(opts.includeGlobal !== false){
+    pushUniqueOfflineInviteId(out, lockedOfflineInviteRecordId);
+    pushUniqueOfflineInviteId(out, activeOfflineInviteRecordId);
+  }
   if(!source || typeof source !== 'object') return out;
   var invite = source.invite && typeof source.invite === 'object' ? source.invite : null;
   var payload = source.payload && typeof source.payload === 'object' ? source.payload : null;
@@ -1347,8 +1350,8 @@ function collectOfflineInviteRecordIdsFromSource(source, list){
   pushUniqueOfflineInviteId(out, source.threadId);
   pushUniqueOfflineInviteId(out, source.inviteMessageId);
   pushUniqueOfflineInviteId(out, source.replyMessageId);
-  if(payload) collectOfflineInviteRecordIdsFromSource(payload, out);
-  if(launchRecord) collectOfflineInviteRecordIdsFromSource(launchRecord, out);
+  if(payload) collectOfflineInviteRecordIdsFromSource(payload, out, opts);
+  if(launchRecord) collectOfflineInviteRecordIdsFromSource(launchRecord, out, opts);
   return out;
 }
 function assignCurrentOfflineInviteRecordId(recordId){
@@ -1389,8 +1392,8 @@ function getOfflineLaunchReadOnlyFlag(source){
   return !!(source && source.readOnly) || !!(payload && payload.readOnly) || meetState === 'complete' || status === 'completed' || status === 'rejected' || status === 'declined';
 }
 function offlineInviteSourcesShareRecordId(left, right){
-  var leftIds = collectOfflineInviteRecordIdsFromSource(left, []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
-  var rightIds = collectOfflineInviteRecordIdsFromSource(right, []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
+  var leftIds = collectOfflineInviteRecordIdsFromSource(left, [], { includeGlobal:false }).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
+  var rightIds = collectOfflineInviteRecordIdsFromSource(right, [], { includeGlobal:false }).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
   if(!leftIds.length || !rightIds.length) return false;
   return leftIds.some(function(id){ return rightIds.indexOf(id) !== -1; });
 }
@@ -1646,9 +1649,8 @@ function patchCurrentOfflineInviteMeetState(meetState){
   var safeState = String(meetState || '').trim();
   if(!safeState) return;
   var store = window.OfflineInviteStore;
-  if(!(store && typeof store.patchRecord === 'function')) return;
   var now = Date.now();
-  var recordIds = getCurrentOfflineInviteStoreRecordIds(store, { create: safeState === 'ongoing' || safeState === 'continued', strictRecordId: safeState === 'complete' });
+  var recordIds = getCurrentOfflineInviteStoreRecordIds(store, { create: safeState === 'ongoing' || safeState === 'continued', strictRecordId: true });
   var recordId = recordIds[0] || '';
   if(recordId) assignCurrentOfflineInviteRecordId(recordId);
   try{
@@ -1670,18 +1672,21 @@ function patchCurrentOfflineInviteMeetState(meetState){
       markOfflineInviteIdsCompleted(completedIds);
     }
     var patched = false;
-    recordIds.forEach(function(id){
-      if(!id) return;
-      var before = null;
-      try{ before = typeof store.getRecord === 'function' ? store.getRecord(id) : null; }catch(e){}
-      if(before || typeof store.getRecord !== 'function'){
-        store.patchRecord(id, patch);
-        patched = true;
-      }
-    });
-    if(!patched && recordId && typeof store.upsertRecord === 'function'){
+    if(store && typeof store.patchRecord === 'function'){
+      recordIds.forEach(function(id){
+        if(!id) return;
+        var before = null;
+        try{ before = typeof store.getRecord === 'function' ? store.getRecord(id) : null; }catch(e){}
+        if(before || typeof store.getRecord !== 'function'){
+          store.patchRecord(id, patch);
+          patched = true;
+        }
+      });
+    }
+    if(!patched && recordId && store && typeof store.upsertRecord === 'function'){
       store.upsertRecord(buildCurrentOfflineInviteRecord(recordId, patch));
     }
+    if(recordIds.length) patchAdoptedOfflineInviteRecords(recordIds, patch).catch(function(){ return []; });
     syncCurrentOfflineInviteMeetStateToChat(safeState, patch, recordIds).catch(function(){});
   }catch(err){}
 }
