@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T13:02:00Z';
+const APP_BUILD_ID = '2026-04-29T13:18:00Z';
 const APP_UPDATE_NOTES = [
-  '朋友圈编辑输入框进一步压低。',
-  '文字图片发布后不再露出文字。',
-  '图片和查看弹窗统一为黑白正方形风格。'
+  '朋友圈回复提示条改成黑白 ins 风。',
+  '人机验证顶栏整体压扁。',
+  '朋友圈列表可视空间增加。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
