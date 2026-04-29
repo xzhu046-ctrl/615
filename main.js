@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T03:16:00Z';
+const APP_BUILD_ID = '2026-04-29T03:28:00Z';
 const APP_UPDATE_NOTES = [
-  '约会主页面会在选中记录之后再执行 complete 补全，修正 selectedId 空跑。',
-  '已到期的 selected active 邀约会立刻写入 completed ids 和 complete 状态。',
-  '诊断继续显示 selectedEvidence，方便确认 due 补全是否命中。'
+  '移除主屏幕临时小窗口。',
+  '清理线下和约会页面的临时采集接口。',
+  '保留已修好的约会 complete 补全逻辑。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1493,208 +1493,6 @@ window.compareHostedBuildIds = compareHostedBuildIds;
 window.announceHostedUpdate = announceHostedUpdate;
 window.buildRemoteAppFingerprint = buildRemoteAppFingerprint;
 window.checkForHostedUpdate = checkForHostedUpdate;
-
-function formatPhoneDebugValue(value){
-  if(value == null) return '';
-  if(typeof value === 'string') return value;
-  try{ return JSON.stringify(value); }catch(err){ return String(value); }
-}
-
-function summarizePhoneDebugRecords(records){
-  var list = Array.isArray(records) ? records : [];
-  var counts = {};
-  list.forEach(function(record){
-    var status = String(record && record.status || 'pending').trim() || 'pending';
-    var meetState = String(record && record.meetState || '').trim();
-    var key = status + (meetState ? '/' + meetState : '');
-    counts[key] = (counts[key] || 0) + 1;
-  });
-  var sample = list.slice(0, 8).map(function(record){
-    return [
-      String(record && record.id || '').trim(),
-      String(record && record.charName || record && record.charId || '').trim(),
-      String(record && record.status || '').trim(),
-      String(record && record.meetState || '').trim(),
-      record && record.readOnly ? 'readOnly' : '',
-      record && record.completedAt ? ('completedAt=' + record.completedAt) : ''
-    ].filter(Boolean).join(' | ');
-  });
-  return {
-    total: list.length,
-    counts: counts,
-    sample: sample
-  };
-}
-
-function readPhoneDebugStorageKey(key){
-  try{ return localStorage.getItem(key) || ''; }catch(err){ return '[read failed] ' + (err && err.message || err); }
-}
-
-async function collectPhoneDebugReport(){
-  var lines = [];
-  var now = new Date();
-  var frame = document.getElementById('app-iframe');
-  var remoteVersion = '';
-  try{
-    var versionUrl = new URL('version.json', window.location.href);
-    versionUrl.searchParams.set('phoneDebug', String(Date.now()));
-    var versionRes = await fetch(versionUrl.toString(), { cache:'no-store' });
-    remoteVersion = await versionRes.text();
-  }catch(err){
-    remoteVersion = 'version fetch failed: ' + (err && err.message || err);
-  }
-  var swLines = [];
-  try{
-    swLines.push('controller=' + (navigator.serviceWorker && navigator.serviceWorker.controller ? navigator.serviceWorker.controller.scriptURL : 'none'));
-    if(navigator.serviceWorker && typeof navigator.serviceWorker.getRegistrations === 'function'){
-      var regs = await navigator.serviceWorker.getRegistrations();
-      swLines.push('registrations=' + (Array.isArray(regs) ? regs.length : 0));
-      (Array.isArray(regs) ? regs : []).forEach(function(reg, idx){
-        swLines.push('reg' + idx + '.scope=' + (reg && reg.scope || ''));
-        swLines.push('reg' + idx + '.active=' + (reg && reg.active && reg.active.scriptURL || ''));
-        swLines.push('reg' + idx + '.waiting=' + (reg && reg.waiting && reg.waiting.scriptURL || ''));
-        swLines.push('reg' + idx + '.installing=' + (reg && reg.installing && reg.installing.scriptURL || ''));
-      });
-    }
-  }catch(errSw){
-    swLines.push('sw error=' + (errSw && errSw.message || errSw));
-  }
-  var cacheLines = [];
-  try{
-    if(typeof caches !== 'undefined' && caches && typeof caches.keys === 'function'){
-      cacheLines = await caches.keys();
-    }
-  }catch(errCache){
-    cacheLines = ['cache error=' + (errCache && errCache.message || errCache)];
-  }
-  var storageEstimate = {};
-  try{
-    if(navigator.storage && typeof navigator.storage.estimate === 'function'){
-      storageEstimate = await navigator.storage.estimate();
-    }
-  }catch(errStorage){}
-  var offlineSummary = {};
-  try{
-    offlineSummary = summarizePhoneDebugRecords(window.OfflineInviteStore && typeof window.OfflineInviteStore.listRecords === 'function' ? window.OfflineInviteStore.listRecords() : []);
-  }catch(errOffline){
-    offlineSummary = { error:String(errOffline && errOffline.message || errOffline) };
-  }
-  var childOfflineMode = '';
-  try{
-    if(frame && frame.contentWindow && typeof frame.contentWindow.collectOfflineModeDebugReport === 'function'){
-      childOfflineMode = formatPhoneDebugValue(frame.contentWindow.collectOfflineModeDebugReport());
-    }
-  }catch(errChild){
-    childOfflineMode = 'child offline debug failed: ' + (errChild && errChild.message || errChild);
-  }
-  var childOfflineApp = '';
-  try{
-    if(frame && frame.contentWindow && typeof frame.contentWindow.collectOfflineAppDebugReport === 'function'){
-      childOfflineApp = formatPhoneDebugValue(frame.contentWindow.collectOfflineAppDebugReport());
-    }
-  }catch(errChildApp){
-    childOfflineApp = 'child offline app debug failed: ' + (errChildApp && errChildApp.message || errChildApp);
-  }
-  var logs = readBackendLogs().slice(-25).map(function(entry){
-    return [
-      new Date(Number(entry.ts || Date.now())).toISOString(),
-      String(entry.level || ''),
-      String(entry.app || ''),
-      String(entry.source || ''),
-      String(entry.message || ''),
-      String(entry.detail || '')
-    ].filter(Boolean).join(' | ');
-  });
-  lines.push('0615 PHONE DEBUG');
-  lines.push('debugWindowVisible=true');
-  lines.push('now=' + now.toISOString());
-  lines.push('appBuild=' + APP_BUILD_ID);
-  lines.push('remoteVersionRaw=' + remoteVersion.replace(/\s+/g, ' ').trim());
-  lines.push('location=' + window.location.href);
-  lines.push('standalone=' + isStandaloneMode());
-  lines.push('userAgent=' + navigator.userAgent);
-  lines.push('online=' + navigator.onLine);
-  lines.push('visibility=' + document.visibilityState);
-  lines.push('currentApp=' + String(currentApp || ''));
-  lines.push('appStack=' + formatPhoneDebugValue(typeof appStack !== 'undefined' ? appStack : []));
-  lines.push('iframeSrc=' + (frame ? (frame.getAttribute('src') || frame.src || '') : ''));
-  lines.push('acceptedUpdate=' + readPhoneDebugStorageKey(HOSTED_UPDATE_ACCEPTED_BUILD_KEY));
-  lines.push('lastSeenRemote=' + readPhoneDebugStorageKey(HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY));
-  lines.push('lastCheckStatus=' + String(lastHostedUpdateCheckStatus || ''));
-  lines.push('storage=' + formatPhoneDebugValue(storageEstimate));
-  lines.push('serviceWorker:');
-  swLines.forEach(function(line){ lines.push('  ' + line); });
-  lines.push('caches=' + formatPhoneDebugValue(cacheLines));
-  lines.push('offlineInviteSummary=' + formatPhoneDebugValue(offlineSummary));
-  lines.push('childOfflineMode=' + (childOfflineMode || ''));
-  lines.push('childOfflineApp=' + (childOfflineApp || ''));
-  lines.push('completedIds=' + readPhoneDebugStorageKey('offline_invite_completed_ids_v1'));
-  lines.push('completedMarkers=' + readPhoneDebugStorageKey('offline_invite_completed_markers_v1'));
-  lines.push('forceCompletePayload=' + readPhoneDebugStorageKey('offline_invite_force_complete_payload_v1'));
-  lines.push('exitCompleteIntent=' + readPhoneDebugStorageKey('offline_invite_exit_complete_intent_v1'));
-  lines.push('recentLogs:');
-  if(logs.length) logs.forEach(function(line){ lines.push('  ' + line); });
-  else lines.push('  (none)');
-  return lines.join('\n');
-}
-
-function setPhoneDebugOutput(text){
-  var out = document.getElementById('phone-debug-output');
-  if(out) out.value = String(text || '');
-}
-
-function syncPhoneDebugChip(){
-  var chip = document.getElementById('phone-debug-chip');
-  if(!chip) return;
-  var match = String(APP_BUILD_ID || '').match(/T(\d{2}):(\d{2})/);
-  chip.textContent = '诊断 ' + (match ? (match[1] + ':' + match[2]) : 'ON');
-  chip.title = 'build ' + APP_BUILD_ID;
-}
-
-function refreshPhoneDebugPanel(){
-  setPhoneDebugOutput('正在收集诊断...');
-  collectPhoneDebugReport()
-    .then(setPhoneDebugOutput)
-    .catch(function(err){
-      setPhoneDebugOutput('诊断收集失败：' + (err && err.stack || err && err.message || err));
-    });
-}
-
-function openPhoneDebugPanel(){
-  syncPhoneDebugChip();
-  var panel = document.getElementById('phone-debug-panel');
-  if(panel) panel.hidden = false;
-  refreshPhoneDebugPanel();
-}
-
-function closePhoneDebugPanel(){
-  var panel = document.getElementById('phone-debug-panel');
-  if(panel) panel.hidden = true;
-}
-
-function copyPhoneDebugReport(){
-  var out = document.getElementById('phone-debug-output');
-  var text = out ? String(out.value || '') : '';
-  var done = function(){
-    pushBackendLogEntry({ level:'info', app:'shell', source:'phone.debug', message:'诊断已复制' });
-    showToast('诊断已复制');
-  };
-  if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(text).then(done).catch(function(){
-      if(out){ out.focus(); out.select(); }
-      try{ document.execCommand('copy'); done(); }catch(err){ showToast('复制失败，请长按文本全选'); }
-    });
-    return;
-  }
-  if(out){ out.focus(); out.select(); }
-  try{ document.execCommand('copy'); done(); }catch(err){ showToast('复制失败，请长按文本全选'); }
-}
-
-window.openPhoneDebugPanel = openPhoneDebugPanel;
-window.closePhoneDebugPanel = closePhoneDebugPanel;
-window.refreshPhoneDebugPanel = refreshPhoneDebugPanel;
-window.copyPhoneDebugReport = copyPhoneDebugReport;
-window.collectPhoneDebugReport = collectPhoneDebugReport;
 
 function clearHostedRefreshParams(){
   try{
@@ -9711,7 +9509,6 @@ function restoreState(){
   compactCharKey('activeCharacter');
   compactCharKey('pendingChatChar');
   bindTextNormalization();
-  syncPhoneDebugChip();
   renderOfflineMiniLauncher();
   bindHostedServiceWorker();
   requestAppPersistentStorage();
