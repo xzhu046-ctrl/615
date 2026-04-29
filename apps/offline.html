@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-29T04:30:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T04:30:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T04:44:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T04:44:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -761,6 +761,15 @@ function getExitCompleteOfflineInviteIntentKey(){
     }
   }catch(err){}
   return 'offline_invite_exit_complete_intent_v1';
+}
+
+function getOfflineInviteEndRequestKey(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
+      return window.parent.scopedKeyForAccount('offline_invite_end_request_v1', window.parent.getActiveAccountId());
+    }
+  }catch(err){}
+  return 'offline_invite_end_request_v1';
 }
 
 function getActiveOfflineLaunchIntentKey(){
@@ -1197,6 +1206,25 @@ function consumePendingExitCompleteOfflineIntents(){
     var ids = normalizeOfflineInviteCompleteIds(payload);
     if(!ids.length) return;
     forceCompleteOfflineRecords(ids, payload.charId, payload.charName || payload.name);
+    try{ localStorage.removeItem(item.key); }catch(err){}
+  });
+  return payloads.map(function(item){
+    return item && item.value && typeof item.value === 'object' ? item.value : {};
+  });
+}
+
+function consumePendingOfflineInviteEndRequests(){
+  var payloads = [];
+  [getOfflineInviteEndRequestKey(), 'offline_invite_end_request_v1'].forEach(function(key){
+    try{
+      var raw = localStorage.getItem(key) || '';
+      if(raw) payloads.push({ key:key, value:JSON.parse(raw) });
+    }catch(err){}
+  });
+  payloads.forEach(function(item){
+    var payload = item && item.value && typeof item.value === 'object' ? item.value : {};
+    var ids = normalizeOfflineInviteCompleteIds(payload);
+    if(ids.length) forceCompleteOfflineRecords(ids, payload.charId, payload.charName || payload.name);
     try{ localStorage.removeItem(item.key); }catch(err){}
   });
   return payloads.map(function(item){
@@ -1783,6 +1811,7 @@ function repairSelectedActiveRecordFromCompletedSameDay(records){
 }
 
 async function getOfflineRecords(){
+  consumePendingOfflineInviteEndRequests();
   var fromStore = getOfflineRecordsFromStore();
   var map = Object.create(null);
   var hiddenIds = readHiddenOfflineRecordIds();
@@ -2386,8 +2415,7 @@ window.addEventListener('message', function(e){
   var data = e.data || {};
   if(data.type === 'OFFLINE_INVITE_FORCE_COMPLETE'){
     var payload = data.payload || {};
-    var ids = Array.isArray(payload.ids) ? payload.ids.slice() : [];
-    if(payload.inviteId) ids.push(payload.inviteId);
+    var ids = normalizeOfflineInviteCompleteIds(payload);
     forceCompleteOfflineRecords(ids, payload.charId, payload.charName || payload.name);
     renderOfflineApp();
     return;
@@ -2395,6 +2423,7 @@ window.addEventListener('message', function(e){
   if(data.type === 'OFFLINE_INVITE_STORE_DIRTY' || data.type === 'OPEN_SHELL_NOTIFICATION'){
     consumePendingForceCompleteOfflineRecords();
     consumePendingExitCompleteOfflineIntents();
+    consumePendingOfflineInviteEndRequests();
     renderOfflineApp();
   }
 });
@@ -2403,6 +2432,7 @@ window.addEventListener('storage', function(e){
   if(e && /offline_invite/i.test(String(e.key || ''))){
     consumePendingForceCompleteOfflineRecords();
     consumePendingExitCompleteOfflineIntents();
+    consumePendingOfflineInviteEndRequests();
     renderOfflineApp();
   }
 });
@@ -2411,16 +2441,19 @@ document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible'){
     consumePendingForceCompleteOfflineRecords();
     consumePendingExitCompleteOfflineIntents();
+    consumePendingOfflineInviteEndRequests();
     renderOfflineApp();
   }
 });
 
 consumePendingForceCompleteOfflineRecords();
 consumePendingExitCompleteOfflineIntents();
+consumePendingOfflineInviteEndRequests();
 renderOfflineApp();
 setInterval(function(){
   consumePendingForceCompleteOfflineRecords();
   consumePendingExitCompleteOfflineIntents();
+  consumePendingOfflineInviteEndRequests();
   renderOfflineApp();
 }, 20000);
 </script>

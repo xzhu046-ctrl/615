@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-29T04:30:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T04:30:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T04:30:00Z"></script>
-<script src="../promptManager.js?v=2026-04-29T04:30:00Z"></script>
-<script src="../accountManager.js?v=2026-04-29T04:30:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-29T04:30:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-29T04:30:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T04:30:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T04:44:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T04:44:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T04:44:00Z"></script>
+<script src="../promptManager.js?v=2026-04-29T04:44:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T04:44:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-29T04:44:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-29T04:44:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T04:44:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1743,9 +1743,13 @@ async function completeCurrentOfflineInviteEverywhere(reason, sourceOverride){
   ['recordId','inviteRecordId','id','threadId','inviteMessageId','replyMessageId'].forEach(function(key){
     pushUniqueOfflineInviteId(ids, invite && invite[key]);
   });
+  pushUniqueOfflineInviteId(ids, activeOfflineInviteRecordId);
+  pushUniqueOfflineInviteId(ids, currentOfflineInviteRecordId());
+  pushUniqueOfflineInviteId(ids, getFocusedOfflineInviteRecordId());
   if(ids[0]) assignCurrentOfflineInviteRecordId(ids[0]);
   markOfflineInviteIdsCompleted(ids);
   writeOfflineInviteForceCompletePayload(ids, source, reason || 'complete');
+  writeOfflineInviteEndRequest(ids, source, reason || 'complete');
   applyOfflineInviteMeetPatchToSession('complete', patch);
   var storeCompletedIds = completeOfflineInviteRecordsInStore(ids, patch.charId || (source && source.charId) || (invite && invite.charId), source);
   storeCompletedIds.forEach(function(id){ pushUniqueOfflineInviteId(ids, id); });
@@ -12484,6 +12488,29 @@ function writeOfflineInviteForceCompletePayload(ids, source, reason){
     character && character.nickname
   ]);
 }
+function offlineInviteEndRequestKey(){
+  return scopedKey('offline_invite_end_request_v1');
+}
+function writeOfflineInviteEndRequest(ids, source, reason){
+  var list = (Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
+  pushUniqueOfflineInviteId(list, activeOfflineInviteRecordId);
+  pushUniqueOfflineInviteId(list, currentOfflineInviteRecordId());
+  pushUniqueOfflineInviteId(list, getFocusedOfflineInviteRecordId());
+  var invite = source && source.invite && typeof source.invite === 'object' ? source.invite : {};
+  ['recordId','inviteRecordId','id','threadId','inviteMessageId','replyMessageId'].forEach(function(key){
+    pushUniqueOfflineInviteId(list, invite && invite[key]);
+  });
+  if(!list.length) return;
+  var payload = {
+    ids:list,
+    inviteId:String(list[0] || '').trim(),
+    recordId:String(list[0] || '').trim(),
+    reason:String(reason || 'ended').trim(),
+    at:Date.now()
+  };
+  try{ localStorage.setItem(offlineInviteEndRequestKey(), JSON.stringify(payload)); }catch(e){}
+  try{ localStorage.setItem('offline_invite_end_request_v1', JSON.stringify(payload)); }catch(e2){}
+}
 function forceCompleteCurrentOfflineInviteNow(reason, sourceOverride){
   var source = sourceOverride && typeof sourceOverride === 'object' ? sourceOverride : (offlineGoodbyePhotoSnapshot || session || {});
   var invite = source && source.invite && typeof source.invite === 'object' ? source.invite : {};
@@ -12506,6 +12533,7 @@ function forceCompleteCurrentOfflineInviteNow(reason, sourceOverride){
     character && character.nickname
   ]);
   writeOfflineInviteForceCompletePayload(ids, source, reason || 'complete_now');
+  writeOfflineInviteEndRequest(ids, source, reason || 'complete_now');
   var payload = { ids:ids, inviteId:String(ids[0] || invite.recordId || invite.id || '').trim(), recordId:String(ids[0] || invite.recordId || invite.inviteRecordId || invite.id || activeOfflineInviteRecordId || '').trim(), charId:charId, charName:charName, reason:String(reason || 'complete_now') };
   try{
     if(window.parent && window.parent !== window && typeof window.parent.forceCompleteOfflineInviteRecordsFromPayload === 'function'){
@@ -12534,6 +12562,9 @@ function writeOfflineExitCompleteIntentPayload(payload){
 function openOfflineDateApp(recordId){
   var focusId = String(recordId || offlineGoodbyeCompletedInviteIds[0] || currentOfflineInviteFocusId() || '').trim();
   var completedIds = (Array.isArray(offlineGoodbyeCompletedInviteIds) ? offlineGoodbyeCompletedInviteIds.slice() : []).filter(function(id){ return String(id || '').trim(); });
+  pushUniqueOfflineInviteId(completedIds, activeOfflineInviteRecordId);
+  pushUniqueOfflineInviteId(completedIds, currentOfflineInviteRecordId());
+  pushUniqueOfflineInviteId(completedIds, getFocusedOfflineInviteRecordId());
   if(focusId && completedIds.indexOf(focusId) < 0) completedIds.unshift(focusId);
   var charId = String((offlineGoodbyePhotoSnapshot && (offlineGoodbyePhotoSnapshot.charId || offlineGoodbyePhotoSnapshot.characterId)) || (offlineGoodbyePhotoSnapshot && offlineGoodbyePhotoSnapshot.invite && offlineGoodbyePhotoSnapshot.invite.charId) || (session && (session.charId || session.characterId)) || (session && session.invite && session.invite.charId) || desiredOfflineCharId || getStoredActiveOfflineCharacterId() || (character && character.id) || '').trim();
   var charName = String((offlineGoodbyePhotoSnapshot && offlineGoodbyePhotoSnapshot.invite && offlineGoodbyePhotoSnapshot.invite.charName) || (session && session.invite && session.invite.charName) || (character && (character.nickname || character.name)) || '').trim();
@@ -12545,15 +12576,19 @@ function openOfflineDateApp(recordId){
       focusId = String(focusId || storeIds[0] || completedIds[0] || '').trim();
     }catch(e){}
   }
+  focusId = String(focusId || completedIds[0] || activeOfflineInviteRecordId || currentOfflineInviteRecordId() || getFocusedOfflineInviteRecordId() || '').trim();
   focusOfflineInviteInDateApp(focusId);
   if(completedIds.length) markOfflineInviteIdsCompleted(completedIds);
   writeOfflineInviteForceCompletePayload(completedIds, offlineGoodbyePhotoSnapshot || session, 'open_date_app');
+  writeOfflineInviteEndRequest(completedIds, offlineGoodbyePhotoSnapshot || session, 'open_date_app');
   var forcePayload = { ids:completedIds, inviteId:focusId, recordId:focusId, charId:charId, charName:charName, reason:'goodbye_finish' };
   var shouldForceCompleteReturn = offlineCloseIntent === 'ended'
     || !!offlineReadOnlyMode
     || !!(document.body && document.body.classList && document.body.classList.contains('offline-readonly'))
     || String(session && session.invite && session.invite.status || '').trim() === 'completed'
-    || String(session && session.invite && session.invite.meetState || '').trim() === 'complete';
+    || String(session && session.invite && session.invite.meetState || '').trim() === 'complete'
+    || !!focusId
+    || completedIds.length > 0;
   if(shouldForceCompleteReturn) writeOfflineExitCompleteIntentPayload(forcePayload);
   try{ window.parent.postMessage({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:forcePayload }, '*'); }catch(e){}
   try{
@@ -12955,7 +12990,8 @@ async function finishOfflineGoodbyeCamera(event){
   exitingOfflineMeet = true;
   var instantIds = forceCompleteCurrentOfflineInviteNow('goodbye_finish_immediate', offlineGoodbyePhotoSnapshot || session);
   if(instantIds.length) offlineGoodbyeCompletedInviteIds = instantIds.slice();
-  await completeCurrentOfflineInviteEverywhere('goodbye_finish', offlineGoodbyePhotoSnapshot || session).catch(function(){ return []; });
+  var finalIds = await completeCurrentOfflineInviteEverywhere('goodbye_finish', offlineGoodbyePhotoSnapshot || session).catch(function(){ return []; });
+  if(Array.isArray(finalIds) && finalIds.length) offlineGoodbyeCompletedInviteIds = finalIds.slice();
   var overlay = document.getElementById('offlineGoodbyeCameraOverlay');
   if(overlay){
     overlay.classList.remove('open');
@@ -12997,13 +13033,13 @@ async function exitOfflineMeet(){
   }
   try{
     var completedIds = await completeCurrentOfflineInviteEverywhere('goodbye', goodbyeSnapshot);
-    offlineGoodbyeCompletedInviteIds = Array.isArray(completedIds) ? completedIds.slice() : [];
+    if(Array.isArray(completedIds) && completedIds.length) offlineGoodbyeCompletedInviteIds = completedIds.slice();
     if(goodbyeSnapshot && typeof goodbyeSnapshot === 'object') goodbyeSnapshot.completedInviteIds = offlineGoodbyeCompletedInviteIds.slice();
     focusOfflineInviteInDateApp(offlineGoodbyeCompletedInviteIds[0] || '');
     await archiveCurrentOfflineMeet('ended', 'goodbye');
   }catch(err){
     var retryIds = await completeCurrentOfflineInviteEverywhere('goodbye_retry', goodbyeSnapshot).catch(function(){ return []; });
-    offlineGoodbyeCompletedInviteIds = Array.isArray(retryIds) ? retryIds.slice() : offlineGoodbyeCompletedInviteIds;
+    if(Array.isArray(retryIds) && retryIds.length) offlineGoodbyeCompletedInviteIds = retryIds.slice();
     if(goodbyeSnapshot && typeof goodbyeSnapshot === 'object') goodbyeSnapshot.completedInviteIds = offlineGoodbyeCompletedInviteIds.slice();
     focusOfflineInviteInDateApp(offlineGoodbyeCompletedInviteIds[0] || '');
     pushOfflineBackendLog('error', 'archive.exit', '正常存档失败，转入兜底退出', err);
