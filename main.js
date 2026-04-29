@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T03:28:00Z';
+const APP_BUILD_ID = '2026-04-29T03:40:00Z';
 const APP_UPDATE_NOTES = [
-  '移除主屏幕临时小窗口。',
-  '清理线下和约会页面的临时采集接口。',
-  '保留已修好的约会 complete 补全逻辑。'
+  '约会 complete 只认明确结束的邀约 id。',
+  '新邀约不会再因为同角色、同日期或当前 focus 被误标结束。',
+  '保留结束约会后的只读和分类同步。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4583,7 +4583,7 @@ function rememberOfflineInviteForceCompletePayload(ids, payload, reason){
   var safeIds = (Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
   var charId = String(payload && payload.charId || '').trim();
   var charName = String(payload && (payload.charName || payload.name) || '').trim();
-  if(!safeIds.length && !charId && !charName) return;
+  if(!safeIds.length) return;
   var data = {
     ids:safeIds,
     inviteId:String((payload && payload.inviteId) || safeIds[0] || '').trim(),
@@ -4623,10 +4623,7 @@ function rememberCompletedOfflineInviteMarker(payload){
 function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
   payload = payload && typeof payload === 'object' ? payload : {};
   var rawIds = normalizeOfflineInviteCompleteIds(payload);
-  try{
-    var focusId = String(localStorage.getItem(scopedKeyForAccount(OFFLINE_INVITE_FOCUS_KEY, getActiveAccountId())) || localStorage.getItem(OFFLINE_INVITE_FOCUS_KEY) || '').trim();
-    if(focusId && rawIds.indexOf(focusId) === -1) rawIds.unshift(focusId);
-  }catch(focusErr){}
+  if(!rawIds.length) return [];
   var ids = rememberCompletedOfflineInviteIds(rawIds);
   rememberOfflineInviteForceCompletePayload(ids, payload, reason || 'force_complete');
   rememberCompletedOfflineInviteMarker(payload);
@@ -4640,8 +4637,6 @@ function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
     if(safe) wanted[safe] = true;
   });
   var targetMap = Object.assign(Object.create(null), wanted);
-  var latestSameCharId = '';
-  var latestActiveId = '';
   try{
     store.listRecords().forEach(function(record){
       if(!(record && typeof record === 'object')) return;
@@ -4656,29 +4651,8 @@ function forceCompleteOfflineInviteRecordsFromPayload(payload, reason){
         record.replyMessageId
       ].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
       if(aliases.some(function(value){ return !!wanted[value]; })) targetMap[recordId] = true;
-      var sameChar = !!(charId && String(record.charId || '').trim() === charId)
-        || !!(charName && String(record.charName || '').trim() === charName);
-      if(sameChar){
-        var status = String(record.status || '').trim();
-        var meetState = String(record.meetState || '').trim();
-        var active = status === 'accepted' || meetState === 'scheduled' || meetState === 'ongoing' || meetState === 'continued' || meetState === 'accepted';
-        var closed = status === 'completed' || status === 'rejected' || status === 'declined' || meetState === 'complete' || meetState === 'completed';
-        if(active && !closed) targetMap[recordId] = true;
-        if(!latestSameCharId && !closed) latestSameCharId = recordId;
-      }
-      var anyStatus = String(record.status || '').trim();
-      var anyMeetState = String(record.meetState || '').trim();
-      var anyActive = anyStatus === 'accepted' || anyMeetState === 'scheduled' || anyMeetState === 'ongoing' || anyMeetState === 'continued' || anyMeetState === 'accepted';
-      var anyClosed = anyStatus === 'completed' || anyStatus === 'rejected' || anyStatus === 'declined' || anyMeetState === 'complete' || anyMeetState === 'completed';
-      if(anyActive && !anyClosed && !latestActiveId) latestActiveId = recordId;
     });
   }catch(err){}
-  if(!Object.keys(targetMap).length && latestSameCharId) targetMap[latestSameCharId] = true;
-  if(!Object.keys(targetMap).some(function(id){
-    try{ return !!(typeof store.getRecord === 'function' && store.getRecord(id)); }catch(err){ return false; }
-  }) && latestActiveId){
-    targetMap[latestActiveId] = true;
-  }
   var targetIds = Object.keys(targetMap).filter(Boolean);
   var existingTargetIds = targetIds.filter(function(id){
     try{ return !!(typeof store.getRecord === 'function' && store.getRecord(id)); }catch(err){ return false; }
