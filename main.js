@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T13:38:00Z';
+const APP_BUILD_ID = '2026-04-29T13:56:00Z';
 const APP_UPDATE_NOTES = [
-  '朋友圈圆形头像改成更克制的黑白质感。',
-  '验证按钮恢复小方形。',
-  '评论头像保持原样。'
+  '约会 app 改成更克制的黑白 ins 风。',
+  '约会 app 支持直接选择月份和日期。',
+  '切换月份时会优先跳到该月已有邀约。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
