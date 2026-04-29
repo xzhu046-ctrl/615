@@ -504,6 +504,62 @@ body{display:flex;justify-content:center}
   color:#fff;
   box-shadow:2px 2px 0 #7f0f0f, 4px 4px 0 #fff;
 }
+.offline-debug-toggle{
+  position:fixed;
+  right:10px;
+  bottom:calc(var(--safe-bottom) + 10px);
+  z-index:60;
+  min-height:30px;
+  padding:0 9px;
+  border:2px solid #111;
+  border-radius:0;
+  background:#fff;
+  color:#111;
+  font:900 10px/1 "Courier New",monospace;
+  box-shadow:2px 2px 0 #111;
+}
+.offline-debug-panel{
+  position:fixed;
+  left:10px;
+  right:10px;
+  bottom:calc(var(--safe-bottom) + 48px);
+  z-index:61;
+  display:none;
+  max-height:min(58vh,440px);
+  border:2px solid #111;
+  background:#fff;
+  box-shadow:4px 4px 0 rgba(17,17,17,.9);
+  overflow:hidden;
+}
+.offline-debug-panel.show{display:flex;flex-direction:column}
+.offline-debug-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:7px 8px;
+  border-bottom:2px solid #111;
+  font:900 11px/1 "Courier New",monospace;
+}
+.offline-debug-actions{display:flex;gap:6px}
+.offline-debug-btn{
+  min-height:24px;
+  padding:0 8px;
+  border:2px solid #111;
+  background:#fff;
+  color:#111;
+  font:900 10px/1 "Courier New",monospace;
+  box-shadow:1px 1px 0 #111;
+}
+.offline-debug-pre{
+  margin:0;
+  padding:8px;
+  overflow:auto;
+  white-space:pre-wrap;
+  word-break:break-word;
+  font:700 10px/1.45 "Courier New",monospace;
+  color:#111;
+}
 </style>
 </head>
 <body>
@@ -526,9 +582,21 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-29T05:24:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T05:24:00Z"></script>
+  <button class="offline-debug-toggle" type="button" data-debug-toggle>debug</button>
+  <section class="offline-debug-panel" id="offlineDebugPanel" aria-hidden="true">
+    <div class="offline-debug-head">
+      <span>offline invite debug</span>
+      <div class="offline-debug-actions">
+        <button class="offline-debug-btn" type="button" data-debug-copy>copy</button>
+        <button class="offline-debug-btn" type="button" data-debug-close>×</button>
+      </div>
+    </div>
+    <pre class="offline-debug-pre" id="offlineDebugText"></pre>
+  </section>
+<script src="../assetStore.js?v=2026-04-29T06:12:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T06:12:00Z"></script>
 <script>
+var OFFLINE_APP_BUILD_ID = '2026-04-29T06:12:00Z';
 var currentFilter = 'all';
 var currentSelectedId = '';
 var currentSelectedDateKey = '';
@@ -538,6 +606,20 @@ var latestOfflineRecords = [];
 var offlineSwipeState = null;
 var pendingDeleteRecordId = '';
 var lastConsumedForceCompletePayloads = [];
+var lastConsumedEndRequestPayloads = [];
+var pendingInlineForceCompletePayloads = [];
+var offlineDebugState = {
+  build:'',
+  focusId:'',
+  selected:null,
+  storeRecords:[],
+  fallbackRecords:[],
+  forcePayloads:[],
+  endPayloads:[],
+  renderRecords:[],
+  acceptedRecords:[],
+  completedRecords:[]
+};
 
 function esc(text){
   return String(text == null ? '' : text)
@@ -555,6 +637,131 @@ function getParentCharacters(){
     }
   }catch(err){}
   return [];
+}
+
+function getOfflineAppBuildId(){
+  try{
+    if(window.parent && window.parent !== window && window.parent.APP_BUILD_ID) return String(window.parent.APP_BUILD_ID || '').trim();
+  }catch(err){}
+  try{
+    if(window.APP_BUILD_ID) return String(window.APP_BUILD_ID || '').trim();
+  }catch(err2){}
+  return OFFLINE_APP_BUILD_ID;
+}
+
+function slimOfflineDebugRecord(item, source){
+  if(!(item && typeof item === 'object')) return null;
+  return {
+    id:String(item.id || '').trim(),
+    threadId:String(item.threadId || '').trim(),
+    inviteMessageId:String(item.inviteMessageId || '').trim(),
+    replyMessageId:String(item.replyMessageId || '').trim(),
+    charId:String(item.charId || '').trim(),
+    charName:String(item.charName || '').trim(),
+    status:String(item.status || '').trim(),
+    meetState:String(item.meetState || '').trim(),
+    readOnly:!!item.readOnly,
+    completedAt:Number(item.completedAt || 0) || 0,
+    updatedAt:Number(item.updatedAt || 0) || 0,
+    createdAt:Number(item.createdAt || 0) || 0,
+    scheduledDate:String(item.scheduledDate || '').trim(),
+    scheduledTime:String(item.scheduledTime || '').trim(),
+    location:String(item.location || '').trim(),
+    source:String(source || item.source || '').trim(),
+    lifecycleKey:getOfflineInviteLifecycleKey(item)
+  };
+}
+
+function slimOfflineDebugPayload(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  return {
+    ids:Array.isArray(payload.ids) ? payload.ids.map(function(id){ return String(id || '').trim(); }).filter(Boolean) : [],
+    completedInviteIds:Array.isArray(payload.completedInviteIds) ? payload.completedInviteIds.map(function(id){ return String(id || '').trim(); }).filter(Boolean) : [],
+    inviteId:String(payload.inviteId || '').trim(),
+    recordId:String(payload.recordId || '').trim(),
+    inviteRecordId:String(payload.inviteRecordId || '').trim(),
+    threadId:String(payload.threadId || '').trim(),
+    inviteMessageId:String(payload.inviteMessageId || '').trim(),
+    replyMessageId:String(payload.replyMessageId || '').trim(),
+    lifecycleKey:String(payload.lifecycleKey || payload.inviteLifecycleKey || '').trim(),
+    dateKey:String(payload.dateKey || payload.scheduledDate || '').trim(),
+    scheduledDate:String(payload.scheduledDate || '').trim(),
+    scheduledTime:String(payload.scheduledTime || '').trim(),
+    timeLabel:String(payload.timeLabel || '').trim(),
+    location:String(payload.location || '').trim(),
+    previewText:String(payload.previewText || '').trim(),
+    charId:String(payload.charId || '').trim(),
+    charName:String(payload.charName || payload.name || '').trim(),
+    reason:String(payload.reason || '').trim(),
+    at:Number(payload.at || 0) || 0
+  };
+}
+
+function buildOfflineDebugText(){
+  var selected = latestOfflineRecords.find(function(item){
+    return String(item && item.id || '').trim() === String(currentSelectedId || '').trim();
+  }) || null;
+  var selectedSlim = slimOfflineDebugRecord(selected, selected && selected.source);
+  var selectedCharId = String(selected && selected.charId || '').trim();
+  var selectedCharName = String(selected && selected.charName || '').trim();
+  var selectedDate = selected ? getRecordDateKey(selected) : String(currentSelectedDateKey || '').trim();
+  function sameSelected(record){
+    if(!(record && typeof record === 'object')) return false;
+    var sameChar = !!(selectedCharId && String(record.charId || '').trim() === selectedCharId)
+      || !!(selectedCharName && String(record.charName || '').trim() === selectedCharName);
+    if(!sameChar) return false;
+    return !selectedDate || getRecordDateKey(record) === selectedDate;
+  }
+  var storeSame = (offlineDebugState.storeRecords || []).filter(sameSelected).map(function(item){ return slimOfflineDebugRecord(item, 'store'); });
+  var fallbackSame = (offlineDebugState.fallbackRecords || []).filter(sameSelected).map(function(item){ return slimOfflineDebugRecord(item, 'chatFallback'); });
+  var data = {
+    build:getOfflineAppBuildId(),
+    currentSelectedId:String(currentSelectedId || '').trim(),
+    focusId:readFocusId(),
+    selected:selectedSlim,
+    storeSameCharDate:storeSame,
+    chatFallbackSameCharDate:fallbackSame,
+    endPayloads:(offlineDebugState.endPayloads || []).map(slimOfflineDebugPayload),
+    forcePayloads:(offlineDebugState.forcePayloads || []).map(slimOfflineDebugPayload),
+    renderAccepted:(offlineDebugState.acceptedRecords || []).map(function(item){ return slimOfflineDebugRecord(item, item && item.source); }),
+    renderCompleted:(offlineDebugState.completedRecords || []).map(function(item){ return slimOfflineDebugRecord(item, item && item.source); }),
+    renderAll:(offlineDebugState.renderRecords || []).map(function(item){ return slimOfflineDebugRecord(item, item && item.source); })
+  };
+  return JSON.stringify(data, null, 2);
+}
+
+function refreshOfflineDebugPanel(){
+  var pre = document.getElementById('offlineDebugText');
+  if(pre) pre.textContent = buildOfflineDebugText();
+}
+
+function setOfflineDebugPanelOpen(open){
+  var panel = document.getElementById('offlineDebugPanel');
+  if(!panel) return;
+  panel.classList.toggle('show', !!open);
+  panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+  if(open) refreshOfflineDebugPanel();
+}
+
+async function copyOfflineDebugText(){
+  var text = buildOfflineDebugText();
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  }catch(err){}
+  try{
+    var area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', 'readonly');
+    area.style.position = 'fixed';
+    area.style.left = '-9999px';
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    document.body.removeChild(area);
+  }catch(err2){}
 }
 
 function isRenderableAssetSource(src){
@@ -1262,10 +1469,17 @@ function forceCompleteRenderedRecords(records, payloads){
       .map(function(value){ return String(value || '').trim(); })
       .filter(Boolean);
     var idHit = aliases.some(function(value){ return ids.indexOf(value) !== -1; });
+    var lifecycleHit = sources.some(function(payload){
+      if(!recordMatchesOfflineEndPayload(record, payload)) return false;
+      if(!isActiveOpenInviteRecordForCompletion(record) && !isCompletedInviteRecord(record)) return false;
+      var payloadAt = Number(payload && (payload.at || payload.completedAt || payload.updatedAt) || 0) || 0;
+      var createdAt = Number(record && (record.createdAt || record.updatedAt) || 0) || 0;
+      return !(payloadAt && createdAt && createdAt > payloadAt + 2 * 60 * 1000);
+    });
     var charHit = (charIds.length && charIds.indexOf(String(record.charId || '').trim()) !== -1)
       || (charNames.length && charNames.indexOf(String(record.charName || '').trim()) !== -1);
     var focusedCharHit = charHit && ids.some(function(id){ return aliases.indexOf(id) !== -1; });
-    if(idHit || (focusedCharHit && (isAcceptedInviteRecord(record) || isOngoingInviteRecord(record) || isContinuedInviteRecord(record)))){
+    if(idHit || lifecycleHit || (focusedCharHit && (isAcceptedInviteRecord(record) || isOngoingInviteRecord(record) || isContinuedInviteRecord(record)))){
       aliases.forEach(function(value){ if(value && targetIds.indexOf(value) === -1) targetIds.push(value); });
     }
   });
@@ -1855,13 +2069,14 @@ function repairSelectedActiveRecordFromCompletedSameDay(records){
 }
 
 async function getOfflineRecords(){
-  consumePendingOfflineInviteEndRequests();
   var fromStore = getOfflineRecordsFromStore();
   var map = Object.create(null);
   var hiddenIds = readHiddenOfflineRecordIds();
-  fromStore.forEach(function(item){ mergeOfflineRecordMaps(map, item); });
+  offlineDebugState.storeRecords = fromStore.map(function(item){ return Object.assign({ source:'store' }, item || {}); });
+  fromStore.forEach(function(item){ mergeOfflineRecordMaps(map, Object.assign({ source:'store' }, item || {})); });
   var fallback = await loadOfflineRecordsFromChatsFallback();
-  fallback.forEach(function(item){ mergeOfflineRecordMaps(map, item); });
+  offlineDebugState.fallbackRecords = fallback.map(function(item){ return Object.assign({ source:'chatFallback' }, item || {}); });
+  fallback.forEach(function(item){ mergeOfflineRecordMaps(map, Object.assign({ source:'chatFallback' }, item || {})); });
   var records = Object.keys(map).map(function(id){ return map[id]; }).sort(function(a, b){
     return (Number(b.updatedAt || b.createdAt || 0) || 0) - (Number(a.updatedAt || a.createdAt || 0) || 0);
   }).map(function(item){
@@ -2269,7 +2484,15 @@ function renderThreadList(records, selectedRecord){
 
 async function renderOfflineApp(){
   var renderToken = ++offlineRenderVersion;
-  var forcePayloads = consumePendingForceCompleteOfflineRecords().concat(consumePendingExitCompleteOfflineIntents());
+  var endPayloads = consumePendingOfflineInviteEndRequests();
+  lastConsumedEndRequestPayloads = endPayloads.slice();
+  var inlinePayloads = pendingInlineForceCompletePayloads.slice();
+  pendingInlineForceCompletePayloads = [];
+  var forcePayloads = consumePendingForceCompleteOfflineRecords().concat(consumePendingExitCompleteOfflineIntents()).concat(endPayloads).concat(inlinePayloads);
+  offlineDebugState.build = getOfflineAppBuildId();
+  offlineDebugState.focusId = readFocusId();
+  offlineDebugState.forcePayloads = forcePayloads.slice();
+  offlineDebugState.endPayloads = endPayloads.slice();
   var records = await getOfflineRecords();
   records = forceCompleteRenderedRecords(records, forcePayloads);
   if(renderToken !== offlineRenderVersion) return;
@@ -2290,6 +2513,11 @@ async function renderOfflineApp(){
   renderMonthCard(records, selected);
   renderFilterTabs(records);
   renderThreadList(records, selected);
+  offlineDebugState.selected = selected ? Object.assign({}, selected) : null;
+  offlineDebugState.renderRecords = latestOfflineRecords.slice();
+  offlineDebugState.acceptedRecords = latestOfflineRecords.filter(isAcceptedInviteRecord);
+  offlineDebugState.completedRecords = latestOfflineRecords.filter(isCompletedInviteRecord);
+  refreshOfflineDebugPanel();
 }
 
 function canOpenRecordInOfflineMode(item){
@@ -2449,6 +2677,21 @@ document.addEventListener('click', async function(event){
     }
     renderOfflineApp();
   }
+  var debugToggle = event.target && event.target.closest ? event.target.closest('[data-debug-toggle]') : null;
+  if(debugToggle){
+    var panel = document.getElementById('offlineDebugPanel');
+    setOfflineDebugPanelOpen(!(panel && panel.classList.contains('show')));
+    return;
+  }
+  var debugClose = event.target && event.target.closest ? event.target.closest('[data-debug-close]') : null;
+  if(debugClose){
+    setOfflineDebugPanelOpen(false);
+    return;
+  }
+  var debugCopy = event.target && event.target.closest ? event.target.closest('[data-debug-copy]') : null;
+  if(debugCopy){
+    copyOfflineDebugText();
+  }
 });
 
 document.addEventListener('pointerdown', function(event){
@@ -2519,6 +2762,7 @@ window.addEventListener('message', function(e){
   var data = e.data || {};
   if(data.type === 'OFFLINE_INVITE_FORCE_COMPLETE'){
     var payload = data.payload || {};
+    pendingInlineForceCompletePayloads.push(payload);
     var ids = normalizeOfflineInviteCompleteIds(payload);
     forceCompleteOfflineRecords(ids, payload.charId, payload.charName || payload.name);
     forceCompleteOfflineRecordsByEndPayload(payload);
@@ -2526,39 +2770,24 @@ window.addEventListener('message', function(e){
     return;
   }
   if(data.type === 'OFFLINE_INVITE_STORE_DIRTY' || data.type === 'OPEN_SHELL_NOTIFICATION'){
-    consumePendingForceCompleteOfflineRecords();
-    consumePendingExitCompleteOfflineIntents();
-    consumePendingOfflineInviteEndRequests();
     renderOfflineApp();
   }
 });
 
 window.addEventListener('storage', function(e){
   if(e && /offline_invite/i.test(String(e.key || ''))){
-    consumePendingForceCompleteOfflineRecords();
-    consumePendingExitCompleteOfflineIntents();
-    consumePendingOfflineInviteEndRequests();
     renderOfflineApp();
   }
 });
 
 document.addEventListener('visibilitychange', function(){
   if(document.visibilityState === 'visible'){
-    consumePendingForceCompleteOfflineRecords();
-    consumePendingExitCompleteOfflineIntents();
-    consumePendingOfflineInviteEndRequests();
     renderOfflineApp();
   }
 });
 
-consumePendingForceCompleteOfflineRecords();
-consumePendingExitCompleteOfflineIntents();
-consumePendingOfflineInviteEndRequests();
 renderOfflineApp();
 setInterval(function(){
-  consumePendingForceCompleteOfflineRecords();
-  consumePendingExitCompleteOfflineIntents();
-  consumePendingOfflineInviteEndRequests();
   renderOfflineApp();
 }, 20000);
 </script>

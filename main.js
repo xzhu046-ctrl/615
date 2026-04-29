@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T05:24:00Z';
+const APP_BUILD_ID = '2026-04-29T06:12:00Z';
 const APP_UPDATE_NOTES = [
-  '结束约会会带上邀约指纹，匹配同一条 fallback 副本一起变 complete。',
-  '指纹包含角色、日期、时间、地点和邀约预览，避免误伤新的邀约。',
-  '新邀约仍保持空白可输入，进行中邀约继续保留已有聊天记录。'
+  '结束约会的完成 payload 会保留邀约指纹，并在最终列表 records 上匹配聊天 fallback。',
+  'complete 只匹配同一条邀约的 id/指纹/时间地点，不会误伤同角色新 accepted 邀约。',
+  '约会 app 暂时加入可复制 debug 小窗，方便手机排查 accepted 来源。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4618,6 +4618,19 @@ function rememberOfflineInviteForceCompletePayload(ids, payload, reason){
   var data = {
     ids:safeIds,
     inviteId:String((payload && payload.inviteId) || safeIds[0] || '').trim(),
+    recordId:String((payload && payload.recordId) || safeIds[0] || '').trim(),
+    inviteRecordId:String(payload && payload.inviteRecordId || '').trim(),
+    threadId:String(payload && payload.threadId || '').trim(),
+    inviteMessageId:String(payload && payload.inviteMessageId || '').trim(),
+    replyMessageId:String(payload && payload.replyMessageId || '').trim(),
+    lifecycleKey:String(payload && (payload.lifecycleKey || payload.inviteLifecycleKey) || '').trim(),
+    inviteLifecycleKey:String(payload && (payload.inviteLifecycleKey || payload.lifecycleKey) || '').trim(),
+    dateKey:String(payload && (payload.dateKey || payload.scheduledDate) || '').trim(),
+    scheduledDate:String(payload && payload.scheduledDate || '').trim(),
+    scheduledTime:String(payload && payload.scheduledTime || '').trim(),
+    timeLabel:String(payload && payload.timeLabel || '').trim(),
+    location:String(payload && payload.location || '').trim(),
+    previewText:String(payload && payload.previewText || '').trim(),
     charId:charId,
     charName:charName,
     reason:String(reason || 'complete').trim(),
