@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-29T04:44:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T04:44:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T05:08:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T05:08:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -1070,6 +1070,8 @@ function normalizeOfflineInviteCompleteIds(payload){
   if(payload && payload.recordId) ids.push(payload.recordId);
   if(payload && payload.inviteRecordId) ids.push(payload.inviteRecordId);
   if(payload && payload.threadId) ids.push(payload.threadId);
+  if(payload && payload.inviteMessageId) ids.push(payload.inviteMessageId);
+  if(payload && payload.replyMessageId) ids.push(payload.replyMessageId);
   return ids.map(function(id){ return String(id || '').trim(); }).filter(function(id, idx, arr){
     return !!id && arr.indexOf(id) === idx;
   });
@@ -1778,6 +1780,47 @@ function dedupeCompletedInviteRecords(records){
   });
 }
 
+function getOfflineCompletionMergeKey(item){
+  var charKey = String((item && item.charId) || (item && item.charName) || '').trim();
+  var dayKey = getRecordDateKey(item);
+  var location = String(item && item.location || '').trim();
+  var time = String((item && item.scheduledTime) || (item && item.timeLabel) || '').trim();
+  if(!charKey || !dayKey || !(location || time)) return '';
+  return [charKey, dayKey, location, time].join('::');
+}
+
+function promoteActiveDuplicatesFromCompletedRecords(records){
+  var list = Array.isArray(records) ? records.slice() : [];
+  if(!list.length) return list;
+  var completedByKey = Object.create(null);
+  list.forEach(function(item){
+    if(!isCompletedInviteRecord(item)) return;
+    var key = getOfflineCompletionMergeKey(item);
+    if(!key) return;
+    var stamp = Number(item && (item.completedAt || item.updatedAt || item.createdAt) || 0) || 0;
+    if(!completedByKey[key] || stamp >= completedByKey[key].stamp){
+      completedByKey[key] = { stamp:stamp, item:item };
+    }
+  });
+  if(!Object.keys(completedByKey).length) return list;
+  return list.map(function(item){
+    if(!(item && isActiveOpenInviteRecordForCompletion(item))) return item;
+    var key = getOfflineCompletionMergeKey(item);
+    var completed = key ? completedByKey[key] : null;
+    if(!completed) return item;
+    var createdAt = Number(item.createdAt || item.updatedAt || 0) || 0;
+    if(completed.stamp && createdAt && createdAt > completed.stamp + 2 * 60 * 1000) return item;
+    forceCompleteOfflineRecords(getOfflineRecordAliasIds(item), item.charId, item.charName);
+    return normalizeCompletedOfflineRecord(Object.assign({}, item, {
+      status:'completed',
+      meetState:'complete',
+      readOnly:true,
+      completedAt:completed.stamp || Date.now(),
+      updatedAt:Math.max(Number(item.updatedAt || 0) || 0, completed.stamp || Date.now())
+    }));
+  });
+}
+
 function repairSelectedActiveRecordFromCompletedSameDay(records){
   var list = Array.isArray(records) ? records.slice() : [];
   var selectedId = String(currentSelectedId || readFocusId() || '').trim();
@@ -1826,7 +1869,7 @@ async function getOfflineRecords(){
     var safeId = String(item && item.id || '').trim();
     return !!(item && safeId && !hiddenIds[safeId] && (String(item.charId || '').trim() || String(item.charName || '').trim()));
   });
-  return dedupeCompletedInviteRecords(collapseCompletedDuplicateInviteRecords(repairSelectedActiveRecordFromCompletedSameDay(records)));
+  return dedupeCompletedInviteRecords(collapseCompletedDuplicateInviteRecords(promoteActiveDuplicatesFromCompletedRecords(repairSelectedActiveRecordFromCompletedSameDay(records))));
 }
 
 function isPendingInviteRecord(item){
@@ -2203,7 +2246,7 @@ function openRecordInOfflineMode(item){
   var safeId = String(item.id || '').trim();
   var safeCharId = String(item.charId || '').trim();
   if(!safeCharId) return false;
-  var openAsFreshInvite = false;
+  var openAsFreshInvite = isAcceptedInviteRecord(item) && !isOngoingInviteRecord(item) && !isContinuedInviteRecord(item) && !isCompletedInviteRecord(item);
   var launchToken = 'offline_record_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
   try{
     localStorage.setItem(getScopedFocusKey(), safeId);

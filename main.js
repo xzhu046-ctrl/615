@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T04:44:00Z';
+const APP_BUILD_ID = '2026-04-29T05:08:00Z';
 const APP_UPDATE_NOTES = [
-  '结束约会会写入一次性 end request，约会页只按当前邀约 id 标记 complete。',
-  '结束流程不会再让后续空结果覆盖已经拿到的完成 id。',
-  '回到约会主页时会同时消费 end request 和 complete payload，避免仍显示 accepted。'
+  '线下约会打开后会锁定同一个邀约 id，结束时只修改这条记录。',
+  '新 accepted 邀约会进入空白可输入会话，ongoing/continued 会保留原聊天记录。',
+  '同一邀约的旧 fallback accepted 版本会跟随 completed 记录合并成 complete。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
