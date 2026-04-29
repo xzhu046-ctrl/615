@@ -50,10 +50,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T13:31:00Z';
+const APP_BUILD_ID = '2026-04-29T13:38:00Z';
 const APP_UPDATE_NOTES = [
-  '朋友圈帖子头像恢复圆形。',
-  '圆形头像保留黑白 ins 边框质感。',
+  '朋友圈圆形头像改成更克制的黑白质感。',
+  '验证按钮恢复小方形。',
   '评论头像保持原样。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
