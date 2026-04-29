@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T14:52:00Z';
+const APP_BUILD_ID = '2026-04-29T15:05:00Z';
 const APP_UPDATE_NOTES = [
-  '邀约信息区竖线改为渐变样式。',
-  '去掉邀约卡片的双层边框。',
-  '保留更干净的黑白 ins 层次。'
+  '去掉邀约之间的剪刀虚线分割。',
+  '邀约卡片外框改成粗黑虚线。',
+  '去掉邀约卡片背后的灰色阴影。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
