@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-28T23:58:00Z';
+const APP_BUILD_ID = '2026-04-29T02:40:00Z';
 const APP_UPDATE_NOTES = [
-  '线下页返回约会主页面时会写 exit complete intent，避免 iOS 丢消息。',
-  '约会主页面会主动读取这条完成意图并把 active invite 标为 complete。',
-  '诊断报告新增 exitCompleteIntent，方便确认完成意图有没有落地。'
+  '结束约会按钮按下的第一瞬间就会写 complete intent，不再等 submit。',
+  '约会主页面诊断新增 childOfflineApp，可看到 focus 和 active 邀约状态。',
+  '线下子页面诊断会显示 lastCompletionPrime，确认按钮是否真的触发。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1587,6 +1587,14 @@ async function collectPhoneDebugReport(){
   }catch(errChild){
     childOfflineMode = 'child offline debug failed: ' + (errChild && errChild.message || errChild);
   }
+  var childOfflineApp = '';
+  try{
+    if(frame && frame.contentWindow && typeof frame.contentWindow.collectOfflineAppDebugReport === 'function'){
+      childOfflineApp = formatPhoneDebugValue(frame.contentWindow.collectOfflineAppDebugReport());
+    }
+  }catch(errChildApp){
+    childOfflineApp = 'child offline app debug failed: ' + (errChildApp && errChildApp.message || errChildApp);
+  }
   var logs = readBackendLogs().slice(-25).map(function(entry){
     return [
       new Date(Number(entry.ts || Date.now())).toISOString(),
@@ -1619,6 +1627,7 @@ async function collectPhoneDebugReport(){
   lines.push('caches=' + formatPhoneDebugValue(cacheLines));
   lines.push('offlineInviteSummary=' + formatPhoneDebugValue(offlineSummary));
   lines.push('childOfflineMode=' + (childOfflineMode || ''));
+  lines.push('childOfflineApp=' + (childOfflineApp || ''));
   lines.push('completedIds=' + readPhoneDebugStorageKey('offline_invite_completed_ids_v1'));
   lines.push('completedMarkers=' + readPhoneDebugStorageKey('offline_invite_completed_markers_v1'));
   lines.push('forceCompletePayload=' + readPhoneDebugStorageKey('offline_invite_force_complete_payload_v1'));

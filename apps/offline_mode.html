@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-28T23:58:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-28T23:58:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-28T23:58:00Z"></script>
-<script src="../promptManager.js?v=2026-04-28T23:58:00Z"></script>
-<script src="../accountManager.js?v=2026-04-28T23:58:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-28T23:58:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-28T23:58:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-28T23:58:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T02:40:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T02:40:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T02:40:00Z"></script>
+<script src="../promptManager.js?v=2026-04-29T02:40:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T02:40:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-29T02:40:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-29T02:40:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T02:40:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -12562,7 +12562,8 @@ function collectOfflineModeDebugReport(){
     completedIds:readOfflineModeDebugStorageKey('offline_invite_completed_ids_v1'),
     completedMarkers:readOfflineModeDebugStorageKey('offline_invite_completed_markers_v1'),
     forceCompletePayload:readOfflineModeDebugStorageKey('offline_invite_force_complete_payload_v1'),
-    exitCompleteIntent:readOfflineModeDebugStorageKey('offline_invite_exit_complete_intent_v1')
+    exitCompleteIntent:readOfflineModeDebugStorageKey('offline_invite_exit_complete_intent_v1'),
+    lastCompletionPrime:window.__offlineLastCompletionPrime || null
   };
 }
 window.collectOfflineModeDebugReport = collectOfflineModeDebugReport;
@@ -12628,6 +12629,33 @@ function openOfflineDateApp(recordId){
   }catch(e){}
   try{ location.href = 'offline.html'; }catch(err){}
 }
+function primeOfflineCompletionBeforeExit(reason, sourceOverride){
+  offlineCloseIntent = 'ended';
+  var source = sourceOverride && typeof sourceOverride === 'object' ? sourceOverride : (offlineGoodbyePhotoSnapshot || snapshotOfflineSessionState(session) || session || {});
+  var ids = forceCompleteCurrentOfflineInviteNow(reason || 'exit_press_immediate', source);
+  if(ids.length) offlineGoodbyeCompletedInviteIds = ids.slice();
+  var invite = source && source.invite && typeof source.invite === 'object' ? source.invite : {};
+  var focusId = String((ids && ids[0]) || currentOfflineInviteRecordId() || getFocusedOfflineInviteRecordId() || invite.recordId || invite.id || '').trim();
+  var charId = String((source && (source.charId || source.characterId)) || invite.charId || desiredOfflineCharId || getStoredActiveOfflineCharacterId() || (character && character.id) || '').trim();
+  var charName = String(invite.charName || (source && source.charName) || (character && (character.nickname || character.name)) || '').trim();
+  var payload = { ids:ids, inviteId:focusId, charId:charId, charName:charName, reason:String(reason || 'exit_press_immediate') };
+  writeOfflineExitCompleteIntentPayload(payload);
+  writeOfflineInviteForceCompletePayload(ids, source, reason || 'exit_press_immediate');
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.forceCompleteOfflineInviteRecordsFromPayload === 'function'){
+      var parentIds = window.parent.forceCompleteOfflineInviteRecordsFromPayload(payload, reason || 'exit_press_immediate');
+      if(Array.isArray(parentIds) && parentIds.length){
+        payload.ids = parentIds.slice();
+        offlineGoodbyeCompletedInviteIds = parentIds.slice();
+        markOfflineInviteIdsCompleted(parentIds);
+        writeOfflineExitCompleteIntentPayload(payload);
+      }
+    }
+  }catch(e){}
+  try{ window.parent.postMessage({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:payload }, '*'); }catch(e2){}
+  window.__offlineLastCompletionPrime = payload;
+  return payload;
+}
 function exitReadOnlyOfflineInviteToDateApp(event){
   if(event && typeof event.preventDefault === 'function') event.preventDefault();
   if(event && typeof event.stopPropagation === 'function') event.stopPropagation();
@@ -12679,6 +12707,14 @@ function handleReadOnlyExitControlEvent(event){
 document.addEventListener('click', handleReadOnlyExitControlEvent, true);
 document.addEventListener('pointerup', handleReadOnlyExitControlEvent, true);
 document.addEventListener('touchend', handleReadOnlyExitControlEvent, { capture:true, passive:false });
+function handleGoodbyeFinishPressIntent(event){
+  var target = event && event.target && event.target.closest ? event.target.closest('.offline-goodbye-chat-finish') : null;
+  if(!target) return;
+  primeOfflineCompletionBeforeExit('goodbye_button_press', offlineGoodbyePhotoSnapshot || session);
+}
+document.addEventListener('pointerdown', handleGoodbyeFinishPressIntent, true);
+document.addEventListener('click', handleGoodbyeFinishPressIntent, true);
+document.addEventListener('touchstart', handleGoodbyeFinishPressIntent, { capture:true, passive:true });
 function getOfflineEntryPlainText(entry){
   return String(entry && (entry.text || entry.content || '') || '').replace(/\s+/g, ' ').trim();
 }
