@@ -593,10 +593,10 @@ body{display:flex;justify-content:center}
     </div>
     <pre class="offline-debug-pre" id="offlineDebugText"></pre>
   </section>
-<script src="../assetStore.js?v=2026-04-29T06:12:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T06:12:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T06:32:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T06:32:00Z"></script>
 <script>
-var OFFLINE_APP_BUILD_ID = '2026-04-29T06:12:00Z';
+var OFFLINE_APP_BUILD_ID = '2026-04-29T06:32:00Z';
 var currentFilter = 'all';
 var currentSelectedId = '';
 var currentSelectedDateKey = '';
@@ -714,11 +714,17 @@ function buildOfflineDebugText(){
   }
   var storeSame = (offlineDebugState.storeRecords || []).filter(sameSelected).map(function(item){ return slimOfflineDebugRecord(item, 'store'); });
   var fallbackSame = (offlineDebugState.fallbackRecords || []).filter(sameSelected).map(function(item){ return slimOfflineDebugRecord(item, 'chatFallback'); });
+  var completedIdsMap = {};
+  var completedDetails = {};
+  try{ completedIdsMap = readCompletedOfflineInviteIds(); }catch(err){}
+  try{ completedDetails = readCompletedOfflineInviteDetails(); }catch(err2){}
   var data = {
     build:getOfflineAppBuildId(),
     currentSelectedId:String(currentSelectedId || '').trim(),
     focusId:readFocusId(),
     selected:selectedSlim,
+    completedIds:Object.keys(completedIdsMap || {}),
+    completedDetails:completedDetails,
     storeSameCharDate:storeSame,
     chatFallbackSameCharDate:fallbackSame,
     endPayloads:(offlineDebugState.endPayloads || []).map(slimOfflineDebugPayload),
@@ -892,6 +898,30 @@ function getOfflineRecordsFromStore(){
   if(!(store && typeof store.listRecords === 'function')) return [];
   return store.listRecords().filter(function(item){
     return item && (String(item.charId || '').trim() || String(item.charName || '').trim());
+  });
+}
+
+function adoptChatFallbackRecordsIntoStore(fallbackRecords, storeRecords){
+  var store = window.OfflineInviteStore;
+  if(!(store && typeof store.upsertRecord === 'function')) return;
+  var existingIds = Object.create(null);
+  (Array.isArray(storeRecords) ? storeRecords : []).forEach(function(item){
+    var id = String(item && item.id || '').trim();
+    if(id) existingIds[id] = true;
+  });
+  (Array.isArray(fallbackRecords) ? fallbackRecords : []).forEach(function(item){
+    if(!(item && typeof item === 'object')) return;
+    var id = String(item.id || '').trim();
+    if(!id || existingIds[id]) return;
+    if(!(isAcceptedInviteRecord(item) || isOngoingInviteRecord(item) || isContinuedInviteRecord(item) || isCompletedInviteRecord(item))) return;
+    try{
+      store.upsertRecord(Object.assign({}, item, {
+        id:id,
+        threadId:String(item.threadId || id).trim() || id,
+        updatedAt:Number(item.updatedAt || item.createdAt || Date.now()) || Date.now()
+      }));
+      existingIds[id] = true;
+    }catch(err){}
   });
 }
 
@@ -2075,6 +2105,7 @@ async function getOfflineRecords(){
   offlineDebugState.storeRecords = fromStore.map(function(item){ return Object.assign({ source:'store' }, item || {}); });
   fromStore.forEach(function(item){ mergeOfflineRecordMaps(map, Object.assign({ source:'store' }, item || {})); });
   var fallback = await loadOfflineRecordsFromChatsFallback();
+  adoptChatFallbackRecordsIntoStore(fallback, fromStore);
   offlineDebugState.fallbackRecords = fallback.map(function(item){ return Object.assign({ source:'chatFallback' }, item || {}); });
   fallback.forEach(function(item){ mergeOfflineRecordMaps(map, Object.assign({ source:'chatFallback' }, item || {})); });
   var records = Object.keys(map).map(function(id){ return map[id]; }).sort(function(a, b){

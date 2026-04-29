@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T06:12:00Z';
+const APP_BUILD_ID = '2026-04-29T06:32:00Z';
 const APP_UPDATE_NOTES = [
-  '结束约会的完成 payload 会保留邀约指纹，并在最终列表 records 上匹配聊天 fallback。',
-  'complete 只匹配同一条邀约的 id/指纹/时间地点，不会误伤同角色新 accepted 邀约。',
-  '约会 app 暂时加入可复制 debug 小窗，方便手机排查 accepted 来源。'
+  '约会列表会把 accepted 聊天 fallback 收编成同 id 的 OfflineInviteStore record。',
+  '结束约会后同一条邀约会围绕稳定 record id 进入 complete/readOnly。',
+  'debug 小窗补充 completed id/details，方便确认旧数据是否写错 id。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
