@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-29T02:56:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T02:56:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T03:06:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T03:06:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -752,6 +752,15 @@ function getExitCompleteOfflineInviteIntentKey(){
     }
   }catch(err){}
   return 'offline_invite_exit_complete_intent_v1';
+}
+
+function getActiveOfflineLaunchIntentKey(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
+      return window.parent.scopedKeyForAccount('offline_invite_active_launch_v1', window.parent.getActiveAccountId());
+    }
+  }catch(err){}
+  return 'offline_invite_active_launch_v1';
 }
 
 function readCompletedOfflineInviteIds(){
@@ -1776,6 +1785,16 @@ function repairSelectedActiveRecordFromCompletedSameDay(records){
   if(!selectedId) return list;
   var selected = list.find(function(item){ return String(item && item.id || '').trim() === selectedId; }) || null;
   if(!selected || !isActiveOpenInviteRecordForCompletion(selected)) return list;
+  var launchIntent = null;
+  try{ launchIntent = JSON.parse(localStorage.getItem(getActiveOfflineLaunchIntentKey()) || localStorage.getItem('offline_invite_active_launch_v1') || 'null'); }catch(err){ launchIntent = null; }
+  var launchHit = !!(
+    launchIntent &&
+    String(launchIntent.recordId || launchIntent.id || '').trim() === selectedId &&
+    Number(launchIntent.openedAt || 0) > Date.now() - 24 * 60 * 60 * 1000
+  );
+  var selectedDay = getRecordDateKey(selected);
+  var todayKey = toDateKey(new Date());
+  var dueSelected = !!(selectedDay && selectedDay <= todayKey);
   if(isRecordCoveredByCompletionArtifact(selected) || isRecordCoveredByCompletedMarker(selected)){
     forceCompleteOfflineRecords(getOfflineRecordAliasIds(selected), selected.charId, selected.charName);
     return list.map(function(item){
@@ -1788,8 +1807,21 @@ function repairSelectedActiveRecordFromCompletedSameDay(records){
       })) : item;
     });
   }
-  var selectedDay = getRecordDateKey(selected);
   var selectedCharKeys = [selected.charId, selected.charName].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
+  if((launchHit || dueSelected) && selectedCharKeys.length){
+    forceCompleteOfflineRecords(getOfflineRecordAliasIds(selected), selected.charId, selected.charName);
+    try{ localStorage.removeItem(getActiveOfflineLaunchIntentKey()); }catch(errRemove){}
+    try{ localStorage.removeItem('offline_invite_active_launch_v1'); }catch(errRemove2){}
+    return list.map(function(item){
+      return String(item && item.id || '').trim() === selectedId ? normalizeCompletedOfflineRecord(Object.assign({}, item, {
+        status:'completed',
+        meetState:'complete',
+        readOnly:true,
+        completedAt:Date.now(),
+        updatedAt:Date.now()
+      })) : item;
+    });
+  }
   if(!selectedDay || !selectedCharKeys.length) return list;
   var sameDayCompleted = list.some(function(item){
     if(!isCompletedInviteRecord(item)) return false;
@@ -2183,10 +2215,12 @@ function collectOfflineAppDebugReport(){
     selectedEvidence:selectedRecord ? {
       id:String(selectedRecord.id || '').trim(),
       active:isActiveOpenInviteRecordForCompletion(selectedRecord),
+      due:(function(){ var day = getRecordDateKey(selectedRecord); return !!(day && day <= toDateKey(new Date())); })(),
       goodbye:hasStoredOfflineGoodbyeChatForRecord(selectedRecord),
       archive:hasEndedOfflineArchiveForRecord(selectedRecord),
       session:hasEndedOfflineSessionForRecord(selectedRecord),
-      marker:isRecordCoveredByCompletedMarker(selectedRecord)
+      marker:isRecordCoveredByCompletedMarker(selectedRecord),
+      activeLaunchRaw:(function(){ try{ return localStorage.getItem('offline_invite_active_launch_v1') || ''; }catch(err){ return '[read failed]'; } })()
     } : null,
     lastConsumedForceCompletePayloads:Array.isArray(lastConsumedForceCompletePayloads) ? lastConsumedForceCompletePayloads.slice(-5) : [],
     exitCompleteIntentRaw:(function(){ try{ return localStorage.getItem('offline_invite_exit_complete_intent_v1') || ''; }catch(err){ return '[read failed]'; } })(),
@@ -2244,6 +2278,11 @@ function openRecordInOfflineMode(item){
   try{
     localStorage.setItem(getScopedFocusKey(), safeId);
   }catch(err){}
+  try{
+    var launchIntent = { recordId:safeId, charId:safeCharId, charName:String(item.charName || '').trim(), openedAt:Date.now() };
+    localStorage.setItem(getActiveOfflineLaunchIntentKey(), JSON.stringify(launchIntent));
+    localStorage.setItem('offline_invite_active_launch_v1', JSON.stringify(launchIntent));
+  }catch(errLaunch){}
   var readOnly = isCompletedInviteRecord(item);
   var openPayload = {
     app:'offline_mode',
