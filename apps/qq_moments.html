@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-29T10:12:00Z"></script>
-<script src="../assetStore.js?v=2026-04-29T10:12:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T10:12:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T10:12:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T10:20:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T10:20:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T10:20:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T10:20:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -31,6 +31,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 .captcha-prompt{position:relative;height:96px;border:2px solid #111;background:#111;color:#fff;padding:14px 18px;display:flex;flex-direction:column;justify-content:center;box-shadow:inset 0 0 0 1px rgba(255,255,255,.22)}
 .captcha-kicker{font-family:var(--fontd);font-size:18px;font-weight:900;line-height:1;letter-spacing:.04em}
 .captcha-target{align-self:flex-start;margin-top:8px;border:none;background:transparent;color:#fff;font-family:'ZCOOL KuaiLe','Nunito',sans-serif;font-size:31px;font-weight:900;line-height:1;letter-spacing:.06em;cursor:pointer;text-decoration-line:underline;text-decoration-style:dashed;text-decoration-thickness:4px;text-underline-offset:7px;text-decoration-color:rgba(255,255,255,.72)}
+.captcha-target:focus{outline:none;text-decoration-style:solid}
 .captcha-sub{display:none}
 .captcha-grid{display:flex;gap:7px;margin-top:10px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .captcha-grid::-webkit-scrollbar{display:none}
@@ -49,9 +50,9 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 .captcha-verify{min-width:108px;height:38px;border:2px solid #111;background:#111;color:#fff;box-shadow:2px 2px 0 rgba(0,0,0,.38);font-family:var(--fontd);font-size:15px;font-weight:900;letter-spacing:.08em;cursor:pointer}
 .captcha-verify:active{transform:translate(1px,1px);box-shadow:1px 1px 0 rgba(0,0,0,.38)}
 .moment-action-toolbar{position:absolute;right:12px;bottom:10px;z-index:20;display:flex;gap:6px}
-.tiny-btn{border:2px solid rgba(8,8,8,.9);background:rgba(255,255,255,.88);border-radius:999px;box-shadow:2px 2px 0 rgba(8,8,8,.88);width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.tiny-btn{border:2px solid #111;background:#fff;border-radius:999px;box-shadow:2px 2px 0 rgba(8,8,8,.88);width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .tiny-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #0a0a0a}
-.tiny-btn img{width:16px;height:16px;object-fit:contain;display:block;filter:brightness(0)}
+.tiny-btn img{width:16px;height:16px;object-fit:contain;display:block;filter:brightness(0) contrast(1.4)}
 .tiny-btn.plus-btn{background:#fff;color:#111;border-color:#111;font-family:var(--fontd);font-size:22px;font-weight:900;line-height:1;box-shadow:2px 2px 0 rgba(8,8,8,.88)}
 .tiny-btn.delete-active{background:#111}
 .tiny-btn.delete-active img{filter:brightness(0) invert(1)}
@@ -203,7 +204,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
       <div class="moments-captcha">
         <div class="captcha-prompt">
           <div class="captcha-kicker">请选择所有的</div>
-          <button class="captcha-target" id="momentHeaderTarget" type="button" onclick="openHeaderTextEditor('target')">小猫</button>
+          <div class="captcha-target" id="momentHeaderTarget" contenteditable="true" role="textbox" aria-label="验证目标" spellcheck="false" oninput="saveHeaderTargetInline()" onblur="saveHeaderTargetInline()" onkeydown="handleHeaderTargetKey(event)" onpaste="pasteHeaderTargetPlainText(event)">小猫</div>
           <div class="captcha-sub">选择完毕后，请点击验证</div>
           <div class="moment-action-toolbar">
             <button class="tiny-btn plus-btn" type="button" aria-label="发布朋友圈" title="发布朋友圈" onclick="openPublishMode(event)">+</button>
@@ -1369,6 +1370,40 @@ function openHeaderTextEditor(target){
   if(overlay) overlay.classList.add('open');
 }
 
+function readHeaderTargetInline(){
+  const node = document.getElementById('momentHeaderTarget');
+  return node ? String(node.textContent || '').replace(/\s+/g, ' ').trim() : '';
+}
+
+function saveHeaderTargetInline(){
+  const next = readHeaderTargetInline();
+  if(next) lsSet(STORAGE_HEADER_TEXT_LEFT, next);
+}
+
+function handleHeaderTargetKey(evt){
+  if(!evt) return;
+  if(evt.key === 'Enter'){
+    evt.preventDefault();
+    saveHeaderTargetInline();
+    const node = document.getElementById('momentHeaderTarget');
+    if(node && typeof node.blur === 'function') node.blur();
+  }
+}
+
+function pasteHeaderTargetPlainText(evt){
+  if(!evt) return;
+  evt.preventDefault();
+  const text = evt.clipboardData ? String(evt.clipboardData.getData('text/plain') || '') : '';
+  if(!text) return;
+  if(document.queryCommandSupported && document.queryCommandSupported('insertText')){
+    document.execCommand('insertText', false, text);
+  }else{
+    const node = document.getElementById('momentHeaderTarget');
+    if(node) node.textContent += text;
+  }
+  saveHeaderTargetInline();
+}
+
 function openSignatureEditor(){
   openHeaderTextEditor('left');
 }
@@ -1825,7 +1860,7 @@ async function renderHero(){
   });
   tileSrcs.forEach(revokeObjectUrlLater);
   const targetText = document.getElementById('momentHeaderTarget');
-  if(targetText) targetText.textContent = lsGet(STORAGE_HEADER_TEXT_LEFT) || DEFAULT_HEADER_TEXT_LEFT;
+  if(targetText && targetText !== document.activeElement) targetText.textContent = lsGet(STORAGE_HEADER_TEXT_LEFT) || DEFAULT_HEADER_TEXT_LEFT;
   renderFeed();
 }
 
