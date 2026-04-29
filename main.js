@@ -50,7 +50,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T11:18:00Z';
+const APP_BUILD_ID = '2026-04-29T11:25:00Z';
 const APP_UPDATE_NOTES = [
   '朋友圈顶栏改成黑白拼贴相框样式。',
   '顶栏三处照片支持上传并使用大图存储。',
