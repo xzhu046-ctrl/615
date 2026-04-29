@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T14:24:00Z';
+const APP_BUILD_ID = '2026-04-29T14:34:00Z';
 const APP_UPDATE_NOTES = [
-  '约会标题改成粗虚线下划线样式。',
-  '邀约状态改成红色盖章样式。',
-  '优化邀约书签质感和剪刀分割层级。'
+  '约会标题重新居中并贴近虚线下划线。',
+  '邀约卡片回到黑白高级 ins 风。',
+  '收敛书签装饰，保留更干净的立体感。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
