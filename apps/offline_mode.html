@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-29T08:20:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T08:20:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T08:20:00Z"></script>
-<script src="../promptManager.js?v=2026-04-29T08:20:00Z"></script>
-<script src="../accountManager.js?v=2026-04-29T08:20:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-29T08:20:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-29T08:20:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T08:20:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T08:34:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T08:34:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T08:34:00Z"></script>
+<script src="../promptManager.js?v=2026-04-29T08:34:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T08:34:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-29T08:34:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-29T08:34:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T08:34:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -783,6 +783,17 @@ box-shadow:0 0 0 2px rgba(255,255,255,.97),6px 6px 0 rgba(17,17,17,.94);padding:
               <button class="offline-setting-btn primary" id="offlineBeautyApplyBtn" type="button">应用</button>
               <button class="offline-setting-btn" id="offlineBeautyResetBtn" type="button">恢复默认</button>
               <button class="offline-setting-btn" id="offlineBeautyClearBtn" type="button">清空</button>
+            </div>
+            <div class="offline-setting-head" style="margin-top:6px">
+              <div class="offline-setting-head-main">
+                <div class="offline-setting-label">思维链提示词</div>
+                <div class="offline-setting-note spaced" id="offlineThoughtPromptHint">留空时使用默认；填入后会替代默认 thought_chain 提示词。</div>
+              </div>
+            </div>
+            <textarea class="offline-setting-textarea offline-beauty-textarea" id="offlineThoughtPromptInput" spellcheck="false"></textarea>
+            <div class="offline-setting-actions">
+              <button class="offline-setting-btn primary" id="offlineThoughtPromptApplyBtn" type="button">保存提示词</button>
+              <button class="offline-setting-btn" id="offlineThoughtPromptResetBtn" type="button">恢复默认</button>
             </div>
           </div>
         </section>
@@ -4571,6 +4582,7 @@ function buildOfflineDrawerDraft(){
     memoryReadCount: ui.memoryReadCount,
     memoryMode: loadOfflineSharedMemoryModeSync(),
     sideStoryType: ui.sideStoryType,
+    thoughtPrompt: String(character && character.offlineThoughtPrompt || '').trim(),
     backgroundUrl: String(character && character.offlineBackgroundUrl || '').trim(),
     cardBackgroundUrl: String(character && character.offlineCardBackgroundUrl || '').trim()
   };
@@ -4608,6 +4620,7 @@ function applyOfflineDrawerDraftToCharacter(){
   character.offlineSummaryAuto = !!draft.summaryAuto;
   character.offlineMemoryReadCount = Math.max(1, Math.min(12, Number(draft.memoryReadCount) || 4));
   character.offlineSideStoryType = String(draft.sideStoryType || 'future');
+  character.offlineThoughtPrompt = String(draft.thoughtPrompt || '').trim();
   character.offlineBackgroundUrl = String(draft.backgroundUrl || '').trim();
   character.offlineCardBackgroundUrl = String(draft.cardBackgroundUrl || '').trim();
 }
@@ -4967,6 +4980,61 @@ function selectOfflineBeautyPart(partId){
   offlineBeautyActivePart = getOfflineBeautyParts().some(function(part){ return part.id === partId; }) ? partId : 'avatar';
   renderOfflineBeautyControls();
 }
+function getOfflineThoughtDefaultPrompt(){
+  return [
+    'thought_chain 是角色显式写出来的思路面板，必须完整返回 subtext_perception、emotional_reaction、action_strategy 三个字段。',
+    '它必须严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt 和用户刚刚线下说的话。',
+    'subtext_perception：写 char 对 user 话里潜台词、动作、距离变化或现场氛围的第一判断。',
+    'emotional_reaction：写 char 当下真实的情绪反应，可以嘴硬、犹豫、偏心、动摇、克制或失控，但必须贴人设。',
+    'action_strategy：写 char 接下来准备怎么回应、靠近、退让、试探、转移或推进，必须能自然指导正文。',
+    '每一项都要短，不要长篇分析，不要复述正文，不要超过两小句。',
+    'subtext_perception / emotional_reaction / action_strategy 都控制在 18-55 个中文字符左右。',
+    'thought_chain 的三个值必须始终使用简体中文，就算当前剧情原文是别的语言也一样。'
+  ].join('\n');
+}
+function getOfflineThoughtCustomPrompt(){
+  if(offlineDrawerDraft && Object.prototype.hasOwnProperty.call(offlineDrawerDraft, 'thoughtPrompt')){
+    return String(offlineDrawerDraft.thoughtPrompt || '').trim();
+  }
+  return String(character && character.offlineThoughtPrompt || '').trim();
+}
+function getOfflineActiveThoughtPrompt(){
+  return getOfflineThoughtCustomPrompt() || getOfflineThoughtDefaultPrompt();
+}
+function getOfflineThoughtPromptBlock(options){
+  options = options || {};
+  var custom = getOfflineThoughtCustomPrompt();
+  var formatNote = options.stream
+    ? '但仍必须保留三行字段名和可解析格式'
+    : '但仍必须保留 JSON 字段名和可解析格式';
+  return (custom
+    ? '用户自定义 thought_chain 提示词（最高优先级，替代默认 thought_chain 内容规则；' + formatNote + '）：\n' + clipOfflinePromptText(custom, 1600)
+    : '默认 thought_chain 提示词：\n' + getOfflineThoughtDefaultPrompt());
+}
+function syncOfflineThoughtPromptControls(){
+  var input = document.getElementById('offlineThoughtPromptInput');
+  var hint = document.getElementById('offlineThoughtPromptHint');
+  if(!input) return;
+  var custom = getOfflineThoughtCustomPrompt();
+  if(document.activeElement !== input) input.value = custom || getOfflineThoughtDefaultPrompt();
+  if(hint) hint.textContent = custom ? '正在使用自定义提示词；它会替代默认 thought_chain 提示词。' : '当前显示默认提示词；编辑后保存即可替代默认。';
+}
+function syncOfflineThoughtPromptDraftFromInput(){
+  var input = document.getElementById('offlineThoughtPromptInput');
+  if(!input) return;
+  var value = String(input.value || '').trim();
+  getOfflineDrawerDraft().thoughtPrompt = value === getOfflineThoughtDefaultPrompt().trim() ? '' : value;
+  syncOfflineThoughtPromptControls();
+}
+function resetOfflineThoughtPromptToDefault(options){
+  getOfflineDrawerDraft().thoughtPrompt = '';
+  if(character) character.offlineThoughtPrompt = '';
+  syncOfflineThoughtPromptControls();
+  if(!(options && options.silent)){
+    persistOfflineCharacterSettings();
+    toast('思维链提示词已恢复默认');
+  }
+}
 function offlineSharedMemoryModeKey(charId){
   return scopedKey('memory_mode_' + String(charId || '').trim());
 }
@@ -5323,6 +5391,7 @@ function syncOfflineDrawerControls(){
   if(range) range.textContent = '正文 ' + String(draft.bodyMinChars) + ' - ' + String(draft.bodyMaxChars) + ' 字 · 段落 ' + String(draft.paragraphMinCount) + ' - ' + String(draft.paragraphMaxCount) + ' 段 · 心声 ' + String(draft.asideMinChars) + ' - ' + String(draft.asideMaxChars) + ' 字';
   syncOfflineDrawerFieldWidths();
   renderOfflineBeautyControls();
+  syncOfflineThoughtPromptControls();
   applyOfflineBeautyCss();
   renderOfflineStageSummaryList();
 }
@@ -5367,6 +5436,9 @@ function bindOfflineDrawerControls(){
   var beautyApplyBtn = document.getElementById('offlineBeautyApplyBtn');
   var beautyResetBtn = document.getElementById('offlineBeautyResetBtn');
   var beautyClearBtn = document.getElementById('offlineBeautyClearBtn');
+  var thoughtPromptInput = document.getElementById('offlineThoughtPromptInput');
+  var thoughtPromptApplyBtn = document.getElementById('offlineThoughtPromptApplyBtn');
+  var thoughtPromptResetBtn = document.getElementById('offlineThoughtPromptResetBtn');
   function bindNumericCommit(input, onCommit){
     if(!input) return;
     function commit(){
@@ -5687,6 +5759,26 @@ function bindOfflineDrawerControls(){
       getOfflineBeautyCssMap()[offlineBeautyActivePart] = '';
       renderOfflineBeautyControls();
       persistOfflineBeautyCssMap();
+    });
+  }
+  if(thoughtPromptInput){
+    thoughtPromptInput.addEventListener('input', function(){
+      getOfflineDrawerDraft().thoughtPrompt = String(thoughtPromptInput.value || '').trim();
+      syncOfflineThoughtPromptControls();
+    });
+  }
+  if(thoughtPromptApplyBtn){
+    thoughtPromptApplyBtn.addEventListener('click', function(){
+      syncOfflineThoughtPromptDraftFromInput();
+      persistOfflineDrawerSettings({ silent:true });
+      toast(getOfflineThoughtCustomPrompt() ? '思维链提示词已保存' : '思维链提示词已恢复默认');
+    });
+  }
+  if(thoughtPromptResetBtn){
+    thoughtPromptResetBtn.addEventListener('click', function(){
+      resetOfflineThoughtPromptToDefault();
+      offlineDrawerDraft = buildOfflineDrawerDraft();
+      syncOfflineDrawerControls();
     });
   }
   if(saveBtn){
@@ -7467,8 +7559,7 @@ function buildOfflineThoughtChainStreamSystemPrompt(options){
     'subtext_perception: ...',
     'emotional_reaction: ...',
     'action_strategy: ...',
-    '三行都必须是简体中文。',
-    '每一项都要短，不要长篇分析，不要复述正文，不要超过两小句。',
+    getOfflineThoughtPromptBlock({ stream:true }),
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '用户名字：' + resolveUserName(),
     '用户 persona：' + (userPersona || '未提供'),
@@ -9227,10 +9318,7 @@ function buildOfflineThoughtSystemPrompt(options){
     '你现在只负责生成线下模式这一幕的 thought_chain。',
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."}}',
     '不要正文，不要 status_card，不要 title，不要 quote，不要解释。',
-    'thought_chain 必须严格参考角色 persona、世界书、记忆总结、最近线上聊天、最近线下正文、scenario、system prompt。',
-    '每一项都要短，不要长篇分析，不要复述正文，不要超过两小句。',
-    'subtext_perception / emotional_reaction / action_strategy 都控制在 18-55 个中文字符左右。',
-    'thought_chain 的三个值必须始终使用简体中文，就算当前剧情原文是别的语言也一样。',
+    getOfflineThoughtPromptBlock(),
     '角色：' + ((character && (character.nickname || character.name)) || 'Char'),
     '用户名字：' + resolveUserName(),
     '用户 persona：' + (userPersona || '未提供'),
@@ -9403,7 +9491,7 @@ function buildOfflineSystemPrompt(options){
     '必须保持沉浸感，像真人面对面相处，不要说自己是 AI。',
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["..."],"heart":"...","artifact_label":"...","artifact_html":"...","artifact_after_paragraph":0,"scene_summary":"...","status_card":' + statusJsonShape + '}',
     'text 必须写成足量的线下面对面正文，细节感更强，不要写成短回复，不要写成一小段，也不要写成小说章节标题。',
-    '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
+    getOfflineThoughtPromptBlock(),
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个简体中文字符左右，不要太正经，但必须贴人设。',
     'quote 是顶部 char 语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个简体中文字符左右。',
     '这一轮必须同轮生成 status_card，不要让前端之后单独补写番外。',
@@ -9493,7 +9581,7 @@ function buildOfflineOpeningChunkSystemPrompt(){
     '硬性语言分流规则：thought_chain、幕摘要、阶段记忆总结始终使用简体中文；title、quote 和正文旁白固定简体中文；只有 asides 和引号里的台词严格使用当前语言设置。',
     '不要把整段正文旁白切成外语；title、quote 和外层旁白也绝对不许变成外语。',
     '灰色旁白心声、引号台词和正文小物件里的可见文字，必须严格使用当前语言设置的原文，不要偷回中文，不要乱跳成英文。',
-    '在正文前先完整生成 thought_chain，它是角色显式写出来的思路面板，不要省略任何字段。',
+    getOfflineThoughtPromptBlock(),
     'title 是这一幕的标题，要搞笑、有网感、带点吐槽和坏笑感，像朋友圈配文或热评式小标题，6-16 个简体中文字符，不要太正经，但必须贴人设。',
     'quote 是顶部 char 语录，要可爱、圆润、像奶酪体小标签里会出现的那种语气，但必须贴人设，12-30 个简体中文字符。',
     '这一轮先专注首幕正文、title、quote、asides 和 thought_chain，不要生成番外侧页。',
@@ -10528,6 +10616,7 @@ function buildOfflineEmergencyOpeningSystemPrompt(){
     '这是超轻量应急模式，只保留最必要上下文，目标是先把第一幕稳定写出来。',
     '只返回 JSON：{"thought_chain":{"subtext_perception":"...","emotional_reaction":"...","action_strategy":"..."},"title":"...","quote":"...","text":"...","asides":["..."]}。',
     '不要代码块，不要解释，不要 status_card。',
+    getOfflineThoughtPromptBlock(),
     'title、quote、正文旁白必须是简体中文；只有 asides 和引号里的角色台词跟随当前语言设置。',
     offlinePerspectiveRuleLine(getOfflineStoryPrefs().perspective),
     '正文长度尽量写在 ' + Math.max(220, storyPrefs.minChars - 120) + ' 到 ' + getOfflineSoftMaxChars() + ' 个字符之间。',
