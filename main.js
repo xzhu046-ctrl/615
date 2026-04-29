@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T04:18:00Z';
+const APP_BUILD_ID = '2026-04-29T04:30:00Z';
 const APP_UPDATE_NOTES = [
-  '约会页会把邀约 id 同步放进线下页 URL，不再依赖异步存储。',
-  '线下初始化会优先使用 URL 里的当前邀约 id。',
-  '结束约会继续只完成这条明确邀约。'
+  '线下退出事件如果缺少 id，会只在这一次使用当前 focus 邀约补全。',
+  '补全后的 payload 会带 ids、inviteId 和 recordId 再执行 complete。',
+  '这个兜底只用于实时退出，不会扫描同角色新邀约。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4567,6 +4567,15 @@ function normalizeOfflineInviteCompleteIds(payload){
   return ids.map(function(id){ return String(id || '').trim(); }).filter(Boolean);
 }
 
+function getFocusedOfflineInviteIdForCompletion(){
+  try{
+    return String(localStorage.getItem(scopedKeyForAccount(OFFLINE_INVITE_FOCUS_KEY, getActiveAccountId())) || localStorage.getItem(OFFLINE_INVITE_FOCUS_KEY) || '').trim();
+  }catch(err){
+    try{ return String(localStorage.getItem(OFFLINE_INVITE_FOCUS_KEY) || '').trim(); }catch(err2){}
+  }
+  return '';
+}
+
 function rememberCompletedOfflineInviteIds(ids){
   var map = Object.create(null);
   var details = Object.create(null);
@@ -8415,6 +8424,17 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='OFFLINE_EXITED'){
     if(payload && payload.forceComplete){
+      var exitIds = normalizeOfflineInviteCompleteIds(payload);
+      if(!exitIds.length){
+        var focusedExitInviteId = getFocusedOfflineInviteIdForCompletion();
+        if(focusedExitInviteId){
+          payload = Object.assign({}, payload, {
+            ids:[focusedExitInviteId],
+            inviteId:String(payload.inviteId || focusedExitInviteId).trim(),
+            recordId:String(payload.recordId || focusedExitInviteId).trim()
+          });
+        }
+      }
       var exitedForcedIds = forceCompleteOfflineInviteRecordsFromPayload(payload, 'offline_exited');
       postToChat({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:Object.assign({}, payload || {}, { ids:exitedForcedIds, reason:'offline_exited' }) });
     }
