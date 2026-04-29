@@ -593,10 +593,10 @@ body{display:flex;justify-content:center}
     </div>
     <pre class="offline-debug-pre" id="offlineDebugText"></pre>
   </section>
-<script src="../assetStore.js?v=2026-04-29T06:55:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T06:55:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T07:12:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T07:12:00Z"></script>
 <script>
-var OFFLINE_APP_BUILD_ID = '2026-04-29T06:55:00Z';
+var OFFLINE_APP_BUILD_ID = '2026-04-29T07:12:00Z';
 var currentFilter = 'all';
 var currentSelectedId = '';
 var currentSelectedDateKey = '';
@@ -613,6 +613,7 @@ var offlineDebugState = {
   focusId:'',
   selected:null,
   storeRecords:[],
+  adoptedRecords:[],
   fallbackRecords:[],
   adoptAttempts:[],
   forcePayloads:[],
@@ -714,6 +715,7 @@ function buildOfflineDebugText(){
     return !selectedDate || getRecordDateKey(record) === selectedDate;
   }
   var storeSame = (offlineDebugState.storeRecords || []).filter(sameSelected).map(function(item){ return slimOfflineDebugRecord(item, 'store'); });
+  var adoptedSame = (offlineDebugState.adoptedRecords || []).filter(sameSelected).map(function(item){ return slimOfflineDebugRecord(item, 'phoneStorageAdopted'); });
   var fallbackSame = (offlineDebugState.fallbackRecords || []).filter(sameSelected).map(function(item){ return slimOfflineDebugRecord(item, 'chatFallback'); });
   var completedIdsMap = {};
   var completedDetails = {};
@@ -728,6 +730,7 @@ function buildOfflineDebugText(){
     completedDetails:completedDetails,
     adoptAttempts:offlineDebugState.adoptAttempts || [],
     storeSameCharDate:storeSame,
+    adoptedSameCharDate:adoptedSame,
     chatFallbackSameCharDate:fallbackSame,
     endPayloads:(offlineDebugState.endPayloads || []).map(slimOfflineDebugPayload),
     forcePayloads:(offlineDebugState.forcePayloads || []).map(slimOfflineDebugPayload),
@@ -903,26 +906,88 @@ function getOfflineRecordsFromStore(){
   });
 }
 
-function adoptChatFallbackRecordsIntoStore(fallbackRecords, storeRecords){
-  var store = window.OfflineInviteStore;
-  var attempts = [];
-  if(!(store && typeof store.upsertRecord === 'function')){
-    offlineDebugState.adoptAttempts = [{ ok:false, reason:'OfflineInviteStore.upsertRecord unavailable' }];
-    return;
+function getOfflinePhoneStorage(){
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage) return window.parent.PhoneStorage;
+  }catch(err){}
+  try{
+    if(window.PhoneStorage) return window.PhoneStorage;
+  }catch(err2){}
+  return null;
+}
+
+function adoptedOfflineInviteRecordsKey(){
+  return getScopedOfflineStorageKey('offline_invite_adopted_records_v1');
+}
+
+async function loadAdoptedOfflineInviteRecords(){
+  var storage = getOfflinePhoneStorage();
+  var state = null;
+  if(storage && typeof storage.getJson === 'function'){
+    try{ state = await storage.getJson(adoptedOfflineInviteRecordsKey()); }catch(err){}
+    if(!state){
+      try{ state = await storage.getJson('offline_invite_adopted_records_v1'); }catch(err2){}
+    }
   }
+  if(!state){
+    try{ state = JSON.parse(localStorage.getItem(adoptedOfflineInviteRecordsKey()) || localStorage.getItem('offline_invite_adopted_records_v1') || 'null'); }catch(err3){ state = null; }
+  }
+  var records = Array.isArray(state && state.records) ? state.records : (Array.isArray(state) ? state : []);
+  return records.map(function(item){
+    try{
+      return window.OfflineInviteStore && typeof window.OfflineInviteStore.normalizeRecord === 'function'
+        ? window.OfflineInviteStore.normalizeRecord(item)
+        : item;
+    }catch(err4){
+      return item;
+    }
+  }).filter(function(item){
+    return item && String(item.id || '').trim();
+  });
+}
+
+async function saveAdoptedOfflineInviteRecords(records){
+  var list = (Array.isArray(records) ? records : []).filter(function(item){
+    return item && String(item.id || '').trim();
+  });
+  var state = { version:1, records:list };
+  var storage = getOfflinePhoneStorage();
+  var wrote = false;
+  if(storage && typeof storage.putJson === 'function'){
+    try{
+      await storage.putJson(adoptedOfflineInviteRecordsKey(), state);
+      await storage.putJson('offline_invite_adopted_records_v1', state);
+      wrote = true;
+    }catch(err){}
+  }
+  if(!wrote){
+    try{
+      localStorage.setItem(adoptedOfflineInviteRecordsKey(), JSON.stringify(state));
+      localStorage.setItem('offline_invite_adopted_records_v1', JSON.stringify(state));
+      wrote = true;
+    }catch(err2){}
+  }
+  return wrote;
+}
+
+async function adoptChatFallbackRecordsIntoStore(fallbackRecords, storeRecords, adoptedRecords){
+  var store = window.OfflineInviteStore;
+  var adopted = Array.isArray(adoptedRecords) ? adoptedRecords.slice() : [];
+  var attempts = [];
   var existingIds = Object.create(null);
-  (Array.isArray(storeRecords) ? storeRecords : []).forEach(function(item){
+  (Array.isArray(storeRecords) ? storeRecords : []).concat(adopted).forEach(function(item){
     var id = String(item && item.id || '').trim();
     if(id) existingIds[id] = true;
   });
-  (Array.isArray(fallbackRecords) ? fallbackRecords : []).forEach(function(item){
-    if(!(item && typeof item === 'object')) return;
+  for(var i = 0; i < (Array.isArray(fallbackRecords) ? fallbackRecords : []).length; i += 1){
+    var item = fallbackRecords[i];
+    if(!(item && typeof item === 'object')) continue;
     var id = String(item.id || '').trim();
-    if(!id || existingIds[id]) return;
+    if(!id || existingIds[id]) continue;
     var statusOk = isAcceptedInviteRecord(item) || isOngoingInviteRecord(item) || isContinuedInviteRecord(item) || isCompletedInviteRecord(item);
     if(!statusOk){
       attempts.push({ id:id, ok:false, reason:'status_not_adoptable', status:String(item.status || ''), meetState:String(item.meetState || '') });
-      return;
+      continue;
     }
     var record = Object.assign({}, item, {
       id:id,
@@ -930,10 +995,10 @@ function adoptChatFallbackRecordsIntoStore(fallbackRecords, storeRecords){
       updatedAt:Number(item.updatedAt || item.createdAt || Date.now()) || Date.now()
     });
     try{
-      store.upsertRecord(record);
+      if(store && typeof store.upsertRecord === 'function') store.upsertRecord(record);
       var verified = true;
-      try{ verified = !(typeof store.getRecord === 'function') || !!store.getRecord(id); }catch(verifyErr){ verified = false; }
-      if(!verified && typeof store.readStateSync === 'function' && typeof store.saveState === 'function'){
+      try{ verified = !!(store && typeof store.getRecord === 'function' && store.getRecord(id)); }catch(verifyErr){ verified = false; }
+      if(!verified && store && typeof store.readStateSync === 'function' && typeof store.saveState === 'function'){
         var state = store.readStateSync();
         state.records = Array.isArray(state.records) ? state.records : [];
         state.records = state.records.filter(function(existing){ return String(existing && existing.id || '').trim() !== id; });
@@ -941,13 +1006,21 @@ function adoptChatFallbackRecordsIntoStore(fallbackRecords, storeRecords){
         store.saveState(state);
         try{ verified = !(typeof store.getRecord === 'function') || !!store.getRecord(id); }catch(verifyErr2){ verified = false; }
       }
+      var adoptedWrite = false;
+      if(!verified){
+        adopted = adopted.filter(function(existing){ return String(existing && existing.id || '').trim() !== id; });
+        adopted.unshift(record);
+        adopted = adopted.slice(0, 240);
+        adoptedWrite = await saveAdoptedOfflineInviteRecords(adopted);
+      }
       existingIds[id] = true;
-      attempts.push({ id:id, ok:!!verified, method:verified ? 'store' : 'unverified', charId:String(record.charId || ''), status:String(record.status || ''), meetState:String(record.meetState || '') });
+      attempts.push({ id:id, ok:!!(verified || adoptedWrite), method:verified ? 'store' : (adoptedWrite ? 'phoneStorageAdopted' : 'unverified'), charId:String(record.charId || ''), status:String(record.status || ''), meetState:String(record.meetState || '') });
     }catch(err){
       attempts.push({ id:id, ok:false, reason:'exception', message:String(err && (err.message || err) || '') });
     }
-  });
+  }
   offlineDebugState.adoptAttempts = attempts;
+  return adopted;
 }
 
 function getHiddenOfflineRecordKey(){
@@ -2128,19 +2201,22 @@ async function getOfflineRecords(){
   var map = Object.create(null);
   var hiddenIds = readHiddenOfflineRecordIds();
   var fallback = await loadOfflineRecordsFromChatsFallback();
-  adoptChatFallbackRecordsIntoStore(fallback, fromStore);
+  var adoptedRecords = await loadAdoptedOfflineInviteRecords();
+  adoptedRecords = await adoptChatFallbackRecordsIntoStore(fallback, fromStore, adoptedRecords) || adoptedRecords;
   fromStore = getOfflineRecordsFromStore();
   offlineDebugState.storeRecords = fromStore.map(function(item){ return Object.assign({ source:'store' }, item || {}); });
+  offlineDebugState.adoptedRecords = adoptedRecords.map(function(item){ return Object.assign({ source:'phoneStorageAdopted' }, item || {}); });
   fromStore.forEach(function(item){ mergeOfflineRecordMaps(map, Object.assign({ source:'store' }, item || {})); });
+  adoptedRecords.forEach(function(item){ mergeOfflineRecordMaps(map, Object.assign({ source:'phoneStorageAdopted' }, item || {})); });
   offlineDebugState.fallbackRecords = fallback.map(function(item){ return Object.assign({ source:'chatFallback' }, item || {}); });
-  var storeIds = fromStore.reduce(function(out, item){
+  var storeIds = fromStore.concat(adoptedRecords).reduce(function(out, item){
     var id = String(item && item.id || '').trim();
     if(id) out[id] = true;
     return out;
   }, Object.create(null));
   fallback.forEach(function(item){
     var fallbackId = String(item && item.id || '').trim();
-    if(fallbackId && storeIds[fallbackId]) return;
+    if(fallbackId && storeIds[fallbackId] && !isCompletedInviteRecord(item) && !isOngoingInviteRecord(item) && !isContinuedInviteRecord(item)) return;
     mergeOfflineRecordMaps(map, Object.assign({ source:'chatFallback' }, item || {}));
   });
   var records = Object.keys(map).map(function(id){ return map[id]; }).sort(function(a, b){

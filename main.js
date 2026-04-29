@@ -50,10 +50,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T06:55:00Z';
+const APP_BUILD_ID = '2026-04-29T07:12:00Z';
 const APP_UPDATE_NOTES = [
-  '聊天 fallback 收编进 store 后会立即 verify，失败就改用直接 saveState 修复。',
-  'debug 小窗会显示 adoptAttempts，能看到收编是否成功以及失败原因。',
+  'OfflineInviteStore 写入失败时，约会小 record 会改存到 PhoneStorage adopted 索引。',
+  '约会列表会把 PhoneStorage adopted records 当作稳定来源合并，不再只靠 chat fallback。',
   'debug 小窗补充 completed id/details，方便确认旧数据是否写错 id。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
