@@ -593,10 +593,10 @@ body{display:flex;justify-content:center}
     </div>
     <pre class="offline-debug-pre" id="offlineDebugText"></pre>
   </section>
-<script src="../assetStore.js?v=2026-04-29T06:40:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T06:40:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T06:55:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T06:55:00Z"></script>
 <script>
-var OFFLINE_APP_BUILD_ID = '2026-04-29T06:40:00Z';
+var OFFLINE_APP_BUILD_ID = '2026-04-29T06:55:00Z';
 var currentFilter = 'all';
 var currentSelectedId = '';
 var currentSelectedDateKey = '';
@@ -614,6 +614,7 @@ var offlineDebugState = {
   selected:null,
   storeRecords:[],
   fallbackRecords:[],
+  adoptAttempts:[],
   forcePayloads:[],
   endPayloads:[],
   renderRecords:[],
@@ -725,6 +726,7 @@ function buildOfflineDebugText(){
     selected:selectedSlim,
     completedIds:Object.keys(completedIdsMap || {}),
     completedDetails:completedDetails,
+    adoptAttempts:offlineDebugState.adoptAttempts || [],
     storeSameCharDate:storeSame,
     chatFallbackSameCharDate:fallbackSame,
     endPayloads:(offlineDebugState.endPayloads || []).map(slimOfflineDebugPayload),
@@ -903,7 +905,11 @@ function getOfflineRecordsFromStore(){
 
 function adoptChatFallbackRecordsIntoStore(fallbackRecords, storeRecords){
   var store = window.OfflineInviteStore;
-  if(!(store && typeof store.upsertRecord === 'function')) return;
+  var attempts = [];
+  if(!(store && typeof store.upsertRecord === 'function')){
+    offlineDebugState.adoptAttempts = [{ ok:false, reason:'OfflineInviteStore.upsertRecord unavailable' }];
+    return;
+  }
   var existingIds = Object.create(null);
   (Array.isArray(storeRecords) ? storeRecords : []).forEach(function(item){
     var id = String(item && item.id || '').trim();
@@ -913,16 +919,35 @@ function adoptChatFallbackRecordsIntoStore(fallbackRecords, storeRecords){
     if(!(item && typeof item === 'object')) return;
     var id = String(item.id || '').trim();
     if(!id || existingIds[id]) return;
-    if(!(isAcceptedInviteRecord(item) || isOngoingInviteRecord(item) || isContinuedInviteRecord(item) || isCompletedInviteRecord(item))) return;
+    var statusOk = isAcceptedInviteRecord(item) || isOngoingInviteRecord(item) || isContinuedInviteRecord(item) || isCompletedInviteRecord(item);
+    if(!statusOk){
+      attempts.push({ id:id, ok:false, reason:'status_not_adoptable', status:String(item.status || ''), meetState:String(item.meetState || '') });
+      return;
+    }
+    var record = Object.assign({}, item, {
+      id:id,
+      threadId:String(item.threadId || id).trim() || id,
+      updatedAt:Number(item.updatedAt || item.createdAt || Date.now()) || Date.now()
+    });
     try{
-      store.upsertRecord(Object.assign({}, item, {
-        id:id,
-        threadId:String(item.threadId || id).trim() || id,
-        updatedAt:Number(item.updatedAt || item.createdAt || Date.now()) || Date.now()
-      }));
+      store.upsertRecord(record);
+      var verified = true;
+      try{ verified = !(typeof store.getRecord === 'function') || !!store.getRecord(id); }catch(verifyErr){ verified = false; }
+      if(!verified && typeof store.readStateSync === 'function' && typeof store.saveState === 'function'){
+        var state = store.readStateSync();
+        state.records = Array.isArray(state.records) ? state.records : [];
+        state.records = state.records.filter(function(existing){ return String(existing && existing.id || '').trim() !== id; });
+        state.records.unshift(record);
+        store.saveState(state);
+        try{ verified = !(typeof store.getRecord === 'function') || !!store.getRecord(id); }catch(verifyErr2){ verified = false; }
+      }
       existingIds[id] = true;
-    }catch(err){}
+      attempts.push({ id:id, ok:!!verified, method:verified ? 'store' : 'unverified', charId:String(record.charId || ''), status:String(record.status || ''), meetState:String(record.meetState || '') });
+    }catch(err){
+      attempts.push({ id:id, ok:false, reason:'exception', message:String(err && (err.message || err) || '') });
+    }
   });
+  offlineDebugState.adoptAttempts = attempts;
 }
 
 function getHiddenOfflineRecordKey(){
