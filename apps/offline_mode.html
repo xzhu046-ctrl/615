@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-29T07:12:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T07:12:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T07:12:00Z"></script>
-<script src="../promptManager.js?v=2026-04-29T07:12:00Z"></script>
-<script src="../accountManager.js?v=2026-04-29T07:12:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-29T07:12:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-29T07:12:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T07:12:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T07:28:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T07:28:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T07:28:00Z"></script>
+<script src="../promptManager.js?v=2026-04-29T07:28:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T07:28:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-29T07:28:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-29T07:28:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T07:28:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1765,6 +1765,8 @@ async function completeCurrentOfflineInviteEverywhere(reason, sourceOverride){
   applyOfflineInviteMeetPatchToSession('complete', patch);
   var storeCompletedIds = completeOfflineInviteRecordsInStore(ids, patch.charId || (source && source.charId) || (invite && invite.charId), source);
   storeCompletedIds.forEach(function(id){ pushUniqueOfflineInviteId(ids, id); });
+  var adoptedCompletedIds = await patchAdoptedOfflineInviteRecords(ids, patch, source).catch(function(){ return []; });
+  adoptedCompletedIds.forEach(function(id){ pushUniqueOfflineInviteId(ids, id); });
   if(store && typeof store.upsertRecord === 'function'){
     var primaryId = String(ids[0] || '').trim();
     ids.forEach(function(id){
@@ -12472,6 +12474,73 @@ function markOfflineInviteCompletedMarkerAliases(charId, names){
   });
   if(!Object.keys(used).length && safeCharId) markOfflineInviteCompletedMarker(safeCharId, '');
 }
+function adoptedOfflineInviteRecordsKey(){
+  return scopedKey('offline_invite_adopted_records_v1');
+}
+async function loadAdoptedOfflineInviteRecords(){
+  var state = await loadOfflineJsonRecord(adoptedOfflineInviteRecordsKey()).catch(function(){ return null; });
+  if(!state) state = await loadOfflineJsonRecord('offline_invite_adopted_records_v1').catch(function(){ return null; });
+  var records = Array.isArray(state && state.records) ? state.records : (Array.isArray(state) ? state : []);
+  return records.filter(function(item){ return item && String(item.id || '').trim(); });
+}
+async function saveAdoptedOfflineInviteRecords(records){
+  var list = (Array.isArray(records) ? records : []).filter(function(item){ return item && String(item.id || '').trim(); });
+  var state = { version:1, records:list };
+  await saveArchiveJsonToStorage(adoptedOfflineInviteRecordsKey(), state).catch(function(){ return false; });
+  await saveArchiveJsonToStorage('offline_invite_adopted_records_v1', state).catch(function(){ return false; });
+  try{ localStorage.setItem(adoptedOfflineInviteRecordsKey(), JSON.stringify(state)); }catch(e){}
+  try{ localStorage.setItem('offline_invite_adopted_records_v1', JSON.stringify(state)); }catch(e2){}
+  return list;
+}
+function adoptedRecordAliases(record){
+  return [
+    record && record.id,
+    record && record.recordId,
+    record && record.inviteRecordId,
+    record && record.threadId,
+    record && record.inviteMessageId,
+    record && record.replyMessageId
+  ].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
+}
+async function patchAdoptedOfflineInviteRecords(ids, patch, sourceOverride){
+  var targets = (Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
+  var source = sourceOverride && typeof sourceOverride === 'object' ? sourceOverride : session;
+  var invite = source && source.invite && typeof source.invite === 'object' ? source.invite : {};
+  ['recordId','inviteRecordId','id','threadId','inviteMessageId','replyMessageId'].forEach(function(key){
+    pushUniqueOfflineInviteId(targets, invite && invite[key]);
+  });
+  pushUniqueOfflineInviteId(targets, activeOfflineInviteRecordId);
+  pushUniqueOfflineInviteId(targets, currentOfflineInviteRecordId());
+  pushUniqueOfflineInviteId(targets, getFocusedOfflineInviteRecordId());
+  if(!targets.length) return [];
+  var targetMap = targets.reduce(function(map, id){ map[id] = true; return map; }, Object.create(null));
+  var records = await loadAdoptedOfflineInviteRecords();
+  var touched = [];
+  var now = Date.now();
+  records = records.map(function(record){
+    var aliases = adoptedRecordAliases(record);
+    var hit = aliases.some(function(id){ return !!targetMap[id]; });
+    if(!hit) return record;
+    var id = String(record.id || aliases[0] || '').trim();
+    if(id) touched.push(id);
+    return Object.assign({}, record, patch || {}, { id:id, updatedAt:Number((patch && patch.updatedAt) || now) || now });
+  });
+  targets.forEach(function(id){
+    if(!id || touched.indexOf(id) !== -1) return;
+    var record = buildCurrentOfflineInviteRecord(id, patch || {}, source);
+    records.unshift(record);
+    touched.push(id);
+  });
+  var seen = Object.create(null);
+  records = records.filter(function(record){
+    var id = String(record && record.id || '').trim();
+    if(!id || seen[id]) return false;
+    seen[id] = true;
+    return true;
+  }).slice(0, 240);
+  await saveAdoptedOfflineInviteRecords(records);
+  return touched;
+}
 function writeOfflineInviteForceCompletePayload(ids, source, reason){
   var list = (Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean);
   pushUniqueOfflineInviteId(list, activeOfflineInviteRecordId);
@@ -12561,6 +12630,7 @@ function forceCompleteCurrentOfflineInviteNow(reason, sourceOverride){
     character && character.name,
     character && character.nickname
   ]);
+  patchAdoptedOfflineInviteRecords(ids, { status:'completed', meetState:'complete', readOnly:true, completedAt:Date.now(), updatedAt:Date.now() }, source).catch(function(){ return []; });
   writeOfflineInviteForceCompletePayload(ids, source, reason || 'complete_now');
   writeOfflineInviteEndRequest(ids, source, reason || 'complete_now');
   var payload = Object.assign(getOfflineEndLifecyclePayload(source), { ids:ids, inviteId:String(ids[0] || invite.recordId || invite.id || '').trim(), recordId:String(ids[0] || invite.recordId || invite.inviteRecordId || invite.id || activeOfflineInviteRecordId || '').trim(), charId:charId, charName:charName, reason:String(reason || 'complete_now') });
