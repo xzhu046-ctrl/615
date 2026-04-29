@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T04:06:00Z';
+const APP_BUILD_ID = '2026-04-29T04:18:00Z';
 const APP_UPDATE_NOTES = [
-  '线下页会锁定当前打开的邀约 id，结束时不再丢失目标。',
-  'complete 消息补齐 recordId 等别名，主页面能准确 patch 对应邀约。',
-  '继续避免同角色新邀约被旧完成记录误伤。'
+  '约会页会把邀约 id 同步放进线下页 URL，不再依赖异步存储。',
+  '线下初始化会优先使用 URL 里的当前邀约 id。',
+  '结束约会继续只完成这条明确邀约。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -410,6 +410,7 @@ function ensureOfflineMiniLauncher(){
     pendingOpenOfflineNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
     pendingOpenOfflineLaunchMode = 'resume';
     pendingOpenOfflineLaunchToken = '';
+    pendingOpenOfflineRecordId = '';
     replaceApp('offline_mode');
   });
   document.body.appendChild(btn);
@@ -7810,6 +7811,7 @@ let pendingOpenOfflineNonce='';
 let pendingOpenOfflineLaunchMode='';
 let pendingOpenOfflineLaunchToken='';
 let pendingOpenOfflineLaunchRecord=null;
+let pendingOpenOfflineRecordId='';
 let appTransitionPromise = Promise.resolve();
 
 function clonePendingOfflineLaunchRecord(record){
@@ -7952,6 +7954,9 @@ function buildAppFrameUrl(src){
       }
       if(pendingOpenOfflineLaunchToken){
         url.searchParams.set('__offlineLaunchToken', String(pendingOpenOfflineLaunchToken || '').trim());
+      }
+      if(pendingOpenOfflineRecordId){
+        url.searchParams.set('__offlineRecordId', String(pendingOpenOfflineRecordId || '').trim());
       }
     }
     return url.toString();
@@ -8177,6 +8182,7 @@ function forceOpenOfflineMode(payload){
   pendingOpenOfflineLaunchMode = String(payload.launchMode || (launchRecord && launchRecord.mode) || launchPayload.launchMode || launchPayload.mode || '').trim();
   pendingOpenOfflineLaunchToken = String(payload.launchToken || (launchRecord && launchRecord.launchToken) || launchPayload.launchToken || '').trim();
   pendingOpenOfflineLaunchRecord = launchRecord;
+  pendingOpenOfflineRecordId = String(payload.inviteId || payload.recordId || (launchPayload && (launchPayload.recordId || launchPayload.inviteRecordId || launchPayload.id)) || '').trim();
   persistPendingOfflineLaunchRecord(pendingOpenOfflineLaunchRecord, pendingOpenOfflineCharId, pendingOpenOfflineLaunchToken);
   forceOpenApp('offline_mode');
 }
@@ -8392,6 +8398,7 @@ window.addEventListener('message',(e)=>{
       pendingOpenOfflineLaunchMode = String(payload.launchMode || (launchRecord && launchRecord.mode) || launchPayload.launchMode || launchPayload.mode || '').trim();
       pendingOpenOfflineLaunchToken = String(payload.launchToken || (launchRecord && launchRecord.launchToken) || launchPayload.launchToken || '').trim();
       pendingOpenOfflineLaunchRecord = launchRecord;
+      pendingOpenOfflineRecordId = String(payload.inviteId || payload.recordId || (launchPayload && (launchPayload.recordId || launchPayload.inviteRecordId || launchPayload.id)) || '').trim();
       persistPendingOfflineLaunchRecord(pendingOpenOfflineLaunchRecord, pendingOpenOfflineCharId, pendingOpenOfflineLaunchToken);
       if(payload.forceOpen){
         forceOpenApp('offline_mode');
