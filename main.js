@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T03:06:00Z';
+const APP_BUILD_ID = '2026-04-29T03:16:00Z';
 const APP_UPDATE_NOTES = [
-  '约会主页面会把已到期的 selected active 邀约直接补成 complete。',
-  '点进线下会记录 active launch，回来后可按 selectedId 自动完成。',
-  '诊断里的 selectedEvidence 会显示 due 和 activeLaunchRaw。'
+  '约会主页面会在选中记录之后再执行 complete 补全，修正 selectedId 空跑。',
+  '已到期的 selected active 邀约会立刻写入 completed ids 和 complete 状态。',
+  '诊断继续显示 selectedEvidence，方便确认 due 补全是否命中。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
