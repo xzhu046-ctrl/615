@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-29T02:40:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T02:40:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T02:56:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T02:56:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -924,8 +924,71 @@ function hasEndedOfflineArchiveForRecord(item){
   });
 }
 
+function getOfflineSessionKeyCandidatesForRecord(item){
+  var keys = [];
+  getOfflineRecordAliasIds(item).forEach(function(id){
+    var raw = 'offline_meet_session_record_' + id;
+    keys.push(getScopedOfflineStorageKey(raw));
+    keys.push(raw);
+  });
+  var charId = String(item && item.charId || '').trim();
+  if(charId){
+    var charRaw = 'offline_meet_session_' + charId;
+    keys.push(getScopedOfflineStorageKey(charRaw));
+    keys.push(charRaw);
+  }
+  return keys.filter(function(key, idx, arr){
+    return !!key && arr.indexOf(key) === idx;
+  });
+}
+
+function offlineSessionMatchesRecord(session, item){
+  if(!(session && typeof session === 'object') || !(item && typeof item === 'object')) return false;
+  var itemCharId = String(item.charId || '').trim();
+  var itemCharName = String(item.charName || '').trim();
+  var sessionCharId = String(session.charId || session.characterId || session.invite && session.invite.charId || '').trim();
+  var sessionCharName = String(session.charName || session.invite && session.invite.charName || '').trim();
+  var sameChar = !!(itemCharId && sessionCharId && itemCharId === sessionCharId)
+    || !!(itemCharName && sessionCharName && itemCharName === sessionCharName);
+  var itemIds = getOfflineRecordAliasIds(item);
+  var sessionIds = normalizeOfflineInviteCompleteIds(session).concat(normalizeOfflineInviteCompleteIds(session.invite || {}));
+  var sameInvite = sessionIds.some(function(id){ return itemIds.indexOf(id) !== -1; });
+  return sameInvite || sameChar;
+}
+
+function isEndedOfflineSessionSnapshot(session, item){
+  if(!offlineSessionMatchesRecord(session, item)) return false;
+  var invite = session && session.invite && typeof session.invite === 'object' ? session.invite : {};
+  var status = String(session.status || invite.status || '').trim();
+  var meetState = String(session.meetState || invite.meetState || '').trim();
+  var hasGoodbye = !!(session.goodbyeChat || invite.goodbyeChat);
+  var ended = status === 'completed'
+    || meetState === 'complete'
+    || meetState === 'completed'
+    || !!session.readOnly
+    || !!invite.readOnly
+    || !!session.completedAt
+    || !!invite.completedAt
+    || hasGoodbye;
+  if(!ended) return false;
+  var itemDay = getRecordDateKey(item);
+  var stamp = Number(session.completedAt || invite.completedAt || session.updatedAt || session.createdAt || invite.updatedAt || invite.createdAt || 0) || 0;
+  if(!itemDay || !stamp) return true;
+  return itemDay === toDateKey(new Date(stamp));
+}
+
+function hasEndedOfflineSessionForRecord(item){
+  if(!(item && typeof item === 'object') || !isActiveOpenInviteRecordForCompletion(item)) return false;
+  var keys = getOfflineSessionKeyCandidatesForRecord(item);
+  for(var i = 0; i < keys.length; i += 1){
+    var payload = readOfflineLocalJson(keys[i]);
+    if(isEndedOfflineSessionSnapshot(payload, item)) return true;
+  }
+  return false;
+}
+
 function isRecordCoveredByCompletionArtifact(item){
-  return hasStoredOfflineGoodbyeChatForRecord(item) || hasEndedOfflineArchiveForRecord(item);
+  return hasStoredOfflineGoodbyeChatForRecord(item) || hasEndedOfflineArchiveForRecord(item) || hasEndedOfflineSessionForRecord(item);
 }
 
 function isRecordCoveredByCompletedMarker(item){
@@ -1707,6 +1770,46 @@ function dedupeCompletedInviteRecords(records){
   });
 }
 
+function repairSelectedActiveRecordFromCompletedSameDay(records){
+  var list = Array.isArray(records) ? records.slice() : [];
+  var selectedId = String(currentSelectedId || readFocusId() || '').trim();
+  if(!selectedId) return list;
+  var selected = list.find(function(item){ return String(item && item.id || '').trim() === selectedId; }) || null;
+  if(!selected || !isActiveOpenInviteRecordForCompletion(selected)) return list;
+  if(isRecordCoveredByCompletionArtifact(selected) || isRecordCoveredByCompletedMarker(selected)){
+    forceCompleteOfflineRecords(getOfflineRecordAliasIds(selected), selected.charId, selected.charName);
+    return list.map(function(item){
+      return String(item && item.id || '').trim() === selectedId ? normalizeCompletedOfflineRecord(Object.assign({}, item, {
+        status:'completed',
+        meetState:'complete',
+        readOnly:true,
+        completedAt:Date.now(),
+        updatedAt:Date.now()
+      })) : item;
+    });
+  }
+  var selectedDay = getRecordDateKey(selected);
+  var selectedCharKeys = [selected.charId, selected.charName].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
+  if(!selectedDay || !selectedCharKeys.length) return list;
+  var sameDayCompleted = list.some(function(item){
+    if(!isCompletedInviteRecord(item)) return false;
+    if(getRecordDateKey(item) !== selectedDay) return false;
+    var itemKeys = [item.charId, item.charName].map(function(value){ return String(value || '').trim(); }).filter(Boolean);
+    return selectedCharKeys.some(function(key){ return itemKeys.indexOf(key) !== -1; });
+  });
+  if(!sameDayCompleted) return list;
+  forceCompleteOfflineRecords(getOfflineRecordAliasIds(selected), selected.charId, selected.charName);
+  return list.map(function(item){
+    return String(item && item.id || '').trim() === selectedId ? normalizeCompletedOfflineRecord(Object.assign({}, item, {
+      status:'completed',
+      meetState:'complete',
+      readOnly:true,
+      completedAt:Date.now(),
+      updatedAt:Date.now()
+    })) : item;
+  });
+}
+
 async function getOfflineRecords(){
   var fromStore = getOfflineRecordsFromStore();
   var map = Object.create(null);
@@ -1722,7 +1825,7 @@ async function getOfflineRecords(){
     var safeId = String(item && item.id || '').trim();
     return !!(item && safeId && !hiddenIds[safeId] && (String(item.charId || '').trim() || String(item.charName || '').trim()));
   });
-  return dedupeCompletedInviteRecords(collapseCompletedDuplicateInviteRecords(records));
+  return dedupeCompletedInviteRecords(collapseCompletedDuplicateInviteRecords(repairSelectedActiveRecordFromCompletedSameDay(records)));
 }
 
 function isPendingInviteRecord(item){
@@ -2063,6 +2166,7 @@ function renderThreadList(records, selectedRecord){
 
 function collectOfflineAppDebugReport(){
   var records = Array.isArray(latestOfflineRecords) ? latestOfflineRecords : [];
+  var selectedRecord = records.find(function(item){ return String(item && item.id || '').trim() === String(currentSelectedId || '').trim(); }) || null;
   var counts = records.reduce(function(map, item){
     var status = String(item && item.status || 'pending').trim() || 'pending';
     var meetState = String(item && item.meetState || '').trim();
@@ -2076,6 +2180,14 @@ function collectOfflineAppDebugReport(){
     selectedDate:String(currentSelectedDateKey || '').trim(),
     filter:String(currentFilter || '').trim(),
     counts:counts,
+    selectedEvidence:selectedRecord ? {
+      id:String(selectedRecord.id || '').trim(),
+      active:isActiveOpenInviteRecordForCompletion(selectedRecord),
+      goodbye:hasStoredOfflineGoodbyeChatForRecord(selectedRecord),
+      archive:hasEndedOfflineArchiveForRecord(selectedRecord),
+      session:hasEndedOfflineSessionForRecord(selectedRecord),
+      marker:isRecordCoveredByCompletedMarker(selectedRecord)
+    } : null,
     lastConsumedForceCompletePayloads:Array.isArray(lastConsumedForceCompletePayloads) ? lastConsumedForceCompletePayloads.slice(-5) : [],
     exitCompleteIntentRaw:(function(){ try{ return localStorage.getItem('offline_invite_exit_complete_intent_v1') || ''; }catch(err){ return '[read failed]'; } })(),
     completedIdsRaw:(function(){ try{ return localStorage.getItem('offline_invite_completed_ids_v1') || ''; }catch(err){ return '[read failed]'; } })(),
