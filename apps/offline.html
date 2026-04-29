@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-29T03:40:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T03:40:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T03:52:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T03:52:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -736,6 +736,15 @@ function getCompletedOfflineInviteMarkersKey(){
   return 'offline_invite_completed_markers_v1';
 }
 
+function getCompletedOfflineInviteDetailsKey(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
+      return window.parent.scopedKeyForAccount('offline_invite_completed_details_v1', window.parent.getActiveAccountId());
+    }
+  }catch(err){}
+  return 'offline_invite_completed_details_v1';
+}
+
 function getForceCompleteOfflineInvitePayloadKey(){
   try{
     if(window.parent && window.parent !== window && typeof window.parent.scopedKeyForAccount === 'function' && typeof window.parent.getActiveAccountId === 'function'){
@@ -787,11 +796,40 @@ function writeCompletedOfflineInviteIds(map){
 
 function markCompletedOfflineInviteIds(ids){
   var map = readCompletedOfflineInviteIds();
+  var details = readCompletedOfflineInviteDetails();
+  var now = Date.now();
   (Array.isArray(ids) ? ids : []).forEach(function(id){
     var safe = String(id || '').trim();
-    if(safe) map[safe] = true;
+    if(safe){
+      map[safe] = true;
+      details[safe] = { at:now, reason:'complete' };
+    }
   });
-  return writeCompletedOfflineInviteIds(map);
+  var out = writeCompletedOfflineInviteIds(map);
+  writeCompletedOfflineInviteDetails(details);
+  return out;
+}
+
+function readCompletedOfflineInviteDetails(){
+  var out = Object.create(null);
+  [getCompletedOfflineInviteDetailsKey(), 'offline_invite_completed_details_v1'].forEach(function(key){
+    try{
+      var parsed = JSON.parse(localStorage.getItem(key) || '{}');
+      if(parsed && typeof parsed === 'object'){
+        Object.keys(parsed).forEach(function(id){
+          var safe = String(id || '').trim();
+          if(safe) out[safe] = parsed[id];
+        });
+      }
+    }catch(err){}
+  });
+  return out;
+}
+
+function writeCompletedOfflineInviteDetails(details){
+  var safe = details && typeof details === 'object' ? details : {};
+  try{ localStorage.setItem(getCompletedOfflineInviteDetailsKey(), JSON.stringify(safe)); }catch(err){}
+  try{ localStorage.setItem('offline_invite_completed_details_v1', JSON.stringify(safe)); }catch(err2){}
 }
 
 function readCompletedOfflineInviteMarkers(){
@@ -1030,12 +1068,15 @@ function normalizeOfflineInviteCompleteIds(payload){
 
 function isRecordForceCompleted(item){
   var completed = readCompletedOfflineInviteIds();
+  var details = readCompletedOfflineInviteDetails();
+  var detailHit = false;
   var idHit = getOfflineRecordAliasIds(item).some(function(value){
     var safe = String(value || '').trim();
+    if(safe && details[safe]) detailHit = true;
     return !!(safe && completed[safe]);
   });
   var artifactHit = isRecordCoveredByCompletionArtifact(item);
-  if(idHit && (!isActiveOpenInviteRecordForCompletion(item) || artifactHit)) return true;
+  if(idHit && (!isActiveOpenInviteRecordForCompletion(item) || artifactHit || detailHit)) return true;
   return isRecordCoveredByCompletedMarker(item) || artifactHit;
 }
 

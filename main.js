@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T03:40:00Z';
+const APP_BUILD_ID = '2026-04-29T03:52:00Z';
 const APP_UPDATE_NOTES = [
-  '约会 complete 只认明确结束的邀约 id。',
-  '新邀约不会再因为同角色、同日期或当前 focus 被误标结束。',
-  '保留结束约会后的只读和分类同步。'
+  '结束约会会写入可信完成明细，complete 又能正常命中。',
+  '旧 completed ids 污染不会再把新邀约误标结束。',
+  '线下页不再按同角色 active 记录批量完成。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4563,19 +4563,35 @@ function normalizeOfflineInviteCompleteIds(payload){
 
 function rememberCompletedOfflineInviteIds(ids){
   var map = Object.create(null);
+  var details = Object.create(null);
   try{
     JSON.parse(localStorage.getItem(scopedKeyForAccount('offline_invite_completed_ids_v1', getActiveAccountId())) || localStorage.getItem('offline_invite_completed_ids_v1') || '[]').forEach(function(id){
       var safe = String(id || '').trim();
       if(safe) map[safe] = true;
     });
   }catch(err){}
+  try{
+    var parsed = JSON.parse(localStorage.getItem(scopedKeyForAccount('offline_invite_completed_details_v1', getActiveAccountId())) || localStorage.getItem('offline_invite_completed_details_v1') || '{}');
+    if(parsed && typeof parsed === 'object'){
+      Object.keys(parsed).forEach(function(id){
+        var safe = String(id || '').trim();
+        if(safe) details[safe] = parsed[id];
+      });
+    }
+  }catch(err){}
+  var now = Date.now();
   (Array.isArray(ids) ? ids : []).forEach(function(id){
     var safe = String(id || '').trim();
-    if(safe) map[safe] = true;
+    if(safe){
+      map[safe] = true;
+      details[safe] = { at:now, reason:'force_complete' };
+    }
   });
   var out = Object.keys(map);
   try{ localStorage.setItem(scopedKeyForAccount('offline_invite_completed_ids_v1', getActiveAccountId()), JSON.stringify(out)); }catch(err2){}
   try{ localStorage.setItem('offline_invite_completed_ids_v1', JSON.stringify(out)); }catch(err3){}
+  try{ localStorage.setItem(scopedKeyForAccount('offline_invite_completed_details_v1', getActiveAccountId()), JSON.stringify(details)); }catch(err4){}
+  try{ localStorage.setItem('offline_invite_completed_details_v1', JSON.stringify(details)); }catch(err5){}
   return out;
 }
 
