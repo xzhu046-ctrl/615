@@ -593,10 +593,10 @@ body{display:flex;justify-content:center}
     </div>
     <pre class="offline-debug-pre" id="offlineDebugText"></pre>
   </section>
-<script src="../assetStore.js?v=2026-04-29T06:32:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T06:32:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T06:40:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T06:40:00Z"></script>
 <script>
-var OFFLINE_APP_BUILD_ID = '2026-04-29T06:32:00Z';
+var OFFLINE_APP_BUILD_ID = '2026-04-29T06:40:00Z';
 var currentFilter = 'all';
 var currentSelectedId = '';
 var currentSelectedDateKey = '';
@@ -2102,12 +2102,22 @@ async function getOfflineRecords(){
   var fromStore = getOfflineRecordsFromStore();
   var map = Object.create(null);
   var hiddenIds = readHiddenOfflineRecordIds();
-  offlineDebugState.storeRecords = fromStore.map(function(item){ return Object.assign({ source:'store' }, item || {}); });
-  fromStore.forEach(function(item){ mergeOfflineRecordMaps(map, Object.assign({ source:'store' }, item || {})); });
   var fallback = await loadOfflineRecordsFromChatsFallback();
   adoptChatFallbackRecordsIntoStore(fallback, fromStore);
+  fromStore = getOfflineRecordsFromStore();
+  offlineDebugState.storeRecords = fromStore.map(function(item){ return Object.assign({ source:'store' }, item || {}); });
+  fromStore.forEach(function(item){ mergeOfflineRecordMaps(map, Object.assign({ source:'store' }, item || {})); });
   offlineDebugState.fallbackRecords = fallback.map(function(item){ return Object.assign({ source:'chatFallback' }, item || {}); });
-  fallback.forEach(function(item){ mergeOfflineRecordMaps(map, Object.assign({ source:'chatFallback' }, item || {})); });
+  var storeIds = fromStore.reduce(function(out, item){
+    var id = String(item && item.id || '').trim();
+    if(id) out[id] = true;
+    return out;
+  }, Object.create(null));
+  fallback.forEach(function(item){
+    var fallbackId = String(item && item.id || '').trim();
+    if(fallbackId && storeIds[fallbackId]) return;
+    mergeOfflineRecordMaps(map, Object.assign({ source:'chatFallback' }, item || {}));
+  });
   var records = Object.keys(map).map(function(id){ return map[id]; }).sort(function(a, b){
     return (Number(b.updatedAt || b.createdAt || 0) || 0) - (Number(a.updatedAt || a.createdAt || 0) || 0);
   }).map(function(item){

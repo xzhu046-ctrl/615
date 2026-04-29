@@ -50,10 +50,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T06:32:00Z';
+const APP_BUILD_ID = '2026-04-29T06:40:00Z';
 const APP_UPDATE_NOTES = [
   '约会列表会把 accepted 聊天 fallback 收编成同 id 的 OfflineInviteStore record。',
-  '结束约会后同一条邀约会围绕稳定 record id 进入 complete/readOnly。',
+  '收编后会立刻重读 store，debug 第一屏就能看到稳定 record 来源。',
   'debug 小窗补充 completed id/details，方便确认旧数据是否写错 id。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
