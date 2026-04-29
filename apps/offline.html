@@ -526,8 +526,8 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-29T05:08:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T05:08:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T05:24:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T05:24:00Z"></script>
 <script>
 var currentFilter = 'all';
 var currentSelectedId = '';
@@ -1187,6 +1187,7 @@ function consumePendingForceCompleteOfflineRecords(){
     var payload = item && item.value && typeof item.value === 'object' ? item.value : {};
     var ids = normalizeOfflineInviteCompleteIds(payload);
     if(ids.length) forceCompleteOfflineRecords(ids, payload.charId, payload.charName || payload.name);
+    forceCompleteOfflineRecordsByEndPayload(payload);
     try{ localStorage.removeItem(item.key); }catch(err){}
   });
   lastConsumedForceCompletePayloads = payloads.map(function(item){
@@ -1949,6 +1950,64 @@ function getRecordMeta(item){
   ].filter(Boolean).join(' · ');
 }
 
+function getOfflineInviteLifecycleKey(item){
+  if(!(item && typeof item === 'object')) return '';
+  var charKey = String(item.charId || item.charName || '').trim();
+  var dateKey = getRecordDateKey(item);
+  if(!charKey || !dateKey) return '';
+  var time = String(item.scheduledTime || item.timeLabel || '').trim();
+  var location = String(item.location || '').trim();
+  var preview = String(getRecordPreview(item) || item.previewText || '').trim().slice(0, 120);
+  return [charKey, dateKey, time, location, preview].join('::');
+}
+
+function recordMatchesOfflineEndPayload(record, payload){
+  if(!(record && typeof record === 'object') || !(payload && typeof payload === 'object')) return false;
+  var ids = normalizeOfflineInviteCompleteIds(payload);
+  var aliases = getOfflineRecordAliasIds(record);
+  if(ids.some(function(id){ return aliases.indexOf(id) !== -1; })) return true;
+  var payloadKey = String(payload.lifecycleKey || payload.inviteLifecycleKey || '').trim();
+  if(payloadKey && payloadKey === getOfflineInviteLifecycleKey(record)) return true;
+  var charId = String(payload.charId || '').trim();
+  var charName = String(payload.charName || payload.name || '').trim();
+  var sameChar = !!(charId && String(record.charId || '').trim() === charId)
+    || !!(charName && String(record.charName || '').trim() === charName);
+  if(!sameChar) return false;
+  var payloadDate = String(payload.dateKey || payload.scheduledDate || '').trim();
+  var recordDate = getRecordDateKey(record);
+  if(payloadDate && recordDate && payloadDate !== recordDate) return false;
+  var recordTime = String(record.scheduledTime || record.timeLabel || '').trim();
+  var payloadTime = String(payload.scheduledTime || payload.timeLabel || '').trim();
+  var recordLocation = String(record.location || '').trim();
+  var payloadLocation = String(payload.location || '').trim();
+  var recordPreview = String(getRecordPreview(record) || record.previewText || '').trim();
+  var payloadPreview = String(payload.previewText || '').trim();
+  if(payloadTime && recordTime && payloadTime === recordTime) return true;
+  if(payloadLocation && recordLocation && payloadLocation === recordLocation) return true;
+  if(payloadPreview && recordPreview && payloadPreview === recordPreview) return true;
+  return false;
+}
+
+function forceCompleteOfflineRecordsByEndPayload(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var targetIds = [];
+  var sources = [];
+  try{
+    if(Array.isArray(latestOfflineRecords)) sources = sources.concat(latestOfflineRecords);
+    var store = window.OfflineInviteStore || null;
+    if(store && typeof store.listRecords === 'function') sources = sources.concat(store.listRecords());
+  }catch(err){}
+  sources.forEach(function(record){
+    if(!(record && isActiveOpenInviteRecordForCompletion(record))) return;
+    if(!recordMatchesOfflineEndPayload(record, payload)) return;
+    getOfflineRecordAliasIds(record).forEach(function(id){
+      if(id && targetIds.indexOf(id) === -1) targetIds.push(id);
+    });
+  });
+  if(targetIds.length) forceCompleteOfflineRecords(targetIds, payload.charId, payload.charName || payload.name);
+  return targetIds;
+}
+
 function getRecordTimeStamp(item){
   var updatedAt = Number(item && (item.updatedAt || item.createdAt) || 0) || 0;
   if(!updatedAt) return '';
@@ -2285,6 +2344,8 @@ function openRecordInOfflineMode(item){
         meetState:String(item.meetState || '').trim(),
         freshStart: openAsFreshInvite,
         readOnly: readOnly,
+        lifecycleKey:getOfflineInviteLifecycleKey(item),
+        dateKey:getRecordDateKey(item),
         location:String(item.location || '').trim(),
         scheduledDate:String(item.scheduledDate || '').trim(),
         scheduledTime:String(item.scheduledTime || '').trim(),
@@ -2460,6 +2521,7 @@ window.addEventListener('message', function(e){
     var payload = data.payload || {};
     var ids = normalizeOfflineInviteCompleteIds(payload);
     forceCompleteOfflineRecords(ids, payload.charId, payload.charName || payload.name);
+    forceCompleteOfflineRecordsByEndPayload(payload);
     renderOfflineApp();
     return;
   }

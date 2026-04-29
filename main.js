@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T05:08:00Z';
+const APP_BUILD_ID = '2026-04-29T05:24:00Z';
 const APP_UPDATE_NOTES = [
-  '线下约会打开后会锁定同一个邀约 id，结束时只修改这条记录。',
-  '新 accepted 邀约会进入空白可输入会话，ongoing/continued 会保留原聊天记录。',
-  '同一邀约的旧 fallback accepted 版本会跟随 completed 记录合并成 complete。'
+  '结束约会会带上邀约指纹，匹配同一条 fallback 副本一起变 complete。',
+  '指纹包含角色、日期、时间、地点和邀约预览，避免误伤新的邀约。',
+  '新邀约仍保持空白可输入，进行中邀约继续保留已有聊天记录。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
