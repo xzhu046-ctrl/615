@@ -1781,11 +1781,12 @@ function getPendingUserOfflineInviteEntry(){
     var entry = chatLog[i];
     if(!entry) continue;
     if(String(entry.role || '') === 'system') continue;
+    if(String(entry.role || '') === 'assistant') break;
     if(normalizeMessageType(entry.type || 'text') === 'offlineinvite' && String(entry.role || '') === 'user'){
       var payload = parseOfflineInvitePayload(entry.content) || null;
       if(payload && String(payload.status || 'pending') === 'pending') return { entry: entry, payload: payload };
     }
-    break;
+    if(String(entry.role || '') !== 'user') break;
   }
   return null;
 }

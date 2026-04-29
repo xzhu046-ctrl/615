@@ -504,62 +504,6 @@ body{display:flex;justify-content:center}
   color:#fff;
   box-shadow:2px 2px 0 #7f0f0f, 4px 4px 0 #fff;
 }
-.offline-debug-toggle{
-  position:fixed;
-  right:10px;
-  bottom:calc(var(--safe-bottom) + 10px);
-  z-index:60;
-  min-height:30px;
-  padding:0 9px;
-  border:2px solid #111;
-  border-radius:0;
-  background:#fff;
-  color:#111;
-  font:900 10px/1 "Courier New",monospace;
-  box-shadow:2px 2px 0 #111;
-}
-.offline-debug-panel{
-  position:fixed;
-  left:10px;
-  right:10px;
-  bottom:calc(var(--safe-bottom) + 48px);
-  z-index:61;
-  display:none;
-  max-height:min(58vh,440px);
-  border:2px solid #111;
-  background:#fff;
-  box-shadow:4px 4px 0 rgba(17,17,17,.9);
-  overflow:hidden;
-}
-.offline-debug-panel.show{display:flex;flex-direction:column}
-.offline-debug-head{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:8px;
-  padding:7px 8px;
-  border-bottom:2px solid #111;
-  font:900 11px/1 "Courier New",monospace;
-}
-.offline-debug-actions{display:flex;gap:6px}
-.offline-debug-btn{
-  min-height:24px;
-  padding:0 8px;
-  border:2px solid #111;
-  background:#fff;
-  color:#111;
-  font:900 10px/1 "Courier New",monospace;
-  box-shadow:1px 1px 0 #111;
-}
-.offline-debug-pre{
-  margin:0;
-  padding:8px;
-  overflow:auto;
-  white-space:pre-wrap;
-  word-break:break-word;
-  font:700 10px/1.45 "Courier New",monospace;
-  color:#111;
-}
 </style>
 </head>
 <body>
@@ -582,21 +526,10 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-  <button class="offline-debug-toggle" type="button" data-debug-toggle>debug</button>
-  <section class="offline-debug-panel" id="offlineDebugPanel" aria-hidden="true">
-    <div class="offline-debug-head">
-      <span>offline invite debug</span>
-      <div class="offline-debug-actions">
-        <button class="offline-debug-btn" type="button" data-debug-copy>copy</button>
-        <button class="offline-debug-btn" type="button" data-debug-close>×</button>
-      </div>
-    </div>
-    <pre class="offline-debug-pre" id="offlineDebugText"></pre>
-  </section>
-<script src="../assetStore.js?v=2026-04-29T07:28:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T07:28:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T07:46:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T07:46:00Z"></script>
 <script>
-var OFFLINE_APP_BUILD_ID = '2026-04-29T07:28:00Z';
+var OFFLINE_APP_BUILD_ID = '2026-04-29T07:46:00Z';
 var currentFilter = 'all';
 var currentSelectedId = '';
 var currentSelectedDateKey = '';
@@ -608,21 +541,6 @@ var pendingDeleteRecordId = '';
 var lastConsumedForceCompletePayloads = [];
 var lastConsumedEndRequestPayloads = [];
 var pendingInlineForceCompletePayloads = [];
-var offlineDebugState = {
-  build:'',
-  focusId:'',
-  selected:null,
-  storeRecords:[],
-  adoptedRecords:[],
-  fallbackRecords:[],
-  adoptAttempts:[],
-  forcePayloads:[],
-  endPayloads:[],
-  renderRecords:[],
-  acceptedRecords:[],
-  completedRecords:[]
-};
-
 function esc(text){
   return String(text == null ? '' : text)
     .replace(/&/g,'&amp;')
@@ -639,140 +557,6 @@ function getParentCharacters(){
     }
   }catch(err){}
   return [];
-}
-
-function getOfflineAppBuildId(){
-  try{
-    if(window.parent && window.parent !== window && window.parent.APP_BUILD_ID) return String(window.parent.APP_BUILD_ID || '').trim();
-  }catch(err){}
-  try{
-    if(window.APP_BUILD_ID) return String(window.APP_BUILD_ID || '').trim();
-  }catch(err2){}
-  return OFFLINE_APP_BUILD_ID;
-}
-
-function slimOfflineDebugRecord(item, source){
-  if(!(item && typeof item === 'object')) return null;
-  return {
-    id:String(item.id || '').trim(),
-    threadId:String(item.threadId || '').trim(),
-    inviteMessageId:String(item.inviteMessageId || '').trim(),
-    replyMessageId:String(item.replyMessageId || '').trim(),
-    charId:String(item.charId || '').trim(),
-    charName:String(item.charName || '').trim(),
-    status:String(item.status || '').trim(),
-    meetState:String(item.meetState || '').trim(),
-    readOnly:!!item.readOnly,
-    completedAt:Number(item.completedAt || 0) || 0,
-    updatedAt:Number(item.updatedAt || 0) || 0,
-    createdAt:Number(item.createdAt || 0) || 0,
-    scheduledDate:String(item.scheduledDate || '').trim(),
-    scheduledTime:String(item.scheduledTime || '').trim(),
-    location:String(item.location || '').trim(),
-    source:String(source || item.source || '').trim(),
-    lifecycleKey:getOfflineInviteLifecycleKey(item)
-  };
-}
-
-function slimOfflineDebugPayload(payload){
-  payload = payload && typeof payload === 'object' ? payload : {};
-  return {
-    ids:Array.isArray(payload.ids) ? payload.ids.map(function(id){ return String(id || '').trim(); }).filter(Boolean) : [],
-    completedInviteIds:Array.isArray(payload.completedInviteIds) ? payload.completedInviteIds.map(function(id){ return String(id || '').trim(); }).filter(Boolean) : [],
-    inviteId:String(payload.inviteId || '').trim(),
-    recordId:String(payload.recordId || '').trim(),
-    inviteRecordId:String(payload.inviteRecordId || '').trim(),
-    threadId:String(payload.threadId || '').trim(),
-    inviteMessageId:String(payload.inviteMessageId || '').trim(),
-    replyMessageId:String(payload.replyMessageId || '').trim(),
-    lifecycleKey:String(payload.lifecycleKey || payload.inviteLifecycleKey || '').trim(),
-    dateKey:String(payload.dateKey || payload.scheduledDate || '').trim(),
-    scheduledDate:String(payload.scheduledDate || '').trim(),
-    scheduledTime:String(payload.scheduledTime || '').trim(),
-    timeLabel:String(payload.timeLabel || '').trim(),
-    location:String(payload.location || '').trim(),
-    previewText:String(payload.previewText || '').trim(),
-    charId:String(payload.charId || '').trim(),
-    charName:String(payload.charName || payload.name || '').trim(),
-    reason:String(payload.reason || '').trim(),
-    at:Number(payload.at || 0) || 0
-  };
-}
-
-function buildOfflineDebugText(){
-  var selected = latestOfflineRecords.find(function(item){
-    return String(item && item.id || '').trim() === String(currentSelectedId || '').trim();
-  }) || null;
-  var selectedSlim = slimOfflineDebugRecord(selected, selected && selected.source);
-  var selectedCharId = String(selected && selected.charId || '').trim();
-  var selectedCharName = String(selected && selected.charName || '').trim();
-  var selectedDate = selected ? getRecordDateKey(selected) : String(currentSelectedDateKey || '').trim();
-  function sameSelected(record){
-    if(!(record && typeof record === 'object')) return false;
-    var sameChar = !!(selectedCharId && String(record.charId || '').trim() === selectedCharId)
-      || !!(selectedCharName && String(record.charName || '').trim() === selectedCharName);
-    if(!sameChar) return false;
-    return !selectedDate || getRecordDateKey(record) === selectedDate;
-  }
-  var storeSame = (offlineDebugState.storeRecords || []).filter(sameSelected).map(function(item){ return slimOfflineDebugRecord(item, 'store'); });
-  var adoptedSame = (offlineDebugState.adoptedRecords || []).filter(sameSelected).map(function(item){ return slimOfflineDebugRecord(item, 'phoneStorageAdopted'); });
-  var fallbackSame = (offlineDebugState.fallbackRecords || []).filter(sameSelected).map(function(item){ return slimOfflineDebugRecord(item, 'chatFallback'); });
-  var completedIdsMap = {};
-  var completedDetails = {};
-  try{ completedIdsMap = readCompletedOfflineInviteIds(); }catch(err){}
-  try{ completedDetails = readCompletedOfflineInviteDetails(); }catch(err2){}
-  var data = {
-    build:getOfflineAppBuildId(),
-    currentSelectedId:String(currentSelectedId || '').trim(),
-    focusId:readFocusId(),
-    selected:selectedSlim,
-    completedIds:Object.keys(completedIdsMap || {}),
-    completedDetails:completedDetails,
-    adoptAttempts:offlineDebugState.adoptAttempts || [],
-    storeSameCharDate:storeSame,
-    adoptedSameCharDate:adoptedSame,
-    chatFallbackSameCharDate:fallbackSame,
-    endPayloads:(offlineDebugState.endPayloads || []).map(slimOfflineDebugPayload),
-    forcePayloads:(offlineDebugState.forcePayloads || []).map(slimOfflineDebugPayload),
-    renderAccepted:(offlineDebugState.acceptedRecords || []).map(function(item){ return slimOfflineDebugRecord(item, item && item.source); }),
-    renderCompleted:(offlineDebugState.completedRecords || []).map(function(item){ return slimOfflineDebugRecord(item, item && item.source); }),
-    renderAll:(offlineDebugState.renderRecords || []).map(function(item){ return slimOfflineDebugRecord(item, item && item.source); })
-  };
-  return JSON.stringify(data, null, 2);
-}
-
-function refreshOfflineDebugPanel(){
-  var pre = document.getElementById('offlineDebugText');
-  if(pre) pre.textContent = buildOfflineDebugText();
-}
-
-function setOfflineDebugPanelOpen(open){
-  var panel = document.getElementById('offlineDebugPanel');
-  if(!panel) return;
-  panel.classList.toggle('show', !!open);
-  panel.setAttribute('aria-hidden', open ? 'false' : 'true');
-  if(open) refreshOfflineDebugPanel();
-}
-
-async function copyOfflineDebugText(){
-  var text = buildOfflineDebugText();
-  try{
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-  }catch(err){}
-  try{
-    var area = document.createElement('textarea');
-    area.value = text;
-    area.setAttribute('readonly', 'readonly');
-    area.style.position = 'fixed';
-    area.style.left = '-9999px';
-    document.body.appendChild(area);
-    area.select();
-    document.execCommand('copy');
-    document.body.removeChild(area);
-  }catch(err2){}
 }
 
 function isRenderableAssetSource(src){
@@ -970,6 +754,37 @@ async function saveAdoptedOfflineInviteRecords(records){
   return wrote;
 }
 
+function adoptedOfflineRecordMatchesRemoval(record, aliases){
+  if(!(record && typeof record === 'object')) return false;
+  var set = aliases || {};
+  var values = [
+    record.id,
+    record.threadId,
+    record.inviteMessageId,
+    record.replyMessageId
+  ];
+  return values.some(function(value){
+    var safe = String(value || '').trim();
+    return !!(safe && set[safe]);
+  });
+}
+
+async function removeAdoptedOfflineInviteRecord(record){
+  var aliases = Object.create(null);
+  getOfflineRecordAliasIds(record || {}).forEach(function(id){
+    var safe = String(id || '').trim();
+    if(safe) aliases[safe] = true;
+  });
+  if(!Object.keys(aliases).length) return false;
+  var list = await loadAdoptedOfflineInviteRecords().catch(function(){ return []; });
+  var next = (Array.isArray(list) ? list : []).filter(function(item){
+    return !adoptedOfflineRecordMatchesRemoval(item, aliases);
+  });
+  if(next.length === list.length) return false;
+  await saveAdoptedOfflineInviteRecords(next);
+  return true;
+}
+
 async function adoptChatFallbackRecordsIntoStore(fallbackRecords, storeRecords, adoptedRecords){
   var store = window.OfflineInviteStore;
   var adopted = Array.isArray(adoptedRecords) ? adoptedRecords.slice() : [];
@@ -1019,7 +834,6 @@ async function adoptChatFallbackRecordsIntoStore(fallbackRecords, storeRecords, 
       attempts.push({ id:id, ok:false, reason:'exception', message:String(err && (err.message || err) || '') });
     }
   }
-  offlineDebugState.adoptAttempts = attempts;
   return adopted;
 }
 
@@ -1727,6 +1541,7 @@ async function removeOfflineRecord(id){
       window.OfflineInviteStore.removeRecord(safeId);
     }
   }catch(err){}
+  await removeAdoptedOfflineInviteRecord(target || { id: safeId });
   await purgeOfflineRecordFromChatSources(target || { id: safeId });
   latestOfflineRecords = (Array.isArray(latestOfflineRecords) ? latestOfflineRecords : []).filter(function(item){
     return String(item && item.id || '').trim() !== safeId;
@@ -2204,11 +2019,8 @@ async function getOfflineRecords(){
   var adoptedRecords = await loadAdoptedOfflineInviteRecords();
   adoptedRecords = await adoptChatFallbackRecordsIntoStore(fallback, fromStore, adoptedRecords) || adoptedRecords;
   fromStore = getOfflineRecordsFromStore();
-  offlineDebugState.storeRecords = fromStore.map(function(item){ return Object.assign({ source:'store' }, item || {}); });
-  offlineDebugState.adoptedRecords = adoptedRecords.map(function(item){ return Object.assign({ source:'phoneStorageAdopted' }, item || {}); });
   fromStore.forEach(function(item){ mergeOfflineRecordMaps(map, Object.assign({ source:'store' }, item || {})); });
   adoptedRecords.forEach(function(item){ mergeOfflineRecordMaps(map, Object.assign({ source:'phoneStorageAdopted' }, item || {})); });
-  offlineDebugState.fallbackRecords = fallback.map(function(item){ return Object.assign({ source:'chatFallback' }, item || {}); });
   var storeIds = fromStore.concat(adoptedRecords).reduce(function(out, item){
     var id = String(item && item.id || '').trim();
     if(id) out[id] = true;
@@ -2631,10 +2443,6 @@ async function renderOfflineApp(){
   var inlinePayloads = pendingInlineForceCompletePayloads.slice();
   pendingInlineForceCompletePayloads = [];
   var forcePayloads = consumePendingForceCompleteOfflineRecords().concat(consumePendingExitCompleteOfflineIntents()).concat(endPayloads).concat(inlinePayloads);
-  offlineDebugState.build = getOfflineAppBuildId();
-  offlineDebugState.focusId = readFocusId();
-  offlineDebugState.forcePayloads = forcePayloads.slice();
-  offlineDebugState.endPayloads = endPayloads.slice();
   var records = await getOfflineRecords();
   records = forceCompleteRenderedRecords(records, forcePayloads);
   if(renderToken !== offlineRenderVersion) return;
@@ -2655,11 +2463,6 @@ async function renderOfflineApp(){
   renderMonthCard(records, selected);
   renderFilterTabs(records);
   renderThreadList(records, selected);
-  offlineDebugState.selected = selected ? Object.assign({}, selected) : null;
-  offlineDebugState.renderRecords = latestOfflineRecords.slice();
-  offlineDebugState.acceptedRecords = latestOfflineRecords.filter(isAcceptedInviteRecord);
-  offlineDebugState.completedRecords = latestOfflineRecords.filter(isCompletedInviteRecord);
-  refreshOfflineDebugPanel();
 }
 
 function canOpenRecordInOfflineMode(item){
@@ -2818,21 +2621,6 @@ document.addEventListener('click', async function(event){
       return;
     }
     renderOfflineApp();
-  }
-  var debugToggle = event.target && event.target.closest ? event.target.closest('[data-debug-toggle]') : null;
-  if(debugToggle){
-    var panel = document.getElementById('offlineDebugPanel');
-    setOfflineDebugPanelOpen(!(panel && panel.classList.contains('show')));
-    return;
-  }
-  var debugClose = event.target && event.target.closest ? event.target.closest('[data-debug-close]') : null;
-  if(debugClose){
-    setOfflineDebugPanelOpen(false);
-    return;
-  }
-  var debugCopy = event.target && event.target.closest ? event.target.closest('[data-debug-copy]') : null;
-  if(debugCopy){
-    copyOfflineDebugText();
   }
 });
 

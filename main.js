@@ -50,11 +50,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T07:28:00Z';
+const APP_BUILD_ID = '2026-04-29T07:46:00Z';
 const APP_UPDATE_NOTES = [
-  '结束约会会直接 patch PhoneStorage adopted record 为 completed/readOnly。',
-  '立即结束兜底和正式 complete 流程都会写 adopted 索引。',
-  'phoneStorageAdopted 来源不会再停留在 accepted 旧状态。'
+  '约会列表删除会同步清理 PhoneStorage adopted 记录，避免删除后复活。',
+  '普通消息不会再让刚发出的线下邀约被忽视。',
+  '番外类型不会再污染线下正文，debug 面板也已移除。',
+  '拉黑和好友申请判定会显式参考最近聊天上下文。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
