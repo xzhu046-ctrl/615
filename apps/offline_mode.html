@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-29T07:46:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T07:46:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T07:46:00Z"></script>
-<script src="../promptManager.js?v=2026-04-29T07:46:00Z"></script>
-<script src="../accountManager.js?v=2026-04-29T07:46:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-29T07:46:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-29T07:46:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T07:46:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T07:58:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T07:58:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T07:58:00Z"></script>
+<script src="../promptManager.js?v=2026-04-29T07:58:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T07:58:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-29T07:58:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-29T07:58:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T07:58:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -6864,48 +6864,8 @@ function getOfflineBodyValidationOptions(extra){
     paragraphMinCount: prefs.paragraphMinCount,
     paragraphMaxCount: prefs.paragraphMaxCount,
     asideMinChars: prefs.asideMinChars,
-    asideMaxChars: prefs.asideMaxChars,
-    sideStoryType: getOfflineUiPrefs().sideStoryType
+    asideMaxChars: prefs.asideMaxChars
   }, extra && typeof extra === 'object' ? extra : {});
-}
-function getOfflineSideStoryBodyLeakTerms(type){
-  var key = String(type || getOfflineUiPrefs().sideStoryType || 'future').trim() || 'future';
-  var map = {
-    future: ['白头偕老','白头到老','一起变老','慢慢变老','变老之后','老了以后','暮年','余生','时间尽头','未来的我们'],
-    be: ['BE','be线','悲剧结局','if线','多年后想起','功成名就','慢慢推开'],
-    fourthwall: ['第四面墙','读者','观众','编剧','弹幕','电视剧','避雷','安利'],
-    nogrow: ['小时候的我','年幼的我','长大以后','不要长大','小时候看到','小时候会觉得'],
-    parallelworld: ['平行世界','另一个世界','世界线','如果我们是','赛博','古代','无限流','ABO'],
-    dropped: ['掉了这个','翻出来','旧物','小物件','票根','旧纸条','借书卡'],
-    gossip: ['八卦','吃瓜','群聊','瓜子','评论区','宿舍群','兄弟群','闺蜜群'],
-    divination: ['抽签','签文','解签','算命','占卜','塔罗','月老签','灵签','求签','卦象','算卦','八字','合盘','手相','面相','卢恩','茶叶占卜'],
-    privateclip: ['看片','私密影像','视频播放器','弹幕','进度条','热度','片段'],
-    searchrecord: ['搜索记录','浏览器历史','搜索框','搜索建议','查询页','结果页']
-  };
-  return map[key] || [];
-}
-function payloadHasOfflineSideStoryBodyLeak(payload, type){
-  var terms = getOfflineSideStoryBodyLeakTerms(type);
-  if(!terms.length || !(payload && typeof payload === 'object')) return false;
-  var haystack = [
-    payload.title,
-    payload.quote,
-    payload.text,
-    payload.artifactLabel || payload.artifact_label,
-    payload.artifactHtml || payload.artifact_html
-  ].map(function(part){ return String(part || ''); }).join('\n');
-  return terms.some(function(term){
-    var safe = String(term || '').trim();
-    return !!(safe && haystack.indexOf(safe) !== -1);
-  });
-}
-function buildOfflineBodySideStoryIsolationInstruction(type){
-  var terms = getOfflineSideStoryBodyLeakTerms(type).slice(0, 12);
-  return [
-    '正文与番外彻底隔离：当前番外类型只允许影响 status_card，不允许影响 title、quote、text、asides 或正文 artifact。',
-    terms.length ? ('修正文时尤其不要在正文里出现这些番外主题词：' + terms.join('、') + '。') : '',
-    '如果原草稿正文提到了当前番外主题，请保留现场关系和情绪，但换成这幕当下真实会发生的动作、对话和反应。'
-  ].filter(Boolean).join('\n');
 }
 function getOfflineStoryPerspectiveLabel(value){
   return value === 'second' ? '第二人称' : (value === 'third' ? '第三人称' : '第一人称');
@@ -7158,9 +7118,6 @@ function collectOfflineBodyValidationIssues(payload, options){
   if(opts.requireSpeech && !hasOfflineSpeechQuote(text)){
     reasons.push('正文缺少引号台词');
   }
-  if(payloadHasOfflineSideStoryBodyLeak(payload, opts.sideStoryType)){
-    reasons.push('番外主题污染正文');
-  }
   return reasons;
 }
 async function repairOfflineBodyPayload(draft, options){
@@ -7180,7 +7137,6 @@ async function repairOfflineBodyPayload(draft, options){
       ? ('只有灰色旁白心声 asides 和引号里的角色台词使用' + (langOption.nativeLabel || langOption.label || lang) + '原文。')
       : '灰色旁白心声和引号里的角色台词默认使用简体中文。',
     '正文里必须至少保留 1 句角色真正说出口的引号台词。',
-    buildOfflineBodySideStoryIsolationInstruction(opts.sideStoryType),
     '如果原草稿里已经有 artifact_label / artifact_html，就尽量保住这张正文小卡片；如果这幕不需要小卡片，就把 artifact_label 和 artifact_html 都留空字符串。',
     'artifact_html 若存在，只能用简单安全的 HTML/CSS 做一张小卡片、小票据、小页面、小物件，不许 script，不许外链，不许 iframe，不许事件属性。',
     '不要使用占位句，不要写 fallback，不要偷懒写成模板句。'
@@ -7235,7 +7191,6 @@ async function rewriteOfflineBodyPayload(draft, options){
       ? ('只有灰色旁白心声 asides 和引号里的角色台词使用' + (langOption.nativeLabel || langOption.label || lang) + '原文。')
       : '灰色旁白心声和引号里的角色台词默认使用简体中文。',
     '正文里必须至少保留 1 句角色真正说出口的引号台词。',
-    buildOfflineBodySideStoryIsolationInstruction(opts.sideStoryType),
     'asides 要按正文段落顺序返回，能给几段就给几句；语气自然，不能是总结句。',
     '如果这幕天然提到了信、纸条、票据、截图、搜索页、证件、记录页、小物件这类能被拿出来看的东西，可以保留或补一张正文小卡片：artifact_label 写名字，artifact_html 写简单安全的 HTML/CSS；如果这幕不需要，就把 artifact_label 和 artifact_html 都留空字符串。',
     '绝对不要说“我不能这样写”“不合规”“请修改后再试”，你要直接给出修好的成稿。'
@@ -7413,32 +7368,6 @@ async function generateOfflineUnifiedScene(context, options){
     statusCard: statusCard,
     sceneSummary: normalizeOfflineSummaryText(parsed.scene_summary || parsed.summary || '', finalText)
   };
-  var finalized = await finalizeOfflineBodyPayload(payload, getOfflineBodyValidationOptions({
-    opening: !!opts.opening,
-    minChars: targetChars,
-    perspective: getOfflineStoryPrefs().perspective,
-    requireSpeech: true,
-    context: String(context || '').trim(),
-    thoughtChain: payload.thoughtChain,
-    compactLevel: compactLevel,
-    timeoutMs: Math.min(timeoutMs, isMobileOfflineRuntime() ? 78000 : 62000),
-    sideStoryType: getOfflineUiPrefs().sideStoryType
-  }));
-  var finalIssues = Array.isArray(finalized && finalized.issues) ? finalized.issues : [];
-  if(finalIssues.length) throw new Error('线下 unified 正文未通过校验：' + finalIssues.join('、'));
-  if(finalized && finalized.payload){
-    payload.title = String(finalized.payload.title || payload.title || '').trim();
-    payload.quote = String(finalized.payload.quote || payload.quote || '').trim();
-    payload.text = String(finalized.payload.text || payload.text || '').trim();
-    payload.asides = normalizeOfflineAsides(finalized.payload.asides);
-    var repairedArtifact = normalizeOfflineInlineArtifact(finalized.payload);
-    if(isOfflineInlineArtifactActuallyStatus(repairedArtifact, statusCard)) repairedArtifact = null;
-    payload.artifactLabel = repairedArtifact ? repairedArtifact.artifactLabel : '';
-    payload.artifactHtml = repairedArtifact ? repairedArtifact.artifactHtml : '';
-    payload.artifactAfterParagraph = repairedArtifact ? payload.artifactAfterParagraph : 0;
-    payload.thoughtChain = normalizeOfflineThoughtChain(payload.thoughtChain, payload.text);
-    payload.sceneSummary = normalizeOfflineSummaryText(payload.sceneSummary, payload.text);
-  }
   if(typeof opts.onUpdate === 'function'){
     await progressivelyRevealOfflineText(payload.text, opts.onUpdate, {
       tickMs: 18,
