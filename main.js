@@ -50,10 +50,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T08:44:00Z';
+const APP_BUILD_ID = '2026-04-29T08:50:00Z';
 const APP_UPDATE_NOTES = [
-  '思维链提示词只在思维链美化页显示。',
-  '标题美化页新增标题和顶部语录提示词。',
+  '修正切换美化小方块后提示词面板不显示的问题。',
+  '思维链和标题提示词只在对应美化页显示。',
   '思维链和标题提示词都支持替代默认与恢复默认。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
