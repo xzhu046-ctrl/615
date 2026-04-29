@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T03:52:00Z';
+const APP_BUILD_ID = '2026-04-29T04:06:00Z';
 const APP_UPDATE_NOTES = [
-  '结束约会会写入可信完成明细，complete 又能正常命中。',
-  '旧 completed ids 污染不会再把新邀约误标结束。',
-  '线下页不再按同角色 active 记录批量完成。'
+  '线下页会锁定当前打开的邀约 id，结束时不再丢失目标。',
+  'complete 消息补齐 recordId 等别名，主页面能准确 patch 对应邀约。',
+  '继续避免同角色新邀约被旧完成记录误伤。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -4558,6 +4558,11 @@ function normalizeOfflineInviteCompleteIds(payload){
   if(payload && Array.isArray(payload.completedInviteIds)) ids = ids.concat(payload.completedInviteIds);
   if(payload && Array.isArray(payload.ids)) ids = ids.concat(payload.ids);
   if(payload && payload.inviteId) ids.push(payload.inviteId);
+  if(payload && payload.recordId) ids.push(payload.recordId);
+  if(payload && payload.inviteRecordId) ids.push(payload.inviteRecordId);
+  if(payload && payload.threadId) ids.push(payload.threadId);
+  if(payload && payload.inviteMessageId) ids.push(payload.inviteMessageId);
+  if(payload && payload.replyMessageId) ids.push(payload.replyMessageId);
   return ids.map(function(id){ return String(id || '').trim(); }).filter(Boolean);
 }
 
