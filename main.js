@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T12:34:00Z';
+const APP_BUILD_ID = '2026-04-30T12:42:00Z';
 const APP_UPDATE_NOTES = [
-  '参考 SullyOS 增加已安装版本确认弹窗，每个 build 首次打开会展示本版更新日志。',
-  '更新确认状态优先写入 PhoneStorage kv，localStorage 只作为极小兼容回退。',
-  '远端有更新时刷新弹窗优先级高于已安装说明，避免 PWA 卡在旧版本提示。'
+  '修复更新弹窗按钮兼容路径，避免 PWA 新 HTML 配旧 main.js 时刷新点不动。',
+  '已安装说明仍可点我知道了，真正远端更新时按钮固定走刷新流程。',
+  '确认状态继续优先写入 PhoneStorage kv，localStorage 只作为极小兼容回退。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1073,6 +1073,7 @@ function setUpdateToastCopy(mode){
     if(btn){
       btn.disabled = false;
       btn.textContent = '我知道了';
+      btn.onclick = acknowledgeInstalledUpdateNotice;
     }
   }else{
     if(heading) heading.textContent = '更新了哦';
@@ -1080,6 +1081,7 @@ function setUpdateToastCopy(mode){
     if(btn){
       btn.disabled = false;
       btn.textContent = '刷新';
+      btn.onclick = refreshInstalledApp;
     }
   }
 }
