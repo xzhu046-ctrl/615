@@ -17120,7 +17120,7 @@ function saveStoredAsset(key, value){
 async function saveMatchedUserAvatarForCharacter(src, charId){
   var safeSrc = String(src || '').trim();
   var safeCharId = String(charId || (character && character.id) || '').trim();
-  if(!safeSrc || !safeCharId || !isRenderableAvatarSrc(safeSrc)) return false;
+  if(!safeSrc || !safeCharId || !isRenderableAvatarSrc(safeSrc) || /^blob:/i.test(safeSrc)) return false;
   var keys = [];
   function add(key){
     key = String(key || '').trim();
@@ -30099,6 +30099,9 @@ async function applyRoleAvatarChange(targetRole, src, options){
   var forceNoticeOnSame = !!options.forceNoticeOnSame;
   var itemMeta = options.itemMeta && typeof options.itemMeta === 'object' ? options.itemMeta : null;
   var cleanSrc = String(src || '').trim();
+  if(/^blob:/i.test(cleanSrc) && itemMeta){
+    cleanSrc = String(await resolveAvatarLibraryItemSrc(itemMeta).catch(function(){ return ''; }) || '').trim();
+  }
   if(!cleanSrc) return false;
   if(role === 'char'){
     var currentCharSrc = await resolveBestCharAvatarSource().catch(function(){ return ''; });
@@ -30732,6 +30735,25 @@ async function saveChatSettings() {
       character.imageData = settingsCharAvatar;
     }
     await saveUserPersonaProfile(character.id, character.userPersonaProfile);
+    if(settingsUserAvatar){
+      if(/^blob:/i.test(settingsUserAvatar) && selectedUserAvatarItemId){
+        var userAvatarStoreForSave = avatarLibraryCache && avatarLibraryCache.user ? avatarLibraryCache : await loadAvatarLibraryStore(character.id).catch(function(){ return null; });
+        var selectedUserItemForSave = userAvatarStoreForSave && Array.isArray(userAvatarStoreForSave.user)
+          ? userAvatarStoreForSave.user.find(function(entry){ return String(entry && entry.id || '') === String(selectedUserAvatarItemId || ''); })
+          : null;
+        var resolvedUserAvatarForSave = String(await resolveAvatarLibraryItemSrc(selectedUserItemForSave).catch(function(){ return ''; }) || '').trim();
+        if(isRenderableAvatarSrc(resolvedUserAvatarForSave) && !/^blob:/i.test(resolvedUserAvatarForSave)){
+          settingsUserAvatar = resolvedUserAvatarForSave;
+          settingsUserAvatarProfile = /^data:/i.test(settingsUserAvatar) ? '' : normalizeAvatarSrc(settingsUserAvatar);
+          character.userAvatarProfile = settingsUserAvatarProfile;
+        }
+      }
+      if(/^blob:/i.test(settingsUserAvatar)){
+        settingsUserAvatar = '';
+        settingsUserAvatarProfile = '';
+        character.userAvatarProfile = '';
+      }
+    }
     if(settingsUserAvatar){
       try{
         await saveMatchedUserAvatarForCharacter(settingsUserAvatar, character.id);

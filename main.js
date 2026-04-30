@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T17:46:00Z';
+const APP_BUILD_ID = '2026-04-30T18:02:00Z';
 const APP_UPDATE_NOTES = [
-  '主屏第二页不再被唤醒/切页时的空状态覆盖成 CHAR/USER。',
-  '主屏 user 头像同步阶段不再抢先显示个人头像，先等聊天设置头像解析。',
-  '主屏 char 头像使用上一次有效角色兜底，避免稍后消失。'
+  '主屏 user 头像会从聊天设置头像库 selectedUserAvatarItemId 解析真实图片。',
+  '主屏跳过已经失效的 blob 头像，避免图片加载失败后退回“你”。',
+  '聊天设置保存 user 头像时会把 blob 还原为可持久化图片。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -757,6 +757,11 @@ function normalizeShellAssetSrc(value){
 function isRenderableShellAvatarSrc(value){
   var text = normalizeShellAssetSrc(value);
   return !!(text && /^(data:|https?:|blob:|\/|\.\.?\/|apps\/)/i.test(text));
+}
+
+function isStableShellAvatarSrc(value){
+  var text = normalizeShellAssetSrc(value || '');
+  return isRenderableShellAvatarSrc(text) && !/^blob:/i.test(text);
 }
 
 function absolutizeShellNotificationIconSrc(value){
@@ -1890,6 +1895,23 @@ function chatSettingsBundleKeysForShell(charId, accountId){
   return keys;
 }
 
+function avatarLibraryKeysForShell(charId, accountId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return [];
+  var base = 'avatar_library_' + safeId;
+  var keys = [];
+  function add(key){
+    key = String(key || '').trim();
+    if(key && keys.indexOf(key) === -1) keys.push(key);
+  }
+  var activeId = String(accountId || getActiveAccountId() || '').trim();
+  var defaultId = String(getDefaultAccountId() || '').trim();
+  add(activeId ? scopedKeyForAccount(base, activeId) : '');
+  add(defaultId ? scopedKeyForAccount(base, defaultId) : '');
+  add(base);
+  return keys;
+}
+
 async function loadShellChatSettingsBundleForChar(charId, accountId){
   var safeId = String(charId || '').trim();
   if(!safeId) return null;
@@ -1913,6 +1935,24 @@ async function loadShellChatSettingsBundleForChar(charId, accountId){
   return best || null;
 }
 
+async function loadShellAvatarLibraryForChar(charId, accountId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return null;
+  var keys = avatarLibraryKeysForShell(safeId, accountId);
+  var best = null;
+  if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
+    for(var i = 0; i < keys.length; i += 1){
+      try{
+        var stored = await window.PhoneStorage.getJson(keys[i]);
+        if(stored && typeof stored === 'object'){
+          if(!best || Number(stored.updatedAt || 0) >= Number(best.updatedAt || 0)) best = stored;
+        }
+      }catch(err){}
+    }
+  }
+  return best || null;
+}
+
 function getCachedShellChatSettingsBundleForChar(charId, accountId){
   var keys = chatSettingsBundleKeysForShell(charId, accountId);
   var directKey = chatSettingsBundleKeyForAccount(charId, accountId || getActiveAccountId() || getDefaultAccountId());
@@ -1931,6 +1971,31 @@ function getBundleAvatarForShell(bundle, role){
   if(!bundle || typeof bundle !== 'object') return '';
   var src = normalizeShellAssetSrc(role === 'user' ? bundle.userAvatar : bundle.charAvatar);
   return isRenderableShellAvatarSrc(src) ? src : '';
+}
+
+async function resolveShellAvatarLibraryItemSrc(item){
+  if(!item || typeof item !== 'object') return '';
+  var preview = normalizeShellAssetSrc(item.previewData || item.src || item.url || '');
+  if(isStableShellAvatarSrc(preview)) return preview;
+  var assetKey = String(item.assetKey || '').trim();
+  if(assetKey){
+    var stored = normalizeShellAssetSrc(await loadStoredAsset(assetKey).catch(function(){ return ''; }) || '');
+    if(isStableShellAvatarSrc(stored)) return stored;
+  }
+  return '';
+}
+
+async function resolveShellSelectedAvatarFromBundle(charId, role, bundle, accountId){
+  var safeRole = role === 'char' ? 'char' : 'user';
+  var safeId = String(charId || '').trim();
+  if(!safeId || !bundle || typeof bundle !== 'object') return '';
+  var selectedId = String(safeRole === 'char' ? bundle.selectedCharAvatarItemId : bundle.selectedUserAvatarItemId).trim();
+  if(!selectedId) return '';
+  var store = await loadShellAvatarLibraryForChar(safeId, accountId).catch(function(){ return null; });
+  var list = store && Array.isArray(store[safeRole]) ? store[safeRole] : [];
+  var item = list.find(function(entry){ return String(entry && entry.id || '') === selectedId; });
+  var src = await resolveShellAvatarLibraryItemSrc(item).catch(function(){ return ''; });
+  return isStableShellAvatarSrc(src) ? normalizeShellAssetSrc(src) : '';
 }
 
 function isGlobalAiBgEnabled(){
@@ -6130,14 +6195,17 @@ function getChatUserAvatar(charId, character){
       return fallbackAvatar();
     }
     return loadStoredAsset(keys[idx]).then(function(src){
-      if(isRenderableShellAvatarSrc(src)) return normalizeShellAssetSrc(src);
+      if(isStableShellAvatarSrc(src)) return normalizeShellAssetSrc(src);
       return loadAt(idx + 1);
     });
   }
   return loadShellChatSettingsBundleForChar(id, activeId).then(function(bundle){
     var bundleAvatar = getBundleAvatarForShell(bundle, 'user');
-    if(isRenderableShellAvatarSrc(bundleAvatar)) return bundleAvatar;
-    return loadAt(0);
+    if(isStableShellAvatarSrc(bundleAvatar)) return bundleAvatar;
+    return resolveShellSelectedAvatarFromBundle(id, 'user', bundle, activeId).then(function(selectedAvatar){
+      if(isStableShellAvatarSrc(selectedAvatar)) return selectedAvatar;
+      return loadAt(0);
+    });
   }).catch(function(){
     return loadAt(0);
   });
