@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T10:22:00Z';
+const APP_BUILD_ID = '2026-04-30T10:42:00Z';
 const APP_UPDATE_NOTES = [
-  '修复导入角色保存未完成就返回，导致退出 QQ 后列表看不到的问题。',
-  '默认账号不再按 ownerAccountId 隐藏角色，避免旧数据和导入数据被误筛。',
-  '导入回包会立刻补到 QQ 当前内存列表并刷新。'
+  '导入或新建联系人后强制回到全部列表，避免角色已保存但被筛选页藏起来。',
+  '已读事件会先清掉 shell 内存红点，再从 PhoneStorage 复算，避免旧 iframe 把红点顶回来。',
+  'QQ 列表和聊天页头像读取同时尝试账号作用域与旧键，减少头像空白。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1847,6 +1847,16 @@ function postShellUnreadBadgeToCurrentApp(){
       f.contentWindow.postMessage({ type:'SHELL_UNREAD_BADGE', payload:getShellUnreadBadgePayload() }, '*');
     }
   }catch(e){}
+}
+
+function clearShellUnreadBadgeCacheForActive(options){
+  var activeId = getActiveAccountId();
+  if(!activeId) return;
+  options = options && typeof options === 'object' ? options : {};
+  if(options.chat !== false) qqUnreadCountCache[activeId] = 0;
+  if(options.moments !== false) qqMomentsUnreadCountCache[activeId] = 0;
+  renderHomeDockBadges();
+  postShellUnreadBadgeToCurrentApp();
 }
 
 async function getBackgroundCharacter(){
@@ -8694,7 +8704,13 @@ window.addEventListener('message',(e)=>{
     var hasMomentsUnreadPayload = payload && Object.prototype.hasOwnProperty.call(payload, 'momentsUnread');
     if(activeAcctId){
       if(hasChatUnreadPayload){
-        qqUnreadCountCache[activeAcctId] = Math.max(0, parseInt(payload.chatUnread || 0, 10) || 0);
+        var chatUnreadPayload = Math.max(0, parseInt(payload.chatUnread || 0, 10) || 0);
+        if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function'){
+          if(chatUnreadPayload === 0) qqUnreadCountCache[activeAcctId] = 0;
+          else refreshQqUnreadCountSoon();
+        }else{
+          qqUnreadCountCache[activeAcctId] = chatUnreadPayload;
+        }
       }
       if(hasMomentsUnreadPayload){
         qqMomentsUnreadCountCache[activeAcctId] = Math.max(0, parseInt(payload.momentsUnread || 0, 10) || 0);
@@ -8705,6 +8721,7 @@ window.addEventListener('message',(e)=>{
     if(!hasChatUnreadPayload && !hasMomentsUnreadPayload) refreshQqUnreadCountSoon();
   }
   if(type==='CHAT_SEEN'){
+    clearShellUnreadBadgeCacheForActive({ chat:true, moments:false });
     if(payload && payload.charId) markShellChatAsRead(payload.charId).then(function(){ refreshQqUnreadCountSoon(); }).catch(function(){ refreshQqUnreadCountSoon(); });
     else refreshQqUnreadCountSoon();
   }
