@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>设置</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-04-30T11:20:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T11:20:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T11:20:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T11:20:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T11:38:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T11:38:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T11:38:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T11:38:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:inherit;-webkit-text-fill-color:currentColor}
@@ -1459,6 +1459,12 @@ function getPhoneStorageStoreNames(){
   return ['chats','moneyStates','memorySummaries','innerVoices','callRecords','kv'];
 }
 
+function isKnownPhoneStorageStore(storeName){
+  var safe = String(storeName || '').trim();
+  if(!safe) return false;
+  return getPhoneStorageStoreNames().indexOf(safe) !== -1;
+}
+
 function storageToObject(storage){
   var out = {};
   if(!storage) return out;
@@ -1761,12 +1767,46 @@ function collectExplicitUserLocalStorageKeys(allStorage){
   return uniqueStrings(keys);
 }
 
-function collectExplicitAssetKeys(allStorage, allAssets){
+async function loadBackupCharactersSnapshot(allStorage, phoneStorageData){
+  try{
+    if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
+      var loaded = await window.MetadataStore.loadCharacters(true).catch(function(){ return null; });
+      if(Array.isArray(loaded)) return loaded;
+    }
+  }catch(err){}
+  var phone = phoneStorageData && typeof phoneStorageData === 'object' ? phoneStorageData : {};
+  var kv = Array.isArray(phone.kv) ? phone.kv : [];
+  for(var i = 0; i < kv.length; i += 1){
+    var record = kv[i];
+    if(record && record.id === 'meta_characters_v1' && Array.isArray(record.data)) return record.data;
+  }
+  var storage = allStorage && typeof allStorage === 'object' ? allStorage : {};
+  return safeJsonParse(storage.characters || '[]', []);
+}
+
+async function loadBackupWorldbooksSnapshot(allStorage, phoneStorageData){
+  try{
+    if(window.MetadataStore && typeof window.MetadataStore.loadWorldbooks === 'function'){
+      var loaded = await window.MetadataStore.loadWorldbooks(true).catch(function(){ return null; });
+      if(loaded && typeof loaded === 'object' && !Array.isArray(loaded)) return loaded;
+    }
+  }catch(err){}
+  var phone = phoneStorageData && typeof phoneStorageData === 'object' ? phoneStorageData : {};
+  var kv = Array.isArray(phone.kv) ? phone.kv : [];
+  for(var i = 0; i < kv.length; i += 1){
+    var record = kv[i];
+    if(record && record.id === 'meta_worldbooks_v1' && record.data && typeof record.data === 'object') return record.data;
+  }
+  var storage = allStorage && typeof allStorage === 'object' ? allStorage : {};
+  return safeJsonParse(storage.worldbooks || '{}', {});
+}
+
+function collectExplicitAssetKeys(allStorage, allAssets, characterSnapshot){
   var storage = allStorage && typeof allStorage === 'object' ? allStorage : {};
   var assetMap = allAssets && typeof allAssets === 'object' ? allAssets : {};
   var keys = [];
   var accounts = safeJsonParse(storage.qq_accounts_v1 || '[]', []);
-  var characters = safeJsonParse(storage.characters || '[]', []);
+  var characters = Array.isArray(characterSnapshot) ? characterSnapshot : safeJsonParse(storage.characters || '[]', []);
 
   Object.keys(storage).forEach(function(key){
     var value = storage[key];
@@ -1845,6 +1885,8 @@ async function exportExplicitAssets(assetKeys, allStorage, allAssets){
 
 async function buildExplicitUserSnapshot(allStorage, allAssets, phoneStorageData){
   var storage = allStorage && typeof allStorage === 'object' ? allStorage : {};
+  var characterSnapshot = await loadBackupCharactersSnapshot(storage, phoneStorageData);
+  var worldbookSnapshot = await loadBackupWorldbooksSnapshot(storage, phoneStorageData);
   var explicitLocalStorageKeys = collectExplicitUserLocalStorageKeys(storage);
   var explicitLocalStorage = {};
   explicitLocalStorageKeys.forEach(function(key){
@@ -1852,14 +1894,14 @@ async function buildExplicitUserSnapshot(allStorage, allAssets, phoneStorageData
       explicitLocalStorage[key] = storage[key];
     }
   });
-  var explicitAssetKeys = collectExplicitAssetKeys(storage, allAssets);
+  var explicitAssetKeys = collectExplicitAssetKeys(storage, allAssets, characterSnapshot);
   return {
     accounts: safeJsonParse(storage.qq_accounts_v1 || '[]', []),
     activeAccountId: String(storage.qq_active_account_id_v1 || ''),
     defaultAccountId: String(storage.qq_default_account_id_v1 || ''),
-    characters: safeJsonParse(storage.characters || '[]', []),
+    characters: Array.isArray(characterSnapshot) ? characterSnapshot : [],
     activeCharacter: safeJsonParse(storage.activeCharacter || 'null', null),
-    worldbooks: safeJsonParse(storage.worldbooks || '{}', {}),
+    worldbooks: worldbookSnapshot && typeof worldbookSnapshot === 'object' ? worldbookSnapshot : {},
     wallpaper: {
       mode: String(storage.wallpaper || ''),
       customAssetKey: 'wallpaper_custom'
@@ -1883,7 +1925,7 @@ async function restoreExplicitUserSnapshot(snapshot){
   if(typeof snapshot.defaultAccountId === 'string' && snapshot.defaultAccountId){
     try{ localStorage.setItem('qq_default_account_id_v1', snapshot.defaultAccountId); }catch(err){}
   }
-  if(Array.isArray(snapshot.characters)){
+  if(Array.isArray(snapshot.characters) && snapshot.characters.length){
     if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
       await window.MetadataStore.saveCharacters(snapshot.characters).catch(function(){});
     }
@@ -1891,7 +1933,7 @@ async function restoreExplicitUserSnapshot(snapshot){
   if(snapshot.activeCharacter){
     try{ localStorage.setItem('activeCharacter', JSON.stringify(snapshot.activeCharacter)); }catch(err){}
   }
-  if(dedupedWorldbooks && typeof dedupedWorldbooks === 'object'){
+  if(dedupedWorldbooks && typeof dedupedWorldbooks === 'object' && Object.keys(dedupedWorldbooks).length){
     if(window.MetadataStore && typeof window.MetadataStore.saveWorldbooks === 'function'){
       await window.MetadataStore.saveWorldbooks(dedupedWorldbooks).catch(function(){});
     }
@@ -1918,10 +1960,10 @@ async function restoreExplicitUserSnapshot(snapshot){
   }
 
   if(window.MetadataStore){
-    if(Array.isArray(snapshot.characters) && typeof window.MetadataStore.saveCharacters === 'function'){
+    if(Array.isArray(snapshot.characters) && snapshot.characters.length && typeof window.MetadataStore.saveCharacters === 'function'){
       await window.MetadataStore.saveCharacters(snapshot.characters).catch(function(){});
     }
-    if(dedupedWorldbooks && typeof window.MetadataStore.saveWorldbooks === 'function'){
+    if(dedupedWorldbooks && Object.keys(dedupedWorldbooks).length && typeof window.MetadataStore.saveWorldbooks === 'function'){
       await window.MetadataStore.saveWorldbooks(dedupedWorldbooks).catch(function(){});
     }
   }
@@ -2030,6 +2072,7 @@ async function restorePayloadIntoPhone(payload, progressBase, progressTotal){
   var stores = payload.phoneStorage && typeof payload.phoneStorage === 'object' ? Object.keys(payload.phoneStorage) : [];
   for(var s = 0; s < stores.length; s += 1){
     var storeName = stores[s];
+    if(!isKnownPhoneStorageStore(storeName)) continue;
     var records = Array.isArray(payload.phoneStorage[storeName]) ? payload.phoneStorage[storeName] : [];
     for(var r = 0; r < records.length; r += 1){
       if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
@@ -2065,6 +2108,7 @@ async function mergePayloadIntoPhone(payload, progressBase, progressTotal){
   var stores = payload.phoneStorage && typeof payload.phoneStorage === 'object' ? Object.keys(payload.phoneStorage) : [];
   for(var s = 0; s < stores.length; s += 1){
     var storeName = stores[s];
+    if(!isKnownPhoneStorageStore(storeName)) continue;
     var records = Array.isArray(payload.phoneStorage[storeName]) ? payload.phoneStorage[storeName] : [];
     for(var r = 0; r < records.length; r += 1){
       if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){

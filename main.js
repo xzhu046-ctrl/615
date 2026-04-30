@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T11:20:00Z';
+const APP_BUILD_ID = '2026-04-30T11:38:00Z';
 const APP_UPDATE_NOTES = [
-  '线下结束归档会主动生成结束总结，再同步进线上记忆，不再只依赖已有阶段总结。',
-  '刷新按钮会清 service worker 与缓存，并预拉所有核心页面和共享数据脚本，减少主屏幕旧壳残留。',
-  '设置页 API 保存回执修正到当前 iframe，通知系统头像优先使用已物化头像。'
+  '备份导出会从 MetadataStore/PhoneStorage 读取真实角色和档案，不再依赖可能过期的 localStorage 镜像。',
+  '导入备份时空的 userData.characters 不会覆盖已恢复的 PhoneStorage 角色，避免导入后聊天列表消失。',
+  '导入跨版本备份会跳过当前数据库不认识的 store，减少整包恢复失败。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
