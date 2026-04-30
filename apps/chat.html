@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-29T19:25:00Z"></script>
-<script src="../accountManager.js?v=2026-04-29T19:25:00Z"></script>
-<script src="../assetStore.js?v=2026-04-29T19:25:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T19:25:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T19:25:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-29T19:25:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-29T19:25:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T19:25:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-29T19:25:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-29T19:25:00Z"></script>
+<script src="../promptManager.js?v=2026-04-29T19:32:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T19:32:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T19:32:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T19:32:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T19:32:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-29T19:32:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-29T19:32:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T19:32:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-29T19:32:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-29T19:32:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -5976,7 +5976,12 @@ function getActiveAccountProfileAvatar(){
   try{
     if(window.AccountManager){
       var acct = window.AccountManager.getActive();
-      return String((acct && acct.avatar) || '').trim();
+      var direct = String((acct && acct.avatar) || '').trim();
+      if(isRenderableAvatarSrc(direct)) return direct;
+      var scoped = String(localStorage.getItem(accountScopedKey('qq_profile_avatar_asset')) || '').trim();
+      if(isRenderableAvatarSrc(scoped)) return scoped;
+      var raw = String(localStorage.getItem('qq_profile_avatar_asset') || '').trim();
+      if(isRenderableAvatarSrc(raw)) return raw;
     }
   }catch(e){}
   return '';
@@ -8546,13 +8551,7 @@ function saveAvatarVisionSummaryStore(charId, store){
 var avatarVisionSummaryPromiseMap = Object.create(null);
 
 function currentRawUserAvatarSource(charId){
-  var keys = [];
-  if(!isDefaultAccountContext()) keys.push(accountScopedKey('qq_profile_avatar_asset'));
-  if(charId) keys.push(userKey('user_avatar'));
-  if(charId) keys.push(accountScopedKey('user_avatar_' + charId));
-  keys.push(accountScopedKey('user_avatar'));
-  if(charId) keys.push('user_avatar_' + charId);
-  keys.push('user_avatar');
+  var keys = getUserAvatarStorageKeysForChat(charId);
   for(var i = 0; i < keys.length; i += 1){
     try{
       var src = String(localStorage.getItem(keys[i]) || '').trim();
@@ -8587,13 +8586,7 @@ function resolveAvatarVisionSourceAsync(role, charId){
   if(safeRole === 'user'){
     var rawUser = currentRawUserAvatarSource(charId);
     if(isRenderableAvatarSrc(rawUser)) return Promise.resolve(rawUser);
-    var userKeys = [];
-    if(!isDefaultAccountContext()) userKeys.push(accountScopedKey('qq_profile_avatar_asset'));
-    if(charId) userKeys.push(userKey('user_avatar'));
-    if(charId) userKeys.push(accountScopedKey('user_avatar_' + charId));
-    userKeys.push(accountScopedKey('user_avatar'));
-    if(charId) userKeys.push('user_avatar_' + charId);
-    userKeys.push('user_avatar');
+    var userKeys = getUserAvatarStorageKeysForChat(charId);
     return loadFirstAvatarAsset(userKeys).then(function(src){
       src = String(src || '').trim();
       return isRenderableAvatarSrc(src) ? src : rawUser;
@@ -16138,6 +16131,28 @@ function userKey(base){
   var raw = character && character.id ? (base + '_' + character.id) : base;
   return accountScopedKey(raw);
 }
+function getUserAvatarStorageKeysForChat(charId){
+  var safeCharId = String(charId || '').trim();
+  var keys = [];
+  function add(key){
+    key = String(key || '').trim();
+    if(key && keys.indexOf(key) === -1) keys.push(key);
+  }
+  if(!isDefaultAccountContext()){
+    add(accountScopedKey('qq_profile_avatar_asset'));
+    add('qq_profile_avatar_asset');
+  }
+  if(safeCharId) add(userKey('user_avatar'));
+  if(safeCharId) add(accountScopedKey('user_avatar_' + safeCharId));
+  add(accountScopedKey('user_avatar'));
+  if(safeCharId) add('user_avatar_' + safeCharId);
+  add('user_avatar');
+  if(isDefaultAccountContext()){
+    add(accountScopedKey('qq_profile_avatar_asset'));
+    add('qq_profile_avatar_asset');
+  }
+  return keys;
+}
 function ensureMsgRange(){
   if(!character) return;
   try{
@@ -22438,13 +22453,7 @@ function familyCardAvatarHtml(src, fallback, extraClass){
 }
 
 function currentUserAvatarForFamily(charId){
-  var keys = [];
-  if(!isDefaultAccountContext()) keys.push(accountScopedKey('qq_profile_avatar_asset'));
-  if(charId) keys.push(userKey('user_avatar'));
-  if(charId) keys.push(accountScopedKey('user_avatar_' + charId));
-  keys.push(accountScopedKey('user_avatar'));
-  if(charId) keys.push('user_avatar_' + charId);
-  keys.push('user_avatar');
+  var keys = getUserAvatarStorageKeysForChat(charId);
   for(var i=0;i<keys.length;i++){
     var src = String(localStorage.getItem(keys[i]) || '').trim();
     if(isRenderableAvatarSrc(src)) return src;
@@ -22458,13 +22467,7 @@ function currentUserAvatarForFamily(charId){
   return '';
 }
 function resolveChatUserAvatarAsync(charId){
-  var keys = [];
-  if(!isDefaultAccountContext()) keys.push(accountScopedKey('qq_profile_avatar_asset'));
-  if(charId) keys.push(userKey('user_avatar'));
-  if(charId) keys.push(accountScopedKey('user_avatar_' + charId));
-  keys.push(accountScopedKey('user_avatar'));
-  if(charId) keys.push('user_avatar_' + charId);
-  keys.push('user_avatar');
+  var keys = getUserAvatarStorageKeysForChat(charId);
   return loadFirstAvatarAsset(keys).then(function(src){
     src = String(src || '').trim();
     if(isRenderableAvatarSrc(src)) return ensureChatRenderableAvatarSrc(src);

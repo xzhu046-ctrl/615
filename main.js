@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T19:25:00Z';
+const APP_BUILD_ID = '2026-04-29T19:32:00Z';
 const APP_UPDATE_NOTES = [
-  '朋友圈小飞机可发送动态卡片。',
-  '聊天里新增朋友圈特殊卡片。',
-  '角色能读取动态正文与评论。'
+  '修复 user 与 char 头像读取顺序。',
+  '非默认账号优先显示账号头像。',
+  '线下约会同步读取 user 头像。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1780,9 +1780,44 @@ function getActiveAccountProfileAvatar(){
       window.AccountManager.ensure();
       var active = window.AccountManager.getActive();
       var src = String((active && active.avatar) || '').trim();
-      return normalizeShellAssetSrc(src);
+      src = normalizeShellAssetSrc(src);
+      if(isRenderableShellAvatarSrc(src)) return src;
     }
   }catch(e){}
+  return getImmediateStoredUserAvatarForShell('');
+}
+
+function getShellUserAvatarAssetKeys(charId, accountId){
+  var activeId = String(accountId || getActiveAccountId() || '').trim();
+  var id = String(charId || '').trim();
+  var keys = [];
+  function add(key){
+    key = String(key || '').trim();
+    if(key && keys.indexOf(key) === -1) keys.push(key);
+  }
+  if(activeId && !isDefaultAccountActive()){
+    add(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
+    add('qq_profile_avatar_asset');
+  }
+  if(id) add(scopedKeyForAccount('user_avatar_' + id, activeId));
+  if(id) add('user_avatar_' + id);
+  add(scopedKeyForAccount('user_avatar', activeId));
+  add('user_avatar');
+  if(activeId && isDefaultAccountActive()){
+    add(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
+    add('qq_profile_avatar_asset');
+  }
+  return keys;
+}
+
+function getImmediateStoredUserAvatarForShell(charId){
+  var keys = getShellUserAvatarAssetKeys(charId);
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var saved = normalizeShellAssetSrc(localStorage.getItem(keys[i]) || '');
+      if(isRenderableShellAvatarSrc(saved)) return saved;
+    }catch(e){}
+  }
   return '';
 }
 
@@ -5669,13 +5704,7 @@ function collectShellUserAvatarCandidates(charId, character){
       }
     });
   }catch(err3){}
-  var keys = [];
-  if(id) keys.push(scopedKeyForAccount('user_avatar_' + id, activeId));
-  if(id) keys.push('user_avatar_' + id);
-  keys.push(scopedKeyForAccount('user_avatar', activeId));
-  keys.push('user_avatar');
-  keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
-  keys.push('qq_profile_avatar_asset');
+  var keys = getShellUserAvatarAssetKeys(id, activeId);
   keys.forEach(function(key){
     try{ push(localStorage.getItem(key) || ''); }catch(err4){}
   });
@@ -5690,13 +5719,7 @@ function getChatUserAvatar(charId, character){
     if(isRenderableShellAvatarSrc(candidate)) return Promise.resolve(candidate);
   }
   var activeId = getActiveAccountId();
-  var keys = [];
-  if(charId) keys.push(scopedKeyForAccount('user_avatar_' + charId, activeId));
-  if(charId) keys.push('user_avatar_' + charId);
-  keys.push(scopedKeyForAccount('user_avatar', activeId));
-  keys.push('user_avatar');
-  keys.push(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
-  keys.push('qq_profile_avatar_asset');
+  var keys = getShellUserAvatarAssetKeys(charId, activeId);
   function loadAt(idx){
     if(idx >= keys.length){
       var accountAvatar = getActiveAccountProfileAvatar();
