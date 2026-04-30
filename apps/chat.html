@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T16:05:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T16:05:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T16:05:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T16:05:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T16:05:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T16:05:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T16:05:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T16:05:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T16:05:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T16:05:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T16:22:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T16:22:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T16:22:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T16:22:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T16:22:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T16:22:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T16:22:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T16:22:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T16:22:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T16:22:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -9454,6 +9454,28 @@ function saveChatSettingsBundle(charId, bundle){
   });
 }
 
+async function resolveStoredSelectedAvatarSource(charId, role, knownBundle){
+  var safeCharId = String(charId || '').trim();
+  var safeRole = role === 'char' ? 'char' : 'user';
+  if(!safeCharId) return '';
+  var bundle = knownBundle && typeof knownBundle === 'object'
+    ? normalizeChatSettingsBundle(knownBundle)
+    : await loadChatSettingsBundle(safeCharId).catch(function(){ return null; });
+  if(!bundle) return '';
+  var selectedId = String(safeRole === 'char' ? bundle.selectedCharAvatarItemId : bundle.selectedUserAvatarItemId).trim();
+  if(selectedId){
+    var store = await loadAvatarLibraryStore(safeCharId).catch(function(){ return null; });
+    var list = store && Array.isArray(store[safeRole]) ? store[safeRole] : [];
+    var item = list.find(function(entry){ return String(entry && entry.id || '') === selectedId; });
+    if(item){
+      var itemSrc = String(await resolveAvatarLibraryItemSrc(item).catch(function(){ return ''; }) || '').trim();
+      if(isRenderableAvatarSrc(itemSrc)) return itemSrc;
+    }
+  }
+  var bundled = String(safeRole === 'char' ? bundle.charAvatar : bundle.userAvatar).trim();
+  return isRenderableAvatarSrc(bundled) ? bundled : '';
+}
+
 function userPersonaProfileStorageId(charId){
   return accountScopedKey('chat_user_persona_profile_' + String(charId || ''));
 }
@@ -9536,11 +9558,14 @@ async function applyStoredChatSettingsPatchToCharacter(target){
     if(bundle.charBgEnabled !== null) target.charBgEnabled = !!bundle.charBgEnabled;
     if(bundle.momentsFreq) target.momentsFreq = normalizeMomentsFreq(bundle.momentsFreq);
     if(bundle.userPersonaProfile) target.userPersonaProfile = bundle.userPersonaProfile;
-    if(isRenderableAvatarSrc(bundle.charAvatar)){
-      target.imageData = bundle.charAvatar;
+    var selectedCharAvatar = await resolveStoredSelectedAvatarSource(target.id, 'char', bundle).catch(function(){ return ''; });
+    var selectedUserAvatar = await resolveStoredSelectedAvatarSource(target.id, 'user', bundle).catch(function(){ return ''; });
+    if(isRenderableAvatarSrc(selectedCharAvatar || bundle.charAvatar)){
+      target.imageData = selectedCharAvatar || bundle.charAvatar;
     }
-    if(isRenderableAvatarSrc(bundle.userAvatar)){
-      target.userAvatarProfile = /^data:/i.test(bundle.userAvatar) ? '' : normalizeAvatarSrc(bundle.userAvatar);
+    if(isRenderableAvatarSrc(selectedUserAvatar || bundle.userAvatar)){
+      var nextUserAvatar = selectedUserAvatar || bundle.userAvatar;
+      target.userAvatarProfile = /^data:/i.test(nextUserAvatar) ? '' : normalizeAvatarSrc(nextUserAvatar);
     }
   }
   var storedUserPersona = await loadUserPersonaProfile(target.id);
@@ -23142,7 +23167,11 @@ function currentUserAvatarForFamily(charId){
 }
 function resolveChatUserAvatarAsync(charId){
   var keys = getUserAvatarStorageKeysForChat(charId);
-  return loadFirstAvatarAsset(keys).then(function(src){
+  return resolveStoredSelectedAvatarSource(charId, 'user').then(function(selectedSrc){
+    selectedSrc = String(selectedSrc || '').trim();
+    if(isRenderableAvatarSrc(selectedSrc)) return selectedSrc;
+    return loadFirstAvatarAsset(keys);
+  }).then(function(src){
     src = String(src || '').trim();
     if(isRenderableAvatarSrc(src)) return ensureChatRenderableAvatarSrc(src);
     if(charId){
@@ -28494,9 +28523,12 @@ function ensureChatRenderableAvatarSrc(src){
 }
 
 function resolveBestCharAvatarSource(){
-  var liveSrc = currentVisibleCharAvatarSrc();
-  if(liveSrc) return ensureChatRenderableAvatarSrc(liveSrc);
-  return resolveCharAvatarDataUrl().then(function(src){
+  return resolveStoredSelectedAvatarSource(character && character.id, 'char').then(function(selectedSrc){
+    if(isRenderableAvatarSrc(selectedSrc)) return selectedSrc;
+    var liveSrc = currentVisibleCharAvatarSrc();
+    if(liveSrc) return liveSrc;
+    return resolveCharAvatarDataUrl();
+  }).then(function(src){
     if(src) return src;
     if(character && character.avatarUrl) return String(character.avatarUrl).trim();
     if(character && character.imageData) return String(character.imageData).trim();
@@ -28524,7 +28556,13 @@ function getChatAvatarCandidates(){
   push(character && character.avatarUrl);
   push(character && character.imageData);
   try{ push(localStorage.getItem('char_avatar_' + (character && character.id || '')) || ''); }catch(e){}
-  return loadFirstAvatarAsset(getCharAvatarStorageKeysForChat(character && character.id || '')).then(function(assetSrc){
+  return resolveStoredSelectedAvatarSource(character && character.id, 'char').then(function(selectedSrc){
+    if(isRenderableAvatarSrc(selectedSrc)){
+      out = out.filter(function(item){ return normalizeAvatarSrc(item) !== normalizeAvatarSrc(selectedSrc); });
+      out.unshift(String(selectedSrc || '').trim());
+    }
+    return loadFirstAvatarAsset(getCharAvatarStorageKeysForChat(character && character.id || ''));
+  }).then(function(assetSrc){
     push(assetSrc);
     return out;
   }).catch(function(){ return out; });
@@ -28587,6 +28625,19 @@ function getAvatarSourceFromNode(node){
   return isRenderableAvatarSrc(raw) ? raw : '';
 }
 
+function getAvatarItemIdFromNode(node){
+  if(!node) return '';
+  try{ return String((node.getAttribute && node.getAttribute('data-avatar-item-id')) || '').trim(); }catch(err){}
+  return '';
+}
+
+function setAvatarNodeSelectionMeta(node, itemMeta){
+  if(!node) return;
+  var itemId = String(itemMeta && itemMeta.id || '').trim();
+  if(itemId) node.setAttribute('data-avatar-item-id', itemId);
+  else node.removeAttribute('data-avatar-item-id');
+}
+
 function handleAvatarImgError(img){
   try{
     if(!img || !img.parentNode) return;
@@ -28612,6 +28663,17 @@ function getAvatarSrcFromSelectors(selectors){
 function syncSettingsCharAvatarPreview(){
   var av = document.getElementById('csCharAvatar');
   if(!av || !character) return Promise.resolve('');
+  return resolveStoredSelectedAvatarSource(character.id, 'char').then(function(selectedSrc){
+    if(isRenderableAvatarSrc(selectedSrc)){
+      setAvatarNodeFromSource(av, selectedSrc, character.avatar || 'AI', true);
+      return loadChatSettingsBundle(character.id).then(function(bundle){
+        setAvatarNodeSelectionMeta(av, { id: bundle && bundle.selectedCharAvatarItemId });
+        return selectedSrc;
+      }).catch(function(){ return selectedSrc; });
+    }
+    return '';
+  }).then(function(doneSrc){
+    if(doneSrc) return doneSrc;
   var hdrImg = document.querySelector('#hdrAvatar img');
   var hdrSrc = String((hdrImg && hdrImg.getAttribute('src')) || (hdrImg && hdrImg.src) || '').trim();
   if(isRenderableAvatarSrc(hdrSrc)){
@@ -28626,6 +28688,7 @@ function syncSettingsCharAvatarPreview(){
     setAvatarNodeFromSource(av, '', character.avatar || 'AI', true);
     return '';
   });
+  });
 }
 
 function primeUserAvatarSourceNode(){
@@ -28637,7 +28700,10 @@ function primeUserAvatarSourceNode(){
     if(host){
       setAvatarNodeFromSource(host, safeSrc, fallback, true);
     }
-    return safeSrc;
+    return loadChatSettingsBundle(character.id).then(function(bundle){
+      if(host) setAvatarNodeSelectionMeta(host, { id: bundle && bundle.selectedUserAvatarItemId });
+      return safeSrc;
+    }).catch(function(){ return safeSrc; });
   }).catch(function(){
     if(host){
       setAvatarNodeFromSource(host, '', fallback, true);
@@ -29556,10 +29622,13 @@ async function openChatSettings() {
       syncChatSettingsFieldWidths();
     }
     var uav = document.getElementById('csUserAvatar');
-    uav.innerHTML = getAvatarPlaceholderHtml('user', '+');
+    if(uav) setAvatarNodeFromSource(uav, '', '+', true);
     resolveChatUserAvatarAsync(character && character.id).then(function(savedUav){
       savedUav = String(savedUav || '').trim();
-      if (isRenderableAvatarSrc(savedUav)) { uav.innerHTML = '<img src="' + savedUav + '"><div class="avatar-pick-hint">换头像</div>'; }
+      if(uav) setAvatarNodeFromSource(uav, savedUav, '+', true);
+      return loadChatSettingsBundle(character && character.id).catch(function(){ return null; });
+    }).then(function(bundleForUserAvatar){
+      if(uav) setAvatarNodeSelectionMeta(uav, { id: bundleForUserAvatar && bundleForUserAvatar.selectedUserAvatarItemId });
       syncChatSettingsHero();
       syncChatSettingsFieldWidths();
       renderChatSettingsAvatarShelves();
@@ -29618,8 +29687,15 @@ async function openChatSettings() {
     renderAvatarVisionToggle();
     renderCharAvatarAutoToggle();
     renderReadTimeToggle();
-    loadAvatarLibraryStore(character && character.id).then(function(store){
+    Promise.all([
+      loadAvatarLibraryStore(character && character.id),
+      loadChatSettingsBundle(character && character.id).catch(function(){ return null; })
+    ]).then(function(results){
+      var store = results[0];
+      var bundleForAvatarLibrary = results[1];
       avatarLibraryCache = store;
+      setAvatarNodeSelectionMeta(document.getElementById('csCharAvatar'), { id: bundleForAvatarLibrary && bundleForAvatarLibrary.selectedCharAvatarItemId });
+      setAvatarNodeSelectionMeta(document.getElementById('csUserAvatar'), { id: bundleForAvatarLibrary && bundleForAvatarLibrary.selectedUserAvatarItemId });
       renderChatSettingsAvatarShelves();
     }).catch(function(){
       avatarLibraryCache = defaultAvatarLibraryStore();
@@ -30029,6 +30105,9 @@ async function applyRoleAvatarChange(targetRole, src, options){
     if(normalizeAvatarSrc(currentCharSrc) === normalizeAvatarSrc(cleanSrc)){
       await saveMatchedCharAvatarForCharacter(cleanSrc, character.id);
       try{ await saveChatSettingsBundle(character.id, { charAvatar: cleanSrc, selectedCharAvatarItemId: String(itemMeta && itemMeta.id || '') }); }catch(bundleErr){ console.warn('char avatar bundle save failed', bundleErr); }
+      setAvatarNodeSelectionMeta(document.getElementById('csCharAvatar'), itemMeta);
+      syncChatSettingsHero();
+      renderChatSettingsAvatarShelves();
       if(!silent && forceNoticeOnSame){
         await appendAvatarChangeNoticeAndPersist(actorRole, role);
       }
@@ -30041,6 +30120,7 @@ async function applyRoleAvatarChange(targetRole, src, options){
     persistActiveCharacterSnapshot(compactChar(character));
     var av = document.getElementById('csCharAvatar');
     setAvatarNodeFromSource(av, cleanSrc, character && character.avatar || 'AI', true);
+    setAvatarNodeSelectionMeta(av, itemMeta);
     updateHeader();
     refreshCharAvatars();
     postToShell({type:'SET_ACTIVE_CHARACTER', payload: compactChar(character)});
@@ -30049,6 +30129,9 @@ async function applyRoleAvatarChange(targetRole, src, options){
     if(normalizeAvatarSrc(currentUserSrc) === normalizeAvatarSrc(cleanSrc)){
       await saveMatchedUserAvatarForCharacter(cleanSrc, character.id);
       try{ await saveChatSettingsBundle(character.id, { userAvatar: cleanSrc, selectedUserAvatarItemId: String(itemMeta && itemMeta.id || '') }); }catch(bundleErr3){ console.warn('user avatar bundle save failed', bundleErr3); }
+      setAvatarNodeSelectionMeta(document.getElementById('csUserAvatar'), itemMeta);
+      syncChatSettingsHero();
+      renderChatSettingsAvatarShelves();
       if(!silent && forceNoticeOnSame){
         await appendAvatarChangeNoticeAndPersist(actorRole, role);
       }
@@ -30069,6 +30152,7 @@ async function applyRoleAvatarChange(targetRole, src, options){
     var uav = document.getElementById('csUserAvatar');
     if(uav){
       setAvatarNodeFromSource(uav, cleanSrc, String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你', true);
+      setAvatarNodeSelectionMeta(uav, itemMeta);
     }
     refreshUserAvatars();
   }
@@ -30134,10 +30218,15 @@ function renderChatSettingsAvatarShelf(role){
   if(!host) return;
   var items = Array.isArray(avatarLibraryCache[safeRole]) ? avatarLibraryCache[safeRole] : [];
   var currentSrc = '';
+  var currentItemId = '';
   if(safeRole === 'char'){
-    currentSrc = normalizeAvatarSrc(getAvatarSourceFromNode(document.getElementById('csCharAvatar')) || getAvatarSrcFromSelectors(['#csCharAvatar img','#hdrAvatar img']) || currentVisibleCharAvatarSrc() || '');
+    var charAvatarNode = document.getElementById('csCharAvatar');
+    currentItemId = getAvatarItemIdFromNode(charAvatarNode);
+    currentSrc = normalizeAvatarSrc(getAvatarSourceFromNode(charAvatarNode) || getAvatarSrcFromSelectors(['#csCharAvatar img','#hdrAvatar img']) || currentVisibleCharAvatarSrc() || '');
   }else{
-    currentSrc = normalizeAvatarSrc(getAvatarSourceFromNode(document.getElementById('csUserAvatar')) || String(currentUserAvatarForFamily(character && character.id) || '').trim());
+    var userAvatarNode = document.getElementById('csUserAvatar');
+    currentItemId = getAvatarItemIdFromNode(userAvatarNode);
+    currentSrc = normalizeAvatarSrc(getAvatarSourceFromNode(userAvatarNode) || String(currentUserAvatarForFamily(character && character.id) || '').trim());
   }
   var html = [
     '<button class="cs-avatar-shelf-card add" type="button" data-avatar-shelf-add="' + safeRole + '">' +
@@ -30147,7 +30236,9 @@ function renderChatSettingsAvatarShelf(role){
   if(items.length){
     items.slice(0, 8).forEach(function(item){
       var previewSrc = normalizeAvatarSrc(String(item.previewData || '').trim());
-      var isSelected = previewSrc && normalizeAvatarSrc(previewSrc) === currentSrc;
+      var isSelected = currentItemId
+        ? String(item.id || '') === String(currentItemId || '')
+        : !!(previewSrc && normalizeAvatarSrc(previewSrc) === currentSrc);
       html.push(
         '<button class="cs-avatar-shelf-card' + (isSelected ? ' selected' : '') + '" type="button" data-avatar-shelf-id="' + escAttr(item.id) + '" data-avatar-shelf-role="' + safeRole + '">' +
           '<div class="cs-avatar-shelf-thumb" data-avatar-shelf-thumb="' + escAttr(item.id) + '">' + (previewSrc ? ('<img src="' + escAttr(previewSrc) + '" alt="' + escAttr(item.label || '头像') + '">') : '<div class="cs-avatar-shelf-fallback">' + getAvatarShelfFallbackHtml(safeRole) + '</div>') + '</div>' +
@@ -30493,6 +30584,8 @@ async function saveChatSettings() {
   if(!isRenderableAvatarSrc(settingsUserAvatar)) settingsUserAvatar = '';
   var settingsUserAvatarProfile = /^data:/i.test(settingsUserAvatar) ? '' : normalizeAvatarSrc(settingsUserAvatar);
   var settingsCharAvatar = getAvatarSourceFromNode(document.getElementById('csCharAvatar'));
+  var selectedUserAvatarItemId = getAvatarItemIdFromNode(document.getElementById('csUserAvatar'));
+  var selectedCharAvatarItemId = getAvatarItemIdFromNode(document.getElementById('csCharAvatar'));
   if(!isRenderableAvatarSrc(settingsCharAvatar) || /^blob:/i.test(settingsCharAvatar)){
     settingsCharAvatar = String((character && character.imageData) || '').trim();
   }
@@ -30755,6 +30848,8 @@ async function saveChatSettings() {
     var savedSettingsBundle = await saveChatSettingsBundle(character.id, {
       charAvatar: settingsCharAvatar || '',
       userAvatar: settingsUserAvatar || '',
+      selectedCharAvatarItemId: selectedCharAvatarItemId || '',
+      selectedUserAvatarItemId: selectedUserAvatarItemId || '',
       chatBackground: nextChatBg || '',
       chatHeaderBackground: nextHeaderBg || '',
       globalCss: String(globalCss || ''),
