@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>QQ</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Cormorant+Garamond:wght@600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js"></script>
-<script src="../assetStore.js"></script>
 <script src="../chatStorage.js"></script>
+<script src="../assetStore.js"></script>
+<script src="../accountManager.js"></script>
 <script src="../metadataStore.js"></script>
 <script src="../sunnySupport.js"></script>
 <style>
@@ -1937,16 +1937,19 @@ async function refreshChatCaches(){
       });
     }catch(e){}
   }
+  var hasPhoneChatStore = !!(window.PhoneStorage && typeof window.PhoneStorage.list === 'function');
   (Array.isArray(chars) ? chars : []).forEach(function(c){
     if(!c || !c.id) return;
-    getChatStorageKeysForChar(c.id).forEach(function(key){
-      try{
-        var saved = JSON.parse(localStorage.getItem(key) || 'null');
-        var list = saved && (saved.messages || saved.history);
-        if(!Array.isArray(list) || !list.length) return;
-        next[c.id] = chooseBetterChatSummary(next[c.id], summarizeChatHistoryForQq(list, c));
-      }catch(e){}
-    });
+    if(!hasPhoneChatStore){
+      getChatStorageKeysForChar(c.id).forEach(function(key){
+        try{
+          var saved = JSON.parse(localStorage.getItem(key) || 'null');
+          var list = saved && (saved.messages || saved.history);
+          if(!Array.isArray(list) || !list.length) return;
+          next[c.id] = chooseBetterChatSummary(next[c.id], summarizeChatHistoryForQq(list, c));
+        }catch(e){}
+      });
+    }
     if(!next[c.id]) next[c.id] = summarizeChatHistoryForQq([], c);
     if(livePreviewCache[c.id]){
       next[c.id].last = livePreviewCache[c.id];
@@ -2192,6 +2195,9 @@ async function loadChars(){
   chars = getStoredCharactersSnapshot();
   if(!Array.isArray(chars)) chars = [];
   if(window.AccountManager){
+    if(typeof window.AccountManager.hydrateFromStorage === 'function'){
+      try{ await window.AccountManager.hydrateFromStorage(); }catch(err){}
+    }
     window.AccountManager.ensure();
     var acct = window.AccountManager.getActive();
     var defaultId = window.AccountManager.getDefaultId();
@@ -2409,6 +2415,7 @@ function unreadCountOf(c){
     return 0;
   }
   if(c && c.id && chatSummaryCache[c.id]) return Number(chatSummaryCache[c.id].unread || 0) || 0;
+  if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function') return 0;
   try{
     var saved = JSON.parse(localStorage.getItem(accountScopedKey('chat_' + c.id)) || 'null');
     var msgs = normalizeStoredChatHistory((saved && (saved.messages || saved.history)) || []);

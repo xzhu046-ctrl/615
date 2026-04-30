@@ -1,6 +1,7 @@
 (() => {
   const USER_LOCATION_KEY = 'presence_user_location_v1';
   const CHAR_SETTINGS_PREFIX = 'presence_char_presence_';
+  const PRESENCE_KV_PREFIX = 'presence_shared_v2__';
   const DEFAULT_USER_CITY = 'edmonton';
   const DEFAULT_CHAR_CITY = 'beijing';
 
@@ -40,6 +41,62 @@
       }
     }catch(err){}
     return base;
+  }
+
+  const presenceKvCache = Object.create(null);
+  const presenceKvLoading = Object.create(null);
+
+  function getPresenceStorage(){
+    try{
+      if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function') return window.PhoneStorage;
+    }catch(err){}
+    try{
+      if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.get === 'function'){
+        return window.parent.PhoneStorage;
+      }
+    }catch(err2){}
+    return null;
+  }
+
+  function presenceKvId(key){
+    return PRESENCE_KV_PREFIX + String(key || '');
+  }
+
+  function schedulePresenceKvLoad(key){
+    const safeKey = String(key || '');
+    if(!safeKey || presenceKvCache[safeKey] || presenceKvLoading[safeKey]) return;
+    const storage = getPresenceStorage();
+    if(!(storage && typeof storage.get === 'function')) return;
+    presenceKvLoading[safeKey] = true;
+    storage.get('kv', presenceKvId(safeKey)).then(function(record){
+      if(record && Object.prototype.hasOwnProperty.call(record, 'value')){
+        presenceKvCache[safeKey] = record.value;
+      }
+    }).catch(function(){}).then(function(){
+      delete presenceKvLoading[safeKey];
+    });
+  }
+
+  function getPresenceKvObject(key, legacyFallback){
+    const safeKey = String(key || '');
+    if(safeKey && presenceKvCache[safeKey] && typeof presenceKvCache[safeKey] === 'object'){
+      return Object.assign({}, presenceKvCache[safeKey]);
+    }
+    schedulePresenceKvLoad(safeKey);
+    return legacyFallback && typeof legacyFallback === 'object' ? Object.assign({}, legacyFallback) : {};
+  }
+
+  function setPresenceKvObject(key, value){
+    const safeKey = String(key || '');
+    const next = value && typeof value === 'object' ? Object.assign({}, value) : {};
+    if(!safeKey) return;
+    presenceKvCache[safeKey] = next;
+    const storage = getPresenceStorage();
+    if(storage && typeof storage.put === 'function'){
+      storage.put('kv', { id: presenceKvId(safeKey), value: next, updatedAt: Date.now() }).catch(function(){});
+    }else{
+      try{ localStorage.setItem(safeKey, JSON.stringify(next)); }catch(err){}
+    }
   }
 
   function safeJsonParse(raw, fallback){
@@ -136,7 +193,9 @@
     const charId = character && character.id ? String(character.id) : '';
     const defaults = getDefaultCharSettings(character);
     if(!charId) return Object.assign({}, defaults);
-    const stored = safeJsonParse(localStorage.getItem(accountScopedKey(CHAR_SETTINGS_PREFIX + charId)) || '{}', {});
+    const storageKey = accountScopedKey(CHAR_SETTINGS_PREFIX + charId);
+    const legacy = safeJsonParse(localStorage.getItem(storageKey) || '{}', {});
+    const stored = getPresenceKvObject(storageKey, legacy);
     const embedded = character && character.livePresence && typeof character.livePresence === 'object' ? character.livePresence : {};
     return Object.assign({}, defaults, embedded, stored);
   }
@@ -144,7 +203,7 @@
   function saveCharSettings(charId, next){
     if(!charId) return;
     try{
-      localStorage.setItem(accountScopedKey(CHAR_SETTINGS_PREFIX + String(charId)), JSON.stringify(next || {}));
+      setPresenceKvObject(accountScopedKey(CHAR_SETTINGS_PREFIX + String(charId)), next || {});
     }catch(err){
       console.warn('presence saveCharSettings skipped', err);
     }
@@ -197,7 +256,9 @@
 
   function getUserLocation(){
     const defaults = getDefaultUserLocation();
-    const stored = safeJsonParse(localStorage.getItem(accountScopedKey(USER_LOCATION_KEY)) || '{}', {});
+    const storageKey = accountScopedKey(USER_LOCATION_KEY);
+    const legacy = safeJsonParse(localStorage.getItem(storageKey) || '{}', {});
+    const stored = getPresenceKvObject(storageKey, legacy);
     const merged = Object.assign({}, defaults, stored);
     if(merged.mode !== 'device'){
       const city = getCity(merged.cityId || DEFAULT_USER_CITY);
@@ -211,7 +272,7 @@
 
   function saveUserLocation(next){
     try{
-      localStorage.setItem(accountScopedKey(USER_LOCATION_KEY), JSON.stringify(next || {}));
+      setPresenceKvObject(accountScopedKey(USER_LOCATION_KEY), next || {});
     }catch(err){
       console.warn('presence saveUserLocation skipped', err);
     }

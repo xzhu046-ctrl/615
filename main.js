@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T08:58:00Z';
+const APP_BUILD_ID = '2026-04-30T09:28:00Z';
 const APP_UPDATE_NOTES = [
-  '设置页改为主壳确认保存 API，避免 iframe 保存失败。',
-  '红点清除后移除旧聊天副本，避免 localStorage 未读复活。',
-  '聊天状态改走 PhoneStorage 缓存并补充状态更新。'
+  '账号与头像数据改为优先走 PhoneStorage，避免 localStorage 满后保存/读取抽风。',
+  '修复设置页 API 保存确认回包，保存失败会真的报错。',
+  'QQ 未读红点在 PhoneStorage 可用时不再从旧聊天副本复活。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -536,6 +536,13 @@ if(window.MetadataStore && typeof window.MetadataStore.subscribe === 'function')
   window.MetadataStore.subscribe(function(topic){
     if(topic === 'characters') refreshShellCharacterSurfaces();
   });
+}
+if(window.AccountManager && typeof window.AccountManager.hydrateFromStorage === 'function'){
+  window.AccountManager.hydrateFromStorage().then(function(){
+    refreshShellCharacterSurfaces();
+    renderHomeDockBadges();
+    postShellUnreadBadgeToCurrentApp();
+  }).catch(function(){});
 }
 
 function refreshShellCharacterSurfaces(){
@@ -8796,10 +8803,18 @@ window.addEventListener('message',(e)=>{
   if(type==='API_SETTINGS_SAVE_REQUEST'){
     var requestId = String(payload && payload.requestId || '').trim();
     var settingsRecord = payload && payload.settings;
+    var replyToSettingsFrame = function(replyPayload){
+      try{
+        var frame = document.getElementById('app-frame');
+        if(frame && frame.contentWindow){
+          frame.contentWindow.postMessage(replyPayload, '*');
+        }
+      }catch(replyErr){}
+    };
     Promise.resolve(applyShellApiSettingsRecord(settingsRecord || {})).then(function(){
-      postToCurrentAppFrame({ type:'API_SETTINGS_SAVE_RESULT', payload:{ requestId:requestId, ok:true, settings:shellApiSettingsCache } });
+      replyToSettingsFrame({ type:'API_SETTINGS_SAVE_RESULT', payload:{ requestId:requestId, ok:true, settings:shellApiSettingsCache } });
     }).catch(function(err){
-      postToCurrentAppFrame({ type:'API_SETTINGS_SAVE_RESULT', payload:{ requestId:requestId, ok:false, error:String((err && err.message) || err || '保存失败') } });
+      replyToSettingsFrame({ type:'API_SETTINGS_SAVE_RESULT', payload:{ requestId:requestId, ok:false, error:String((err && err.message) || err || '保存失败') } });
     });
   }
   if(type==='CHAT_UPDATED'){

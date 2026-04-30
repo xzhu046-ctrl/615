@@ -3,21 +3,145 @@
   var ACTIVE_KEY = 'qq_active_account_id_v1';
   var DEFAULT_KEY = 'qq_default_account_id_v1';
   var FAVORITES_FALLBACK_PREFIX = 'qq_favorites_fallback__acct_';
+  var KV_ACCOUNTS_ID = 'account_manager_accounts_v2';
+  var KV_ACTIVE_ID = 'account_manager_active_id_v2';
+  var KV_DEFAULT_ID = 'account_manager_default_id_v2';
+  var KV_FAVORITES_PREFIX = 'account_manager_favorites_v2__';
+
+  var accountsCache = null;
+  var activeIdCache = '';
+  var defaultIdCache = '';
+  var hydratePromise = null;
+  var favoritesFallbackCache = Object.create(null);
 
   function uid(){
     return 'acc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
   }
 
-  function loadAccounts(){
+  function cloneAccount(account){
+    var next = account && typeof account === 'object' ? Object.assign({}, account) : {};
+    next.id = String(next.id || uid());
+    next.name = String(next.name || '我哥天下第一好');
+    next.avatar = String(next.avatar || '');
+    next.friends = Array.isArray(next.friends) ? next.friends.slice() : [];
+    next.favorites = Array.isArray(next.favorites) ? next.favorites.slice() : [];
+    next.createdAt = Number(next.createdAt || Date.now()) || Date.now();
+    next.isDefault = !!next.isDefault;
+    return next;
+  }
+
+  function normalizeAccounts(accounts){
+    return (Array.isArray(accounts) ? accounts : []).map(cloneAccount).filter(function(a){ return !!a.id; });
+  }
+
+  function getPhoneStorage(){
+    try{
+      if(global.PhoneStorage && typeof global.PhoneStorage.get === 'function') return global.PhoneStorage;
+    }catch(err){}
+    try{
+      if(global.parent && global.parent !== global && global.parent.PhoneStorage && typeof global.parent.PhoneStorage.get === 'function'){
+        return global.parent.PhoneStorage;
+      }
+    }catch(err2){}
+    return null;
+  }
+
+  function readLegacyAccounts(){
     try{
       var arr = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || '[]');
-      return Array.isArray(arr) ? arr : [];
+      return normalizeAccounts(arr);
     }catch(e){ return []; }
   }
 
+  function readLegacyText(key){
+    try{ return String(localStorage.getItem(key) || '').trim(); }catch(err){ return ''; }
+  }
+
+  function writeLegacyText(key, value){
+    try{ localStorage.setItem(key, String(value || '')); }catch(err){}
+  }
+
+  function removeLegacyKey(key){
+    try{ localStorage.removeItem(key); }catch(err){}
+  }
+
+  function getRecordValue(record){
+    return record && Object.prototype.hasOwnProperty.call(record, 'value') ? record.value : null;
+  }
+
+  function putKv(id, value){
+    var storage = getPhoneStorage();
+    if(storage && typeof storage.put === 'function'){
+      return storage.put('kv', { id:id, value:value, updatedAt:Date.now() }).catch(function(){});
+    }
+    return Promise.resolve(false);
+  }
+
+  async function getKv(id){
+    var storage = getPhoneStorage();
+    if(!(storage && typeof storage.get === 'function')) return null;
+    try{ return getRecordValue(await storage.get('kv', id)); }catch(err){ return null; }
+  }
+
+  function scheduleHydrate(){
+    if(hydratePromise) return hydratePromise;
+    hydratePromise = hydrateFromStorage().catch(function(){ return false; });
+    return hydratePromise;
+  }
+
+  async function hydrateFromStorage(){
+    var storage = getPhoneStorage();
+    if(!(storage && typeof storage.get === 'function')){
+      if(!accountsCache) accountsCache = readLegacyAccounts();
+      if(!activeIdCache) activeIdCache = readLegacyText(ACTIVE_KEY);
+      if(!defaultIdCache) defaultIdCache = readLegacyText(DEFAULT_KEY);
+      return false;
+    }
+    var storedAccounts = await getKv(KV_ACCOUNTS_ID);
+    var storedActiveId = await getKv(KV_ACTIVE_ID);
+    var storedDefaultId = await getKv(KV_DEFAULT_ID);
+    var accounts = normalizeAccounts(storedAccounts);
+    if(!accounts.length){
+      accounts = readLegacyAccounts();
+      if(accounts.length) putKv(KV_ACCOUNTS_ID, accounts);
+    }
+    accountsCache = accounts;
+    activeIdCache = String(storedActiveId || readLegacyText(ACTIVE_KEY) || '').trim();
+    defaultIdCache = String(storedDefaultId || readLegacyText(DEFAULT_KEY) || '').trim();
+    ensure();
+    return true;
+  }
+
+  function persistActiveId(id){
+    activeIdCache = String(id || '').trim();
+    if(getPhoneStorage()) putKv(KV_ACTIVE_ID, activeIdCache);
+    else writeLegacyText(ACTIVE_KEY, activeIdCache);
+  }
+
+  function persistDefaultId(id){
+    defaultIdCache = String(id || '').trim();
+    if(getPhoneStorage()) putKv(KV_DEFAULT_ID, defaultIdCache);
+    else writeLegacyText(DEFAULT_KEY, defaultIdCache);
+  }
+
+  function loadAccounts(){
+    if(!accountsCache){
+      accountsCache = readLegacyAccounts();
+      activeIdCache = readLegacyText(ACTIVE_KEY);
+      defaultIdCache = readLegacyText(DEFAULT_KEY);
+    }
+    scheduleHydrate();
+    return accountsCache;
+  }
+
   function saveAccounts(accounts){
+    accountsCache = normalizeAccounts(accounts);
+    if(getPhoneStorage()){
+      putKv(KV_ACCOUNTS_ID, accountsCache);
+      return true;
+    }
     try{
-      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts || []));
+      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accountsCache));
       return true;
     }catch(e){
       return false;
@@ -44,9 +168,13 @@
 
   function loadFavoritesFallback(accountId){
     if(!accountId) return [];
+    if(Array.isArray(favoritesFallbackCache[accountId])) return favoritesFallbackCache[accountId].slice();
     try{
       var arr = JSON.parse(localStorage.getItem(favoritesFallbackKey(accountId)) || '[]');
-      return Array.isArray(arr) ? arr : [];
+      var safe = Array.isArray(arr) ? arr : [];
+      favoritesFallbackCache[accountId] = safe;
+      if(safe.length) putKv(KV_FAVORITES_PREFIX + accountId, safe);
+      return safe.slice();
     }catch(err){
       return [];
     }
@@ -55,6 +183,12 @@
   function saveFavoritesFallback(accountId, list){
     if(!accountId) return false;
     var safeList = (Array.isArray(list) ? list : []).map(trimFavoriteForQuota).slice(0, 200);
+    favoritesFallbackCache[accountId] = safeList.slice();
+    if(getPhoneStorage()){
+      putKv(KV_FAVORITES_PREFIX + accountId, safeList);
+      removeLegacyKey(favoritesFallbackKey(accountId));
+      return true;
+    }
     try{
       localStorage.setItem(favoritesFallbackKey(accountId), JSON.stringify(safeList));
       return true;
@@ -75,7 +209,7 @@
   }
 
   function ensure(){
-    var accounts = loadAccounts();
+    var accounts = normalizeAccounts(loadAccounts());
     if(!accounts.length){
       var main = {
         id: uid(),
@@ -87,26 +221,24 @@
         isDefault: true
       };
       accounts = [main];
+      activeIdCache = main.id;
+      defaultIdCache = main.id;
       saveAccounts(accounts);
-      localStorage.setItem(ACTIVE_KEY, main.id);
-      localStorage.setItem(DEFAULT_KEY, main.id);
+      persistActiveId(main.id);
+      persistDefaultId(main.id);
     }
 
-    var activeId = localStorage.getItem(ACTIVE_KEY);
-    var defaultId = localStorage.getItem(DEFAULT_KEY);
-    if(!activeId || !accounts.some(function(a){ return a.id === activeId; })){
-      activeId = accounts[0].id;
-      localStorage.setItem(ACTIVE_KEY, activeId);
+    if(!activeIdCache || !accounts.some(function(a){ return a.id === activeIdCache; })){
+      persistActiveId(accounts[0].id);
     }
-    if(!defaultId || !accounts.some(function(a){ return a.id === defaultId; })){
+    if(!defaultIdCache || !accounts.some(function(a){ return a.id === defaultIdCache; })){
       var d = accounts.find(function(a){ return a.isDefault; }) || accounts[0];
-      defaultId = d.id;
-      localStorage.setItem(DEFAULT_KEY, defaultId);
+      persistDefaultId(d.id);
     }
 
     var changed = false;
     accounts.forEach(function(a){
-      var should = a.id === defaultId;
+      var should = a.id === defaultIdCache;
       if(!!a.isDefault !== should){ a.isDefault = should; changed = true; }
       if(!Array.isArray(a.friends)){ a.friends = []; changed = true; }
       if(!Array.isArray(a.favorites)){ a.favorites = []; changed = true; }
@@ -116,45 +248,46 @@
         changed = true;
       }
     });
+    accountsCache = accounts;
     if(changed) saveAccounts(accounts);
     return accounts;
   }
 
   function getActive(){
     var accounts = ensure();
-    var activeId = localStorage.getItem(ACTIVE_KEY);
-    return accounts.find(function(a){ return a.id === activeId; }) || accounts[0];
+    return accounts.find(function(a){ return a.id === activeIdCache; }) || accounts[0];
   }
 
   function updateActive(mutator){
     var accounts = ensure();
-    var activeId = localStorage.getItem(ACTIVE_KEY);
-    var idx = accounts.findIndex(function(a){ return a.id === activeId; });
+    var idx = accounts.findIndex(function(a){ return a.id === activeIdCache; });
     if(idx < 0) idx = 0;
     var copy = Object.assign({}, accounts[idx]);
     mutator(copy);
-    accounts[idx] = copy;
+    accounts[idx] = cloneAccount(copy);
     saveAccountsWithQuotaFallback(accounts, idx);
     if(Array.isArray(copy.favorites)){
-      saveFavoritesFallback(copy.id || activeId, copy.favorites);
+      saveFavoritesFallback(copy.id || activeIdCache, copy.favorites);
     }
-    return copy;
+    return accounts[idx];
   }
 
   function setActive(id){
     var accounts = ensure();
-    if(!accounts.some(function(a){ return a.id === id; })) return false;
-    localStorage.setItem(ACTIVE_KEY, id);
+    var safeId = String(id || '').trim();
+    if(!accounts.some(function(a){ return a.id === safeId; })) return false;
+    persistActiveId(safeId);
     return true;
   }
 
   function setDefault(id){
     var accounts = ensure();
-    if(!accounts.some(function(a){ return a.id === id; })) return false;
-    localStorage.setItem(DEFAULT_KEY, id);
+    var safeId = String(id || '').trim();
+    if(!accounts.some(function(a){ return a.id === safeId; })) return false;
+    persistDefaultId(safeId);
     accounts = accounts.map(function(a){
       a = Object.assign({}, a);
-      a.isDefault = a.id === id;
+      a.isDefault = a.id === safeId;
       return a;
     });
     saveAccounts(accounts);
@@ -175,27 +308,27 @@
     };
     accounts.push(acct);
     saveAccounts(accounts);
-    localStorage.setItem(ACTIVE_KEY, acct.id);
+    persistActiveId(acct.id);
     return acct;
   }
 
   function scopedKey(base, accountId){
-    var id = accountId || getActive().id;
+    var active = getActive();
+    var id = String(accountId || (active && active.id) || '').trim();
     return base + '__acct_' + id;
   }
 
   function addFavorite(entry){
     var accounts = ensure();
-    var activeId = localStorage.getItem(ACTIVE_KEY);
-    var idx = accounts.findIndex(function(a){ return a.id === activeId; });
+    var idx = accounts.findIndex(function(a){ return a.id === activeIdCache; });
     if(idx < 0) idx = 0;
     var acct = Object.assign({}, accounts[idx]);
     var list = Array.isArray(acct.favorites) ? acct.favorites.slice() : [];
     list.unshift(trimFavoriteForQuota(entry));
     acct.favorites = list.slice(0, 200);
-    accounts[idx] = acct;
+    accounts[idx] = cloneAccount(acct);
     var saved = saveAccountsWithQuotaFallback(accounts, idx);
-    var fallbackSaved = saveFavoritesFallback(acct.id || activeId, acct.favorites);
+    var fallbackSaved = saveFavoritesFallback(acct.id || activeIdCache, acct.favorites);
     return !!(saved || fallbackSaved);
   }
 
@@ -225,11 +358,11 @@
 
   function deleteAccount(id){
     var accounts = ensure();
+    var safeId = String(id || '').trim();
     if(accounts.length <= 1) return { ok:false, reason:'need_one' };
-    var target = accounts.find(function(a){ return a.id === id; });
+    var target = accounts.find(function(a){ return a.id === safeId; });
     if(!target) return { ok:false, reason:'missing' };
-    var defaultId = localStorage.getItem(DEFAULT_KEY);
-    if(defaultId === id) return { ok:false, reason:'default' };
+    if(defaultIdCache === safeId) return { ok:false, reason:'default' };
 
     var prefixes = [
       'chat_',
@@ -244,7 +377,7 @@
       try{
         var chars = JSON.parse(localStorage.getItem('characters') || '[]');
         if(Array.isArray(chars)){
-          var nextChars = chars.filter(function(c){ return !c || c.ownerAccountId !== id; });
+          var nextChars = chars.filter(function(c){ return !c || c.ownerAccountId !== safeId; });
           if(nextChars.length !== chars.length){
             localStorage.setItem('characters', JSON.stringify(nextChars));
           }
@@ -253,23 +386,29 @@
       for(var i=localStorage.length-1;i>=0;i--){
         var k = localStorage.key(i);
         if(!k) continue;
-        if(k.indexOf('__acct_' + id) !== -1){ localStorage.removeItem(k); continue; }
+        if(k.indexOf('__acct_' + safeId) !== -1){ localStorage.removeItem(k); continue; }
         for(var j=0;j<prefixes.length;j++){
-          if(k.indexOf(prefixes[j]) === 0 && k.indexOf(id) !== -1){ localStorage.removeItem(k); break; }
+          if(k.indexOf(prefixes[j]) === 0 && k.indexOf(safeId) !== -1){ localStorage.removeItem(k); break; }
         }
       }
     }catch(e){}
 
-    accounts = accounts.filter(function(a){ return a.id !== id; });
+    accounts = accounts.filter(function(a){ return a.id !== safeId; });
     saveAccounts(accounts);
-    if(localStorage.getItem(ACTIVE_KEY) === id){
-      localStorage.setItem(ACTIVE_KEY, accounts[0].id);
+    if(activeIdCache === safeId){
+      persistActiveId(accounts[0].id);
     }
     return { ok:true };
   }
 
+  function getDefaultId(){
+    ensure();
+    return defaultIdCache;
+  }
+
   global.AccountManager = {
     ensure: ensure,
+    hydrateFromStorage: hydrateFromStorage,
     loadAccounts: loadAccounts,
     saveAccounts: saveAccounts,
     getActive: getActive,
@@ -283,6 +422,8 @@
     addFriend: addFriend,
     removeFriend: removeFriend,
     isFriend: isFriend,
-    getDefaultId: function(){ ensure(); return localStorage.getItem(DEFAULT_KEY); }
+    getDefaultId: getDefaultId
   };
+
+  setTimeout(function(){ scheduleHydrate(); }, 0);
 })(window);
