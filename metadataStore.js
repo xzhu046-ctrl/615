@@ -16,6 +16,8 @@
     characters: null,
     worldbooks: null
   };
+  var instanceId = 'meta_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  var channel = null;
 
   function cloneJson(value){
     try{
@@ -50,13 +52,67 @@
     void key;
   }
 
-  function notify(topic){
+  function notifyLocal(topic){
     listeners.slice().forEach(function(fn){
       try{ fn(topic); }catch(err){}
     });
     try{
       global.dispatchEvent(new CustomEvent('metadata-store-updated', { detail:{ topic: topic } }));
     }catch(err){}
+  }
+
+  function broadcast(topic){
+    if(!channel) return;
+    try{
+      channel.postMessage({
+        type: 'metadata-store-updated',
+        topic: topic,
+        source: instanceId,
+        at: Date.now()
+      });
+    }catch(err){}
+  }
+
+  function notify(topic, options){
+    notifyLocal(topic);
+    if(!(options && options.localOnly)) broadcast(topic);
+  }
+
+  function invalidateTopic(topic){
+    if(topic === 'characters'){
+      loaded.characters = false;
+      pending.characters = null;
+      cache.characters = null;
+      return loadCharacters(true).catch(function(){ return []; }).then(function(){
+        notify(topic, { localOnly: true });
+      });
+    }
+    if(topic === 'worldbooks'){
+      loaded.worldbooks = false;
+      pending.worldbooks = null;
+      cache.worldbooks = null;
+      return loadWorldbooks(true).catch(function(){ return {}; }).then(function(){
+        notify(topic, { localOnly: true });
+      });
+    }
+    return Promise.resolve();
+  }
+
+  function setupChannel(){
+    if(typeof global.BroadcastChannel !== 'function') return;
+    try{
+      channel = new global.BroadcastChannel('phone_metadata_store_v1');
+      channel.onmessage = function(event){
+        var data = event && event.data || {};
+        if(!data || data.type !== 'metadata-store-updated') return;
+        if(data.source && data.source === instanceId) return;
+        var topic = String(data.topic || '').trim();
+        if(topic !== 'characters' && topic !== 'worldbooks') return;
+        invalidateTopic(topic).catch(function(){});
+      };
+    }catch(err){
+      channel = null;
+    }
   }
 
   function loadCharacters(force){
@@ -186,5 +242,6 @@
     getWorldbooksSync: getWorldbooksSync,
     subscribe: subscribe
   };
+  setupChannel();
   init().catch(function(){});
 })(window);

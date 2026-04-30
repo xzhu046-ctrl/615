@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T11:52:00Z';
+const APP_BUILD_ID = '2026-04-30T12:18:00Z';
 const APP_UPDATE_NOTES = [
-  '新增 shell 层 ShellUnreadStore，聊天和朋友圈红点由主壳从 PhoneStorage 复算。',
-  'QQ_BADGE_SYNC 在 PhoneStorage 可用时不能再用正数顶红点，只能触发复算或清零。',
-  '新增 ShellAvatarResolver 统一角色和用户头像解析入口，通知头像也走统一角色头像解析。'
+  'MetadataStore 新增跨 iframe 广播，导入/删除角色后 QQ、聊天和主壳会从 PhoneStorage 重新读角色。',
+  '导入角色后 shell 会主动刷新角色缓存并通知当前 app，避免联系人列表继续显示旧数据。',
+  'API 设置保存不再丢弃 AI 后台开关和间隔字段，设置页保存后会完整落到 PhoneStorage。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -534,7 +534,10 @@ if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
 }
 if(window.MetadataStore && typeof window.MetadataStore.subscribe === 'function'){
   window.MetadataStore.subscribe(function(topic){
-    if(topic === 'characters') refreshShellCharacterSurfaces();
+    if(topic === 'characters'){
+      refreshShellCharacterSurfaces();
+      postShellMetadataDirtyToCurrentApp('characters');
+    }
   });
 }
 if(window.AccountManager && typeof window.AccountManager.hydrateFromStorage === 'function'){
@@ -629,6 +632,15 @@ function requestAppPersistentStorage(){
     }
     if(navigator.storage && typeof navigator.storage.persist === 'function'){
       navigator.storage.persist().catch(function(){});
+    }
+  }catch(err){}
+}
+
+function postShellMetadataDirtyToCurrentApp(topic){
+  try{
+    const f = document.getElementById('app-iframe');
+    if(f && f.contentWindow){
+      f.contentWindow.postMessage({ type:'SHELL_METADATA_DIRTY', payload:{ topic:String(topic || 'characters') } }, '*');
     }
   }catch(err){}
 }
@@ -2018,9 +2030,12 @@ function normalizeApiSettingsRecord(raw){
     keys: src.keys && typeof src.keys === 'object' ? src.keys : {},
     models: src.models && typeof src.models === 'object' ? src.models : {},
     temps: src.temps && typeof src.temps === 'object' ? src.temps : {},
-    customUrl: String(src.customUrl || '').trim(),
-    customManual: String(src.customManual || '').trim(),
-    sysprompt: String(src.sysprompt || '')
+    customUrl: String(src.customUrl || src.custom_url || '').trim(),
+    customManual: String(src.customManual || src.model_custom_manual || '').trim(),
+    sysprompt: String(src.sysprompt || ''),
+    aiBgEnabled: src.aiBgEnabled == null ? false : !!src.aiBgEnabled,
+    aiBgIntervalMin: String(src.aiBgIntervalMin || src.aiBgInterval || '6').trim() || '6',
+    updatedAt: Number(src.updatedAt || Date.now()) || Date.now()
   };
 }
 
@@ -8628,6 +8643,16 @@ window.addEventListener('message',(e)=>{
     setWidgetCharacter(payload);
     renderBondWidget(payload);
     renderHomeDockBadges();
+    if(window.MetadataStore && typeof window.MetadataStore.reloadCharacters === 'function'){
+      window.MetadataStore.reloadCharacters().then(function(){
+        refreshShellCharacterSurfaces();
+        postShellMetadataDirtyToCurrentApp('characters');
+      }).catch(function(){
+        postShellMetadataDirtyToCurrentApp('characters');
+      });
+    }else{
+      postShellMetadataDirtyToCurrentApp('characters');
+    }
   }
   if(type==='OPEN_CHAT_WITH'){
     const slim = persistShellActiveCharacter(payload) || slimChar(payload);
