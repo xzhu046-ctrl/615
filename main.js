@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T14:50:00Z';
+const APP_BUILD_ID = '2026-04-30T15:22:00Z';
 const APP_UPDATE_NOTES = [
-  '聊天恢复不再使用 money replySnapshot 旧快照，删除后的消息不会被备份复活。',
-  '空聊天记录会作为权威空状态保留，不再被当成没保存然后重新开场。',
-  '设置、人设、状态和聊天记录继续按当前/默认/旧 key 兼容读取写入。'
+  '聊天删除会按角色 id 扫描清理 IndexedDB 旧副本，避免旧 record 把删除过的消息捞回来。',
+  '头像、聊天背景和顶栏背景会同步写入 PhoneStorage 设置包，避免只存到旧资源 key 后丢失。',
+  'QQ 置顶改为从 PhoneStorage 读取/写入，旧 localStorage 只作为迁移来源。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
