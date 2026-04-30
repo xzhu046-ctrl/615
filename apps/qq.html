@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>QQ</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Cormorant+Garamond:wght@600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-04-30T12:42:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T12:42:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T12:42:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T12:42:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T12:42:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T13:02:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T13:02:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T13:02:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T13:02:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T13:02:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1437,7 +1437,7 @@ body{
   <input id="contactsImportInput" type="file" accept=".png,.json,application/json,image/png" multiple style="display:none" onchange="handleContactsImportFiles(this.files)">
   <input id="contactsCreateAvatarInput" type="file" accept="image/*" style="display:none" onchange="handleContactsCreateAvatarFile(this.files[0])">
   <input id="qqHeroPhotoInput" type="file" accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg" style="display:none" onchange="handleQqHeroPhotoFile(this.files[0])">
-  <iframe id="contactsHelperFrame" class="contacts-helper-frame" src="characters.html?__appBuild=2026-04-30T12:42:00Z" tabindex="-1" aria-hidden="true"></iframe>
+  <iframe id="contactsHelperFrame" class="contacts-helper-frame" src="characters.html?__appBuild=2026-04-30T13:02:00Z" tabindex="-1" aria-hidden="true"></iframe>
   <div class="toast" id="toast"></div>
 
 <script>
@@ -3286,17 +3286,17 @@ function getQqPageBuildId(){
     return '';
   }
 }
-function buildContactsHelperSrc(){
+function buildContactsHelperSrc(cacheBust){
   var build = getQqPageBuildId();
   var url = new URL('characters.html', window.location.href);
-  url.searchParams.set('__appBuild', build || '2026-04-30T12:42:00Z');
-  url.searchParams.set('__ts', String(Date.now()));
+  url.searchParams.set('__appBuild', build || '2026-04-30T13:02:00Z');
+  if(cacheBust) url.searchParams.set('__ts', String(Date.now()));
   return url.toString();
 }
 function syncContactsHelperFrame(forceReload){
   var iframe = document.getElementById('contactsHelperFrame');
   if(!iframe) return;
-  var targetSrc = buildContactsHelperSrc();
+  var targetSrc = buildContactsHelperSrc(forceReload);
   var currentSrc = '';
   try{
     currentSrc = iframe.contentWindow && iframe.contentWindow.location
@@ -3315,6 +3315,47 @@ function syncContactsHelperFrame(forceReload){
   if(forceReload || currentSrc !== targetSrc){
     iframe.setAttribute('src', targetSrc);
   }
+}
+function waitContactsImportHelper(timeoutMs){
+  var deadline = Date.now() + (Number(timeoutMs || 0) || 2500);
+  return new Promise(function(resolve){
+    function readyWindow(){
+      var win = getContactsFrameWindow();
+      return win && typeof win.onFiles === 'function' ? win : null;
+    }
+    var immediate = readyWindow();
+    if(immediate){
+      resolve(immediate);
+      return;
+    }
+    var iframe = document.getElementById('contactsHelperFrame');
+    var timer = 0;
+    function cleanup(){
+      if(timer) clearTimeout(timer);
+      if(iframe) iframe.removeEventListener('load', onLoad);
+    }
+    function finish(win){
+      cleanup();
+      resolve(win || null);
+    }
+    function poll(){
+      var win = readyWindow();
+      if(win){
+        finish(win);
+        return;
+      }
+      if(Date.now() >= deadline){
+        finish(null);
+        return;
+      }
+      timer = setTimeout(poll, 120);
+    }
+    function onLoad(){
+      setTimeout(poll, 0);
+    }
+    if(iframe) iframe.addEventListener('load', onLoad);
+    poll();
+  });
 }
 function openContactsCreate(){
   closeContactsDrawer();
@@ -3585,19 +3626,21 @@ async function adoptImportedCharacterForActiveAccount(imported){
 }
 function handleContactsImportFiles(files){
   var input = document.getElementById('contactsImportInput');
-  if(!files || !files.length){
+  var importFiles = Array.from(files || []);
+  if(!importFiles.length){
     if(input) input.value = '';
     return;
   }
   syncContactsHelperFrame(false);
-  var cw = getContactsFrameWindow();
-  if(!cw || typeof cw.onFiles !== 'function'){
-    showToast('导入器还没准备好，等一秒再试');
-    if(input) input.value = '';
-    return;
-  }
-  Promise.resolve(cw.onFiles(files)).then(function(){
-    showToast(files.length > 1 ? ('正在导入 ' + files.length + ' 张角色卡') : '正在导入角色卡');
+  waitContactsImportHelper(3000).then(function(cw){
+    if(!cw || typeof cw.onFiles !== 'function'){
+      showToast('导入器还没准备好，等一秒再试');
+      return null;
+    }
+    showToast(importFiles.length > 1 ? ('正在导入 ' + importFiles.length + ' 张角色卡') : '正在导入角色卡');
+    return cw.onFiles(importFiles);
+  }).then(function(){
+    return loadChars();
   }).catch(function(err){
     console.error('contacts import failed', err);
     showToast('导入失败，再试一次吧');

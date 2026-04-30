@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T12:42:00Z';
+const APP_BUILD_ID = '2026-04-30T13:02:00Z';
 const APP_UPDATE_NOTES = [
-  '修复更新弹窗按钮兼容路径，避免 PWA 新 HTML 配旧 main.js 时刷新点不动。',
-  '已安装说明仍可点我知道了，真正远端更新时按钮固定走刷新流程。',
-  '确认状态继续优先写入 PhoneStorage kv，localStorage 只作为极小兼容回退。'
+  '修复 QQ 导入角色卡时隐藏解析器被反复重载，导致文件选中后没有真正导入的问题。',
+  '导入时会等待角色卡解析器准备好，再把 PNG/JSON 文件交给 characters.html 处理。',
+  '导入完成后 QQ 会重新从 MetadataStore/PhoneStorage 读取联系人列表。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
