@@ -66,15 +66,12 @@
 
     set: function(key, value){
       return withStore('readwrite', function(store){ return store.put(value, key); }).then(function(){
-        safeStorageSet(key, MARKER);
+        safeStorageRemove(key);
         return value;
       }).catch(function(){
         var text = String(value || '');
-        if(text && !looksLikeAsset(text) && text.length <= 4096){
-          safeStorageSet(key, text);
-        }else{
-          safeStorageRemove(key);
-        }
+        if(text && !looksLikeAsset(text) && text.length <= 4096) safeStorageSet(key, text);
+        else safeStorageRemove(key);
         return value;
       });
     },
@@ -105,7 +102,7 @@
         return Promise.resolve(legacy);
       }
       return this.get(key).then(function(value){
-        if(value) safeStorageSet(key, MARKER);
+        if(value) safeStorageRemove(key);
         return value || '';
       });
     },
@@ -144,12 +141,8 @@
         return this.remove(key).then(function(){ return true; });
       }
       return this.set(key, value).then(function(){ return true; }).catch(function(){
-        try{
-          localStorage.setItem(key, value);
-          return true;
-        }catch(err){
-          return false;
-        }
+        safeStorageRemove(key);
+        return false;
       });
     }
   };

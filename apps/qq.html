@@ -1663,9 +1663,6 @@ function saveStoredWorldbooksSnapshot(nextWorldbooks){
   if(window.MetadataStore && typeof window.MetadataStore.saveWorldbooks === 'function'){
     return window.MetadataStore.saveWorldbooks(nextWorldbooks && typeof nextWorldbooks === 'object' ? nextWorldbooks : {});
   }
-  try{
-    localStorage.setItem('worldbooks', JSON.stringify(nextWorldbooks && typeof nextWorldbooks === 'object' ? nextWorldbooks : {}));
-  }catch(err){}
   return Promise.resolve(nextWorldbooks || {});
 }
 
@@ -2169,10 +2166,6 @@ async function refreshMomentsCache(){
       }
       if(Array.isArray(stored)){
         momentsPostsCache = stored;
-        try{
-          localStorage.removeItem(key);
-          localStorage.setItem(key, JSON.stringify(stored));
-        }catch(ignoreErr){}
         return;
       }
     }catch(e){}
@@ -2214,8 +2207,6 @@ async function loadChars(){
     if(changed){
       if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
         window.MetadataStore.saveCharacters(chars).catch(function(){});
-      }else{
-        try{ localStorage.setItem('characters', JSON.stringify(chars)); }catch(err){}
       }
     }
     if(acct){
@@ -2550,13 +2541,16 @@ async function markChatAsRead(charId){
       list = list.map(function(m){
         if(m && m.role === 'assistant' && !m.readAt){
           changed = true;
-          var next = Object.assign({}, m);
-          next.readAt = now;
+          var next = Array.isArray(m) ? m.slice() : Object.assign({}, m);
+          if(Array.isArray(next)) next[5] = now;
+          else next.readAt = now;
           return next;
         }
         return m;
       });
-      if(changed) localStorage.setItem(key, JSON.stringify({ history:list, messages:list }));
+      if(changed && !(window.PhoneStorage && typeof window.PhoneStorage.put === 'function')){
+        localStorage.setItem(key, JSON.stringify({ history:list, messages:list }));
+      }
     }catch(e){}
   });
   setChatSeenAt(charId, seenAt);
@@ -3383,8 +3377,6 @@ async function confirmDeleteContact(){
     }catch(err){}
     if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
       await window.MetadataStore.saveCharacters(allChars);
-    }else{
-      try{ localStorage.setItem('characters', JSON.stringify(allChars)); }catch(err){}
     }
     await saveStoredWorldbooksSnapshot(allWorldbooks);
     try{
@@ -3494,8 +3486,6 @@ async function submitContactsCreate(){
     nextList.push(nextChar);
     if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
       await window.MetadataStore.saveCharacters(nextList);
-    }else{
-      localStorage.setItem('characters', JSON.stringify(nextList));
     }
     if(qqCreateAvatarUpload){
       if(window.assetStore && typeof window.assetStore.saveOrFallback === 'function'){

@@ -491,11 +491,12 @@ textarea{resize:none}
 
 <script>
 var dirty = false;
-var curProvider = localStorage.getItem('provider') || 'openai';
+var curProvider = 'openai';
 var AI_BG_ENABLED_KEY = 'ai_bg_activity_enabled';
 var AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 var API_PRESETS_KEY = 'api_provider_presets_v1';
 var API_PRESETS_KV_ID = 'api_provider_presets';
+var API_SETTINGS_KV_ID = 'api_settings_v1';
 var PROVIDER_LABELS = {
   openai: 'OpenAI',
   claude: 'Claude',
@@ -523,31 +524,20 @@ function init() {
   var bootOverlay = document.getElementById('import-overlay');
   if(bootOverlay) bootOverlay.classList.remove('open');
   switchProvider(curProvider, true);
-  // Load keys
   ['openai','claude','gemini','openrouter','custom'].forEach(function(p) {
-    var k = document.getElementById('key-'+p);
-    if(k) k.value = localStorage.getItem('key_'+p) || '';
-  });
-  var customUrl = document.getElementById('key-custom-url');
-  if(customUrl) customUrl.value = localStorage.getItem('custom_url') || '';
-  // Load models
-  ['openai','claude','gemini','openrouter','custom'].forEach(function(p) {
-    var saved = localStorage.getItem('model_'+p);
-    if(saved) setSelectValue('model-'+p, saved);
     var t = document.getElementById('temp-'+p);
-    if(t){ t.value = localStorage.getItem('temp_'+p) || '1'; syncTempLabel(p); }
+    if(t){ t.value = '1'; syncTempLabel(p); }
   });
-  var mm = document.getElementById('model-custom-manual');
-  if(mm) mm.value = localStorage.getItem('model_custom_manual') || '';
-  document.getElementById('sysprompt').value = localStorage.getItem('sysprompt') || '';
-  var aiBgEnabled = localStorage.getItem(AI_BG_ENABLED_KEY) === '1';
-  document.getElementById('ai-bg-switch').classList.toggle('on', aiBgEnabled);
-  document.getElementById('ai-bg-interval').value = localStorage.getItem(AI_BG_INTERVAL_KEY) || '6';
   loadShellNotificationSettings();
   renderApiPresetList();
   renderMobileConsole();
   readCurrentBuildId().then(function(currentBuild){
     updateSettingsUpdateStatus(currentBuild, '', '等待检查');
+  });
+  loadApiSettingsRecord().then(function(record){
+    if(record) applyApiSettingsRecordToForm(record);
+  }).catch(function(err){
+    console.warn('load api settings record failed', err);
   });
   dirty = false;
 }
@@ -670,11 +660,7 @@ async function saveApiPresets(list){
     console.warn('saveApiPresets kv failed', err);
   }
   if(!stored){
-    if(!safeStorageSet(API_PRESETS_KEY, JSON.stringify(safeList))){
-      throw new Error('api preset storage quota exceeded');
-    }
-  }else{
-    safeStorageSet(API_PRESETS_KEY, JSON.stringify(safeList.slice(0, 2)));
+    throw new Error('PhoneStorage unavailable for api presets');
   }
   return safeList;
 }
@@ -711,20 +697,124 @@ function getApiPresetFingerprint(preset){
   });
 }
 
-function persistCurrentApiSettings(){
-  safeStorageSet('provider', curProvider);
-  ['openai','claude','gemini','openrouter','custom'].forEach(function(p) {
-    var k = document.getElementById('key-'+p);
-    if(k && k.value) safeStorageSet('key_'+p, k.value);
-    var m = document.getElementById('model-'+p);
-    if(m && m.value) safeStorageSet('model_'+p, m.value);
-    var t = document.getElementById('temp-'+p);
-    if(t) safeStorageSet('temp_'+p, t.value || '1');
+function getSettingsPhoneStorage(){
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage) return window.parent.PhoneStorage;
+  }catch(err){}
+  return window.PhoneStorage || null;
+}
+
+function readLegacyApiSetting(key){
+  try{ return localStorage.getItem(key); }catch(err){ return null; }
+}
+
+function collectApiSettingsRecord(){
+  var providers = ['openai','claude','gemini','openrouter','custom'];
+  var keys = {};
+  var models = {};
+  var temps = {};
+  providers.forEach(function(p){
+    keys[p] = String(((document.getElementById('key-'+p) || {}).value) || '').trim();
+    models[p] = String(((document.getElementById('model-'+p) || {}).value) || '').trim();
+    temps[p] = String(((document.getElementById('temp-'+p) || {}).value) || '1').trim() || '1';
   });
-  var cu = document.getElementById('key-custom-url');
-  if(cu) safeStorageSet('custom_url', cu.value);
-  var mm = document.getElementById('model-custom-manual');
-  if(mm && mm.value) safeStorageSet('model_custom_manual', mm.value);
+  return {
+    provider: String(curProvider || 'openai').trim() || 'openai',
+    keys: keys,
+    models: models,
+    temps: temps,
+    customUrl: String(((document.getElementById('key-custom-url') || {}).value) || '').trim(),
+    customManual: String(((document.getElementById('model-custom-manual') || {}).value) || '').trim(),
+    sysprompt: String(((document.getElementById('sysprompt') || {}).value) || ''),
+    aiBgEnabled: !!((document.getElementById('ai-bg-switch') || {}).classList && document.getElementById('ai-bg-switch').classList.contains('on')),
+    aiBgIntervalMin: String(((document.getElementById('ai-bg-interval') || {}).value) || '6'),
+    updatedAt: Date.now()
+  };
+}
+
+async function loadApiSettingsRecord(){
+  var storage = getSettingsPhoneStorage();
+  if(storage && typeof storage.get === 'function'){
+    var record = await storage.get('kv', API_SETTINGS_KV_ID).catch(function(){ return null; });
+    var value = record && (record.value || record.data || record.settings);
+    if(value && typeof value === 'object') return value;
+  }
+  var providers = ['openai','claude','gemini','openrouter','custom'];
+  var legacy = {
+    provider: String(readLegacyApiSetting('provider') || 'openai').trim() || 'openai',
+    keys: {},
+    models: {},
+    temps: {},
+    customUrl: String(readLegacyApiSetting('custom_url') || '').trim(),
+    customManual: String(readLegacyApiSetting('model_custom_manual') || '').trim(),
+    sysprompt: String(readLegacyApiSetting('sysprompt') || ''),
+    aiBgEnabled: String(readLegacyApiSetting(AI_BG_ENABLED_KEY) || '') === '1',
+    aiBgIntervalMin: String(readLegacyApiSetting(AI_BG_INTERVAL_KEY) || '6')
+  };
+  providers.forEach(function(p){
+    legacy.keys[p] = String(readLegacyApiSetting('key_' + p) || '').trim();
+    legacy.models[p] = String(readLegacyApiSetting('model_' + p) || '').trim();
+    legacy.temps[p] = String(readLegacyApiSetting('temp_' + p) || '1').trim() || '1';
+  });
+  var hasLegacy = providers.some(function(p){ return legacy.keys[p] || legacy.models[p]; })
+    || legacy.customUrl || legacy.customManual || legacy.sysprompt || legacy.aiBgEnabled || legacy.aiBgIntervalMin !== '6';
+  if(hasLegacy && storage && typeof storage.put === 'function'){
+    storage.put('kv', { id: API_SETTINGS_KV_ID, value: legacy, updatedAt: Date.now() }).catch(function(){});
+  }
+  return hasLegacy ? legacy : null;
+}
+
+function applyApiSettingsRecordToForm(record){
+  if(!record || typeof record !== 'object') return;
+  var keys = record.keys || {};
+  var models = record.models || {};
+  var temps = record.temps || {};
+  ['openai','claude','gemini','openrouter','custom'].forEach(function(p){
+    var k = document.getElementById('key-'+p);
+    if(k && Object.prototype.hasOwnProperty.call(keys, p)) k.value = String(keys[p] || '');
+    var m = document.getElementById('model-'+p);
+    if(m && String(models[p] || '').trim()) setSelectValue('model-'+p, String(models[p] || '').trim());
+    var t = document.getElementById('temp-'+p);
+    if(t && Object.prototype.hasOwnProperty.call(temps, p)){ t.value = String(temps[p] || '1'); syncTempLabel(p); }
+  });
+  var customUrl = document.getElementById('key-custom-url');
+  if(customUrl && Object.prototype.hasOwnProperty.call(record, 'customUrl')) customUrl.value = String(record.customUrl || '');
+  var customManual = document.getElementById('model-custom-manual');
+  if(customManual && Object.prototype.hasOwnProperty.call(record, 'customManual')) customManual.value = String(record.customManual || '');
+  var sys = document.getElementById('sysprompt');
+  if(sys && Object.prototype.hasOwnProperty.call(record, 'sysprompt')) sys.value = String(record.sysprompt || '');
+  var aiBgSwitch = document.getElementById('ai-bg-switch');
+  if(aiBgSwitch && Object.prototype.hasOwnProperty.call(record, 'aiBgEnabled')){
+    aiBgSwitch.classList.toggle('on', !!record.aiBgEnabled);
+  }
+  var aiBgInterval = document.getElementById('ai-bg-interval');
+  if(aiBgInterval && Object.prototype.hasOwnProperty.call(record, 'aiBgIntervalMin')){
+    aiBgInterval.value = String(record.aiBgIntervalMin || '6');
+  }
+  if(record.provider) switchProvider(String(record.provider || 'openai'), true);
+}
+
+async function persistCurrentApiSettings(){
+  var record = collectApiSettingsRecord();
+  var storage = getSettingsPhoneStorage();
+  if(!(storage && typeof storage.put === 'function')){
+    throw new Error('PhoneStorage unavailable for api settings');
+  }
+  await storage.put('kv', {
+    id: API_SETTINGS_KV_ID,
+    value: record,
+    updatedAt: Date.now()
+  });
+  try{
+    if(window.parent && window.parent !== window){
+      window.parent.postMessage({ type:'API_SETTINGS_SAVED', payload: record }, '*');
+    }
+  }catch(err){}
+  return record;
+}
+
+function persistCurrentApiSettingsLegacyMirror(){
+  return false;
 }
 
 async function renderApiPresetList(){
@@ -797,7 +887,7 @@ async function applyApiPreset(id){
   var customManual = document.getElementById('model-custom-manual');
   if(customManual) customManual.value = String(preset.customManual || '');
   switchProvider(preset.provider || 'openai', true);
-  persistCurrentApiSettings();
+  await persistCurrentApiSettings();
   dirty = false;
   await renderApiPresetList();
   showToast('已切换到 ' + (preset.name || 'API 预设'));
@@ -1031,16 +1121,16 @@ async function sendShellNotificationTest(kind){
 }
 
 function safeStorageSet(key, value){
-  try{
-    if(value == null || value === ''){
-      localStorage.removeItem(key);
-    }else{
-      localStorage.setItem(key, String(value));
-    }
-    return true;
-  }catch(err){
-    return false;
-  }
+  var storage = getSettingsPhoneStorage();
+  if(!(storage && typeof storage.put === 'function')) return false;
+  storage.put('kv', {
+    id: 'setting_' + String(key || '').trim(),
+    value: value == null ? '' : String(value),
+    updatedAt: Date.now()
+  }).catch(function(err){
+    console.warn('settings kv write failed', err);
+  });
+  return true;
 }
 
 async function persistShellNotifySettingsState(){
@@ -1749,13 +1839,17 @@ async function restoreExplicitUserSnapshot(snapshot){
     try{ localStorage.setItem('qq_default_account_id_v1', snapshot.defaultAccountId); }catch(err){}
   }
   if(Array.isArray(snapshot.characters)){
-    try{ localStorage.setItem('characters', JSON.stringify(snapshot.characters)); }catch(err){}
+    if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
+      await window.MetadataStore.saveCharacters(snapshot.characters).catch(function(){});
+    }
   }
   if(snapshot.activeCharacter){
     try{ localStorage.setItem('activeCharacter', JSON.stringify(snapshot.activeCharacter)); }catch(err){}
   }
   if(dedupedWorldbooks && typeof dedupedWorldbooks === 'object'){
-    try{ localStorage.setItem('worldbooks', JSON.stringify(dedupedWorldbooks)); }catch(err){}
+    if(window.MetadataStore && typeof window.MetadataStore.saveWorldbooks === 'function'){
+      await window.MetadataStore.saveWorldbooks(dedupedWorldbooks).catch(function(){});
+    }
   }
   if(snapshot.wallpaper && typeof snapshot.wallpaper === 'object' && snapshot.wallpaper.mode){
     try{ localStorage.setItem('wallpaper', String(snapshot.wallpaper.mode)); }catch(err){}
@@ -2113,8 +2207,7 @@ async function confirmFormat() {
 
 async function saveAll() {
   try{
-    persistCurrentApiSettings();
-    safeStorageSet('sysprompt', document.getElementById('sysprompt').value);
+    var apiSettingsRecord = await persistCurrentApiSettings();
     safeStorageSet(AI_BG_ENABLED_KEY, document.getElementById('ai-bg-switch').classList.contains('on') ? '1' : '0');
     var aiBgInterval = parseInt(document.getElementById('ai-bg-interval').value || '6', 10);
     if(Number.isNaN(aiBgInterval)) aiBgInterval = 6;
@@ -2132,6 +2225,7 @@ async function saveAll() {
         type: 'SETTINGS_SAVED',
         payload: {
           provider: curProvider,
+          apiSettings: apiSettingsRecord,
           aiBgEnabled: document.getElementById('ai-bg-switch').classList.contains('on'),
           aiBgIntervalMin: aiBgInterval,
           shellNotifySettings: Object.assign({}, shellNotifySettingsState)

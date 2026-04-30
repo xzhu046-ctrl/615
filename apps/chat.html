@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T08:03:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T08:03:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T08:34:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T08:34:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -3651,6 +3651,8 @@ var vectorMemoryPromptCache = '';
 var vectorEmbeddingCache = {};
 var chatSettingsSavedAtLeastOnce = false;
 var chatSettingsSaving = false;
+var API_SETTINGS_KV_ID = 'api_settings_v1';
+var chatApiSettingsCache = null;
 var chatVisibleCount = 0;
 var chatVisibleCharId = '';
 var composerMode = 'text';
@@ -5472,14 +5474,15 @@ async function getVectorEmbedding(text){
   if(!src) return null;
   var cacheKey = src.slice(0, 220);
   if(vectorEmbeddingCache[cacheKey]) return vectorEmbeddingCache[cacheKey];
-  var provider = String(localStorage.getItem('provider') || 'openai');
-  var key = String(localStorage.getItem('key_' + provider) || '').trim();
+  await hydrateChatApiSettingsFromStorage();
+  var provider = String(getChatApiSetting('provider', 'openai') || 'openai');
+  var key = String(getChatApiSetting('key_' + provider, '') || '').trim();
   if(!key) return null;
   var endpoint = '';
   if(provider === 'openai'){
     endpoint = 'https://api.openai.com/v1/embeddings';
   }else if(provider === 'custom'){
-    var customBase = String(localStorage.getItem('custom_url') || '').trim().replace(/\/$/, '');
+    var customBase = String(getChatApiSetting('custom_url', '') || '').trim().replace(/\/$/, '');
     if(customBase) endpoint = customBase + '/v1/embeddings';
   }
   if(!endpoint) return null;
@@ -8758,16 +8761,58 @@ async function preprocessAvatarVisionMessagesForPrompt(messages){
 }
 
 function getVisionProviderConfig(){
-  var provider = String(localStorage.getItem('provider') || 'openai').trim() || 'openai';
-  var key = String(localStorage.getItem('key_' + provider) || '').trim();
-  var model = String(localStorage.getItem('model_' + provider) || getDefaultModel(provider) || '').trim();
-  var customUrl = String(localStorage.getItem('custom_url') || '').trim().replace(/\/$/, '');
+  var provider = String(getChatApiSetting('provider', 'openai') || 'openai').trim() || 'openai';
+  var key = String(getChatApiSetting('key_' + provider, '') || '').trim();
+  var model = String(getChatApiSetting('model_' + provider, getDefaultModel(provider)) || getDefaultModel(provider) || '').trim();
+  var customUrl = String(getChatApiSetting('custom_url', '') || '').trim().replace(/\/$/, '');
   return {
     provider: provider,
     key: key,
     model: model || getDefaultModel(provider) || 'gpt-4o-mini',
     customUrl: customUrl
   };
+}
+
+function normalizeChatApiSettingsRecord(raw){
+  var src = raw && typeof raw === 'object' ? raw : {};
+  return {
+    provider: String(src.provider || 'openai').trim() || 'openai',
+    keys: src.keys && typeof src.keys === 'object' ? src.keys : {},
+    models: src.models && typeof src.models === 'object' ? src.models : {},
+    temps: src.temps && typeof src.temps === 'object' ? src.temps : {},
+    customUrl: String(src.customUrl || '').trim(),
+    customManual: String(src.customManual || '').trim(),
+    sysprompt: String(src.sysprompt || '')
+  };
+}
+
+async function hydrateChatApiSettingsFromStorage(){
+  var storage = null;
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage) storage = window.parent.PhoneStorage;
+  }catch(err){}
+  if(!storage) storage = window.PhoneStorage || null;
+  if(!(storage && typeof storage.get === 'function')) return chatApiSettingsCache;
+  var record = await storage.get('kv', API_SETTINGS_KV_ID).catch(function(){ return null; });
+  var value = record && (record.value || record.data || record.settings);
+  if(value && typeof value === 'object') chatApiSettingsCache = normalizeChatApiSettingsRecord(value);
+  return chatApiSettingsCache;
+}
+
+function getChatApiSetting(key, fallback){
+  var cache = chatApiSettingsCache || {};
+  if(key === 'provider') return String(cache.provider || fallback || 'openai').trim() || 'openai';
+  if(key === 'custom_url') return String(cache.customUrl || fallback || '').trim();
+  if(key === 'model_custom_manual') return String(cache.customManual || fallback || '').trim();
+  if(key === 'sysprompt') return String(cache.sysprompt || fallback || '');
+  var match = String(key || '').match(/^(key|model|temp)_(.+)$/);
+  if(match){
+    var bucket = match[1] === 'key' ? 'keys' : (match[1] === 'model' ? 'models' : 'temps');
+    var provider = match[2];
+    var value = cache[bucket] && Object.prototype.hasOwnProperty.call(cache[bucket], provider) ? cache[bucket][provider] : '';
+    return String(value || fallback || '').trim();
+  }
+  return String(fallback || '').trim();
 }
 
 async function toVisionInlineImage(cleanSrc){
@@ -8862,7 +8907,7 @@ async function callStandaloneVisionAPI(imageSrc, promptText, options){
       var endpoint = cfg.provider === 'openrouter'
         ? 'https://openrouter.ai/api/v1/chat/completions'
         : (cfg.provider === 'custom'
-          ? String((localStorage.getItem('custom_url') || '').replace(/\/$/, '') || '').trim() + '/chat/completions'
+          ? String((cfg.customUrl || getChatApiSetting('custom_url', '') || '').replace(/\/$/, '') || '').trim() + '/chat/completions'
           : 'https://api.openai.com/v1/chat/completions');
       var headers = { 'Content-Type': 'application/json' };
       if(cfg.provider === 'openrouter'){
@@ -11612,7 +11657,6 @@ function saveStoredCharactersSnapshot(list){
   if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
     return window.MetadataStore.saveCharacters(list);
   }
-  try{ localStorage.setItem('characters', JSON.stringify(list)); }catch(err){}
   return Promise.resolve(Array.isArray(list) ? list : []);
 }
 
@@ -18366,11 +18410,12 @@ function buildSystemPrompt() {
 }
 
 async function callAIWithCustomPrompts(systemPrompt, userPrompt){
-  var provider = localStorage.getItem('provider') || 'openai';
-  var key = localStorage.getItem('key_' + provider);
+  await hydrateChatApiSettingsFromStorage();
+  var provider = getChatApiSetting('provider', 'openai');
+  var key = getChatApiSetting('key_' + provider, '');
   if (!key && provider !== 'custom') throw new Error('未配置 API key');
-  var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider);
-  var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.9');
+  var model = getChatApiSetting('model_' + provider, getDefaultModel(provider)) || getDefaultModel(provider);
+  var temperature = parseFloat(getChatApiSetting('temp_' + provider, '0.9') || '0.9');
   var sys = String(systemPrompt || '');
   var user = String(userPrompt || '');
   var avatarVisionHint = '';
@@ -18451,11 +18496,11 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
   }
 
   if (provider === 'custom') {
-    var baseUrl = (localStorage.getItem('custom_url') || '').replace(/\/$/, '');
+    var baseUrl = getChatApiSetting('custom_url', '').replace(/\/$/, '');
     if (!baseUrl) throw new Error('未设置反代地址');
     var headers = { 'Content-Type': 'application/json' };
     if (key) headers['Authorization'] = 'Bearer ' + key;
-    var customModel = localStorage.getItem('model_custom_manual') || model;
+    var customModel = getChatApiSetting('model_custom_manual', model) || model;
     var resCustom = await fetch(baseUrl + '/chat/completions', {
       method: 'POST',
       headers: headers,
@@ -19626,8 +19671,9 @@ async function triggerReply() {
     if(resolvePendingUserRecallNoticesForReply()){
       await saveChat(true);
     }
-    var provider = localStorage.getItem('provider') || 'openai';
-    var key = localStorage.getItem('key_' + provider);
+    await hydrateChatApiSettingsFromStorage();
+    var provider = getChatApiSetting('provider', 'openai');
+    var key = getChatApiSetting('key_' + provider, '');
     if (!key) {
       toast('亲爱的user，请先设置api哦');
       return;
@@ -20145,8 +20191,11 @@ async function maybeRepairForbiddenNarratorReply(reply, provider, key, model, te
 //  AI API calls
 // ════════════════════════════════════════════
 async function callAI(provider, key) {
-  var model = localStorage.getItem('model_' + provider) || getDefaultModel(provider);
-  var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '1');
+  await hydrateChatApiSettingsFromStorage();
+  provider = provider || getChatApiSetting('provider', 'openai');
+  key = key || getChatApiSetting('key_' + provider, '');
+  var model = getChatApiSetting('model_' + provider, getDefaultModel(provider)) || getDefaultModel(provider);
+  var temperature = parseFloat(getChatApiSetting('temp_' + provider, '1') || '1');
   ensureMemeVisionForPrompt().catch(function(err){
     console.warn('ensureMemeVisionForPrompt failed', err);
   });
@@ -20363,11 +20412,11 @@ async function callAIChat(provider, key, model, temperature, sys, msgs) {
   }
 
   if (provider === 'custom') {
-    var baseUrl = (localStorage.getItem('custom_url') || '').replace(/\/$/, '');
+    var baseUrl = getChatApiSetting('custom_url', '').replace(/\/$/, '');
     if (!baseUrl) throw new Error('未设置反代地址，请在设置中填写');
     var headers = { 'Content-Type': 'application/json' };
     if (key) headers['Authorization'] = 'Bearer ' + key;
-    var customModel = localStorage.getItem('model_custom_manual') || model;
+    var customModel = getChatApiSetting('model_custom_manual', model) || model;
     var resCustom;
     try{
       resCustom = await fetch(baseUrl + '/chat/completions', {
@@ -22191,8 +22240,9 @@ async function rerollLast(){
   if(removedIds.length) resetPendingListenAlongInviteState();
   await saveChat(true);
   renderChatLog(false);
-  var provider = localStorage.getItem('provider') || 'openai';
-  var key = localStorage.getItem('key_' + provider);
+  await hydrateChatApiSettingsFromStorage();
+  var provider = getChatApiSetting('provider', 'openai');
+  var key = getChatApiSetting('key_' + provider, '');
   if (!key) {
     showError('未找到 ' + provider + ' 的 API key，请先去设置');
     return;
@@ -25953,8 +26003,9 @@ async function respondToListenAlongInvite(accepted){
   var invite = pendingIncomingListenInvite;
   closeIncomingListenAlongInvite();
   pendingIncomingListenInvite = null;
-  var provider = localStorage.getItem('provider') || 'openai';
-  var key = localStorage.getItem('key_' + provider);
+  await hydrateChatApiSettingsFromStorage();
+  var provider = getChatApiSetting('provider', 'openai');
+  var key = getChatApiSetting('key_' + provider, '');
   var systemEntry = makeChatEntry('system', accepted ? ('你接受了《' + invite.songName + '》的一起听歌邀请。') : ('你拒绝了《' + invite.songName + '》的一起听歌邀请。'), 'text');
   chatLog.push(systemEntry);
   addMessage('system', systemEntry.content, true, 'text', systemEntry.id);
@@ -25985,8 +26036,9 @@ async function sendListenAlongInvite(){
     toast('先选一首歌');
     return;
   }
-  var provider = localStorage.getItem('provider') || 'openai';
-  var key = localStorage.getItem('key_' + provider);
+  await hydrateChatApiSettingsFromStorage();
+  var provider = getChatApiSetting('provider', 'openai');
+  var key = getChatApiSetting('key_' + provider, '');
   if(!key){
     toast('亲爱的user，请先设置api哦');
     return;
@@ -27764,6 +27816,9 @@ function normalizeAvatarSrc(src){
   if(text.startsWith('data:')){
     return text.replace(/\s+/g, '');
   }
+  if(text.indexOf('apps/assets/') === 0) return '../' + text;
+  if(text.indexOf('./apps/assets/') === 0) return '../' + text.slice(2);
+  if(text.indexOf('/apps/assets/') === 0) return '..' + text;
   return text;
 }
 

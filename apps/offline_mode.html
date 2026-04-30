@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../promptManager.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T08:03:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T08:03:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T08:34:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -9896,16 +9896,55 @@ function parseOfflineErrorText(raw){
   }catch(e){}
   return text;
 }
+var API_SETTINGS_KV_ID = 'api_settings_v1';
+var offlineApiSettingsCache = null;
+function normalizeOfflineApiSettingsRecord(raw){
+  var src = raw && typeof raw === 'object' ? raw : {};
+  return {
+    provider: String(src.provider || 'openai').trim() || 'openai',
+    keys: src.keys && typeof src.keys === 'object' ? src.keys : {},
+    models: src.models && typeof src.models === 'object' ? src.models : {},
+    temps: src.temps && typeof src.temps === 'object' ? src.temps : {},
+    customUrl: String(src.customUrl || '').trim(),
+    customManual: String(src.customManual || '').trim()
+  };
+}
+async function hydrateOfflineApiSettingsFromStorage(){
+  var storage = null;
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage) storage = window.parent.PhoneStorage;
+  }catch(err){}
+  if(!storage) storage = window.PhoneStorage || null;
+  if(!(storage && typeof storage.get === 'function')) return offlineApiSettingsCache;
+  var record = await storage.get('kv', API_SETTINGS_KV_ID).catch(function(){ return null; });
+  var value = record && (record.value || record.data || record.settings);
+  if(value && typeof value === 'object') offlineApiSettingsCache = normalizeOfflineApiSettingsRecord(value);
+  return offlineApiSettingsCache;
+}
+function getOfflineApiSetting(key, fallback){
+  var cache = offlineApiSettingsCache || {};
+  if(key === 'provider') return String(cache.provider || fallback || 'openai').trim() || 'openai';
+  if(key === 'custom_url') return String(cache.customUrl || fallback || '').trim();
+  if(key === 'model_custom_manual') return String(cache.customManual || fallback || '').trim();
+  var match = String(key || '').match(/^(key|model|temp)_(.+)$/);
+  if(match){
+    var bucket = match[1] === 'key' ? 'keys' : (match[1] === 'model' ? 'models' : 'temps');
+    var provider = match[2];
+    var value = cache[bucket] && Object.prototype.hasOwnProperty.call(cache[bucket], provider) ? cache[bucket][provider] : '';
+    return String(value || fallback || '').trim();
+  }
+  return String(fallback || '').trim();
+}
 function getOfflineRuntimeMeta(requestOptions){
-  var provider = localStorage.getItem('provider') || 'openai';
-  var model = localStorage.getItem('model_' + provider) || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
+  var provider = getOfflineApiSetting('provider', 'openai');
+  var model = getOfflineApiSetting('model_' + provider, ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini')) || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
   var req = normalizeOfflineRequestOptions(requestOptions);
   var endpoint = '';
   if(provider === 'openai') endpoint = 'https://api.openai.com/v1/chat/completions';
   else if(provider === 'claude') endpoint = 'https://api.anthropic.com/v1/messages';
   else if(provider === 'gemini') endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent';
   else if(provider === 'openrouter') endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-  else if(provider === 'custom') endpoint = ((localStorage.getItem('custom_url') || '').replace(/\/$/, '') || '') + '/chat/completions';
+  else if(provider === 'custom') endpoint = ((getOfflineApiSetting('custom_url', '') || '').replace(/\/$/, '') || '') + '/chat/completions';
   return {
     provider: String(provider || '').trim(),
     model: String(model || '').trim(),
@@ -9941,7 +9980,7 @@ function rememberOfflineError(stage, err, extra){
   return payload;
 }
 function getOfflineProvider(){
-  return String(localStorage.getItem('provider') || 'openai').trim() || 'openai';
+  return String(getOfflineApiSetting('provider', 'openai') || 'openai').trim() || 'openai';
 }
 function supportsOfflineStreaming(provider){
   var safe = String(provider || getOfflineProvider()).trim();
@@ -10128,9 +10167,6 @@ async function importOfflinePresetFromFile(file){
   draft.presetName = String(imported.name || '').trim();
   draft.maxContextTokens = imported.maxContextTokens;
   draft.maxOutputTokens = imported.maxOutputTokens;
-  if(imported.temperature != null){
-    try{ localStorage.setItem('temp_' + getOfflineProvider(), String(imported.temperature)); }catch(tempErr){}
-  }
   if(imported.customIncludeHeaders){
     try{ localStorage.setItem('custom_include_headers', imported.customIncludeHeaders); }catch(headerErr){}
   }
@@ -10145,11 +10181,12 @@ async function importOfflinePresetFromFile(file){
   toast('预设已导入：' + String(imported.name || 'Imported Preset'));
 }
 async function callAI(systemPrompt, userPrompt, requestOptions){
+  await hydrateOfflineApiSettingsFromStorage();
   var runtimeMeta = getOfflineRuntimeMeta(requestOptions);
   var provider = runtimeMeta.provider || 'openai';
-  var key = localStorage.getItem('key_' + provider);
+  var key = getOfflineApiSetting('key_' + provider, '');
   var model = runtimeMeta.model || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
-  var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.9');
+  var temperature = parseFloat(getOfflineApiSetting('temp_' + provider, '0.9') || '0.9');
   var req = normalizeOfflineRequestOptions(requestOptions);
   var promptTokens = estimateOfflinePromptTokens(systemPrompt, userPrompt);
   if(provider === 'openai'){
@@ -10238,11 +10275,11 @@ async function callAI(systemPrompt, userPrompt, requestOptions){
     return dor.choices && dor.choices[0] && dor.choices[0].message ? dor.choices[0].message.content : '';
   }
   if(provider === 'custom'){
-    var baseUrl = (localStorage.getItem('custom_url') || '').replace(/\/$/, '');
+    var baseUrl = (getOfflineApiSetting('custom_url', '') || '').replace(/\/$/, '');
     if(!baseUrl) throw new Error('未设置反代地址，请在设置中填写');
     var headers = { 'Content-Type':'application/json' };
     if(key) headers['Authorization'] = 'Bearer ' + key;
-    var customModel = localStorage.getItem('model_custom_manual') || model;
+    var customModel = getOfflineApiSetting('model_custom_manual', model) || model;
     var customPayload = {
       model: customModel,
       temperature: temperature,
@@ -10401,11 +10438,12 @@ async function readSseStream(response, onPiece){
   return emittedAny;
 }
 async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOptions){
+  await hydrateOfflineApiSettingsFromStorage();
   var runtimeMeta = getOfflineRuntimeMeta(requestOptions);
   var provider = runtimeMeta.provider || 'openai';
-  var key = localStorage.getItem('key_' + provider);
+  var key = getOfflineApiSetting('key_' + provider, '');
   var model = runtimeMeta.model || ({ openai:'gpt-4o-mini', claude:'claude-haiku-4-5-20251001', gemini:'gemini-2.0-flash', openrouter:'openai/gpt-4o-mini', custom:'' }[provider] || 'gpt-4o-mini');
-  var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.9');
+  var temperature = parseFloat(getOfflineApiSetting('temp_' + provider, '0.9') || '0.9');
   var req = normalizeOfflineRequestOptions(requestOptions);
   var promptTokens = estimateOfflinePromptTokens(systemPrompt, userPrompt);
   var disableLocalTimeout = shouldDisableOfflineLocalTimeout();
@@ -10515,11 +10553,11 @@ async function callAIStreamText(systemPrompt, userPrompt, onPiece, requestOption
     }
   }
   if(provider === 'custom'){
-    var baseUrl = (localStorage.getItem('custom_url') || '').replace(/\/$/, '');
+    var baseUrl = (getOfflineApiSetting('custom_url', '') || '').replace(/\/$/, '');
     if(!baseUrl) throw new Error('未设置反代地址，请在设置中填写');
     var headers = { 'Content-Type':'application/json' };
     if(key) headers['Authorization'] = 'Bearer ' + key;
-    var customModel = localStorage.getItem('model_custom_manual') || model;
+    var customModel = getOfflineApiSetting('model_custom_manual', model) || model;
     var customPayload = {
       model: customModel,
       temperature: temperature,

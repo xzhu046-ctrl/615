@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T08:03:00Z';
+const APP_BUILD_ID = '2026-04-30T08:34:00Z';
 const APP_UPDATE_NOTES = [
-  'USER 头像恢复旧头像兼容读取。',
-  '系统通知头像改用原始可访问地址。',
-  'QQ 红点同步同时信任聊天和朋友圈计数。'
+  'API 设置改用 PhoneStorage，聊天和线下统一读取。',
+  '角色、世界书、头像资产停止写入 localStorage 大镜像。',
+  '修复朋友圈/聊天红点清除和通知头像兜底。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -81,6 +81,7 @@ const HOME_MUSIC_FLOATING_ENABLED_KEY = 'home_music_floating_enabled_v1';
 const HOME_MUSIC_FLOATING_ICON_KEY = 'home_music_floating_icon_v1';
 const HOME_MUSIC_FLOATING_SIZE_KEY = 'home_music_floating_size_v1';
 const HOME_MUSIC_THIRD_PARTY_BASE = 'https://api.vkeys.cn/v2/music/tencent';
+const API_SETTINGS_KV_ID = 'api_settings_v1';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
 let pendingRemoteAppFingerprint = '';
@@ -105,6 +106,7 @@ var shellActiveChatIdCache = {};
 var persistedShellActiveCharacter = null;
 var backendLogBroadcastQueued = false;
 var shellConsoleBridgeInstalled = false;
+var shellApiSettingsCache = null;
 
 function getBackendLogStorageKey(){
   return BACKEND_LOG_STORAGE_KEY;
@@ -1985,14 +1987,64 @@ async function writeBackgroundBlockState(charId, accountId, state){
   try{ localStorage.setItem('chat_block_state_' + charId, JSON.stringify(next)); }catch(e2){}
 }
 
+function normalizeApiSettingsRecord(raw){
+  var src = raw && typeof raw === 'object' ? raw : {};
+  return {
+    provider: String(src.provider || 'openai').trim() || 'openai',
+    keys: src.keys && typeof src.keys === 'object' ? src.keys : {},
+    models: src.models && typeof src.models === 'object' ? src.models : {},
+    temps: src.temps && typeof src.temps === 'object' ? src.temps : {},
+    customUrl: String(src.customUrl || '').trim(),
+    customManual: String(src.customManual || '').trim(),
+    sysprompt: String(src.sysprompt || '')
+  };
+}
+
+async function hydrateShellApiSettingsFromStorage(){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.get === 'function')) return shellApiSettingsCache;
+  var record = await window.PhoneStorage.get('kv', API_SETTINGS_KV_ID).catch(function(){ return null; });
+  var value = record && (record.value || record.data || record.settings);
+  if(value && typeof value === 'object'){
+    shellApiSettingsCache = normalizeApiSettingsRecord(value);
+  }
+  return shellApiSettingsCache;
+}
+
+function applyShellApiSettingsRecord(record){
+  shellApiSettingsCache = normalizeApiSettingsRecord(record);
+  if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+    window.PhoneStorage.put('kv', {
+      id: API_SETTINGS_KV_ID,
+      value: shellApiSettingsCache,
+      updatedAt: Date.now()
+    }).catch(function(err){ console.warn('api settings kv save failed', err); });
+  }
+}
+
+function getShellApiSetting(key, fallback){
+  var cache = shellApiSettingsCache || {};
+  if(key === 'provider') return String(cache.provider || fallback || 'openai').trim() || 'openai';
+  if(key === 'custom_url') return String(cache.customUrl || fallback || '').trim();
+  if(key === 'model_custom_manual') return String(cache.customManual || fallback || '').trim();
+  if(key === 'sysprompt') return String(cache.sysprompt || fallback || '');
+  var match = String(key || '').match(/^(key|model|temp)_(.+)$/);
+  if(match){
+    var bucket = match[1] === 'key' ? 'keys' : (match[1] === 'model' ? 'models' : 'temps');
+    var provider = match[2];
+    var value = cache[bucket] && Object.prototype.hasOwnProperty.call(cache[bucket], provider) ? cache[bucket][provider] : '';
+    return String(value || fallback || '').trim();
+  }
+  return String(fallback || '').trim();
+}
+
 function getBackgroundProviderConfig(){
-  var provider = localStorage.getItem('provider') || 'openai';
-  var key = localStorage.getItem('key_' + provider) || '';
+  var provider = getShellApiSetting('provider', 'openai');
+  var key = getShellApiSetting('key_' + provider, '');
   if(!key && provider !== 'custom') return null;
-  var model = localStorage.getItem('model_' + provider) || getDefaultModelForBg(provider);
-  var temperature = parseFloat(localStorage.getItem('temp_' + provider) || '0.95');
+  var model = getShellApiSetting('model_' + provider, getDefaultModelForBg(provider)) || getDefaultModelForBg(provider);
+  var temperature = parseFloat(getShellApiSetting('temp_' + provider, '0.95') || '0.95');
   if(Number.isNaN(temperature)) temperature = 0.95;
-  var customUrl = (localStorage.getItem('custom_url') || '').replace(/\/$/, '');
+  var customUrl = getShellApiSetting('custom_url', '').replace(/\/$/, '');
   if(provider === 'custom' && !customUrl) return null;
   return {
     provider: provider,
@@ -2573,8 +2625,14 @@ function maybeShowShellActivityNotification(payload){
   var appName = kind === 'moments' ? 'moments' : (kind === 'schedule' ? 'schedule' : 'chat');
   Promise.resolve(resolveShellNotificationAvatar(charId, payload.avatar || getCharacterAvatarForBg(character || { id: charId }) || ''))
     .catch(function(){ return ''; })
-    .then(function(rawAvatar){
+    .then(async function(rawAvatar){
       rawAvatar = String(rawAvatar || '').trim();
+      if(!isRenderableShellAvatarSrc(rawAvatar)){
+        rawAvatar = await resolveShellNotificationAvatarByName(name).catch(function(){ return ''; });
+      }
+      if(!isRenderableShellAvatarSrc(rawAvatar)){
+        rawAvatar = resolveAnyActiveNotificationAvatar();
+      }
       return materializeShellNotificationAvatar(rawAvatar).catch(function(){ return rawAvatar; }).then(function(cardAvatar){
         return { rawAvatar: rawAvatar, cardAvatar: String(cardAvatar || rawAvatar || '').trim() };
       });
@@ -3824,7 +3882,7 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
       method: 'POST',
       headers: headers,
       body: JSON.stringify({
-        model: localStorage.getItem('model_custom_manual') || cfg.model,
+        model: getShellApiSetting('model_custom_manual', cfg.model) || cfg.model,
         temperature: cfg.temperature,
         messages: [{ role:'system', content: sysPrompt }, { role:'user', content: userPrompt }]
       })
@@ -8619,20 +8677,17 @@ window.addEventListener('message',(e)=>{
     if(activeAcctId){
       if(hasChatUnreadPayload){
         qqUnreadCountCache[activeAcctId] = Math.max(0, parseInt(payload.chatUnread || 0, 10) || 0);
-      }else{
-        delete qqUnreadCountCache[activeAcctId];
       }
       if(hasMomentsUnreadPayload){
         qqMomentsUnreadCountCache[activeAcctId] = Math.max(0, parseInt(payload.momentsUnread || 0, 10) || 0);
-      }else{
-        delete qqMomentsUnreadCountCache[activeAcctId];
       }
     }
     renderHomeDockBadges();
-    if(!hasChatUnreadPayload) refreshQqUnreadCountSoon();
+    postShellUnreadBadgeToCurrentApp();
+    if(!hasChatUnreadPayload && !hasMomentsUnreadPayload) refreshQqUnreadCountSoon();
   }
   if(type==='CHAT_SEEN'){
-    if(payload && payload.charId) markShellChatAsRead(payload.charId).catch(function(){ refreshQqUnreadCountSoon(); });
+    if(payload && payload.charId) markShellChatAsRead(payload.charId).then(function(){ refreshQqUnreadCountSoon(); }).catch(function(){ refreshQqUnreadCountSoon(); });
     else refreshQqUnreadCountSoon();
   }
   if(type==='MOMENTS_SEEN'){
@@ -8709,11 +8764,18 @@ window.addEventListener('message',(e)=>{
     }
   }
   if(type==='SETTINGS_SAVED'){
+    if(payload && payload.apiSettings){
+      applyShellApiSettingsRecord(payload.apiSettings);
+    }
     if(payload && payload.shellNotifySettings){
       shellNotificationSettingsCache = normalizeShellNotificationSettings(payload.shellNotifySettings);
     }
     setupAiBgScheduler();
     maybeRunAiBgTick(false);
+  }
+  if(type==='API_SETTINGS_SAVED'){
+    applyShellApiSettingsRecord(payload || {});
+    setupAiBgScheduler();
   }
   if(type==='CHAT_UPDATED'){
     // Always sync to the latest chatted character/widget state.
@@ -9721,15 +9783,18 @@ async function markShellChatAsRead(charId){
       var nextList = list.map(function(m){
         if(m && m.role === 'assistant' && !m.readAt){
           localChanged = true;
-          var next = Object.assign({}, m);
-          next.readAt = now;
+          var next = Array.isArray(m) ? m.slice() : Object.assign({}, m);
+          if(Array.isArray(next)) next[5] = now;
+          else next.readAt = now;
           return next;
         }
         return m;
       });
       if(localChanged){
         changed = true;
-        localStorage.setItem(key, JSON.stringify({ history: nextList, messages: nextList }));
+        if(!(window.PhoneStorage && typeof window.PhoneStorage.put === 'function')){
+          localStorage.setItem(key, JSON.stringify({ history: nextList, messages: nextList }));
+        }
       }
     }catch(e){}
   });
@@ -10003,6 +10068,7 @@ function restoreState(){
   renderBondBubbles();
   renderPageTwoMiniNote();
   renderBondLinkInputs();
+  hydrateShellApiSettingsFromStorage().catch(function(err){ console.warn('api settings hydrate failed', err); });
   const wp=localStorage.getItem('wallpaper');
   if(wp==='custom'){
     loadStoredAsset('wallpaper_custom').then((c)=>{
