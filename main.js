@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T11:38:00Z';
+const APP_BUILD_ID = '2026-04-30T11:52:00Z';
 const APP_UPDATE_NOTES = [
-  '备份导出会从 MetadataStore/PhoneStorage 读取真实角色和档案，不再依赖可能过期的 localStorage 镜像。',
-  '导入备份时空的 userData.characters 不会覆盖已恢复的 PhoneStorage 角色，避免导入后聊天列表消失。',
-  '导入跨版本备份会跳过当前数据库不认识的 store，减少整包恢复失败。'
+  '新增 shell 层 ShellUnreadStore，聊天和朋友圈红点由主壳从 PhoneStorage 复算。',
+  'QQ_BADGE_SYNC 在 PhoneStorage 可用时不能再用正数顶红点，只能触发复算或清零。',
+  '新增 ShellAvatarResolver 统一角色和用户头像解析入口，通知头像也走统一角色头像解析。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -2289,6 +2289,32 @@ function resolveCharacterAvatarForShell(character){
   }).catch(function(){ return immediate || ''; });
 }
 
+var ShellAvatarResolver = {
+  normalize: normalizeShellAssetSrc,
+  isRenderable: isRenderableShellAvatarSrc,
+  characterSync: getCharacterAvatarForBg,
+  character: resolveCharacterAvatarForShell,
+  characterById: loadCharacterAvatarForShell,
+  userSync: getImmediateStoredUserAvatarForShell,
+  user: function(charId){
+    var immediate = getImmediateStoredUserAvatarForShell(charId);
+    if(isRenderableShellAvatarSrc(immediate)) return Promise.resolve(immediate);
+    var keys = getShellUserAvatarAssetKeys(charId);
+    var chain = Promise.resolve('');
+    keys.forEach(function(key){
+      chain = chain.then(function(found){
+        if(isRenderableShellAvatarSrc(found)) return found;
+        return loadStoredAsset(key).then(function(src){
+          var safeSrc = normalizeShellAssetSrc(src || '');
+          return isRenderableShellAvatarSrc(safeSrc) ? safeSrc : '';
+        }).catch(function(){ return ''; });
+      });
+    });
+    return chain.then(function(found){ return found || immediate || ''; });
+  }
+};
+window.ShellAvatarResolver = ShellAvatarResolver;
+
 function shouldSuppressChatNotification(charId){
   if(currentApp !== 'chat') return false;
   var foreground = getCurrentForegroundCharacter();
@@ -2380,7 +2406,7 @@ async function resolveShellNotificationAvatar(charId, preferredAvatar){
   }
   function findAvatarFromCandidates(candidates){
     for(var idx = 0; idx < candidates.length; idx += 1){
-      var src = getCharacterAvatarForBg(candidates[idx]);
+      var src = ShellAvatarResolver.characterSync(candidates[idx]);
       if(isRenderableShellAvatarSrc(src)) return src;
     }
     return '';
@@ -2395,7 +2421,7 @@ async function resolveShellNotificationAvatar(charId, preferredAvatar){
     }
   }catch(err){}
   try{
-    var stored = await loadCharacterAvatarForShell(id).catch(function(){ return ''; });
+    var stored = await ShellAvatarResolver.characterById(id).catch(function(){ return ''; });
     stored = normalizeShellAssetSrc(stored || '');
     if(isRenderableShellAvatarSrc(stored)) return stored;
   }catch(err){}
@@ -8724,7 +8750,13 @@ window.addEventListener('message',(e)=>{
         }
       }
       if(hasMomentsUnreadPayload){
-        qqMomentsUnreadCountCache[activeAcctId] = Math.max(0, parseInt(payload.momentsUnread || 0, 10) || 0);
+        var momentsUnreadPayload = Math.max(0, parseInt(payload.momentsUnread || 0, 10) || 0);
+        if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
+          if(momentsUnreadPayload === 0) qqMomentsUnreadCountCache[activeAcctId] = 0;
+          else refreshQqUnreadCountSoon();
+        }else{
+          qqMomentsUnreadCountCache[activeAcctId] = momentsUnreadPayload;
+        }
       }
     }
     renderHomeDockBadges();
@@ -9692,6 +9724,61 @@ function getMomentsUnreadCountForActive(){
   return count;
 }
 
+function getShellMomentPostsFromLocalStorage(activeId){
+  var keys = [
+    scopedKeyForAccount(MOMENTS_POSTS_KEY, activeId),
+    scopedKeyForAccount(MOMENTS_POSTS_ALT_KEY, activeId),
+    MOMENTS_POSTS_KEY,
+    MOMENTS_POSTS_ALT_KEY
+  ];
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var parsed = JSON.parse(localStorage.getItem(keys[i]) || '[]');
+      if(Array.isArray(parsed) && parsed.length) return parsed;
+    }catch(e){}
+  }
+  return [];
+}
+
+async function readShellMomentPostsForActive(activeId){
+  var keys = [
+    scopedKeyForAccount(MOMENTS_POSTS_KEY, activeId),
+    scopedKeyForAccount(MOMENTS_POSTS_ALT_KEY, activeId),
+    MOMENTS_POSTS_KEY,
+    MOMENTS_POSTS_ALT_KEY
+  ];
+  if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
+    for(var i = 0; i < keys.length; i += 1){
+      try{
+        var stored = await window.PhoneStorage.getJson(keys[i]);
+        if(Array.isArray(stored) && stored.length) return stored;
+      }catch(e){}
+    }
+  }
+  return getShellMomentPostsFromLocalStorage(activeId);
+}
+
+function computeShellMomentsUnreadFromPosts(posts, activeId){
+  var seenAt = getMomentsSeenAtForActive(activeId);
+  var myName = '';
+  try{
+    if(window.AccountManager){
+      var acct = window.AccountManager.getActive();
+      myName = String((acct && acct.name) || '').trim();
+    }
+  }catch(e){}
+  var count = 0;
+  (Array.isArray(posts) ? posts : []).forEach(function(post){
+    if(!post) return;
+    var createdAt = Number(post.createdAt || 0) || 0;
+    if(createdAt <= seenAt) return;
+    var author = String(post.authorName || '').trim();
+    if(myName && author && author === myName) return;
+    count += 1;
+  });
+  return count;
+}
+
 function getMomentsSeenAtForActive(activeId){
   var seenAt = 0;
   [
@@ -9713,7 +9800,6 @@ function setMomentsSeenAtForActive(activeId, seenAt){
 }
 
 async function refreshQqUnreadCountCache(){
-  if(!(window.PhoneStorage && typeof window.PhoneStorage.list === 'function')) return;
   var activeId = '';
   try{
     if(window.AccountManager){
@@ -9724,23 +9810,31 @@ async function refreshQqUnreadCountCache(){
   if(!activeId) return;
   var token = ++qqUnreadRefreshToken;
   try{
-    var records = await window.PhoneStorage.list('chats');
+    var chatTotal = 0;
+    if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function'){
+      var records = await window.PhoneStorage.list('chats');
+      if(token !== qqUnreadRefreshToken) return;
+      var suffix = '__acct_' + activeId;
+      var byChar = Object.create(null);
+      (Array.isArray(records) ? records : []).forEach(function(record){
+        if(!record || typeof record !== 'object') return;
+        var recordId = String(record.id || '');
+        if(recordId.indexOf('chat_') !== 0 || recordId.indexOf(suffix) === -1) return;
+        var list = Array.isArray(record.history) ? record.history : [];
+        var charId = extractChatCharIdFromRecord(record);
+        if(!charId) return;
+        byChar[charId] = chooseBetterShellUnreadSummary(byChar[charId], summarizeShellUnreadHistoryForChar(list, charId));
+      });
+      chatTotal = Object.keys(byChar).reduce(function(sum, charId){
+        return sum + Math.max(0, Number(byChar[charId] && byChar[charId].unread || 0) || 0);
+      }, 0);
+    }else{
+      chatTotal = getQqUnreadCountForActive();
+    }
+    var momentPosts = await readShellMomentPostsForActive(activeId);
     if(token !== qqUnreadRefreshToken) return;
-    var suffix = '__acct_' + activeId;
-    var byChar = Object.create(null);
-    (Array.isArray(records) ? records : []).forEach(function(record){
-      if(!record || typeof record !== 'object') return;
-      var recordId = String(record.id || '');
-      if(recordId.indexOf('chat_') !== 0 || recordId.indexOf(suffix) === -1) return;
-      var list = Array.isArray(record.history) ? record.history : [];
-      var charId = extractChatCharIdFromRecord(record);
-      if(!charId) return;
-      byChar[charId] = chooseBetterShellUnreadSummary(byChar[charId], summarizeShellUnreadHistoryForChar(list, charId));
-    });
-    var total = Object.keys(byChar).reduce(function(sum, charId){
-      return sum + Math.max(0, Number(byChar[charId] && byChar[charId].unread || 0) || 0);
-    }, 0);
-    qqUnreadCountCache[activeId] = total;
+    qqUnreadCountCache[activeId] = Math.max(0, Number(chatTotal || 0) || 0);
+    qqMomentsUnreadCountCache[activeId] = computeShellMomentsUnreadFromPosts(momentPosts, activeId);
     renderHomeDockBadges();
   }catch(e){}
 }
@@ -9885,6 +9979,17 @@ function refreshQqUnreadCountSoon(){
     postShellUnreadBadgeToCurrentApp();
   });
 }
+
+var ShellUnreadStore = {
+  refresh: refreshQqUnreadCountCache,
+  refreshSoon: refreshQqUnreadCountSoon,
+  clear: clearShellUnreadBadgeCacheForActive,
+  markChatRead: markShellChatAsRead,
+  getSnapshot: function(){
+    return getShellUnreadBadgePayload();
+  }
+};
+window.ShellUnreadStore = ShellUnreadStore;
 
 function getMaxStoredMomentCreatedAtForActive(activeId){
   var maxAt = 0;
