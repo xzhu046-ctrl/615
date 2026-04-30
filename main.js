@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T20:45:00Z';
+const APP_BUILD_ID = '2026-04-29T21:02:00Z';
 const APP_UPDATE_NOTES = [
-  '明确要求发朋友圈时不再静默失败。',
-  '朋友圈生成失败会补足可发布内容。',
-  '提示词禁止只口头假装已发布。'
+  '明确发朋友圈会等真实写入完成。',
+  '用户命令不再被自动开关误拦。',
+  '避免 iOS 后台中断发布动作。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
