@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T16:10:00Z';
+const APP_BUILD_ID = '2026-04-29T16:25:00Z';
 const APP_UPDATE_NOTES = [
-  '修复线上回复数组被逗号串成一句。',
-  'messages/replies/response 数组改按气泡拆分。',
-  '结构化回复解析避免 JS 默认逗号拼接。'
+  '收紧线上聊天短气泡提示词。',
+  '明确一个 content/text 只代表一个真实气泡。',
+  '要求模型主动用多条消息表达多层意思。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
