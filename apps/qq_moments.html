@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-04-30T17:13:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T17:13:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T17:13:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T17:13:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T18:20:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T18:20:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T18:20:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T18:20:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -541,6 +541,34 @@ function esc(s){
 function escAttr(s){ return esc(s).replace(/'/g,'&#39;'); }
 function isRenderableAssetSource(src){
   return /^(data:|https?:|blob:|\/|\.\.?\/|assets\/|apps\/assets\/)/i.test(String(src || '').trim());
+}
+function isBlobAssetSource(src){
+  return /^blob:/i.test(String(src || '').trim());
+}
+function isStableAvatarSource(src){
+  return isRenderableAssetSource(src) && !isBlobAssetSource(src);
+}
+function sanitizeAvatarForStorage(src){
+  const safe = String(src || '').trim();
+  return isStableAvatarSource(safe) ? safe : '';
+}
+function cssAvatarUrl(src){
+  const safe = String(src || '').trim();
+  return isRenderableAssetSource(safe) ? ('url(&quot;' + escAttr(safe) + '&quot;)') : 'none';
+}
+function getProfileAvatarForStorage(){
+  const profileAvatar = String((activeProfile() && activeProfile().avatar) || '').trim();
+  if(isStableAvatarSource(profileAvatar)) return profileAvatar;
+  const legacy = String(lsGet(STORAGE_AVATAR) || '').trim();
+  return isStableAvatarSource(legacy) ? legacy : '';
+}
+function getCurrentMomentAvatarForRender(){
+  const current = String(currentHeroAvatarSrc || '').trim();
+  if(isRenderableAssetSource(current)) return current;
+  return getProfileAvatarForStorage();
+}
+function getCurrentMomentAvatarForStorage(){
+  return getProfileAvatarForStorage();
 }
 
 function normalizeReplyLanguage(value){
@@ -1144,7 +1172,7 @@ function writePostsToAllLocalStores(payload){
 }
 
 function savePosts(posts){
-  const safePosts = Array.isArray(posts) ? posts.slice() : [];
+  const safePosts = Array.isArray(posts) ? posts.map(sanitizeMomentPostForStorage) : [];
   const payload = JSON.stringify(safePosts);
   hydratedPostsCache = safePosts.slice();
   writePostsToAllLocalStores(payload);
@@ -1179,8 +1207,14 @@ async function hydratePostsFromLargeStore(){
         stored = await window.PhoneStorage.getJson(key);
       }catch(ignoreErr){}
       if(Array.isArray(stored)){
-        hydratedPostsCache = stored.slice();
-        writePostsToAllLocalStores(JSON.stringify(stored));
+        const current = Array.isArray(hydratedPostsCache) ? hydratedPostsCache.slice() : getPosts();
+        if(shouldKeepCurrentPostsOverHydrated(current, stored)){
+          savePosts(current);
+          return;
+        }
+        const safeStored = stored.map(sanitizeMomentPostForStorage);
+        hydratedPostsCache = safeStored.slice();
+        writePostsToAllLocalStores(JSON.stringify(safeStored));
         return;
       }
     }
@@ -1197,9 +1231,15 @@ async function hydratePostsFromLargeStore(){
               matched = data;
             }
           });
-          if(Array.isArray(matched)){
-            hydratedPostsCache = matched.slice();
-            writePostsToAllLocalStores(JSON.stringify(matched));
+          if(Array.isArray(matched) && matched.length){
+            const current = Array.isArray(hydratedPostsCache) ? hydratedPostsCache.slice() : getPosts();
+            if(shouldKeepCurrentPostsOverHydrated(current, matched)){
+              savePosts(current);
+              return;
+            }
+            const safeMatched = matched.map(sanitizeMomentPostForStorage);
+            hydratedPostsCache = safeMatched.slice();
+            writePostsToAllLocalStores(JSON.stringify(safeMatched));
           }
         }
       }catch(ignoreListErr){}
@@ -1233,6 +1273,49 @@ function hydratePostsFromBridge(){
   }catch(e){
     return false;
   }
+}
+
+function getPostActivityStamp(post){
+  const item = post && typeof post === 'object' ? post : {};
+  let stamp = Math.max(Number(item.updatedAt || 0) || 0, Number(item.createdAt || 0) || 0);
+  (Array.isArray(item.comments) ? item.comments : []).forEach((comment)=>{
+    stamp = Math.max(stamp, Number((comment && comment.at) || 0) || 0);
+  });
+  return stamp;
+}
+
+function getPostsActivityStamp(posts){
+  return (Array.isArray(posts) ? posts : []).reduce((max, post)=>Math.max(max, getPostActivityStamp(post)), 0);
+}
+
+function getPostsRichness(posts){
+  return (Array.isArray(posts) ? posts : []).reduce((sum, post)=>{
+    const comments = Array.isArray(post && post.comments) ? post.comments.length : 0;
+    const likes = Array.isArray(post && post.likes) ? post.likes.length : 0;
+    return sum + 1 + comments * 3 + likes;
+  }, 0);
+}
+
+function shouldKeepCurrentPostsOverHydrated(current, incoming){
+  if(!Array.isArray(current) || !current.length) return false;
+  if(!Array.isArray(incoming) || !incoming.length) return true;
+  const currentStamp = getPostsActivityStamp(current);
+  const incomingStamp = getPostsActivityStamp(incoming);
+  if(currentStamp > incomingStamp) return true;
+  if(currentStamp === incomingStamp && getPostsRichness(current) > getPostsRichness(incoming)) return true;
+  return false;
+}
+
+function sanitizeMomentPostForStorage(post){
+  const next = Object.assign({}, post || {});
+  next.authorAvatar = sanitizeAvatarForStorage(next.authorAvatar);
+  next.comments = (Array.isArray(next.comments) ? next.comments : []).map((comment)=>{
+    if(typeof comment === 'string') return comment;
+    const copy = Object.assign({}, comment || {});
+    copy.avatar = sanitizeAvatarForStorage(copy.avatar);
+    return copy;
+  });
+  return next;
 }
 
 function fmtTime(ts){
@@ -1276,15 +1359,20 @@ function getInitials(name){
 
 function getPostAvatarStyleValue(post){
   const src = (post && post.authorAvatar) || '';
-  if(src) return 'url(' + src + ')';
+  if(isStableAvatarSource(src)) return cssAvatarUrl(src);
   if(post && post.charId) return 'none';
-  const fallback = currentHeroAvatarSrc || activeProfile().avatar || lsGet(STORAGE_AVATAR) || '';
-  return fallback ? ('url(' + fallback + ')') : 'none';
+  const fallback = getCurrentMomentAvatarForRender();
+  return fallback ? cssAvatarUrl(fallback) : 'none';
 }
 
 function getCommentAvatarStyleValue(comment){
   const src = (comment && comment.avatar) || '';
-  if(src) return 'url(' + src + ')';
+  if(isStableAvatarSource(src)) return cssAvatarUrl(src);
+  const name = String((comment && comment.name) || '').trim();
+  if(name && name === getCurrentBubbleName()){
+    const fallback = getCurrentMomentAvatarForRender();
+    return fallback ? cssAvatarUrl(fallback) : 'none';
+  }
   return 'none';
 }
 
@@ -1425,6 +1513,7 @@ function saveEditPost(postId){
   const idx = posts.findIndex((item)=>String(item && item.id || '') === id);
   if(idx === -1) return;
   posts[idx].text = next;
+  posts[idx].updatedAt = Date.now();
   savePosts(posts);
   editingPostId = '';
   renderFeed();
@@ -1553,6 +1642,7 @@ function confirmDeleteComment(){
   }
   const comments = Array.isArray(posts[idx].comments) ? posts[idx].comments : [];
   posts[idx].comments = comments.filter((c)=>String((c && c.id) || '') !== commentId);
+  posts[idx].updatedAt = Date.now();
   savePosts(posts);
   closeDeleteCommentConfirm();
   renderFeed();
@@ -1570,6 +1660,7 @@ function togglePostLike(postId){
   if(hit === -1) likes.push(name);
   else likes.splice(hit, 1);
   posts[idx].likes = likes;
+  posts[idx].updatedAt = Date.now();
   savePosts(posts);
   const btn = Array.from(document.querySelectorAll('[data-like-post]')).find((node)=>String(node.getAttribute('data-like-post') || '') === String(postId || ''));
   applyLikeButtonState(btn, posts[idx], likes, hit === -1);
@@ -1663,9 +1754,11 @@ function addComment(postId){
   const comments = Array.isArray(posts[idx].comments) ? posts[idx].comments : [];
   const bubbleName = getCurrentBubbleName();
   const replyTo = replyTarget[postId] || '';
-  comments.push({ id: 'c_' + Date.now(), name: bubbleName, avatar: currentHeroAvatarSrc || activeProfile().avatar || lsGet(STORAGE_AVATAR) || '', replyToName: replyTo, text: text, at: Date.now() });
+  const now = Date.now();
+  comments.push({ id: 'c_' + now, name: bubbleName, avatar: getCurrentMomentAvatarForStorage(), replyToName: replyTo, text: text, at: now });
   delete replyTarget[postId];
   posts[idx].comments = comments;
+  posts[idx].updatedAt = now;
   savePosts(posts);
   if(input) input.value = '';
   renderFeed();
@@ -1728,8 +1821,9 @@ async function publishCurrent(){
     imageContextMode: savedImages.length && targetCharId ? (avatarVisionEnabledForChar(targetCharId) ? 'vision' : 'description') : '',
     targetCharId: targetCharId,
     authorName: getCurrentBubbleName(),
-    authorAvatar: currentHeroAvatarSrc || activeProfile().avatar || '',
+    authorAvatar: getCurrentMomentAvatarForStorage(),
     createdAt: Date.now(),
+    updatedAt: Date.now(),
     comments: []
   });
   savePosts(posts);
