@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T18:20:00Z';
+const APP_BUILD_ID = '2026-04-30T18:34:00Z';
 const APP_UPDATE_NOTES = [
-  '朋友圈评论保存时会保留更新时间，避免被异步旧数据覆盖。',
-  '朋友圈头像不再把 blob 临时地址写进帖子或评论。',
-  '朋友圈渲染会跳过失效头像地址，避免头像黑块。'
+  '朋友圈帖子头像会在渲染后异步补齐真实 user/char 头像。',
+  '带 charId 的朋友圈不再停留在黑色头像底色。',
+  '本次不改评论保存逻辑。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';

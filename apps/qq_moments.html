@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-04-30T18:20:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T18:20:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T18:20:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T18:20:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T18:34:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T18:34:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T18:34:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T18:34:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1376,6 +1376,49 @@ function getCommentAvatarStyleValue(comment){
   return 'none';
 }
 
+async function resolveMomentPostAvatarSource(post){
+  const resolved = resolveMomentAuthorMeta(post || {});
+  const saved = String((resolved && resolved.authorAvatar) || '').trim();
+  if(isStableAvatarSource(saved)) return saved;
+  const charId = String((resolved && resolved.charId) || '').trim();
+  if(charId){
+    const char = getCharacterById(charId);
+    const charAvatar = await resolveCharacterAvatarSource(char || { id: charId }).catch(()=> '');
+    if(isRenderableAssetSource(charAvatar)) return charAvatar;
+  }
+  return getCurrentMomentAvatarForRender();
+}
+
+function setMomentAvatarNode(node, src, fallbackName){
+  if(!node) return;
+  const safe = String(src || '').trim();
+  if(isRenderableAssetSource(safe)){
+    node.style.backgroundImage = 'url("' + safe.replace(/"/g, '\\"') + '")';
+    node.textContent = '';
+    return;
+  }
+  node.style.backgroundImage = 'none';
+  node.innerHTML = '<span>' + esc(getInitials(fallbackName || DEFAULT_BUBBLE_NAME)) + '</span>';
+}
+
+function hydrateMomentAvatarElements(root){
+  const host = root || document;
+  const nodes = host.querySelectorAll ? host.querySelectorAll('[data-moment-post-avatar-id]') : [];
+  const posts = getPosts().map((post)=>resolveMomentAuthorMeta(post));
+  nodes.forEach((node)=>{
+    const postId = String(node.getAttribute('data-moment-post-avatar-id') || '').trim();
+    if(!postId || node.dataset.avatarHydrating === '1') return;
+    const post = posts.find((item)=>String(item && item.id || '') === postId);
+    if(!post) return;
+    node.dataset.avatarHydrating = '1';
+    resolveMomentPostAvatarSource(post).then((src)=>{
+      setMomentAvatarNode(node, src, getActorName(post));
+    }).catch(()=>{}).finally(()=>{
+      delete node.dataset.avatarHydrating;
+    });
+  });
+}
+
 function focusCommentInput(postId){
   const input = document.getElementById('comment-' + String(postId || ''));
   if(input && typeof input.focus === 'function') input.focus();
@@ -1541,7 +1584,7 @@ function renderFeed(){
       + (deleteMode ? '<button class="post-select' + (isSelected ? ' selected' : '') + '" type="button" data-delete-post="' + esc(post.id) + '">' + (isSelected ? '✓' : '') + '</button>' : '')
       + '<div class="post-head">'
       + '<div class="post-left">'
-      + '<div class="post-av" style="background-image:' + postAvatarStyle + ';background-size:cover;background-position:center;background-repeat:no-repeat;">' + (postAvatarStyle === 'none' ? '<span>' + esc(getInitials(actorName)) + '</span>' : '') + '</div>'
+      + '<div class="post-av" data-moment-post-avatar-id="' + escAttr(post.id) + '" style="background-image:' + postAvatarStyle + ';background-size:cover;background-position:center;background-repeat:no-repeat;">' + (postAvatarStyle === 'none' ? '<span>' + esc(getInitials(actorName)) + '</span>' : '') + '</div>'
       + '<div><div class="post-name">' + esc(actorName) + '</div><div class="post-time">' + esc(fmtTime(post.createdAt)) + '</div></div>'
       + '</div>'
       + (!deleteMode ? '<button class="post-edit-btn" type="button" aria-label="编辑内容" onclick="startEditPost(\'' + esc(post.id) + '\')"><img src="assets/编辑.png" alt=""></button>' : '')
@@ -1583,6 +1626,7 @@ function renderFeed(){
       + '</article>';
   }).join('');
 
+  hydrateMomentAvatarElements(host);
   host.querySelectorAll('.image-card-button[data-post-id], .post-image-button[data-post-id]').forEach((btn)=>{
     btn.addEventListener('click', ()=>{
       if(deleteMode) return;
