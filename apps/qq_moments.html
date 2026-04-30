@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-29T17:40:00Z"></script>
-<script src="../assetStore.js?v=2026-04-29T17:40:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T17:40:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T17:40:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T18:05:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T18:05:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T18:05:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T18:05:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -735,6 +735,29 @@ function getCharacterAvatarSource(char){
   return String((char && (char.imageData || char.avatar || char.avatarUrl || char.photo || char.icon)) || '').trim();
 }
 
+async function resolveCharacterAvatarSource(char){
+  const direct = getCharacterAvatarSource(char);
+  if(isRenderableAssetSource(direct)) return direct;
+  const id = String((char && char.id) || '').trim();
+  const keys = [];
+  if(id){
+    keys.push('char_avatar_' + id);
+    keys.push(accountScopedRawKey('char_avatar_' + id));
+  }
+  keys.push(String((char && (char.avatarAssetKey || char.assetKey || char.imageAssetKey)) || '').trim());
+  for(const key of Array.from(new Set(keys.filter(Boolean)))){
+    try{
+      const scopedValue = await loadStoredAsset(key);
+      if(isRenderableAssetSource(scopedValue)) return scopedValue;
+    }catch(e){}
+    try{
+      const rawValue = localStorage.getItem(key) || '';
+      if(isRenderableAssetSource(rawValue)) return rawValue;
+    }catch(e2){}
+  }
+  return isRenderableAssetSource(direct) ? direct : '';
+}
+
 function avatarVisionEnabledForChar(charId){
   const raw = 'avatar_vision_enabled_' + String(charId || '').trim();
   const keys = [scopedKey(raw), accountScopedRawKey(raw), raw];
@@ -1332,13 +1355,14 @@ async function renderShareCharacterRow(){
     row.innerHTML = '<div class="share-empty">还没有可以发送的角色。</div>';
     return;
   }
-  row.innerHTML = chars.map((char)=>{
+  const items = await Promise.all(chars.map(async (char)=>{
     const id = String(char && char.id || '');
     const name = getCharacterDisplayName(char);
-    const avatar = getCharacterAvatarSource(char);
-    const avStyle = avatar && isRenderableAssetSource(avatar) ? (' style="background-image:url(' + esc(avatar) + ')"') : '';
+    const avatar = await resolveCharacterAvatarSource(char);
+    const avStyle = avatar && isRenderableAssetSource(avatar) ? (' style="background-image:url(&quot;' + escAttr(avatar) + '&quot;)"') : '';
     return '<button class="share-char-card" type="button" onclick="sendMomentToChar(\'' + escAttr(id) + '\')"><div class="share-char-av"' + avStyle + '>' + (!avStyle ? esc(getInitials(name)) : '') + '</div><span>' + esc(name) + '</span></button>';
-  }).join('');
+  }));
+  row.innerHTML = items.join('');
 }
 
 async function sendMomentToChar(charId){
