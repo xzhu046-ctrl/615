@@ -1900,6 +1900,14 @@ function summarizeChatHistoryForQq(list, fallbackChar){
   });
   return { last:last, unread:unread, lastAt:lastAt, count:msgs.length, history:msgs };
 }
+function absorbChatSeenTimestamp(current, list){
+  var seenAt = Math.max(0, Number(current || 0) || 0);
+  normalizeStoredChatHistory(Array.isArray(list) ? list : []).forEach(function(m){
+    var ts = Number(m && (m.sentAt || m.updatedAt || m.readAt) || 0) || 0;
+    if(ts >= seenAt) seenAt = ts + 1;
+  });
+  return seenAt;
+}
 
 function chooseBetterChatSummary(current, next){
   if(!current) return next;
@@ -2487,7 +2495,7 @@ function syncHomeBadgeCount(){
 
 async function markChatAsRead(charId){
   if(!charId) return;
-  setChatSeenAt(charId, Date.now());
+  var seenAt = Date.now();
   if(chatSummaryCache[charId]) chatSummaryCache[charId].unread = 0;
   if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function' && typeof window.PhoneStorage.put === 'function'){
     try{
@@ -2502,8 +2510,9 @@ async function markChatAsRead(charId){
         }
         if(recordCharId !== String(charId || '')) continue;
         var listIdb = savedIdb && Array.isArray(savedIdb.history) ? savedIdb.history : [];
+        seenAt = absorbChatSeenTimestamp(seenAt, listIdb);
         if(!Array.isArray(listIdb) || !listIdb.length) continue;
-        var nowIdb = Date.now();
+        var nowIdb = Math.max(Date.now(), seenAt);
         var changedIdb = false;
         listIdb = listIdb.map(function(m){
           if(m && m.role === 'assistant' && !m.readAt){
@@ -2530,8 +2539,9 @@ async function markChatAsRead(charId){
     try{
       var saved = JSON.parse(localStorage.getItem(key) || 'null');
       var list = saved && (saved.messages || saved.history);
+      seenAt = absorbChatSeenTimestamp(seenAt, list);
       if(!Array.isArray(list)) return;
-      var now = Date.now();
+      var now = Math.max(Date.now(), seenAt);
       var changed = false;
       list = list.map(function(m){
         if(m && m.role === 'assistant' && !m.readAt){
@@ -2545,6 +2555,7 @@ async function markChatAsRead(charId){
       if(changed) localStorage.setItem(key, JSON.stringify({ history:list, messages:list }));
     }catch(e){}
   });
+  setChatSeenAt(charId, seenAt);
   if(chatSummaryCache[charId]) chatSummaryCache[charId].unread = 0;
   renderList();
   syncHomeBadgeCount();

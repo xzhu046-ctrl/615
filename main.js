@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T20:18:00Z';
+const APP_BUILD_ID = '2026-04-29T20:31:00Z';
 const APP_UPDATE_NOTES = [
-  '新增每个聊天的已读水位线。',
-  '旧聊天记录不会重新点亮红点。',
-  'QQ 与主页共用同一已读标记。'
+  '已读水位线会越过旧消息最大时间。',
+  '朋友圈已读会越过旧动态最大时间。',
+  '主页不再接受 QQ 旧红点数回写。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -8576,13 +8576,10 @@ window.addEventListener('message',(e)=>{
   if(type==='QQ_BADGE_SYNC'){
     var activeAcctId = getActiveAccountId();
     if(activeAcctId){
-      if(payload && Object.prototype.hasOwnProperty.call(payload, 'chatUnread')){
-        qqUnreadCountCache[activeAcctId] = Math.max(0, Number(payload.chatUnread || 0) || 0);
-      }
-      if(payload && Object.prototype.hasOwnProperty.call(payload, 'momentsUnread')){
-        qqMomentsUnreadCountCache[activeAcctId] = Math.max(0, Number(payload.momentsUnread || 0) || 0);
-      }
+      delete qqUnreadCountCache[activeAcctId];
+      delete qqMomentsUnreadCountCache[activeAcctId];
     }
+    refreshQqUnreadCountSoon();
     renderHomeDockBadges();
   }
   if(type==='CHAT_SEEN'){
@@ -8590,7 +8587,7 @@ window.addEventListener('message',(e)=>{
     else refreshQqUnreadCountSoon();
   }
   if(type==='MOMENTS_SEEN'){
-    clearMomentsUnreadForActive();
+    clearMomentsUnreadForActive(payload || {});
   }
   if(type==='OFFLINE_INVITE_STORE_DIRTY'){
     postToChat({ type:'OFFLINE_INVITE_STORE_DIRTY' });
@@ -9370,9 +9367,9 @@ function summarizeShellUnreadHistory(list){
   var lastTs = 0;
   items.forEach(function(item){
     if(!item || typeof item !== 'object') return;
-    var ts = Number(item.sentAt || item.readAt || item.updatedAt || 0) || 0;
+    var ts = getShellChatMessageTimestamp(item);
     if(ts > lastTs) lastTs = ts;
-    if(item.role === 'assistant' && !item.readAt) unread += 1;
+    if(getShellChatMessageRole(item) === 'assistant' && !getShellChatMessageReadAt(item)) unread += 1;
   });
   return { unread: unread, lastTs: lastTs, count: items.length };
 }
@@ -9397,6 +9394,18 @@ function setShellChatSeenAt(charId, ts){
   try{ localStorage.setItem(key, String(safeTs)); }catch(e){}
   return safeTs;
 }
+function getShellChatMessageRole(item){
+  if(Array.isArray(item)) return String(item[1] || 'assistant');
+  return String(item && item.role || '');
+}
+function getShellChatMessageTimestamp(item){
+  if(Array.isArray(item)) return Number(item[4] || item[5] || 0) || 0;
+  return Number(item && (item.sentAt || item.updatedAt || item.readAt) || 0) || 0;
+}
+function getShellChatMessageReadAt(item){
+  if(Array.isArray(item)) return Number(item[5] || 0) || 0;
+  return Number(item && item.readAt || 0) || 0;
+}
 function summarizeShellUnreadHistoryForChar(list, charId){
   var summary = summarizeShellUnreadHistory(list);
   var seenAt = getShellChatSeenAt(charId);
@@ -9404,11 +9413,20 @@ function summarizeShellUnreadHistoryForChar(list, charId){
   var unread = 0;
   (Array.isArray(list) ? list : []).forEach(function(item){
     if(!item || typeof item !== 'object') return;
-    var ts = Number(item.sentAt || item.updatedAt || item.readAt || 0) || 0;
-    if(item.role === 'assistant' && !item.readAt && ts > seenAt) unread += 1;
+    var ts = getShellChatMessageTimestamp(item);
+    if(getShellChatMessageRole(item) === 'assistant' && !getShellChatMessageReadAt(item) && ts > seenAt) unread += 1;
   });
   summary.unread = unread;
   return summary;
+}
+function absorbShellChatSeenTimestamp(current, list){
+  var seenAt = Math.max(0, Number(current || 0) || 0);
+  (Array.isArray(list) ? list : []).forEach(function(item){
+    if(!item || typeof item !== 'object') return;
+    var ts = getShellChatMessageTimestamp(item);
+    if(ts >= seenAt) seenAt = ts + 1;
+  });
+  return seenAt;
 }
 function chooseBetterShellUnreadSummary(current, next){
   if(!current) return next;
@@ -9454,8 +9472,8 @@ function getQqUnreadCountForActive(){
       var list = (saved && (saved.messages || saved.history)) || [];
       if(!Array.isArray(list)) return;
       list.forEach(function(m){
-        var ts = Number(m.sentAt || m.updatedAt || m.readAt || 0) || 0;
-        if(m && m.role === 'assistant' && !m.readAt && ts > getShellChatSeenAt(c.id)) total++;
+        var ts = getShellChatMessageTimestamp(m);
+        if(m && getShellChatMessageRole(m) === 'assistant' && !getShellChatMessageReadAt(m) && ts > getShellChatSeenAt(c.id)) total++;
       });
     }catch(e){}
   });
@@ -9551,16 +9569,55 @@ function getShellChatStorageKeysForChar(charId){
 async function markShellChatAsRead(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return false;
-  setShellChatSeenAt(safeId, Date.now());
+  var seenAt = Date.now();
   var keys = getShellChatStorageKeysForChar(safeId);
   var changed = false;
-  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function' && typeof window.PhoneStorage.put === 'function'){
+  if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function' && typeof window.PhoneStorage.put === 'function'){
+    try{
+      var records = await window.PhoneStorage.list('chats');
+      for(var r = 0; r < (Array.isArray(records) ? records.length : 0); r += 1){
+        var record = records[r];
+        var recordId = String(record && record.id || '');
+        var recordCharId = String(record && record.charId || '').trim();
+        if(!recordCharId){
+          var match = recordId.match(/^chat_(.+?)(?:__acct_.+)?$/);
+          recordCharId = match ? String(match[1] || '').trim() : '';
+        }
+        if(recordCharId !== safeId && keys.indexOf(recordId) === -1 && recordId.indexOf('chat_' + safeId + '__acct_') !== 0) continue;
+        var listFromRecord = record && Array.isArray(record.history) ? record.history : [];
+        seenAt = absorbShellChatSeenTimestamp(seenAt, listFromRecord);
+        if(!listFromRecord.length) continue;
+        var nowIdb = Math.max(Date.now(), seenAt);
+        var idbChanged = false;
+        var nextRecordList = listFromRecord.map(function(m){
+          if(m && m.role === 'assistant' && !m.readAt){
+            idbChanged = true;
+            var next = Array.isArray(m) ? m.slice() : Object.assign({}, m);
+            if(Array.isArray(next)) next[5] = nowIdb;
+            else next.readAt = nowIdb;
+            return next;
+          }
+          return m;
+        });
+        if(idbChanged){
+          changed = true;
+          await window.PhoneStorage.put('chats', {
+            id: recordId || scopedKeyForAccount('chat_' + safeId, getActiveAccountId()),
+            charId: safeId,
+            updatedAt: nowIdb,
+            history: nextRecordList
+          });
+        }
+      }
+    }catch(e){}
+  }else if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function' && typeof window.PhoneStorage.put === 'function'){
     for(var i = 0; i < keys.length; i += 1){
       try{
         var saved = await window.PhoneStorage.get('chats', keys[i]);
         var list = saved && Array.isArray(saved.history) ? saved.history : [];
+        seenAt = absorbShellChatSeenTimestamp(seenAt, list);
         if(!list.length) continue;
-        var now = Date.now();
+        var now = Math.max(Date.now(), seenAt);
         var idbChanged = false;
         var nextList = list.map(function(m){
           if(m && m.role === 'assistant' && !m.readAt){
@@ -9584,12 +9641,19 @@ async function markShellChatAsRead(charId){
       }catch(e){}
     }
   }
+  try{
+    for(var li = 0; li < localStorage.length; li += 1){
+      var localKey = localStorage.key(li) || '';
+      if(localKey.indexOf('chat_' + safeId + '__acct_') === 0 && keys.indexOf(localKey) === -1) keys.push(localKey);
+    }
+  }catch(e){}
   keys.forEach(function(key){
     try{
       var saved = JSON.parse(localStorage.getItem(key) || 'null');
       var list = saved && (Array.isArray(saved.history) ? saved.history : (Array.isArray(saved.messages) ? saved.messages : []));
+      seenAt = absorbShellChatSeenTimestamp(seenAt, list);
       if(!list.length) return;
-      var now = Date.now();
+      var now = Math.max(Date.now(), seenAt);
       var localChanged = false;
       var nextList = list.map(function(m){
         if(m && m.role === 'assistant' && !m.readAt){
@@ -9606,6 +9670,7 @@ async function markShellChatAsRead(charId){
       }
     }catch(e){}
   });
+  setShellChatSeenAt(safeId, seenAt);
   refreshQqUnreadCountSoon();
   return changed;
 }
@@ -9622,11 +9687,37 @@ function refreshQqUnreadCountSoon(){
   });
 }
 
-function clearMomentsUnreadForActive(){
+function getMaxStoredMomentCreatedAtForActive(activeId){
+  var maxAt = 0;
+  var keys = [
+    scopedKeyForAccount(MOMENTS_POSTS_KEY, activeId),
+    scopedKeyForAccount(MOMENTS_POSTS_ALT_KEY, activeId),
+    MOMENTS_POSTS_KEY,
+    MOMENTS_POSTS_ALT_KEY
+  ];
+  keys.forEach(function(key){
+    try{
+      var posts = JSON.parse(localStorage.getItem(key) || '[]');
+      (Array.isArray(posts) ? posts : []).forEach(function(post){
+        var createdAt = Number(post && post.createdAt || 0) || 0;
+        if(createdAt > maxAt) maxAt = createdAt;
+      });
+    }catch(e){}
+  });
+  return maxAt;
+}
+
+function clearMomentsUnreadForActive(payload){
   var activeId = getActiveAccountId();
   if(!activeId) return;
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var maxCreatedAt = Math.max(
+    Number(payload.maxCreatedAt || 0) || 0,
+    getMaxStoredMomentCreatedAtForActive(activeId)
+  );
+  var seenAt = Math.max(Date.now(), maxCreatedAt + 1);
   try{
-    localStorage.setItem(scopedKeyForAccount(MOMENTS_LAST_SEEN_KEY, activeId), String(Date.now()));
+    localStorage.setItem(scopedKeyForAccount(MOMENTS_LAST_SEEN_KEY, activeId), String(seenAt));
   }catch(e){}
   qqMomentsUnreadCountCache[activeId] = 0;
   renderHomeDockBadges();
