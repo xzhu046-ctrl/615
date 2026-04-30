@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T16:52:00Z';
+const APP_BUILD_ID = '2026-04-30T17:03:00Z';
 const APP_UPDATE_NOTES = [
-  '主页第二页情侣小组件头像会镜像第一页已经恢复的头像。',
-  '第二页头像异步补读聊天设置头像，清后台后也会回填。',
-  '本次只调整主页第二页小组件头像渲染。'
+  '修正主页第二页头像内层容器尺寸，避免头像数据已读到但显示不出来。',
+  '第二页头像节点记录当前头像源，刷新后能稳定回填。',
+  '本次只调整主页第二页小组件头像显示。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -6318,6 +6318,7 @@ function applyBondAvatarContent(role, src, fallback, charId){
   if(expectedId && String(target.dataset.charId || '') !== expectedId) return;
   var safeSrc = normalizeShellAssetSrc(src || '');
   var safeFallback = String(fallback || (safeRole === 'user' ? '你' : 'C')).trim() || (safeRole === 'user' ? '你' : 'C');
+  target.dataset.avatarSrc = isRenderableShellAvatarSrc(safeSrc) ? safeSrc : '';
   var baseHtml = isRenderableShellAvatarSrc(safeSrc)
     ? '<span class="bond-avatar-base"><img src="' + escapeHtmlAttr(safeSrc) + '" alt="" onerror="this.closest(\'.bond-avatar-base\').textContent=\'' + escapeHtmlAttr(safeFallback.slice(0, 2)) + '\'"></span>'
     : '<span class="bond-avatar-base">' + escapeHtml(safeFallback.slice(0, 2)) + '</span>';
