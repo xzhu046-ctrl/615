@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T19:43:00Z';
+const APP_BUILD_ID = '2026-04-29T19:55:00Z';
 const APP_UPDATE_NOTES = [
-  'user 头像优先匹配当前 char。',
-  '进入聊天前先写入已读状态。',
-  '小红点同步清理真实未读数据。'
+  '聊天设置头像双写匹配当前 char。',
+  '主页即时预览 user 头像。',
+  '继续修复未读红点写入顺序。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -5933,8 +5933,13 @@ function applyBondWidgetPreview(payload){
   }
   if(typeof preview.userAvatar === 'string'){
     var userAvatarEl = document.getElementById('bond-user-avatar');
+    var widgetUserAvatarEl = document.getElementById('wgt-user-avatar');
+    var previewUserSrc = normalizeShellAssetSrc(preview.userAvatar.trim());
+    if(widgetUserAvatarEl && (!c || String(widgetUserAvatarEl.dataset.charId || '') === String((c && c.id) || ''))){
+      applyWidgetUserAvatarContent(widgetUserAvatarEl, previewUserSrc, '你');
+    }
     if(userAvatarEl){
-      var src = normalizeShellAssetSrc(preview.userAvatar.trim());
+      var src = previewUserSrc;
       if(!isRenderableShellAvatarSrc(src)) src = getImmediateChatUserAvatar(c && c.id, c);
       var baseHtml = isRenderableShellAvatarSrc(src)
         ? '<span class="bond-avatar-base"><img src="' + escapeHtmlAttr(src) + '" alt="" onerror="this.closest(\'.bond-avatar-base\').textContent=\'你\'"></span>'

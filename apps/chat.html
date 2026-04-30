@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-29T19:43:00Z"></script>
-<script src="../accountManager.js?v=2026-04-29T19:43:00Z"></script>
-<script src="../assetStore.js?v=2026-04-29T19:43:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T19:43:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T19:43:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-29T19:43:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-29T19:43:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T19:43:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-29T19:43:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-29T19:43:00Z"></script>
+<script src="../promptManager.js?v=2026-04-29T19:55:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T19:55:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T19:55:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T19:55:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T19:55:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-29T19:55:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-29T19:55:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T19:55:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-29T19:55:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-29T19:55:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -16600,6 +16600,25 @@ function saveStoredAsset(key, value){
     return Promise.resolve(false);
   }
 }
+async function saveMatchedUserAvatarForCharacter(src, charId){
+  var safeSrc = String(src || '').trim();
+  var safeCharId = String(charId || (character && character.id) || '').trim();
+  if(!safeSrc || !safeCharId || !isRenderableAvatarSrc(safeSrc)) return false;
+  var keys = [];
+  function add(key){
+    key = String(key || '').trim();
+    if(key && keys.indexOf(key) === -1) keys.push(key);
+  }
+  if(character && String(character.id || '') === safeCharId){
+    add(userKey('user_avatar'));
+  }
+  add(accountScopedKey('user_avatar_' + safeCharId));
+  add('user_avatar_' + safeCharId);
+  for(var i = 0; i < keys.length; i += 1){
+    await saveStoredAsset(keys[i], safeSrc);
+  }
+  return true;
+}
 
 function normalizeChatBackgroundSource(value){
   return String(value || '').trim();
@@ -29169,7 +29188,9 @@ function postSettingsPreviewSync(){
   persistActiveCharacterSnapshot(slim);
   if(isDefault && character && character.id){
     try{ localStorage.setItem('user_name_' + character.id, userName); }catch(e){}
-    if(userAvatar) saveStoredAsset('user_avatar_' + character.id, userAvatar);
+    if(userAvatar) saveMatchedUserAvatarForCharacter(userAvatar, character.id).catch(function(err){
+      console.warn('postSettingsPreviewSync user avatar persist failed', err);
+    });
   }
   postToShell({ type:'SET_ACTIVE_CHARACTER', payload: slim });
   postToShell({
@@ -29319,8 +29340,7 @@ async function applyRoleAvatarChange(targetRole, src, options){
       }
       return false;
     }
-    await saveStoredAsset(userKey('user_avatar'), cleanSrc);
-    await saveStoredAsset('user_avatar_' + character.id, cleanSrc);
+    await saveMatchedUserAvatarForCharacter(cleanSrc, character.id);
     character.userAvatarProfile = /^data:/i.test(cleanSrc) ? '' : normalizeAvatarSrc(cleanSrc);
     var uav = document.getElementById('csUserAvatar');
     if(uav){
@@ -29882,6 +29902,9 @@ async function saveChatSettings() {
     character.userNicknameNote = unick;
     character.userAvatarProfile = settingsUserAvatarProfile;
     character.userPersonaProfile = isDefault ? up : '';
+    if(isDefault && settingsUserAvatar){
+      await saveMatchedUserAvatarForCharacter(settingsUserAvatar, character.id);
+    }
     var nextUserDisplayName = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
     var forceGreetingRefresh = oldUserDisplayName !== nextUserDisplayName || oldGreetingRegexEnabled !== shouldRenderGreetingWithRegex();
     if(refreshStoredGreetingEntryIfNeeded(chatLog, { force: forceGreetingRefresh })){
