@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T06:42:00Z';
+const APP_BUILD_ID = '2026-04-30T07:08:00Z';
 const APP_UPDATE_NOTES = [
-  '朋友圈红点读写同一已读时间。',
-  '朋友圈页加载完成后会再次确认已读。',
-  '通知头像直接使用角色头像不退黑底。'
+  '线上回复去掉主路径等待。',
+  '朋友圈动作后台落库不挡回复。',
+  'QQ 入口补读朋友圈多存储来源。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
