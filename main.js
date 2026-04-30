@@ -50,7 +50,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T15:48:00Z';
+const APP_BUILD_ID = '2026-04-29T15:54:00Z';
 const APP_UPDATE_NOTES = [
   '个人设置去掉头像名字同步提示文案。',
   '删除当前账号按钮改短并居中。',
