@@ -50,7 +50,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T18:05:00Z';
+const APP_BUILD_ID = '2026-04-29T18:35:00Z';
 const APP_UPDATE_NOTES = [
   '朋友圈小飞机可发送动态卡片。',
   '聊天里新增朋友圈特殊卡片。',
@@ -1781,6 +1781,25 @@ function getActiveAccountProfileAvatar(){
   return '';
 }
 
+function getShellUnreadBadgePayload(){
+  var chatUnread = Math.max(0, Number(getQqUnreadCountForActive() || 0) || 0);
+  var momentsUnread = Math.max(0, Number(getMomentsUnreadCountForActive() || 0) || 0);
+  return {
+    chatUnread: chatUnread,
+    momentsUnread: momentsUnread,
+    totalUnread: chatUnread + momentsUnread
+  };
+}
+
+function postShellUnreadBadgeToCurrentApp(){
+  try{
+    var f = document.getElementById('app-iframe');
+    if(f && f.contentWindow){
+      f.contentWindow.postMessage({ type:'SHELL_UNREAD_BADGE', payload:getShellUnreadBadgePayload() }, '*');
+    }
+  }catch(e){}
+}
+
 async function getBackgroundCharacter(){
   var defaultId = getDefaultAccountId();
   if(!defaultId) return null;
@@ -2466,6 +2485,16 @@ function maybeShowShellActivityNotification(payload){
   if(kind === 'chat' && shouldSuppressChatNotification(charId) && !settings.notifyInChat) return;
   if(kind === 'schedule' && currentApp === 'schedule') return;
   if(kind === 'moments' && currentApp === 'qq') return;
+  var activeAcctId = getActiveAccountId();
+  if(activeAcctId){
+    if(kind === 'moments'){
+      qqMomentsUnreadCountCache[activeAcctId] = Math.max(0, Number(qqMomentsUnreadCountCache[activeAcctId] || 0) || 0) + 1;
+    }else if(kind === 'chat'){
+      qqUnreadCountCache[activeAcctId] = Math.max(0, Number(qqUnreadCountCache[activeAcctId] || 0) || 0) + 1;
+    }
+    renderHomeDockBadges();
+    postShellUnreadBadgeToCurrentApp();
+  }
   var chars = getStoredCharactersSnapshot();
   var character = chars.find(function(item){ return item && String(item.id || '') === charId; }) || null;
   var name = String((character && (character.nickname || character.name)) || payload.name || '角色').trim() || '角色';
@@ -2662,14 +2691,17 @@ async function appendBackgroundMoment(character, accountId, action, content, ima
   if(!isCharBgEnabled(character.id, accountId || getDefaultAccountId())) return false;
   var posts = await readBackgroundMoments(accountId);
   var now = Date.now();
-  var text = String(content || '').trim() || '想把这一刻记下来。';
+  var text = String(content || '').trim();
+  if(!text) return false;
+  var visualText = String(imageText || '').trim();
+  if(action === 'dynamic' && (!visualText || normalizeHeartText(visualText) === normalizeHeartText(text))) return false;
   var aiName = String(character.nickname || character.name || 'AI');
   var aiAvatar = getCharacterAvatarForBg(character);
   posts.push({
     id: 'post_' + now + '_' + Math.random().toString(36).slice(2,7),
     type: action === 'dynamic' ? 'dynamic' : 'say',
     text: text,
-    imageText: action === 'dynamic' ? (String(imageText || '').trim() || text) : '',
+    imageText: action === 'dynamic' ? visualText : '',
     createdAt: now,
     comments: [],
     likes: [],
@@ -8347,6 +8379,27 @@ window.addEventListener('message',(e)=>{
   if(type==='BOND_WIDGET_PREVIEW'){
     applyBondWidgetPreview(payload);
   }
+  if(type==='USER_AVATAR_UPDATED'){
+    var avatarSrc = normalizeShellAssetSrc(payload && payload.src || '');
+    var activeCharForAvatar = getActiveCharacterData();
+    var widgetUserAvatar = document.getElementById('wgt-user-avatar');
+    applyWidgetUserAvatarContent(widgetUserAvatar, avatarSrc, '你');
+    var bondUserAvatar = document.getElementById('bond-user-avatar');
+    if(bondUserAvatar){
+      var frameUrl = getActiveBondAvatarFrameUrl('user');
+      var baseHtml = isRenderableShellAvatarSrc(avatarSrc)
+        ? '<span class="bond-avatar-base"><img src="' + escapeHtmlAttr(avatarSrc) + '" alt="" onerror="this.closest(\'.bond-avatar-base\').textContent=\'你\'"></span>'
+        : '<span class="bond-avatar-base">你</span>';
+      if(frameUrl){
+        var frameVisual = getTopFrameVisual(frameUrl);
+        var frameStyle = '--frame-scale:' + frameVisual.scale + ';--frame-offset-x:' + frameVisual.offsetX + 'px;--frame-offset-y:' + frameVisual.offsetY + 'px;';
+        bondUserAvatar.innerHTML = baseHtml + buildAvatarFrameImg('bond-avatar-frame', frameUrl, frameStyle);
+      }else{
+        bondUserAvatar.innerHTML = baseHtml;
+      }
+    }
+    if(activeCharForAvatar) renderBondWidget(activeCharForAvatar);
+  }
   if(type==='CHARACTER_IMPORTED'){
     // When a card is imported, immediately reflect it on the home widget.
     const slim = persistShellActiveCharacter(payload) || slimChar(payload);
@@ -9381,7 +9434,7 @@ function renderHomeDockBadges(){
     badge.className = 'home-app-badge';
     qqBtn.appendChild(badge);
   }
-  var count = getQqUnreadCountForActive();
+  var count = getQqUnreadCountForActive() + getMomentsUnreadCountForActive();
   if(count > 0){
     badge.textContent = normalizeUnreadBadgeCount(count);
     badge.classList.add('show');
@@ -9389,6 +9442,7 @@ function renderHomeDockBadges(){
     badge.textContent = '';
     badge.classList.remove('show');
   }
+  postShellUnreadBadgeToCurrentApp();
 }
 
 function isViewingCharacterChat(charId){

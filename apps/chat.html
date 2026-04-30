@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-29T18:05:00Z"></script>
-<script src="../accountManager.js?v=2026-04-29T18:05:00Z"></script>
-<script src="../assetStore.js?v=2026-04-29T18:05:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T18:05:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T18:05:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-29T18:05:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-29T18:05:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T18:05:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-29T18:05:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-29T18:05:00Z"></script>
+<script src="../promptManager.js?v=2026-04-29T18:35:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T18:35:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T18:35:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T18:35:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T18:35:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-29T18:35:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-29T18:35:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T18:35:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-29T18:35:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-29T18:35:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -115,6 +115,27 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
   font-weight:900;
   line-height:1;
   transform:translateX(-1px);
+}
+.chat-exit-btn[data-unread-badge]:not([data-unread-badge=""])::after{
+  content:attr(data-unread-badge);
+  position:absolute;
+  right:-7px;
+  top:-7px;
+  min-width:18px;
+  height:18px;
+  padding:0 4px;
+  border:1.5px solid #fff;
+  border-radius:999px;
+  background:#d83b3b;
+  color:#fff;
+  box-shadow:0 2px 8px rgba(0,0,0,.24);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-family:var(--fontd);
+  font-size:9px;
+  font-weight:900;
+  line-height:1;
 }
 .chat-header-top{
   position:absolute;
@@ -12421,25 +12442,9 @@ function processMomentsInteractionsOnTrigger(){
   var changed = false;
   var mentionCommentNames = [];
   freshComments.sort(function(a, b){ return (b.at || 0) - (a.at || 0); });
-  var replyBudget = 2;
   freshComments.forEach(function(item){
     seenComment.add(item.key);
-    if(replyBudget > 0 && Math.random() < 0.72){
-      var comments = Array.isArray(item.post.comments) ? item.post.comments : [];
-      comments.push({
-        id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-        name: aiName,
-        avatar: aiAvatar,
-        replyToName: item.actor,
-        text: makeNaturalMomentComment(item.post.text || item.post.imageText || '', item.comment && item.comment.text ? item.comment.text : '', item.actor),
-        at: Date.now()
-      });
-      item.post.comments = comments;
-      changed = true;
-      replyBudget--;
-    }else{
-      mentionCommentNames.push(item.actor);
-    }
+    mentionCommentNames.push(item.actor);
   });
 
   var mentionLikeNames = [];
@@ -12503,6 +12508,24 @@ function getMomentsAiAvatar(){
   if(character && character.avatar){
     var av = String(character.avatar);
     if(av.startsWith('data:') || av.startsWith('http') || av.startsWith('blob:') || av.startsWith('/')) return av;
+  }
+  return '';
+}
+
+async function resolveMomentsAiAvatar(){
+  var immediate = getMomentsAiAvatar();
+  if(immediate) return immediate;
+  var id = character && character.id ? String(character.id || '').trim() : '';
+  var keys = [];
+  if(id){
+    keys.push(accountScopedKey('char_avatar_' + id));
+    keys.push('char_avatar_' + id);
+  }
+  for(var i = 0; i < keys.length; i++){
+    try{
+      var src = String(await loadStoredAsset(keys[i]).catch(function(){ return ''; }) || '').trim();
+      if(isRenderableAvatarSrc(src)) return src;
+    }catch(e){}
   }
   return '';
 }
@@ -12788,6 +12811,45 @@ async function generateMomentPostViaAi(seed, aiText, snapshot, postType){
   }
 }
 
+async function generateMomentCommentViaAi(post, userRequest, replyToName){
+  var targetPost = post && typeof post === 'object' ? post : {};
+  var snapshot = buildMomentContextSnapshot(userRequest || '', '');
+  var recent = ((snapshot && snapshot.recent) || []).slice(-10).map(function(line, idx){
+    return (idx + 1) + '. ' + line;
+  }).join('\n');
+  var wb = ((snapshot && snapshot.worldbook) || []).slice(0, 8).join('\n');
+  var sys = [
+    '你是角色本人，正在朋友圈里给一条动态留言或回复。',
+    '必须结合角色人设、世界书、最近聊天上下文、动态正文和图片描述来写。',
+    '不能写万能模板，不能客服腔，不能复读用户命令。',
+    '如果这条动态和你没有足够上下文关系，或者你不知道该怎么评，就返回 {"text":""}。',
+    '只返回 JSON，不要解释，不要 markdown。',
+    '格式：{"text":"评论内容"}'
+  ].join('\n');
+  var user = [
+    '角色名：' + String((character && (character.nickname || character.name)) || '角色'),
+    '角色人设：' + String((character && (character.personality || character.description)) || ''),
+    wb ? ('已启用世界书：\n' + wb) : '已启用世界书：无',
+    recent ? ('最近10条聊天：\n' + recent) : '最近10条聊天：无',
+    '动态作者：' + String(targetPost.authorName || ''),
+    '动态正文：' + String(targetPost.text || ''),
+    '图片描述：' + String(targetPost.imageText || ''),
+    '用户当前要求/语境：' + String(userRequest || ''),
+    replyToName ? ('这是回复给：' + String(replyToName || '')) : '这是普通留言'
+  ].join('\n\n');
+  try{
+    var raw = await callAIWithCustomPrompts(sys, user);
+    var cleaned = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+    var parsed = JSON.parse(cleaned || '{}');
+    var text = stripMomentDirectiveText(parsed && (parsed.text || parsed.comment || parsed.content) || '');
+    text = truncateMomentText(text, 60);
+    if(!text || /^(好的|收到|看到了|已点赞|已评论|我来|我会)$/i.test(text)) return '';
+    return text;
+  }catch(e){
+    return '';
+  }
+}
+
 function forceVisualMomentLine(seed, aiLine, caption, snapshot){
   var ctx = snapshot || buildMomentContextSnapshot(seed, aiLine);
   var src = ctx.ai || ctx.seed;
@@ -12977,11 +13039,11 @@ async function maybeRunAiMomentsFromChat(text, msgType){
     var hasImage = postType === 'dynamic';
     var snapshot = buildMomentContextSnapshot(seed, aiLine);
     var aiPost = await generateMomentPostViaAi(seed, aiLine, snapshot, postType);
-    var caption = (aiPost && aiPost.text) || makeNaturalMomentPost(seed, aiLine, snapshot);
-    var imageText = hasImage ? (((aiPost && aiPost.imageText) || '').trim() || forceVisualMomentLine(seed, aiLine, caption, snapshot)) : '';
-    if(hasImage && normalizeHeartText(caption) === normalizeHeartText(imageText)){
-      imageText = forceVisualMomentLine('', '', caption, snapshot);
-    }
+    if(!(aiPost && aiPost.text)) return;
+    var caption = aiPost.text;
+    var imageText = hasImage ? String(aiPost.imageText || '').trim() : '';
+    if(hasImage && (!imageText || normalizeHeartText(caption) === normalizeHeartText(imageText))) return;
+    aiAvatar = await resolveMomentsAiAvatar();
     posts.push({
       id: 'post_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       type: postType,
@@ -13024,12 +13086,15 @@ async function maybeRunAiMomentsFromChat(text, msgType){
       var picked = comments[comments.length - 1];
       replyTarget = (picked && picked.name) || getMomentsUserName();
     }
+    var commentText = await generateMomentCommentViaAi(latest, seed || aiLine, replyTarget);
+    if(!commentText) return;
+    aiAvatar = await resolveMomentsAiAvatar();
     comments.push({
       id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       name: aiName,
       avatar: aiAvatar,
       replyToName: replyTarget,
-      text: makeNaturalMomentComment(latest.text || latest.imageText || seed, latest.text || latest.imageText || aiLine, replyTarget),
+      text: commentText,
       at: Date.now()
     });
     latest.comments = comments;
@@ -13051,6 +13116,18 @@ async function maybeRunAiMomentsFromChat(text, msgType){
   if(changed){
     momentsLastActionAt = now;
     writeMomentsPosts(posts);
+    try{
+      postToShell({
+        type: 'CHAT_ACTIVITY_NOTIFY',
+        payload: {
+          kind: 'moments',
+          charId: String((character && character.id) || '').trim(),
+          name: String((character && (character.nickname || character.name)) || '角色').trim() || '角色',
+          avatar: aiAvatar || getMomentsAiAvatar(),
+          text: forceActions.indexOf('post') !== -1 ? '发了一条朋友圈' : '刚刚互动了朋友圈'
+        }
+      });
+    }catch(notifyErr){}
   }
 }
 
@@ -28483,6 +28560,21 @@ function openIdentityCard(){
   openInnerVoiceOverlay();
 }
 
+function normalizeChatUnreadBadgeCount(n){
+  var count = Math.max(0, Number(n || 0) || 0);
+  if(count < 1) return '';
+  return count > 9 ? '9+' : String(count);
+}
+function updateChatExitUnreadBadge(payload){
+  var btn = document.querySelector('.chat-exit-btn');
+  if(!btn) return;
+  var data = payload && typeof payload === 'object' ? payload : {};
+  var total = Math.max(0, Number(data.totalUnread == null ? ((Number(data.chatUnread || 0) || 0) + (Number(data.momentsUnread || 0) || 0)) : data.totalUnread) || 0);
+  var label = normalizeChatUnreadBadgeCount(total);
+  if(label) btn.setAttribute('data-unread-badge', label);
+  else btn.removeAttribute('data-unread-badge');
+}
+
 function exitChatToQQ(){
   postToShell({ type:'OPEN_APP', payload:'qq' });
   if(window.parent === window || !window.parent){
@@ -31200,6 +31292,10 @@ window.addEventListener('message', async function(e) {
   if(d.type === 'PARENT_CHAT_COMPOSER_SHIFT'){
     parentComposerShift = Math.max(0, Number(d.payload) || 0);
     syncChatViewport();
+    return;
+  }
+  if(d.type === 'SHELL_UNREAD_BADGE'){
+    updateChatExitUnreadBadge(d.payload || {});
     return;
   }
   if (d.type === 'BACKGROUND_AI_MESSAGE') {
