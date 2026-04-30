@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-29T18:35:00Z"></script>
-<script src="../assetStore.js?v=2026-04-29T18:35:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T18:35:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T18:35:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T06:42:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T06:42:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T06:42:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T06:42:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -2623,15 +2623,26 @@ function restoreParentTopbar(){
 bindInputs();
 bindCaptchaCarousel();
 hideParentTopbar();
-try{
-  const maxCreatedAt = getPosts().reduce((max, post)=>Math.max(max, Number(post && post.createdAt || 0) || 0), 0);
-  window.parent.postMessage({ type:'MOMENTS_SEEN', payload:{ at: Date.now(), maxCreatedAt } }, '*');
-}catch(err){}
+function getMaxMomentsPostCreatedAt(){
+  try{
+    return getPosts().reduce((max, post)=>Math.max(max, Number(post && post.createdAt || 0) || 0), 0);
+  }catch(err){
+    return 0;
+  }
+}
+function notifyMomentsSeen(){
+  try{
+    const maxCreatedAt = getMaxMomentsPostCreatedAt();
+    window.parent.postMessage({ type:'MOMENTS_SEEN', payload:{ at: Math.max(Date.now(), maxCreatedAt + 1), maxCreatedAt } }, '*');
+  }catch(err){}
+}
+notifyMomentsSeen();
 window.addEventListener('beforeunload', restoreParentTopbar);
 window.addEventListener('pagehide', restoreParentTopbar);
 hydratePostsFromBridge();
 renderHero();
 hydratePostsFromLargeStore().then(function(){
+  notifyMomentsSeen();
   renderFeed();
   let queryProfileChar = '';
   try{ queryProfileChar = String(new URLSearchParams(location.search).get('char') || '').trim(); }catch(e){}

@@ -2563,10 +2563,7 @@ async function markChatAsRead(charId){
 
 function getMomentsUnreadCount(){
   var key = accountScopedKey(MOMENTS_POSTS_KEY);
-  var seenKey = accountScopedKey(MOMENTS_LAST_SEEN_KEY);
-  var seenAt = 0;
-  try{ seenAt = parseInt(localStorage.getItem(seenKey) || '0', 10); }catch(e){ seenAt = 0; }
-  if(Number.isNaN(seenAt)) seenAt = 0;
+  var seenAt = getMomentsSeenAt();
   var posts = Array.isArray(momentsPostsCache) ? momentsPostsCache : [];
   var myName = '';
   try{
@@ -2584,6 +2581,23 @@ function getMomentsUnreadCount(){
     count++;
   });
   return count;
+}
+
+function getMomentsSeenAt(){
+  var seenAt = 0;
+  [accountScopedKey(MOMENTS_LAST_SEEN_KEY), MOMENTS_LAST_SEEN_KEY].forEach(function(key){
+    try{
+      var value = parseInt(localStorage.getItem(key) || '0', 10);
+      if(!Number.isNaN(value) && value > seenAt) seenAt = value;
+    }catch(e){}
+  });
+  return seenAt;
+}
+
+function setMomentsSeenAt(seenAt){
+  var safeSeenAt = Math.max(0, Number(seenAt || 0) || 0);
+  try{ localStorage.setItem(accountScopedKey(MOMENTS_LAST_SEEN_KEY), String(safeSeenAt)); }catch(e){}
+  try{ localStorage.setItem(MOMENTS_LAST_SEEN_KEY, String(safeSeenAt)); }catch(e){}
 }
 
 function getMaxMomentsCreatedAt(){
@@ -3173,7 +3187,7 @@ function switchTab(v){
 function openMomentsPage(){
   try{
     var seenAt = Math.max(Date.now(), getMaxMomentsCreatedAt() + 1);
-    localStorage.setItem(accountScopedKey(MOMENTS_LAST_SEEN_KEY), String(seenAt));
+    setMomentsSeenAt(seenAt);
     var bridgePayload = JSON.stringify(Array.isArray(momentsPostsCache) ? momentsPostsCache : []);
     localStorage.setItem(accountScopedKey(MOMENTS_BRIDGE_KEY), bridgePayload);
     localStorage.setItem(MOMENTS_BRIDGE_KEY, bridgePayload);

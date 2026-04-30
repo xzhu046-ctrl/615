@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T06:18:00Z';
+const APP_BUILD_ID = '2026-04-30T06:42:00Z';
 const APP_UPDATE_NOTES = [
-  '朋友圈入口红点按最大动态时间清除。',
-  '通知优先使用角色头像并避免黑底。',
-  '主页 USER 头像会从匹配头像异步拉回。'
+  '朋友圈红点读写同一已读时间。',
+  '朋友圈页加载完成后会再次确认已读。',
+  '通知头像直接使用角色头像不退黑底。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -2465,9 +2465,9 @@ async function showSystemShellNotification(payload){
       ],
       data: notifyData
     };
-    if(isRenderableShellAvatarSrc(heroAvatar) && String(heroAvatar).length < 500000){
+    if(isRenderableShellAvatarSrc(heroAvatar)){
       options.icon = heroAvatar;
-      options.image = heroAvatar;
+      if(String(heroAvatar).length < 1200000) options.image = heroAvatar;
     }
     var shown = false;
     if(typeof navigator !== 'undefined' && 'serviceWorker' in navigator){
@@ -9509,13 +9509,7 @@ function getMomentsUnreadCountForActive(){
   if(activeId && Object.prototype.hasOwnProperty.call(qqMomentsUnreadCountCache, activeId)){
     return Math.max(0, Number(qqMomentsUnreadCountCache[activeId] || 0) || 0);
   }
-  var seenAt = 0;
-  try{
-    seenAt = parseInt(localStorage.getItem(scopedKeyForAccount(MOMENTS_LAST_SEEN_KEY, activeId)) || '0', 10);
-  }catch(e){
-    seenAt = 0;
-  }
-  if(Number.isNaN(seenAt)) seenAt = 0;
+  var seenAt = getMomentsSeenAtForActive(activeId);
   var posts = [];
   try{
     posts = JSON.parse(localStorage.getItem(scopedKeyForAccount(MOMENTS_POSTS_KEY, activeId)) || localStorage.getItem(scopedKeyForAccount(MOMENTS_POSTS_ALT_KEY, activeId)) || '[]');
@@ -9540,6 +9534,26 @@ function getMomentsUnreadCountForActive(){
     count += 1;
   });
   return count;
+}
+
+function getMomentsSeenAtForActive(activeId){
+  var seenAt = 0;
+  [
+    scopedKeyForAccount(MOMENTS_LAST_SEEN_KEY, activeId),
+    MOMENTS_LAST_SEEN_KEY
+  ].forEach(function(key){
+    try{
+      var value = parseInt(localStorage.getItem(key) || '0', 10);
+      if(!Number.isNaN(value) && value > seenAt) seenAt = value;
+    }catch(e){}
+  });
+  return seenAt;
+}
+
+function setMomentsSeenAtForActive(activeId, seenAt){
+  var safeSeenAt = Math.max(0, Number(seenAt || 0) || 0);
+  try{ localStorage.setItem(scopedKeyForAccount(MOMENTS_LAST_SEEN_KEY, activeId), String(safeSeenAt)); }catch(e){}
+  try{ localStorage.setItem(MOMENTS_LAST_SEEN_KEY, String(safeSeenAt)); }catch(e){}
 }
 
 async function refreshQqUnreadCountCache(){
@@ -9740,9 +9754,7 @@ function clearMomentsUnreadForActive(payload){
     getMaxStoredMomentCreatedAtForActive(activeId)
   );
   var seenAt = Math.max(Date.now(), maxCreatedAt + 1);
-  try{
-    localStorage.setItem(scopedKeyForAccount(MOMENTS_LAST_SEEN_KEY, activeId), String(seenAt));
-  }catch(e){}
+  setMomentsSeenAtForActive(activeId, seenAt);
   qqMomentsUnreadCountCache[activeId] = 0;
   renderHomeDockBadges();
   postShellUnreadBadgeToCurrentApp();
