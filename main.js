@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T19:55:00Z';
+const APP_BUILD_ID = '2026-04-29T20:07:00Z';
 const APP_UPDATE_NOTES = [
-  '聊天设置头像双写匹配当前 char。',
-  '主页即时预览 user 头像。',
-  '继续修复未读红点写入顺序。'
+  'QQ 未读统计改读所有聊天记录。',
+  '打开聊天立即清理当前未读缓存。',
+  '阻止旧缓存把红点重新点亮。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';

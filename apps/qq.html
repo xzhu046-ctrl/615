@@ -1851,31 +1851,78 @@ async function hasChatRecordForChar(charId){
   return false;
 }
 
+function getChatStorageKeysForChar(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return [];
+  var keys = [accountScopedKey('chat_' + safeId), 'chat_' + safeId];
+  try{
+    for(var i = 0; i < localStorage.length; i++){
+      var key = localStorage.key(i) || '';
+      if(key.indexOf('chat_' + safeId + '__acct_') === 0) keys.push(key);
+    }
+  }catch(err){}
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+
+function summarizeChatHistoryForQq(list, fallbackChar){
+  var msgs = normalizeStoredChatHistory(Array.isArray(list) ? list : []);
+  var last = {content:getCharacterPreviewFallback(fallbackChar), type:'text'};
+  var previewSource = getLastVisiblePreviewMessage(msgs);
+  var lastAt = Number((previewSource && (previewSource.sentAt || previewSource.readAt)) || 0) || 0;
+  if(previewSource) last = normalizePreviewMessage(previewSource);
+  var unread = 0;
+  msgs.forEach(function(m){
+    if(m && m.role === 'assistant' && !m.readAt) unread++;
+  });
+  return { last:last, unread:unread, lastAt:lastAt, count:msgs.length, history:msgs };
+}
+
+function chooseBetterChatSummary(current, next){
+  if(!current) return next;
+  if(!next) return current;
+  if(Number(next.lastAt || 0) > Number(current.lastAt || 0)) return next;
+  if(Number(next.lastAt || 0) === Number(current.lastAt || 0) && Number(next.count || 0) > Number(current.count || 0)) return next;
+  return current;
+}
+
 async function refreshChatCaches(){
   var next = {};
-  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
-    await Promise.all(chars.map(async function(c){
-      if(!c || !c.id) return;
-      try{
-        var saved = await window.PhoneStorage.get('chats', accountScopedKey('chat_' + c.id));
-        var msgs = normalizeStoredChatHistory(saved && Array.isArray(saved.history) ? saved.history : []);
-        var last = {content:getCharacterPreviewFallback(c), type:'text'};
-        var previewSource = getLastVisiblePreviewMessage(msgs);
-        var lastAt = Number((previewSource && (previewSource.sentAt || previewSource.readAt)) || (saved && saved.updatedAt) || 0) || 0;
-        if(previewSource){
-          last = normalizePreviewMessage(previewSource);
+  var charMap = {};
+  (Array.isArray(chars) ? chars : []).forEach(function(c){
+    if(c && c.id) charMap[String(c.id)] = c;
+  });
+  if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function'){
+    try{
+      var records = await window.PhoneStorage.list('chats');
+      (Array.isArray(records) ? records : []).forEach(function(record){
+        if(!record || typeof record !== 'object') return;
+        var charId = String(record.charId || '').trim();
+        if(!charId){
+          var match = String(record.id || '').match(/^chat_(.+?)(?:__acct_.+)?$/);
+          charId = match ? String(match[1] || '').trim() : '';
         }
-        var unread = 0;
-        msgs.forEach(function(m){
-          if(m && m.role === 'assistant' && !m.readAt) unread++;
-        });
-        next[c.id] = { last:last, unread: unread, lastAt:lastAt };
-        if(livePreviewCache[c.id]){
-          next[c.id].last = livePreviewCache[c.id];
-        }
-      }catch(e){}
-    }));
+        if(!charId || !charMap[charId]) return;
+        var summary = summarizeChatHistoryForQq(record.history || [], charMap[charId]);
+        summary.lastAt = Math.max(Number(summary.lastAt || 0) || 0, Number(record.updatedAt || 0) || 0);
+        next[charId] = chooseBetterChatSummary(next[charId], summary);
+      });
+    }catch(e){}
   }
+  (Array.isArray(chars) ? chars : []).forEach(function(c){
+    if(!c || !c.id) return;
+    getChatStorageKeysForChar(c.id).forEach(function(key){
+      try{
+        var saved = JSON.parse(localStorage.getItem(key) || 'null');
+        var list = saved && (saved.messages || saved.history);
+        if(!Array.isArray(list) || !list.length) return;
+        next[c.id] = chooseBetterChatSummary(next[c.id], summarizeChatHistoryForQq(list, c));
+      }catch(e){}
+    });
+    if(!next[c.id]) next[c.id] = summarizeChatHistoryForQq([], c);
+    if(livePreviewCache[c.id]){
+      next[c.id].last = livePreviewCache[c.id];
+    }
+  });
   chatSummaryCache = next;
 }
 
@@ -2415,12 +2462,21 @@ function syncHomeBadgeCount(){
 
 async function markChatAsRead(charId){
   if(!charId) return;
-  var key = accountScopedKey('chat_' + charId);
-  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function' && typeof window.PhoneStorage.put === 'function'){
+  if(chatSummaryCache[charId]) chatSummaryCache[charId].unread = 0;
+  if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function' && typeof window.PhoneStorage.put === 'function'){
     try{
-      var savedIdb = await window.PhoneStorage.get('chats', key);
-      var listIdb = savedIdb && Array.isArray(savedIdb.history) ? savedIdb.history : [];
-      if(Array.isArray(listIdb) && listIdb.length){
+      var records = await window.PhoneStorage.list('chats');
+      for(var r = 0; r < (Array.isArray(records) ? records.length : 0); r += 1){
+        var savedIdb = records[r];
+        var recordId = String(savedIdb && savedIdb.id || '');
+        var recordCharId = String(savedIdb && savedIdb.charId || '').trim();
+        if(!recordCharId){
+          var match = recordId.match(/^chat_(.+?)(?:__acct_.+)?$/);
+          recordCharId = match ? String(match[1] || '').trim() : '';
+        }
+        if(recordCharId !== String(charId || '')) continue;
+        var listIdb = savedIdb && Array.isArray(savedIdb.history) ? savedIdb.history : [];
+        if(!Array.isArray(listIdb) || !listIdb.length) continue;
         var nowIdb = Date.now();
         var changedIdb = false;
         listIdb = listIdb.map(function(m){
@@ -2435,39 +2491,37 @@ async function markChatAsRead(charId){
         });
         if(changedIdb){
           await window.PhoneStorage.put('chats', {
-            id: key,
+            id: recordId || accountScopedKey('chat_' + charId),
             charId: String(charId || ''),
             updatedAt: Date.now(),
             history: listIdb
           });
-          if(chatSummaryCache[charId]) chatSummaryCache[charId].unread = 0;
-          syncHomeBadgeCount();
-          return;
         }
       }
     }catch(e){}
   }
-  try{
-    var saved = JSON.parse(localStorage.getItem(key) || 'null');
-    if(!saved) return;
-    var list = saved.messages || saved.history;
-    if(!Array.isArray(list)) return;
-    var now = Date.now();
-    var changed = false;
-    list = list.map(function(m){
-      if(m && m.role === 'assistant' && !m.readAt){
-        changed = true;
-        var next = Object.assign({}, m);
-        next.readAt = now;
-        return next;
-      }
-      return m;
-    });
-    if(!changed) return;
-    localStorage.setItem(key, JSON.stringify({ history:list, messages:list }));
-    if(chatSummaryCache[charId]) chatSummaryCache[charId].unread = 0;
-    syncHomeBadgeCount();
-  }catch(e){}
+  getChatStorageKeysForChar(charId).forEach(function(key){
+    try{
+      var saved = JSON.parse(localStorage.getItem(key) || 'null');
+      var list = saved && (saved.messages || saved.history);
+      if(!Array.isArray(list)) return;
+      var now = Date.now();
+      var changed = false;
+      list = list.map(function(m){
+        if(m && m.role === 'assistant' && !m.readAt){
+          changed = true;
+          var next = Object.assign({}, m);
+          next.readAt = now;
+          return next;
+        }
+        return m;
+      });
+      if(changed) localStorage.setItem(key, JSON.stringify({ history:list, messages:list }));
+    }catch(e){}
+  });
+  if(chatSummaryCache[charId]) chatSummaryCache[charId].unread = 0;
+  renderList();
+  syncHomeBadgeCount();
 }
 
 function getMomentsUnreadCount(){
