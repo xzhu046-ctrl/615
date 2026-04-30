@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-29T15:54:00Z"></script>
-<script src="../accountManager.js?v=2026-04-29T15:54:00Z"></script>
-<script src="../assetStore.js?v=2026-04-29T15:54:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T15:54:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T15:54:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-29T15:54:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-29T15:54:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T15:54:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-29T15:54:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-29T15:54:00Z"></script>
+<script src="../promptManager.js?v=2026-04-29T16:10:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T16:10:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T16:10:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T16:10:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T16:10:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-29T16:10:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-29T16:10:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T16:10:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-29T16:10:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-29T16:10:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -30028,15 +30028,33 @@ async function deliverAiReply(text, limitOverride, options){
   };
   var parsed = null;
   var rawParts = [];
+  var normalizeReplyTextField = function(value){
+    if(value == null) return '';
+    if(typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'){
+      return String(value || '').trim();
+    }
+    if(Array.isArray(value)){
+      return value.map(function(item){
+        return normalizeReplyTextField(item);
+      }).filter(Boolean).join('<msg>');
+    }
+    if(typeof value === 'object'){
+      if(typeof value.content === 'string' || Array.isArray(value.content)) return normalizeReplyTextField(value.content);
+      if(typeof value.text === 'string' || Array.isArray(value.text)) return normalizeReplyTextField(value.text);
+      if(typeof value.reply_content === 'string' || Array.isArray(value.reply_content)) return normalizeReplyTextField(value.reply_content);
+      if(typeof value.description === 'string' || Array.isArray(value.description)) return normalizeReplyTextField(value.description);
+    }
+    return '';
+  };
   var isReplyMetadataOnly = function(item){
     if(!item || typeof item !== 'object') return false;
     var hasReplyMeta = !!String(item.reply_to || item.replyTo || '').trim() || !!String(item.reply_role || item.replyRole || '').trim();
     if(!hasReplyMeta) return false;
     var hasBody =
-      typeof item.content === 'string' ||
-      typeof item.reply_content === 'string' ||
-      typeof item.description === 'string' ||
-      typeof item.text === 'string' ||
+      typeof item.content === 'string' || Array.isArray(item.content) ||
+      typeof item.reply_content === 'string' || Array.isArray(item.reply_content) ||
+      typeof item.description === 'string' || Array.isArray(item.description) ||
+      typeof item.text === 'string' || Array.isArray(item.text) ||
       (item.voice_message && typeof item.voice_message === 'object') ||
       (item.image_message && typeof item.image_message === 'object') ||
       (item.meme_message && typeof item.meme_message === 'object') ||
@@ -30045,6 +30063,11 @@ async function deliverAiReply(text, limitOverride, options){
     return !hasBody;
   };
   var appendRawPart = function(item){
+    if(typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean'){
+      var primitiveText = normalizeReplyTextField(item);
+      if(primitiveText) rawParts.push({ text: primitiveText, t: 'text', replyTo: '', replyRole: '', translationText: '' });
+      return;
+    }
     if(!item || typeof item !== 'object') return;
     if(item.type === 'thought_chain') return;
     if(isReplyMetadataOnly(item)) return;
@@ -30058,16 +30081,16 @@ async function deliverAiReply(text, limitOverride, options){
       || Object.prototype.hasOwnProperty.call(item, 'title')
       || Object.prototype.hasOwnProperty.call(item, 'cover')
       || Object.prototype.hasOwnProperty.call(item, 'coverUrl');
-    if(typeof item.content === 'string') c = item.content;
-    else if(typeof item.reply_content === 'string') c = item.reply_content;
-    else if(typeof item.description === 'string') c = item.description;
-    else if(typeof item.text === 'string') c = item.text;
+    if(typeof item.content === 'string' || Array.isArray(item.content)) c = normalizeReplyTextField(item.content);
+    else if(typeof item.reply_content === 'string' || Array.isArray(item.reply_content)) c = normalizeReplyTextField(item.reply_content);
+    else if(typeof item.description === 'string' || Array.isArray(item.description)) c = normalizeReplyTextField(item.description);
+    else if(typeof item.text === 'string' || Array.isArray(item.text)) c = normalizeReplyTextField(item.text);
     if(!c){
       if(item.voice_message && typeof item.voice_message === 'object'){
-        c = item.voice_message.content || item.voice_message.text || '';
+        c = normalizeReplyTextField(item.voice_message.content || item.voice_message.text || '');
         t = 'voice';
       }else if(item.image_message && typeof item.image_message === 'object'){
-        c = item.image_message.content || item.image_message.text || item.image_message.description || '';
+        c = normalizeReplyTextField(item.image_message.content || item.image_message.text || item.image_message.description || '');
         t = 'image';
       }else if(item.rich_html && typeof item.rich_html === 'object'){
         c = buildRichHtmlPayload({
@@ -30094,10 +30117,10 @@ async function deliverAiReply(text, limitOverride, options){
         });
         t = 'richhtml';
       }else if(item.narrator_message && typeof item.narrator_message === 'object'){
-        c = item.narrator_message.content || item.narrator_message.text || '';
+        c = normalizeReplyTextField(item.narrator_message.content || item.narrator_message.text || '');
         t = 'narrator';
       }else if(item.meme_message && typeof item.meme_message === 'object'){
-        c = item.meme_message.name || item.meme_message.content || item.meme_message.text || '';
+        c = normalizeReplyTextField(item.meme_message.name || item.meme_message.content || item.meme_message.text || '');
         t = 'meme';
       }else if(item.money_packet && typeof item.money_packet === 'object'){
         c = JSON.stringify(item.money_packet);
@@ -30106,7 +30129,7 @@ async function deliverAiReply(text, limitOverride, options){
         c = JSON.stringify(buildOfflineInvitePayload('assistant', item.offline_invite));
         t = 'offlineinvite';
       }else if(item.text && typeof item.text === 'object'){
-        c = item.text.content || item.text.text || '';
+        c = normalizeReplyTextField(item.text);
         t = 'text';
       }
     }
@@ -30161,7 +30184,7 @@ async function deliverAiReply(text, limitOverride, options){
       }
     }
     if(t === 'narrator' && !c){
-      c = item.narrator || item.narration || '';
+      c = normalizeReplyTextField(item.narrator || item.narration || '');
     }
     if(t === 'moneypacket' && !c){
       c = JSON.stringify({
@@ -30268,6 +30291,9 @@ async function deliverAiReply(text, limitOverride, options){
     var list = null;
     if(Array.isArray(obj)) list = obj;
     else if(Array.isArray(obj.messages)) list = obj.messages;
+    else if(Array.isArray(obj.replies)) list = obj.replies;
+    else if(Array.isArray(obj.reply)) list = obj.reply;
+    else if(Array.isArray(obj.response)) list = obj.response;
     else if(Array.isArray(obj.history)) list = obj.history;
     if(!Array.isArray(list) || !list.length) return false;
     list.forEach(appendRawPart);
@@ -30373,7 +30399,9 @@ async function deliverAiReply(text, limitOverride, options){
   }
 
   if(Array.isArray(parsed)){
-    parsed.forEach(appendRawPart);
+    parsed.forEach(function(item){
+      if(!appendRawPartsFromEnvelope(item)) appendRawPart(item);
+    });
   }
 
   if(!rawParts.length && text){
@@ -30396,7 +30424,11 @@ async function deliverAiReply(text, limitOverride, options){
         var obj = JSON.parse(line);
         if(obj && typeof obj === 'object'){
           if(isReplyMetadataOnly(obj)) return;
-          var c = obj.content || obj.reply_content || obj.description;
+          var c = '';
+          if(typeof obj.content === 'string' || Array.isArray(obj.content)) c = normalizeReplyTextField(obj.content);
+          else if(typeof obj.reply_content === 'string' || Array.isArray(obj.reply_content)) c = normalizeReplyTextField(obj.reply_content);
+          else if(typeof obj.description === 'string' || Array.isArray(obj.description)) c = normalizeReplyTextField(obj.description);
+          else if(typeof obj.text === 'string' || Array.isArray(obj.text)) c = normalizeReplyTextField(obj.text);
           var t = normalizeMessageType(obj.type || 'text');
           var hasDirectRichFields = Object.prototype.hasOwnProperty.call(obj, 'html')
             || Object.prototype.hasOwnProperty.call(obj, 'css')
@@ -30407,10 +30439,10 @@ async function deliverAiReply(text, limitOverride, options){
             || Object.prototype.hasOwnProperty.call(obj, 'coverUrl');
           if(!c){
             if(obj.voice_message && typeof obj.voice_message === 'object'){
-              c = obj.voice_message.content || obj.voice_message.text || '';
+              c = normalizeReplyTextField(obj.voice_message.content || obj.voice_message.text || '');
               t = 'voice';
             }else if(obj.image_message && typeof obj.image_message === 'object'){
-              c = obj.image_message.content || obj.image_message.text || obj.image_message.description || '';
+              c = normalizeReplyTextField(obj.image_message.content || obj.image_message.text || obj.image_message.description || '');
               t = 'image';
             }else if(obj.rich_html && typeof obj.rich_html === 'object'){
               c = buildRichHtmlPayload({
@@ -30437,10 +30469,10 @@ async function deliverAiReply(text, limitOverride, options){
               });
               t = 'richhtml';
             }else if(obj.narrator_message && typeof obj.narrator_message === 'object'){
-              c = obj.narrator_message.content || obj.narrator_message.text || '';
+              c = normalizeReplyTextField(obj.narrator_message.content || obj.narrator_message.text || '');
               t = 'narrator';
             }else if(obj.meme_message && typeof obj.meme_message === 'object'){
-              c = obj.meme_message.name || obj.meme_message.content || obj.meme_message.text || '';
+              c = normalizeReplyTextField(obj.meme_message.name || obj.meme_message.content || obj.meme_message.text || '');
               t = 'meme';
             }else if(obj.money_packet && typeof obj.money_packet === 'object'){
               c = JSON.stringify(obj.money_packet);
@@ -30449,7 +30481,7 @@ async function deliverAiReply(text, limitOverride, options){
               c = JSON.stringify(buildOfflineInvitePayload('assistant', obj.offline_invite));
               t = 'offlineinvite';
           }else if(obj.text && typeof obj.text === 'object'){
-              c = obj.text.content || obj.text.text || '';
+              c = normalizeReplyTextField(obj.text);
               t = 'text';
             }
           }
@@ -30540,7 +30572,7 @@ async function deliverAiReply(text, limitOverride, options){
             }
           }
           if(t === 'narrator' && !c){
-            c = obj.narrator || obj.narration || '';
+            c = normalizeReplyTextField(obj.narrator || obj.narration || '');
           }
           if(t === 'narrator') c = sanitizeNarratorPerspectiveText(c);
           if(t === 'moneypacket' && !c){

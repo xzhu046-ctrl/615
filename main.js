@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T15:54:00Z';
+const APP_BUILD_ID = '2026-04-29T16:10:00Z';
 const APP_UPDATE_NOTES = [
-  '个人设置去掉头像名字同步提示文案。',
-  '删除当前账号按钮改短并居中。',
-  '删除按钮改成黑白 ins 风格。'
+  '修复线上回复数组被逗号串成一句。',
+  'messages/replies/response 数组改按气泡拆分。',
+  '结构化回复解析避免 JS 默认逗号拼接。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
