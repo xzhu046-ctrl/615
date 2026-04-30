@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T07:08:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T07:08:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T07:08:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T07:08:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T07:08:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T07:08:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T07:08:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T07:08:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T07:08:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T07:08:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T07:42:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T07:42:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T07:42:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T07:42:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T07:42:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T07:42:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T07:42:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T07:42:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T07:42:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T07:42:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -16164,8 +16164,6 @@ function getUserAvatarStorageKeysForChat(charId){
   add(accountScopedKey('user_avatar'));
   if(safeCharId) add('user_avatar_' + safeCharId);
   add('user_avatar');
-  add(accountScopedKey('qq_profile_avatar_asset'));
-  add('qq_profile_avatar_asset');
   return keys;
 }
 function ensureMsgRange(){
@@ -22492,12 +22490,6 @@ function currentUserAvatarForFamily(charId){
     var src = String(localStorage.getItem(keys[i]) || '').trim();
     if(isRenderableAvatarSrc(src)) return src;
   }
-  try{
-    if(window.AccountManager){
-      var acct = window.AccountManager.getActive();
-      if(acct && isRenderableAvatarSrc(acct.avatar)) return String(acct.avatar).trim();
-    }
-  }catch(e){}
   return '';
 }
 function resolveChatUserAvatarAsync(charId){
@@ -22505,14 +22497,11 @@ function resolveChatUserAvatarAsync(charId){
   return loadFirstAvatarAsset(keys).then(function(src){
     src = String(src || '').trim();
     if(isRenderableAvatarSrc(src)) return ensureChatRenderableAvatarSrc(src);
-    var activeProfileSrc = '';
-    try{ activeProfileSrc = String(getActiveAccountProfileAvatar() || '').trim(); }catch(err){}
-    if(isRenderableAvatarSrc(activeProfileSrc)) return ensureChatRenderableAvatarSrc(activeProfileSrc);
-    return ensureChatRenderableAvatarSrc(currentUserAvatarForFamily(charId) || activeProfileSrc);
+    return ensureChatRenderableAvatarSrc(currentUserAvatarForFamily(charId) || '');
   }).catch(function(){
     var fallback = currentUserAvatarForFamily(charId);
     if(isRenderableAvatarSrc(fallback)) return ensureChatRenderableAvatarSrc(fallback);
-    return ensureChatRenderableAvatarSrc(getActiveAccountProfileAvatar() || '');
+    return '';
   });
 }
 
@@ -27702,10 +27691,6 @@ function currentVisibleUserAvatarSrc(){
     var src = String((node && node.getAttribute && node.getAttribute('src')) || (node && node.src) || '').trim();
     if(isRenderableAvatarSrc(src)) return src;
   }
-  try{
-    var active = String(getActiveAccountProfileAvatar() || '').trim();
-    if(isRenderableAvatarSrc(active)) return active;
-  }catch(err){}
   return '';
 }
 
@@ -28860,9 +28845,8 @@ function openChatSettings() {
     }
     var uav = document.getElementById('csUserAvatar');
     uav.innerHTML = getAvatarPlaceholderHtml('user', '+');
-    var userAvatarKey = isDefault ? userKey('user_avatar') : accountScopedKey('qq_profile_avatar_asset');
-    loadStoredAsset(userAvatarKey).then(function(savedUav){
-      savedUav = String(savedUav || '').trim() || getActiveAccountProfileAvatar();
+    resolveChatUserAvatarAsync(character && character.id).then(function(savedUav){
+      savedUav = String(savedUav || '').trim();
       if (isRenderableAvatarSrc(savedUav)) { uav.innerHTML = '<img src="' + savedUav + '"><div class="avatar-pick-hint">换头像</div>'; }
       syncChatSettingsHero();
       syncChatSettingsFieldWidths();
@@ -28873,7 +28857,7 @@ function openChatSettings() {
       : getActiveAccountProfileName();
     document.getElementById('csUserNick').value = String((character && character.userNicknameNote) || '').trim();
     document.getElementById('csUserName').disabled = !isDefault;
-    document.getElementById('csUserAvatar').style.pointerEvents = isDefault ? '' : 'none';
+    document.getElementById('csUserAvatar').style.pointerEvents = '';
     document.getElementById('csUserPersona').value = isDefault
       ? (String((character && character.userPersonaProfile) || '').trim() || localStorage.getItem(accountScopedKey('user_persona_' + String((character && character.id) || ''))) || localStorage.getItem('user_persona_' + String((character && character.id) || '')) || localStorage.getItem(userKey('user_persona')) || '')
       : '';
@@ -29201,7 +29185,6 @@ function postSettingsPreviewSync(){
   draft.userNicknameNote = String((userNickEl && userNickEl.value) || '').trim();
   var userImg = document.querySelector('#csUserAvatar img');
   var userAvatar = String((userImg && userImg.src) || '').trim();
-  if(!isDefault) userAvatar = getActiveAccountProfileAvatar();
   if(!isRenderableAvatarSrc(userAvatar)) userAvatar = '';
   draft.userAvatarProfile = /^data:/i.test(userAvatar) ? '' : normalizeAvatarSrc(userAvatar);
   syncChatSettingsHero();
@@ -29209,7 +29192,9 @@ function postSettingsPreviewSync(){
   persistActiveCharacterSnapshot(slim);
   if(isDefault && character && character.id){
     try{ localStorage.setItem('user_name_' + character.id, userName); }catch(e){}
-    if(userAvatar) saveMatchedUserAvatarForCharacter(userAvatar, character.id).catch(function(err){
+  }
+  if(character && character.id && userAvatar){
+    saveMatchedUserAvatarForCharacter(userAvatar, character.id).catch(function(err){
       console.warn('postSettingsPreviewSync user avatar persist failed', err);
     });
   }
@@ -29787,7 +29772,6 @@ async function saveChatSettings() {
   var up = isDefault ? document.getElementById('csUserPersona').value.trim() : '';
   var settingsUserImg = document.querySelector('#csUserAvatar img');
   var settingsUserAvatar = String((settingsUserImg && settingsUserImg.src) || '').trim();
-  if(!isDefault) settingsUserAvatar = getActiveAccountProfileAvatar();
   if(!isRenderableAvatarSrc(settingsUserAvatar)) settingsUserAvatar = '';
   var settingsUserAvatarProfile = /^data:/i.test(settingsUserAvatar) ? '' : normalizeAvatarSrc(settingsUserAvatar);
   var cn = document.getElementById('csCharName').value.trim();
@@ -29923,7 +29907,7 @@ async function saveChatSettings() {
     character.userNicknameNote = unick;
     character.userAvatarProfile = settingsUserAvatarProfile;
     character.userPersonaProfile = isDefault ? up : '';
-    if(isDefault && settingsUserAvatar){
+    if(settingsUserAvatar){
       await saveMatchedUserAvatarForCharacter(settingsUserAvatar, character.id);
     }
     var nextUserDisplayName = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';

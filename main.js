@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T07:08:00Z';
+const APP_BUILD_ID = '2026-04-30T07:42:00Z';
 const APP_UPDATE_NOTES = [
-  '线上回复去掉主路径等待。',
-  '朋友圈动作后台落库不挡回复。',
-  'QQ 入口补读朋友圈多存储来源。'
+  'USER 头像不再被账号头像覆盖。',
+  '非默认账号也保存角色匹配头像。',
+  '朋友圈入口已读后强制清红点。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1799,10 +1799,6 @@ function getShellUserAvatarAssetKeys(charId, accountId){
   if(id) add('user_avatar_' + id);
   add(scopedKeyForAccount('user_avatar', activeId));
   add('user_avatar');
-  if(activeId){
-    add(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
-    add('qq_profile_avatar_asset');
-  }
   return keys;
 }
 
@@ -4630,6 +4626,7 @@ function openShellNotificationPayload(payload){
     return;
   }
   if(payload.app === 'moments'){
+    clearMomentsUnreadForActive(payload || {});
     openApp('qq');
     return;
   }
@@ -5709,7 +5706,6 @@ function collectShellUserAvatarCandidates(charId, character){
   keys.forEach(function(key){
     try{ push(localStorage.getItem(key) || ''); }catch(err4){}
   });
-  push(getActiveAccountProfileAvatar());
   return candidates;
 }
 
@@ -5723,8 +5719,7 @@ function getChatUserAvatar(charId, character){
   var keys = getShellUserAvatarAssetKeys(charId, activeId);
   function loadAt(idx){
     if(idx >= keys.length){
-      var accountAvatar = getActiveAccountProfileAvatar();
-      return Promise.resolve(isRenderableShellAvatarSrc(accountAvatar) ? accountAvatar : '');
+      return Promise.resolve('');
     }
     return loadStoredAsset(keys[idx]).then(function(src){
       if(isRenderableShellAvatarSrc(src)) return normalizeShellAssetSrc(src);
@@ -8601,7 +8596,11 @@ window.addEventListener('message',(e)=>{
     var activeAcctId = getActiveAccountId();
     if(activeAcctId){
       delete qqUnreadCountCache[activeAcctId];
-      delete qqMomentsUnreadCountCache[activeAcctId];
+      if(payload && Object.prototype.hasOwnProperty.call(payload, 'momentsUnread')){
+        qqMomentsUnreadCountCache[activeAcctId] = Math.max(0, parseInt(payload.momentsUnread || 0, 10) || 0);
+      }else{
+        delete qqMomentsUnreadCountCache[activeAcctId];
+      }
     }
     refreshQqUnreadCountSoon();
     renderHomeDockBadges();
