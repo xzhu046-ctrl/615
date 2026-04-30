@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T17:13:00Z';
+const APP_BUILD_ID = '2026-04-30T17:28:00Z';
 const APP_UPDATE_NOTES = [
-  '主页第二页头像同时写入外层圆形背景层，绕开内层图片显示失败。',
-  '保留原头像框和阴影，只修第二页头像显示。',
-  '本次不改聊天、QQ 列表和其他头像逻辑。'
+  '主屏第一页和第二页的 user 头像改为优先读取聊天设置里选中的头像。',
+  '没有单独选头像时，主屏 user 头像会回退到个人设置头像。',
+  '本次只修主屏 user 头像解析顺序，不改 char 头像和聊天逻辑。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -6074,6 +6074,7 @@ function collectShellUserAvatarCandidates(charId, character){
     if(safe && candidates.indexOf(safe) === -1) candidates.push(safe);
   }
   push(getForegroundChatUserAvatar(id));
+  push(getBundleAvatarForShell(getCachedShellChatSettingsBundleForChar(id, activeId), 'user'));
   push(character && (character.userAvatarProfile || character.userAvatar));
   try{
     var activeChar = getActiveCharacterData();
@@ -6098,28 +6099,36 @@ function collectShellUserAvatarCandidates(charId, character){
   keys.forEach(function(key){
     try{ push(localStorage.getItem(key) || ''); }catch(err4){}
   });
+  push(getActiveAccountProfileAvatar());
   return candidates;
 }
 
 function getChatUserAvatar(charId, character){
-  var candidates = collectShellUserAvatarCandidates(charId, character);
-  for(var i = 0; i < candidates.length; i += 1){
-    var candidate = normalizeShellAssetSrc(candidates[i] || '');
-    if(isRenderableShellAvatarSrc(candidate)) return Promise.resolve(candidate);
-  }
   var activeId = getActiveAccountId();
-  var keys = getShellUserAvatarAssetKeys(charId, activeId);
+  var id = String(charId || (character && character.id) || '').trim();
+  var liveAvatar = getForegroundChatUserAvatar(id);
+  if(isRenderableShellAvatarSrc(liveAvatar)) return Promise.resolve(normalizeShellAssetSrc(liveAvatar));
+  var keys = getShellUserAvatarAssetKeys(id, activeId);
+  function fallbackAvatar(){
+    var accountAvatar = getActiveAccountProfileAvatar();
+    if(isRenderableShellAvatarSrc(accountAvatar)) return Promise.resolve(normalizeShellAssetSrc(accountAvatar));
+    var candidates = collectShellUserAvatarCandidates(id, character);
+    for(var i = 0; i < candidates.length; i += 1){
+      var candidate = normalizeShellAssetSrc(candidates[i] || '');
+      if(isRenderableShellAvatarSrc(candidate)) return Promise.resolve(candidate);
+    }
+    return Promise.resolve('');
+  }
   function loadAt(idx){
     if(idx >= keys.length){
-      var accountAvatar = charId ? '' : getActiveAccountProfileAvatar();
-      return Promise.resolve(isRenderableShellAvatarSrc(accountAvatar) ? accountAvatar : '');
+      return fallbackAvatar();
     }
     return loadStoredAsset(keys[idx]).then(function(src){
       if(isRenderableShellAvatarSrc(src)) return normalizeShellAssetSrc(src);
       return loadAt(idx + 1);
     });
   }
-  return loadShellChatSettingsBundleForChar(charId, activeId).then(function(bundle){
+  return loadShellChatSettingsBundleForChar(id, activeId).then(function(bundle){
     var bundleAvatar = getBundleAvatarForShell(bundle, 'user');
     if(isRenderableShellAvatarSrc(bundleAvatar)) return bundleAvatar;
     return loadAt(0);
@@ -6129,9 +6138,18 @@ function getChatUserAvatar(charId, character){
 }
 
 function getImmediateChatUserAvatar(charId, character){
-  var candidates = collectShellUserAvatarCandidates(charId, character);
-  for(var i = 0; i < candidates.length; i += 1){
-    var src = normalizeShellAssetSrc(candidates[i] || '');
+  var activeId = getActiveAccountId();
+  var id = String(charId || (character && character.id) || '').trim();
+  var ordered = [
+    getForegroundChatUserAvatar(id),
+    getBundleAvatarForShell(getCachedShellChatSettingsBundleForChar(id, activeId), 'user'),
+    getImmediateStoredUserAvatarForShell(id),
+    getActiveAccountProfileAvatar()
+  ];
+  var legacyCandidates = collectShellUserAvatarCandidates(id, character);
+  ordered = ordered.concat(legacyCandidates);
+  for(var i = 0; i < ordered.length; i += 1){
+    var src = normalizeShellAssetSrc(ordered[i] || '');
     if(isRenderableShellAvatarSrc(src) && !/^blob:/i.test(src)) return src;
   }
   return '';
@@ -6365,17 +6383,7 @@ function applyBondWidgetPreview(payload){
     if(userAvatarEl){
       var src = previewUserSrc;
       if(!isRenderableShellAvatarSrc(src)) src = getImmediateChatUserAvatar(c && c.id, c);
-      var baseHtml = isRenderableShellAvatarSrc(src)
-        ? '<span class="bond-avatar-base"><img src="' + escapeHtmlAttr(src) + '" alt="" onerror="this.closest(\'.bond-avatar-base\').textContent=\'你\'"></span>'
-        : '<span class="bond-avatar-base">你</span>';
-      var frameUrl = getActiveBondAvatarFrameUrl('user');
-      if(frameUrl){
-        var frameVisual = getTopFrameVisual(frameUrl);
-        var frameStyle = '--frame-scale:' + frameVisual.scale + ';--frame-offset-x:' + frameVisual.offsetX + 'px;--frame-offset-y:' + frameVisual.offsetY + 'px;';
-        userAvatarEl.innerHTML = baseHtml + buildAvatarFrameImg('bond-avatar-frame', frameUrl, frameStyle);
-      } else {
-        userAvatarEl.innerHTML = baseHtml;
-      }
+      applyBondAvatarContent('user', src, '你', c && c.id);
     }
     if(c && c.id && !isRenderableShellAvatarSrc(previewUserSrc)){
       getChatUserAvatar(c.id, c).then(function(resolvedUserSrc){
@@ -6384,15 +6392,7 @@ function applyBondWidgetPreview(payload){
           applyWidgetUserAvatarContent(widgetUserAvatarEl, resolvedUserSrc, '你');
         }
         if(userAvatarEl){
-          var frameUrl2 = getActiveBondAvatarFrameUrl('user');
-          var baseHtml2 = '<span class="bond-avatar-base"><img src="' + escapeHtmlAttr(resolvedUserSrc) + '" alt="" onerror="this.closest(\'.bond-avatar-base\').textContent=\'你\'"></span>';
-          if(frameUrl2){
-            var frameVisual2 = getTopFrameVisual(frameUrl2);
-            var frameStyle2 = '--frame-scale:' + frameVisual2.scale + ';--frame-offset-x:' + frameVisual2.offsetX + 'px;--frame-offset-y:' + frameVisual2.offsetY + 'px;';
-            userAvatarEl.innerHTML = baseHtml2 + buildAvatarFrameImg('bond-avatar-frame', frameUrl2, frameStyle2);
-          }else{
-            userAvatarEl.innerHTML = baseHtml2;
-          }
+          applyBondAvatarContent('user', resolvedUserSrc, '你', c.id);
         }
       }).catch(function(){});
     }
