@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T07:42:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T07:42:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T07:42:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T07:42:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T07:42:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T07:42:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T07:42:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T07:42:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T07:42:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T07:42:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T08:03:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T08:03:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T08:03:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T08:03:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T08:03:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T08:03:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T08:03:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T08:03:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T08:03:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T08:03:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -16164,6 +16164,8 @@ function getUserAvatarStorageKeysForChat(charId){
   add(accountScopedKey('user_avatar'));
   if(safeCharId) add('user_avatar_' + safeCharId);
   add('user_avatar');
+  add(accountScopedKey('qq_profile_avatar_asset'));
+  add('qq_profile_avatar_asset');
   return keys;
 }
 function ensureMsgRange(){
@@ -18312,7 +18314,7 @@ function buildSystemPrompt() {
     '当前顶栏给你显示的状态词是：' + getStoredCharHeaderStatus(character && character.id),
     '状态词可以经常改，它是一个轻量小情绪标签，不是正文任务。',
     '每轮写完正文后都要认真更新一次状态词：结合你刚刚说的话、当前情绪、动作、作息和现实 presence，给一个最贴切的两个字以内状态。',
-    '请在整段回复最前或最后附上隐藏指令 [[状态:xx]]；只有当状态真的完全不变时才可以省略。',
+    '每一轮回复都必须附上隐藏指令 [[状态:xx]]，不要省略；如果情绪很稳定，也要重新给出当前最贴切的状态。',
     'xx 必须是两个字以内，例如：想你、吃饭、犯困、开会、出门、发呆。',
     '这只是隐藏状态指令，不是给用户看的正文；不要解释这个状态指令，也不要单独提醒用户你改了状态。',
   ].join('\n'));
@@ -22497,11 +22499,13 @@ function resolveChatUserAvatarAsync(charId){
   return loadFirstAvatarAsset(keys).then(function(src){
     src = String(src || '').trim();
     if(isRenderableAvatarSrc(src)) return ensureChatRenderableAvatarSrc(src);
-    return ensureChatRenderableAvatarSrc(currentUserAvatarForFamily(charId) || '');
+    var activeProfileSrc = '';
+    try{ activeProfileSrc = String(getActiveAccountProfileAvatar() || '').trim(); }catch(err){}
+    return ensureChatRenderableAvatarSrc(currentUserAvatarForFamily(charId) || activeProfileSrc || '');
   }).catch(function(){
     var fallback = currentUserAvatarForFamily(charId);
     if(isRenderableAvatarSrc(fallback)) return ensureChatRenderableAvatarSrc(fallback);
-    return '';
+    return ensureChatRenderableAvatarSrc(getActiveAccountProfileAvatar() || '');
   });
 }
 
@@ -27962,7 +27966,7 @@ function syncChatSettingsHero(){
   var userSrc = String((userImg && (userImg.getAttribute('src') || userImg.src)) || '').trim();
   if(!isRenderableAvatarSrc(userSrc)){
     try{
-      userSrc = String(getActiveAccountProfileAvatar() || '').trim();
+      userSrc = String(currentUserAvatarForFamily(character && character.id) || getActiveAccountProfileAvatar() || '').trim();
     }catch(e){}
   }
   renderChatSettingsHeroPhoto('csHeroUserPhoto', userSrc, userName.slice(0, 2), userName);
@@ -29419,7 +29423,7 @@ function renderChatSettingsAvatarShelf(role){
   if(safeRole === 'char'){
     currentSrc = normalizeAvatarSrc(getAvatarSrcFromSelectors(['#csCharAvatar img','#hdrAvatar img']) || currentVisibleCharAvatarSrc() || '');
   }else{
-    currentSrc = normalizeAvatarSrc(String((document.querySelector('#csUserAvatar img') || {}).src || '').trim() || String(getActiveAccountProfileAvatar() || '').trim());
+    currentSrc = normalizeAvatarSrc(String((document.querySelector('#csUserAvatar img') || {}).src || '').trim() || String(currentUserAvatarForFamily(character && character.id) || getActiveAccountProfileAvatar() || '').trim());
   }
   var html = [
     '<button class="cs-avatar-shelf-card add" type="button" data-avatar-shelf-add="' + safeRole + '">' +

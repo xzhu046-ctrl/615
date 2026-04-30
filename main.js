@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T07:42:00Z';
+const APP_BUILD_ID = '2026-04-30T08:03:00Z';
 const APP_UPDATE_NOTES = [
-  'USER 头像不再被账号头像覆盖。',
-  '非默认账号也保存角色匹配头像。',
-  '朋友圈入口已读后强制清红点。'
+  'USER 头像恢复旧头像兼容读取。',
+  '系统通知头像改用原始可访问地址。',
+  'QQ 红点同步同时信任聊天和朋友圈计数。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -732,6 +732,14 @@ function normalizeShellAssetSrc(value){
 function isRenderableShellAvatarSrc(value){
   var text = normalizeShellAssetSrc(value);
   return !!(text && /^(data:|https?:|blob:|\/|\.\.?\/|apps\/)/i.test(text));
+}
+
+function absolutizeShellNotificationIconSrc(value){
+  var src = normalizeShellAssetSrc(value || '');
+  if(!isRenderableShellAvatarSrc(src)) return '';
+  if(/^(data:|blob:|https?:)/i.test(src)) return src;
+  try{ return new URL(src, window.location.href).href; }catch(e){}
+  return src;
 }
 
 function normalizeHeartText(value){
@@ -1799,6 +1807,10 @@ function getShellUserAvatarAssetKeys(charId, accountId){
   if(id) add('user_avatar_' + id);
   add(scopedKeyForAccount('user_avatar', activeId));
   add('user_avatar');
+  if(activeId){
+    add(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
+    add('qq_profile_avatar_asset');
+  }
   return keys;
 }
 
@@ -2462,8 +2474,9 @@ async function showSystemShellNotification(payload){
       data: notifyData
     };
     if(isRenderableShellAvatarSrc(heroAvatar)){
-      options.icon = heroAvatar;
-      if(String(heroAvatar).length < 1200000) options.image = heroAvatar;
+      var iconAvatar = absolutizeShellNotificationIconSrc(heroAvatar);
+      if(iconAvatar) options.icon = iconAvatar;
+      if(String(heroAvatar).length < 1200000) options.image = iconAvatar || heroAvatar;
     }
     var shown = false;
     if(typeof navigator !== 'undefined' && 'serviceWorker' in navigator){
@@ -2560,10 +2573,15 @@ function maybeShowShellActivityNotification(payload){
   var appName = kind === 'moments' ? 'moments' : (kind === 'schedule' ? 'schedule' : 'chat');
   Promise.resolve(resolveShellNotificationAvatar(charId, payload.avatar || getCharacterAvatarForBg(character || { id: charId }) || ''))
     .catch(function(){ return ''; })
-    .then(function(avatar){
-      return materializeShellNotificationAvatar(avatar).catch(function(){ return String(avatar || ''); });
+    .then(function(rawAvatar){
+      rawAvatar = String(rawAvatar || '').trim();
+      return materializeShellNotificationAvatar(rawAvatar).catch(function(){ return rawAvatar; }).then(function(cardAvatar){
+        return { rawAvatar: rawAvatar, cardAvatar: String(cardAvatar || rawAvatar || '').trim() };
+      });
     })
-    .then(function(avatar){
+    .then(function(avatarPack){
+      var rawAvatar = String((avatarPack && avatarPack.rawAvatar) || '').trim();
+      var cardAvatar = String((avatarPack && avatarPack.cardAvatar) || rawAvatar || '').trim();
       pushBackendLogEntry({
         level: 'info',
         app: appName,
@@ -2574,8 +2592,8 @@ function maybeShowShellActivityNotification(payload){
           charId: charId,
           name: name,
           inputAvatarPrefix: String(payload.avatar || '').trim().slice(0, 48),
-          resolvedAvatarPrefix: String(avatar || '').trim().slice(0, 48),
-          resolvedAvatarLength: String(avatar || '').length
+          resolvedAvatarPrefix: rawAvatar.slice(0, 48),
+          resolvedAvatarLength: rawAvatar.length
         }
       });
       if(!settings.disableInternal){
@@ -2583,7 +2601,7 @@ function maybeShowShellActivityNotification(payload){
           app: appName,
           charId: charId,
           name: name,
-          avatar: avatar,
+          avatar: cardAvatar,
           text: text
         });
       }
@@ -2598,7 +2616,7 @@ function maybeShowShellActivityNotification(payload){
         app: appName,
         charId: charId,
         name: name,
-        avatar: avatar,
+        avatar: rawAvatar || cardAvatar,
         text: text
       }).catch(function(){});
     });
@@ -5706,6 +5724,7 @@ function collectShellUserAvatarCandidates(charId, character){
   keys.forEach(function(key){
     try{ push(localStorage.getItem(key) || ''); }catch(err4){}
   });
+  push(getActiveAccountProfileAvatar());
   return candidates;
 }
 
@@ -5719,7 +5738,8 @@ function getChatUserAvatar(charId, character){
   var keys = getShellUserAvatarAssetKeys(charId, activeId);
   function loadAt(idx){
     if(idx >= keys.length){
-      return Promise.resolve('');
+      var accountAvatar = getActiveAccountProfileAvatar();
+      return Promise.resolve(isRenderableShellAvatarSrc(accountAvatar) ? accountAvatar : '');
     }
     return loadStoredAsset(keys[idx]).then(function(src){
       if(isRenderableShellAvatarSrc(src)) return normalizeShellAssetSrc(src);
@@ -8594,16 +8614,22 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='QQ_BADGE_SYNC'){
     var activeAcctId = getActiveAccountId();
+    var hasChatUnreadPayload = payload && Object.prototype.hasOwnProperty.call(payload, 'chatUnread');
+    var hasMomentsUnreadPayload = payload && Object.prototype.hasOwnProperty.call(payload, 'momentsUnread');
     if(activeAcctId){
-      delete qqUnreadCountCache[activeAcctId];
-      if(payload && Object.prototype.hasOwnProperty.call(payload, 'momentsUnread')){
+      if(hasChatUnreadPayload){
+        qqUnreadCountCache[activeAcctId] = Math.max(0, parseInt(payload.chatUnread || 0, 10) || 0);
+      }else{
+        delete qqUnreadCountCache[activeAcctId];
+      }
+      if(hasMomentsUnreadPayload){
         qqMomentsUnreadCountCache[activeAcctId] = Math.max(0, parseInt(payload.momentsUnread || 0, 10) || 0);
       }else{
         delete qqMomentsUnreadCountCache[activeAcctId];
       }
     }
-    refreshQqUnreadCountSoon();
     renderHomeDockBadges();
+    if(!hasChatUnreadPayload) refreshQqUnreadCountSoon();
   }
   if(type==='CHAT_SEEN'){
     if(payload && payload.charId) markShellChatAsRead(payload.charId).catch(function(){ refreshQqUnreadCountSoon(); });
