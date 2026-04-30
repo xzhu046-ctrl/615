@@ -497,6 +497,7 @@ var AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 var API_PRESETS_KEY = 'api_provider_presets_v1';
 var API_PRESETS_KV_ID = 'api_provider_presets';
 var API_SETTINGS_KV_ID = 'api_settings_v1';
+var apiSettingsSaveWaiters = {};
 var PROVIDER_LABELS = {
   openai: 'OpenAI',
   claude: 'Claude',
@@ -733,6 +734,12 @@ function collectApiSettingsRecord(){
 }
 
 async function loadApiSettingsRecord(){
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.getShellApiSettingsRecord === 'function'){
+      var fromShell = await window.parent.getShellApiSettingsRecord();
+      if(fromShell && typeof fromShell === 'object') return fromShell;
+    }
+  }catch(parentErr){}
   var storage = getSettingsPhoneStorage();
   if(storage && typeof storage.get === 'function'){
     var record = await storage.get('kv', API_SETTINGS_KV_ID).catch(function(){ return null; });
@@ -796,15 +803,26 @@ function applyApiSettingsRecordToForm(record){
 
 async function persistCurrentApiSettings(){
   var record = collectApiSettingsRecord();
-  var storage = getSettingsPhoneStorage();
-  if(!(storage && typeof storage.put === 'function')){
-    throw new Error('PhoneStorage unavailable for api settings');
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.saveShellApiSettingsRecord === 'function'){
+      var savedByShell = await window.parent.saveShellApiSettingsRecord(record);
+      if(savedByShell && typeof savedByShell === 'object') record = savedByShell;
+    }else if(window.parent && window.parent !== window){
+      record = await requestShellApiSettingsSave(record);
+    }else{
+      var storage = getSettingsPhoneStorage();
+      if(!(storage && typeof storage.put === 'function')){
+        throw new Error('PhoneStorage unavailable for api settings');
+      }
+      await storage.put('kv', {
+        id: API_SETTINGS_KV_ID,
+        value: record,
+        updatedAt: Date.now()
+      });
+    }
+  }catch(err){
+    throw err;
   }
-  await storage.put('kv', {
-    id: API_SETTINGS_KV_ID,
-    value: record,
-    updatedAt: Date.now()
-  });
   try{
     if(window.parent && window.parent !== window){
       window.parent.postMessage({ type:'API_SETTINGS_SAVED', payload: record }, '*');
@@ -812,6 +830,33 @@ async function persistCurrentApiSettings(){
   }catch(err){}
   return record;
 }
+
+function requestShellApiSettingsSave(record){
+  return new Promise(function(resolve, reject){
+    var requestId = 'api_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    var timer = setTimeout(function(){
+      delete apiSettingsSaveWaiters[requestId];
+      reject(new Error('API 设置保存超时'));
+    }, 3500);
+    apiSettingsSaveWaiters[requestId] = {
+      resolve: function(value){ clearTimeout(timer); resolve(value); },
+      reject: function(err){ clearTimeout(timer); reject(err); }
+    };
+    window.parent.postMessage({ type:'API_SETTINGS_SAVE_REQUEST', payload:{ requestId:requestId, settings:record } }, '*');
+  });
+}
+
+window.addEventListener('message', function(event){
+  var data = event && event.data || {};
+  if(data.type !== 'API_SETTINGS_SAVE_RESULT') return;
+  var payload = data.payload || {};
+  var requestId = String(payload.requestId || '').trim();
+  var waiter = apiSettingsSaveWaiters[requestId];
+  if(!waiter) return;
+  delete apiSettingsSaveWaiters[requestId];
+  if(payload.ok) waiter.resolve(payload.settings || collectApiSettingsRecord());
+  else waiter.reject(new Error(String(payload.error || 'API 设置保存失败')));
+});
 
 function persistCurrentApiSettingsLegacyMirror(){
   return false;

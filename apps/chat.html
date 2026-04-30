@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T08:34:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T08:34:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T08:34:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T08:34:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T08:34:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T08:34:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T08:34:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T08:34:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T08:34:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T08:34:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T08:58:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T08:58:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T08:58:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T08:58:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T08:58:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T08:58:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T08:58:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T08:58:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T08:58:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T08:58:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -8789,6 +8789,13 @@ function normalizeChatApiSettingsRecord(raw){
 async function hydrateChatApiSettingsFromStorage(){
   var storage = null;
   try{
+    if(window.parent && window.parent !== window && typeof window.parent.getShellApiSettingsRecord === 'function'){
+      var fromShell = await window.parent.getShellApiSettingsRecord();
+      if(fromShell && typeof fromShell === 'object'){
+        chatApiSettingsCache = normalizeChatApiSettingsRecord(fromShell);
+        return chatApiSettingsCache;
+      }
+    }
     if(window.parent && window.parent !== window && window.parent.PhoneStorage) storage = window.parent.PhoneStorage;
   }catch(err){}
   if(!storage) storage = window.PhoneStorage || null;
@@ -16617,6 +16624,11 @@ async function init() {
 
   updateHeader();
   updateModelLabel();
+  if(character && character.id){
+    hydrateStoredCharHeaderStatus(character.id).then(function(){
+      updateModelLabel();
+    }).catch(function(){});
+  }
 
   if (character) {
     curGreetingIdx = parseInt(localStorage.getItem(greetingStorageKey(character.id)) || '0');
@@ -17152,6 +17164,7 @@ function buildPresenceHardRulePrompt(){
 function charHeaderStatusKey(charId){
   return accountScopedKey('chat_header_status_' + String(charId || ''));
 }
+var charHeaderStatusCache = {};
 
 function sanitizeHeaderStatusText(text){
   var cleaned = String(text || '')
@@ -17165,8 +17178,13 @@ function sanitizeHeaderStatusText(text){
 
 function getStoredCharHeaderStatus(charId){
   if(!charId) return '在线';
+  var key = charHeaderStatusKey(charId);
+  if(Object.prototype.hasOwnProperty.call(charHeaderStatusCache, key)){
+    return charHeaderStatusCache[key] || '在线';
+  }
   try{
-    var saved = sanitizeHeaderStatusText(localStorage.getItem(charHeaderStatusKey(charId)) || '');
+    var saved = sanitizeHeaderStatusText(localStorage.getItem(key) || '');
+    if(saved) charHeaderStatusCache[key] = saved;
     return saved || '在线';
   }catch(e){
     return '在线';
@@ -17176,7 +17194,46 @@ function getStoredCharHeaderStatus(charId){
 function setStoredCharHeaderStatus(charId, text){
   if(!charId) return;
   var next = sanitizeHeaderStatusText(text) || '在线';
-  try{ localStorage.setItem(charHeaderStatusKey(charId), next); }catch(e){}
+  var key = charHeaderStatusKey(charId);
+  charHeaderStatusCache[key] = next;
+  var storage = null;
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage) storage = window.parent.PhoneStorage;
+  }catch(err){}
+  if(!storage) storage = window.PhoneStorage || null;
+  if(storage && typeof storage.put === 'function'){
+    storage.put('kv', { id:key, value:next, updatedAt:Date.now() }).catch(function(){});
+  }
+}
+
+function hydrateStoredCharHeaderStatus(charId){
+  var key = charHeaderStatusKey(charId);
+  if(!charId || !key) return Promise.resolve(getStoredCharHeaderStatus(charId));
+  var storage = null;
+  try{
+    if(window.parent && window.parent !== window && window.parent.PhoneStorage) storage = window.parent.PhoneStorage;
+  }catch(err){}
+  if(!storage) storage = window.PhoneStorage || null;
+  if(!(storage && typeof storage.get === 'function')) return Promise.resolve(getStoredCharHeaderStatus(charId));
+  return storage.get('kv', key).then(function(record){
+    var value = sanitizeHeaderStatusText(record && (record.value || record.data || record.status) || '');
+    if(value){
+      charHeaderStatusCache[key] = value;
+      updateModelLabel();
+      return value;
+    }
+    var legacy = '';
+    try{ legacy = sanitizeHeaderStatusText(localStorage.getItem(key) || ''); }catch(err){}
+    if(legacy){
+      charHeaderStatusCache[key] = legacy;
+      storage.put('kv', { id:key, value:legacy, updatedAt:Date.now() }).catch(function(){});
+      updateModelLabel();
+      return legacy;
+    }
+    return getStoredCharHeaderStatus(charId);
+  }).catch(function(){
+    return getStoredCharHeaderStatus(charId);
+  });
 }
 
 var CHAR_MESSAGE_REACTION_POOLS = {
@@ -17269,6 +17326,19 @@ function extractHeaderStatusDirective(raw){
   var status = sanitizeHeaderStatusText(match[1] || '');
   var stripped = source.replace(match[0], '').replace(/\n{3,}/g, '\n\n').trim();
   return { text: stripped, status: status };
+}
+
+function inferHeaderStatusFromReplyText(text){
+  var source = String(text || '').trim();
+  if(!source) return '';
+  if(/睡|困|晚安|梦|休息|躺/.test(source)) return '困困';
+  if(/忙|等我|开会|上课|路上|赶/.test(source)) return '在忙';
+  if(/想你|喜欢|爱你|抱|亲|贴|陪/.test(source)) return '想你';
+  if(/吃醋|哼|不爽|生气|气死/.test(source)) return '吃醋';
+  if(/害羞|脸红|别看|笨蛋/.test(source)) return '害羞';
+  if(/笑|哈哈|好玩|可爱/.test(source)) return '开心';
+  if(/难过|委屈|哭|失落/.test(source)) return '低落';
+  return '';
 }
 
 function normalizeCharReactionDirectiveEmoji(value){
@@ -19763,6 +19833,12 @@ async function requestAndDeliverAiReply(provider, key){
     if(headerStatusParsed.status){
       setStoredCharHeaderStatus(character && character.id, headerStatusParsed.status);
       updateModelLabel();
+    }else{
+      var inferredHeaderStatus = inferHeaderStatusFromReplyText(reply);
+      if(inferredHeaderStatus){
+        setStoredCharHeaderStatus(character && character.id, inferredHeaderStatus);
+        updateModelLabel();
+      }
     }
     reply = headerStatusParsed.text || reply;
     var reactionParsed = extractCharReactionDirective(reply);
@@ -31405,6 +31481,12 @@ window.addEventListener('message', async function(e) {
       if(incomingStatusParsed.status){
         setStoredCharHeaderStatus(character && character.id, incomingStatusParsed.status);
         updateModelLabel();
+      }else{
+        var incomingInferredStatus = inferHeaderStatusFromReplyText(incoming.content || '');
+        if(incomingInferredStatus){
+          setStoredCharHeaderStatus(character && character.id, incomingInferredStatus);
+          updateModelLabel();
+        }
       }
       incoming.content = incomingStatusParsed.text || incoming.content;
       var incomingReactionParsed = extractCharReactionDirective(incoming.content || '');

@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T08:34:00Z';
+const APP_BUILD_ID = '2026-04-30T08:58:00Z';
 const APP_UPDATE_NOTES = [
-  'API 设置改用 PhoneStorage，聊天和线下统一读取。',
-  '角色、世界书、头像资产停止写入 localStorage 大镜像。',
-  '修复朋友圈/聊天红点清除和通知头像兜底。'
+  '设置页改为主壳确认保存 API，避免 iframe 保存失败。',
+  '红点清除后移除旧聊天副本，避免 localStorage 未读复活。',
+  '聊天状态改走 PhoneStorage 缓存并补充状态更新。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -2013,13 +2013,29 @@ async function hydrateShellApiSettingsFromStorage(){
 function applyShellApiSettingsRecord(record){
   shellApiSettingsCache = normalizeApiSettingsRecord(record);
   if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
-    window.PhoneStorage.put('kv', {
+    return window.PhoneStorage.put('kv', {
       id: API_SETTINGS_KV_ID,
       value: shellApiSettingsCache,
       updatedAt: Date.now()
-    }).catch(function(err){ console.warn('api settings kv save failed', err); });
+    }).catch(function(err){
+      console.warn('api settings kv save failed', err);
+      throw err;
+    });
   }
+  return Promise.reject(new Error('PhoneStorage unavailable for api settings'));
 }
+
+window.getShellApiSettingsRecord = function(){
+  return hydrateShellApiSettingsFromStorage().then(function(){
+    return shellApiSettingsCache ? Object.assign({}, shellApiSettingsCache) : null;
+  });
+};
+
+window.saveShellApiSettingsRecord = function(record){
+  return Promise.resolve(applyShellApiSettingsRecord(record)).then(function(){
+    return shellApiSettingsCache ? Object.assign({}, shellApiSettingsCache) : null;
+  });
+};
 
 function getShellApiSetting(key, fallback){
   var cache = shellApiSettingsCache || {};
@@ -8765,7 +8781,7 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='SETTINGS_SAVED'){
     if(payload && payload.apiSettings){
-      applyShellApiSettingsRecord(payload.apiSettings);
+      applyShellApiSettingsRecord(payload.apiSettings).catch(function(){});
     }
     if(payload && payload.shellNotifySettings){
       shellNotificationSettingsCache = normalizeShellNotificationSettings(payload.shellNotifySettings);
@@ -8774,8 +8790,17 @@ window.addEventListener('message',(e)=>{
     maybeRunAiBgTick(false);
   }
   if(type==='API_SETTINGS_SAVED'){
-    applyShellApiSettingsRecord(payload || {});
+    applyShellApiSettingsRecord(payload || {}).catch(function(){});
     setupAiBgScheduler();
+  }
+  if(type==='API_SETTINGS_SAVE_REQUEST'){
+    var requestId = String(payload && payload.requestId || '').trim();
+    var settingsRecord = payload && payload.settings;
+    Promise.resolve(applyShellApiSettingsRecord(settingsRecord || {})).then(function(){
+      postToCurrentAppFrame({ type:'API_SETTINGS_SAVE_RESULT', payload:{ requestId:requestId, ok:true, settings:shellApiSettingsCache } });
+    }).catch(function(err){
+      postToCurrentAppFrame({ type:'API_SETTINGS_SAVE_RESULT', payload:{ requestId:requestId, ok:false, error:String((err && err.message) || err || '保存失败') } });
+    });
   }
   if(type==='CHAT_UPDATED'){
     // Always sync to the latest chatted character/widget state.
@@ -9575,6 +9600,9 @@ function getQqUnreadCountForActive(){
   if(activeId && Object.prototype.hasOwnProperty.call(qqUnreadCountCache, activeId)){
     return Number(qqUnreadCountCache[activeId] || 0) || 0;
   }
+  if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function'){
+    return 0;
+  }
   var total = 0;
   chars.forEach(function(c){
     if(!c || !c.id) return;
@@ -9595,6 +9623,9 @@ function getMomentsUnreadCountForActive(){
   var activeId = getActiveAccountId();
   if(activeId && Object.prototype.hasOwnProperty.call(qqMomentsUnreadCountCache, activeId)){
     return Math.max(0, Number(qqMomentsUnreadCountCache[activeId] || 0) || 0);
+  }
+  if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function'){
+    return 0;
   }
   var seenAt = getMomentsSeenAtForActive(activeId);
   var posts = [];
@@ -9794,6 +9825,8 @@ async function markShellChatAsRead(charId){
         changed = true;
         if(!(window.PhoneStorage && typeof window.PhoneStorage.put === 'function')){
           localStorage.setItem(key, JSON.stringify({ history: nextList, messages: nextList }));
+        }else{
+          localStorage.removeItem(key);
         }
       }
     }catch(e){}
