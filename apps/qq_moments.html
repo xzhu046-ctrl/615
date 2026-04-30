@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../accountManager.js?v=2026-04-29T16:55:00Z"></script>
-<script src="../assetStore.js?v=2026-04-29T16:55:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T16:55:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T16:55:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T17:40:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T17:40:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T17:40:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T17:40:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -164,6 +164,22 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 .reply-preview-close{width:22px;height:22px;border:1.5px solid #111;border-radius:999px;background:#111;color:#fff;box-shadow:none;font-family:var(--fontd);font-size:13px;font-weight:900;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:0 0 auto}
 .reply-preview-close:active{transform:translateY(1px);box-shadow:none}
 .empty{width:calc(100% - 6px);margin:0 auto;border:none;background:transparent;padding:16px;text-align:center;color:#111;font-size:14px;font-weight:900;text-decoration-line:underline;text-decoration-style:dashed;text-decoration-thickness:4px;text-underline-offset:6px;text-decoration-color:#111}
+
+.share-modal{width:min(326px,calc(100vw - 42px));border:1.5px solid #111;border-radius:0;background:linear-gradient(180deg,#fff,#f5f5f5);box-shadow:0 24px 55px rgba(0,0,0,.28);padding:16px;gap:14px}
+.share-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;border-bottom:3px double #111;padding-bottom:10px}
+.share-title{font-family:var(--fontd);font-size:18px;font-weight:900;letter-spacing:.02em}
+.share-close{width:28px;height:28px;border:1.5px solid #111;border-radius:999px;background:#111;color:#fff;box-shadow:none;font-family:var(--fontd);font-size:15px;font-weight:900;line-height:1;cursor:pointer}
+.share-preview{border:none;border-radius:0 18px 18px 0;background:linear-gradient(180deg,rgba(255,255,255,.72),rgba(238,238,238,.44)),linear-gradient(180deg,rgba(17,17,17,.16) 0%,rgba(17,17,17,.84) 24%,rgba(17,17,17,.84) 76%,rgba(17,17,17,.16) 100%);background-repeat:no-repeat,no-repeat;background-size:100% 100%,3px 100%;padding:11px 12px 10px 17px;box-shadow:none}
+.share-preview-kicker{font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.16em;color:#777;text-transform:uppercase}
+.share-preview-text{margin-top:5px;font-size:13px;font-weight:900;line-height:1.55;color:#111;white-space:pre-wrap;word-break:break-word;max-height:72px;overflow:hidden}
+.share-char-row{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 10px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+.share-char-row::-webkit-scrollbar{height:3px}
+.share-char-row::-webkit-scrollbar-thumb{background:#111;border-radius:999px}
+.share-char-card{position:relative;flex:0 0 68px;width:68px;height:84px;border:1.5px solid #111;border-radius:14px;background:#fff;box-shadow:0 10px 22px rgba(0,0,0,.12);padding:5px 5px 19px;display:flex;align-items:center;justify-content:center;cursor:pointer;scroll-snap-align:start}
+.share-char-card:active{transform:translateY(1px);box-shadow:0 5px 14px rgba(0,0,0,.14)}
+.share-char-av{width:100%;height:100%;border:1.5px solid #111;border-radius:10px;background:center/cover no-repeat #111;color:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;font-family:var(--fontd);font-size:11px;font-weight:900;filter:grayscale(.72) contrast(1.08)}
+.share-char-card span{position:absolute;left:6px;right:6px;bottom:4px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;font-family:var(--fontd);font-size:9px;font-weight:900;border-top:1.5px dashed rgba(17,17,17,.72);padding-top:2px}
+.share-empty{border:2px dashed rgba(17,17,17,.42);border-radius:14px;padding:14px;text-align:center;font-size:12px;font-weight:900;color:#666}
 
 .qq-bottom-nav{position:fixed;left:12px;right:12px;bottom:calc(10px + var(--safe-bottom));z-index:90;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .qq-bottom-btn > span:not(.nav-icon){display:none}
@@ -338,6 +354,9 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
       </div>
     </div>
   </div>
+  <div class="overlay" id="shareOverlay">
+    <div class="modal share-modal" id="shareModal"></div>
+  </div>
 
   <div class="image-view-overlay" id="imageViewOverlay">
     <div class="image-view-card">
@@ -452,6 +471,7 @@ let currentImageViewerPostId = '';
 let currentImageViewerImageIndex = 0;
 let currentProfileCharId = '';
 let currentHeaderTextTarget = 'left';
+let pendingSharePostId = '';
 
 const REPLY_LANGUAGE_OPTIONS = {
   zh:{ value:'zh', label:'中文', nativeLabel:'简体中文' },
@@ -518,6 +538,10 @@ function activeProfile(){
 function esc(s){
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+function escAttr(s){ return esc(s).replace(/'/g,'&#39;'); }
+function isRenderableAssetSource(src){
+  return /^(data:|https?:|blob:|\/|\.\.?\/|assets\/|apps\/assets\/)/i.test(String(src || '').trim());
+}
 
 function normalizeReplyLanguage(value){
   const safe = String(value || 'zh').trim().toLowerCase();
@@ -538,6 +562,116 @@ function getStoredCharactersSnapshot(){
   }catch(e){
     return [];
   }
+}
+
+async function getMomentsShareCharacters(){
+  let chars = getStoredCharactersSnapshot();
+  if((!Array.isArray(chars) || !chars.length) && window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
+    try{ chars = await window.MetadataStore.loadCharacters(true); }catch(e){ chars = []; }
+  }
+  const activeAccountId = getActiveAccountId();
+  return (Array.isArray(chars) ? chars : []).filter((char)=>{
+    if(!char || !char.id) return false;
+    const owner = String(char.ownerAccountId || '').trim();
+    return !activeAccountId || !owner || owner === activeAccountId;
+  });
+}
+
+function momentChatStorageKey(charId){
+  return scopedKey('chat_' + String(charId || '').trim());
+}
+
+function normalizeMomentChatHistoryRecord(raw){
+  if(!raw) return [];
+  if(Array.isArray(raw)) return raw.slice();
+  if(raw && typeof raw === 'object'){
+    if(Array.isArray(raw.history)) return raw.history.slice();
+    if(Array.isArray(raw.messages)) return raw.messages.slice();
+  }
+  return [];
+}
+
+function makeMomentCardChatEntry(post, targetChar){
+  const resolved = resolveMomentAuthorMeta(post || {});
+  const comments = Array.isArray(resolved.comments) ? resolved.comments : [];
+  const likes = Array.isArray(resolved.likes) ? resolved.likes : [];
+  const images = getPostImages(resolved).map((item, index)=>({
+    index: index + 1,
+    kind: String((item && item.kind) || 'image'),
+    fileName: String((item && item.fileName) || ''),
+    description: String((item && item.description) || '').trim()
+  }));
+  const payload = {
+    type: 'moment_card',
+    postId: String(resolved.id || ''),
+    postType: String(resolved.type || ''),
+    authorName: String(resolved.authorName || getCurrentBubbleName()),
+    text: String(resolved.text || ''),
+    imageText: String(resolved.imageText || ''),
+    images: images,
+    likeNames: likes.slice(0, 20),
+    comments: comments.slice(0, 20).map((c)=>({
+      name: String((c && c.name) || DEFAULT_BUBBLE_NAME),
+      replyToName: String((c && c.replyToName) || ''),
+      text: String(typeof c === 'string' ? c : ((c && c.text) || ''))
+    })),
+    createdAt: Number(resolved.createdAt || Date.now()) || Date.now(),
+    sentAt: Date.now(),
+    targetCharId: String((targetChar && targetChar.id) || '')
+  };
+  return {
+    id: 'm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
+    role: 'user',
+    type: 'moment_card',
+    content: JSON.stringify(payload),
+    replyToId: null,
+    sentAt: Date.now(),
+    readAt: null
+  };
+}
+
+function momentCardPreviewText(post){
+  const text = String((post && post.text) || '').trim();
+  const imageText = String((post && post.imageText) || '').trim();
+  const fallback = imageText || getPostImages(post).map((item)=>String((item && item.description) || '').trim()).filter(Boolean).join(' / ');
+  return text || fallback || '一条朋友圈动态';
+}
+
+async function appendMomentCardToChat(post, targetChar){
+  if(!post || !targetChar || !targetChar.id) throw new Error('missing post or target');
+  const key = momentChatStorageKey(targetChar.id);
+  const entry = makeMomentCardChatEntry(post, targetChar);
+  let history = [];
+  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+    try{
+      const rec = await window.PhoneStorage.get('chats', key);
+      history = normalizeMomentChatHistoryRecord(rec);
+    }catch(e){}
+  }
+  if(!history.length){
+    try{
+      const legacy = JSON.parse(localStorage.getItem(key) || localStorage.getItem('chat_' + targetChar.id) || 'null');
+      history = normalizeMomentChatHistoryRecord(legacy);
+    }catch(e){}
+  }
+  history.push(entry);
+  if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+    await window.PhoneStorage.put('chats', {
+      id: key,
+      charId: String(targetChar.id || ''),
+      updatedAt: Date.now(),
+      history: history
+    });
+    try{ localStorage.removeItem(key); }catch(e){}
+  }else{
+    localStorage.setItem(key, JSON.stringify({ history: history }));
+  }
+  try{
+    window.parent.postMessage({
+      type: 'CHAT_UPDATED',
+      payload: { id: targetChar.id, data: targetChar, last: '【朋友圈】' + momentCardPreviewText(post).slice(0, 36), lastType: 'text' }
+    }, '*');
+  }catch(e){}
 }
 
 function getActiveAccountId(){
@@ -1166,6 +1300,65 @@ function renderPostContentEditor(post){
     + '</div>';
 }
 
+function openShareMoment(postId){
+  if(deleteMode) return;
+  pendingSharePostId = String(postId || '');
+  const overlay = document.getElementById('shareOverlay');
+  const modal = document.getElementById('shareModal');
+  if(!overlay || !modal) return;
+  const post = getPosts().find((item)=>String(item && item.id || '') === pendingSharePostId);
+  if(!post){
+    showToast('这条朋友圈没找到');
+    return;
+  }
+  modal.innerHTML = '<div class="share-head"><div><div class="share-title">发送给谁</div><div class="modal-sub">这会作为朋友圈小卡片进入聊天</div></div><button class="share-close" type="button" onclick="closeShareMoment()">×</button></div>'
+    + '<div class="share-preview"><div class="share-preview-kicker">MOMENT CARD</div><div class="share-preview-text">' + esc(momentCardPreviewText(post)) + '</div></div>'
+    + '<div class="share-char-row" id="shareCharRow"><div class="share-empty">正在读取角色...</div></div>';
+  overlay.classList.add('open');
+  renderShareCharacterRow();
+}
+
+function closeShareMoment(){
+  pendingSharePostId = '';
+  const overlay = document.getElementById('shareOverlay');
+  if(overlay) overlay.classList.remove('open');
+}
+
+async function renderShareCharacterRow(){
+  const row = document.getElementById('shareCharRow');
+  if(!row) return;
+  const chars = await getMomentsShareCharacters();
+  if(!chars.length){
+    row.innerHTML = '<div class="share-empty">还没有可以发送的角色。</div>';
+    return;
+  }
+  row.innerHTML = chars.map((char)=>{
+    const id = String(char && char.id || '');
+    const name = getCharacterDisplayName(char);
+    const avatar = getCharacterAvatarSource(char);
+    const avStyle = avatar && isRenderableAssetSource(avatar) ? (' style="background-image:url(' + esc(avatar) + ')"') : '';
+    return '<button class="share-char-card" type="button" onclick="sendMomentToChar(\'' + escAttr(id) + '\')"><div class="share-char-av"' + avStyle + '>' + (!avStyle ? esc(getInitials(name)) : '') + '</div><span>' + esc(name) + '</span></button>';
+  }).join('');
+}
+
+async function sendMomentToChar(charId){
+  const id = String(charId || '').trim();
+  const post = getPosts().find((item)=>String(item && item.id || '') === String(pendingSharePostId || ''));
+  const target = getCharacterById(id);
+  if(!post || !target){
+    showToast('发送失败，目标不见了');
+    return;
+  }
+  try{
+    await appendMomentCardToChat(post, target);
+    closeShareMoment();
+    showToast('已发送给' + getCharacterDisplayName(target));
+  }catch(err){
+    console.error('send moment card failed', err);
+    showToast('发送失败');
+  }
+}
+
 function renderPostImages(post){
   const images = getPostImages(post);
   if(!images.length) return '';
@@ -1250,7 +1443,7 @@ function renderFeed(){
       + buildLikeButtonInner(post, likes, isLiked)
       + '</button>'
       + '<button class="comment-jump-btn" type="button" onclick="focusCommentInput(\'' + esc(post.id) + '\')">' + (hasCatLikeEasterEgg(post) ? '<img class="comment-paw-icon" src="assets/小狗爪.png" alt="" aria-hidden="true">' : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path></svg>') + '<span>' + esc(String(comments.length || 0)) + '</span></button>'
-      + '<button class="share-btn" type="button" onclick="showToast(\'已发送\')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4z"></path></svg></button>'
+      + '<button class="share-btn" type="button" onclick="openShareMoment(\'' + esc(post.id) + '\')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4z"></path></svg></button>'
       + '</div>'
       + '<div class="comment-box">'
       + '<div class="comment-list">'
@@ -2276,6 +2469,12 @@ function bindInputs(){
       deleteCommentModal.addEventListener(eventName, (evt)=>{
         evt.stopPropagation();
       }, { passive:false });
+    });
+  }
+  const shareOverlay = document.getElementById('shareOverlay');
+  if(shareOverlay){
+    shareOverlay.addEventListener('click', (evt)=>{
+      if(evt.target === evt.currentTarget) closeShareMoment();
     });
   }
   const deleteFab = document.getElementById('deleteFab');
