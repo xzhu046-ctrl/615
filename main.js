@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T13:18:00Z';
+const APP_BUILD_ID = '2026-04-30T13:36:00Z';
 const APP_UPDATE_NOTES = [
-  '修复聊天设置保存前没有等待账号状态 hydrate，导致设置写到错误账号作用域的问题。',
-  '聊天设置 patch 现在必须真实写入 PhoneStorage，失败不会再假装保存成功。',
-  '角色列表持久化前会强制从 MetadataStore/PhoneStorage 读取最新角色，避免旧缓存覆盖新设置。'
+  '修复头像、聊天背景、顶栏背景等大图资源保存失败却显示成功的问题。',
+  'assetStore 现在 IndexedDB 失败会落到 PhoneStorage kv，不再把大图塞进 localStorage。',
+  '聊天美化 CSS、双方头像和背景保存失败会明确报错，不再假装已保存。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';

@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T13:18:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T13:18:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T13:18:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T13:18:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T13:18:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T13:18:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T13:18:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T13:18:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T13:18:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T13:18:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T13:36:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T13:36:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T13:36:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T13:36:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T13:36:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T13:36:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T13:36:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T13:36:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T13:36:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T13:36:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -10076,7 +10076,9 @@ async function loadGlobalChatThemeCss(charId){
 
 async function saveGlobalChatThemeCss(charId, cssText){
   if(!charId) return null;
-  return saveJsonToLargeStore(chatGlobalThemeStorageId(charId), { css: String(cssText || '') });
+  var saved = await saveJsonToLargeStore(chatGlobalThemeStorageId(charId), { css: String(cssText || '') });
+  if(!saved) throw new Error('global chat theme save failed');
+  return saved;
 }
 
 async function loadBubbleChatThemeCss(charId){
@@ -10092,7 +10094,9 @@ async function loadBubbleChatThemeCss(charId){
 
 async function saveBubbleChatThemeCss(charId, cssText){
   if(!charId) return null;
-  return saveJsonToLargeStore(chatBubbleThemeStorageId(charId), { css: String(cssText || '') });
+  var saved = await saveJsonToLargeStore(chatBubbleThemeStorageId(charId), { css: String(cssText || '') });
+  if(!saved) throw new Error('bubble chat theme save failed');
+  return saved;
 }
 
 async function loadChatThemePartCss(charId, partId){
@@ -10109,7 +10113,9 @@ async function saveChatThemePartCss(charId, partId, cssText){
   var safePart = String(partId || 'bubble').trim() || 'bubble';
   if(safePart === 'bubble') return saveBubbleChatThemeCss(charId, cssText);
   if(!charId) return null;
-  return saveJsonToLargeStore(chatThemePartStorageId(charId, safePart), { css: String(cssText || '') });
+  var saved = await saveJsonToLargeStore(chatThemePartStorageId(charId, safePart), { css: String(cssText || '') });
+  if(!saved) throw new Error('chat theme part save failed: ' + safePart);
+  return saved;
 }
 
 async function loadAllChatThemePartCss(charId){
@@ -10132,6 +10138,7 @@ async function saveAllChatThemePartCss(charId){
     var part = parts[i];
     await saveChatThemePartCss(charId, part.id, chatThemePartDrafts[part.id] || '');
   }
+  return true;
 }
 
 async function loadGlobalThemePresets(){
@@ -16686,7 +16693,10 @@ function loadStoredAsset(key){
 }
 
 function saveStoredAsset(key, value){
-  if(window.assetStore) return window.assetStore.saveOrFallback(key, value);
+  if(window.assetStore) return window.assetStore.saveOrFallback(key, value).then(function(saved){
+    if(!saved) console.warn('asset save returned false:', key);
+    return !!saved;
+  });
   try{
     if(value) localStorage.setItem(key, value);
     else localStorage.removeItem(key);
@@ -16710,7 +16720,8 @@ async function saveMatchedUserAvatarForCharacter(src, charId){
   add(accountScopedKey('user_avatar_' + safeCharId));
   add('user_avatar_' + safeCharId);
   for(var i = 0; i < keys.length; i += 1){
-    await saveStoredAsset(keys[i], safeSrc);
+    var saved = await saveStoredAsset(keys[i], safeSrc);
+    if(!saved) throw new Error('USER 头像没有写入存储');
   }
   return true;
 }
@@ -16841,12 +16852,17 @@ function onChatHeaderBackgroundFile(file){
 }
 
 async function saveChatHeaderBackgroundOnly(){
+  await ensureAccountManagerReady();
   if(!character || !character.id){
     toast('请先选择角色');
     return;
   }
   var nextHeaderBg = syncChatHeaderBackgroundDraftFromInputs();
-  await saveStoredAsset(chatHeaderBackgroundAssetKey(character.id), nextHeaderBg);
+  var saved = await saveStoredAsset(chatHeaderBackgroundAssetKey(character.id), nextHeaderBg);
+  if(!saved){
+    toast('顶栏背景保存失败，换张小一点的图试试');
+    return;
+  }
   applyChatHeaderBackground(nextHeaderBg);
   renderChatHeaderBackgroundPreview(nextHeaderBg);
   toast(nextHeaderBg ? '顶栏背景已保存' : '已恢复默认顶栏背景');
@@ -16911,12 +16927,17 @@ function onChatBackgroundFile(file){
 }
 
 async function saveChatBackgroundOnly(){
+  await ensureAccountManagerReady();
   if(!character || !character.id){
     toast('请先选择角色');
     return;
   }
   var nextChatBg = syncChatBackgroundDraftFromInputs();
-  await saveStoredAsset(chatBackgroundAssetKey(character.id), nextChatBg);
+  var saved = await saveStoredAsset(chatBackgroundAssetKey(character.id), nextChatBg);
+  if(!saved){
+    toast('聊天背景保存失败，换张小一点的图试试');
+    return;
+  }
   applyChatBackground(nextChatBg);
   toast(nextChatBg ? '聊天背景已保存' : '已恢复默认聊天背景');
 }
@@ -29481,7 +29502,8 @@ async function applyRoleAvatarChange(targetRole, src, options){
       }
       return false;
     }
-    await saveStoredAsset('char_avatar_' + character.id, cleanSrc);
+    var charAvatarSaved = await saveStoredAsset('char_avatar_' + character.id, cleanSrc);
+    if(!charAvatarSaved) throw new Error('CHAR 头像没有写入存储');
     character.imageData = cleanSrc;
     try{ await persistCharacter(); }catch(err){ console.warn('persistCharacter after avatar change failed', err); }
     persistActiveCharacterSnapshot(compactChar(character));
@@ -30176,26 +30198,16 @@ async function saveChatSettings() {
     }
     saveCharMomentsFreq(character.id, momentsFreq);
     var nextChatBg = syncChatBackgroundDraftFromInputs();
-    await saveStoredAsset(chatBackgroundAssetKey(character.id), nextChatBg).catch(function(err){
-      console.warn('save chat background skipped', err);
-      return false;
-    });
+    var chatBgSaved = await saveStoredAsset(chatBackgroundAssetKey(character.id), nextChatBg);
+    if(!chatBgSaved) throw new Error('聊天背景没有写入存储');
     applyChatBackground(nextChatBg);
     var nextHeaderBg = syncChatHeaderBackgroundDraftFromInputs();
-    await saveStoredAsset(chatHeaderBackgroundAssetKey(character.id), nextHeaderBg).catch(function(err){
-      console.warn('save chat header background skipped', err);
-      return false;
-    });
+    var headerBgSaved = await saveStoredAsset(chatHeaderBackgroundAssetKey(character.id), nextHeaderBg);
+    if(!headerBgSaved) throw new Error('顶栏背景没有写入存储');
     applyChatHeaderBackground(nextHeaderBg);
     renderChatHeaderBackgroundPreview(nextHeaderBg);
-    await saveGlobalChatThemeCss(character.id, globalCss).catch(function(err){
-      console.warn('save global chat theme skipped', err);
-      return null;
-    });
-    await saveAllChatThemePartCss(character.id).catch(function(err){
-      console.warn('save chat theme parts skipped', err);
-      return null;
-    });
+    await saveGlobalChatThemeCss(character.id, globalCss);
+    await saveAllChatThemePartCss(character.id);
     applyGlobalChatThemeCss(globalCss);
     ensureBubbleChatThemeStyleNode().textContent = composeChatThemePartCss();
     applyChatBubblePreviewCss(getActiveChatThemePartCss());

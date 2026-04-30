@@ -53,6 +53,49 @@
     return typeof value === 'string' && (value.startsWith('data:') || value.startsWith('http'));
   }
 
+  function phoneAssetId(key){
+    return 'asset_store_v1__' + String(key || '');
+  }
+
+  function getPhoneStorage(){
+    try{
+      if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function' && typeof window.PhoneStorage.put === 'function'){
+        return window.PhoneStorage;
+      }
+    }catch(err){}
+    try{
+      if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.get === 'function' && typeof window.parent.PhoneStorage.put === 'function'){
+        return window.parent.PhoneStorage;
+      }
+    }catch(err2){}
+    return null;
+  }
+
+  function phoneGet(key){
+    var storage = getPhoneStorage();
+    if(!(storage && typeof storage.get === 'function')) return Promise.resolve('');
+    return storage.get('kv', phoneAssetId(key)).then(function(record){
+      if(!record) return '';
+      if(Object.prototype.hasOwnProperty.call(record, 'value')) return record.value || '';
+      if(Object.prototype.hasOwnProperty.call(record, 'data')) return record.data || '';
+      return '';
+    }).catch(function(){ return ''; });
+  }
+
+  function phoneSet(key, value){
+    var storage = getPhoneStorage();
+    if(!(storage && typeof storage.put === 'function')) return Promise.reject(new Error('PhoneStorage unavailable'));
+    return storage.put('kv', { id:phoneAssetId(key), value:value, updatedAt:Date.now() }).then(function(){ return value; });
+  }
+
+  function phoneRemove(key){
+    var storage = getPhoneStorage();
+    if(storage && typeof storage.remove === 'function'){
+      return storage.remove('kv', phoneAssetId(key)).catch(function(){});
+    }
+    return Promise.resolve();
+  }
+
   window.assetStore = {
     marker: MARKER,
 
@@ -60,7 +103,7 @@
       return withStore('readonly', function(store){ return store.get(key); }).then(function(result){
         return result || '';
       }).catch(function(){
-        return '';
+        return phoneGet(key);
       });
     },
 
@@ -68,16 +111,24 @@
       return withStore('readwrite', function(store){ return store.put(value, key); }).then(function(){
         safeStorageRemove(key);
         return value;
-      }).catch(function(){
+      }).catch(function(idbErr){
         var text = String(value || '');
+        return phoneSet(key, value).then(function(saved){
+          safeStorageRemove(key);
+          return saved;
+        }).catch(function(phoneErr){
         if(text && !looksLikeAsset(text) && text.length <= 4096) safeStorageSet(key, text);
-        else safeStorageRemove(key);
-        return value;
+          else safeStorageRemove(key);
+          if(text && !looksLikeAsset(text) && text.length <= 4096) return value;
+          throw phoneErr || idbErr || new Error('asset save failed');
+        });
       });
     },
 
     remove: function(key){
       return withStore('readwrite', function(store){ return store.delete(key); }).catch(function(){}).then(function(){
+        return phoneRemove(key);
+      }).then(function(){
         safeStorageRemove(key);
       });
     },
@@ -103,6 +154,9 @@
       }
       return this.get(key).then(function(value){
         if(value) safeStorageRemove(key);
+        if(value) return value;
+        return phoneGet(key);
+      }).then(function(value){
         return value || '';
       });
     },
@@ -140,7 +194,8 @@
       if(!value){
         return this.remove(key).then(function(){ return true; });
       }
-      return this.set(key, value).then(function(){ return true; }).catch(function(){
+      return this.set(key, value).then(function(){ return true; }).catch(function(err){
+        console.error('asset save failed:', key, err);
         safeStorageRemove(key);
         return false;
       });
