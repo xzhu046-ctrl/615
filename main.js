@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T13:36:00Z';
+const APP_BUILD_ID = '2026-04-30T13:52:00Z';
 const APP_UPDATE_NOTES = [
-  '修复头像、聊天背景、顶栏背景等大图资源保存失败却显示成功的问题。',
-  'assetStore 现在 IndexedDB 失败会落到 PhoneStorage kv，不再把大图塞进 localStorage。',
-  '聊天美化 CSS、双方头像和背景保存失败会明确报错，不再假装已保存。'
+  '修复聊天设置里的 user 人设保存后又被角色快照清空的问题。',
+  'user 人设现在会单独写入 PhoneStorage，并同步保留在角色设置补丁里。',
+  '模型上下文优先读取当前角色绑定的 user 人设，不再只看旧 localStorage。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1794,7 +1794,7 @@ function slimChar(c){
   if(/^data:/i.test(imageData)) imageData = '';
   if(!imageData) imageData = normalizeShellAssetSrc(c.avatarUrl || '');
   var userPersonaProfile = String(c.userPersonaProfile || '');
-  if(userPersonaProfile.length > 240) userPersonaProfile = '';
+  if(userPersonaProfile.length > 20000) userPersonaProfile = userPersonaProfile.slice(0, 20000);
   var userAvatarProfile = normalizeShellAssetSrc(c.userAvatarProfile || c.userAvatar || '');
   if(/^data:/i.test(userAvatarProfile)) userAvatarProfile = '';
   function copyList(list){

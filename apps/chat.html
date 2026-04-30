@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T13:36:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T13:36:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T13:36:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T13:36:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T13:36:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T13:36:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T13:36:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T13:36:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T13:36:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T13:36:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T13:52:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T13:52:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T13:52:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T13:52:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T13:52:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T13:52:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T13:52:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T13:52:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T13:52:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T13:52:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -9206,10 +9206,46 @@ function saveChatSettingsPatch(charId, patch){
   });
 }
 
+function userPersonaProfileStorageId(charId){
+  return accountScopedKey('chat_user_persona_profile_' + String(charId || ''));
+}
+
+function loadUserPersonaProfile(charId){
+  if(!charId) return Promise.resolve(null);
+  return ensureAccountManagerReady().then(function(){
+    return loadJsonFromLargeStore(userPersonaProfileStorageId(charId));
+  }).then(function(stored){
+    if(stored == null) return null;
+    if(typeof stored === 'string') return stored;
+    if(typeof stored === 'object' && Object.prototype.hasOwnProperty.call(stored, 'text')){
+      return String(stored.text || '');
+    }
+    return null;
+  });
+}
+
+function saveUserPersonaProfile(charId, text){
+  if(!charId) return Promise.resolve(null);
+  return ensureAccountManagerReady().then(function(){
+    return requestPersistentChatStorage().catch(function(){ return false; });
+  }).then(function(){
+    return saveJsonToLargeStore(userPersonaProfileStorageId(charId), {
+      id: String(charId || ''),
+      text: String(text || ''),
+      updatedAt: Date.now()
+    });
+  }).then(function(saved){
+    if(!saved) throw new Error('user persona profile save failed');
+    return saved;
+  });
+}
+
 async function applyStoredChatSettingsPatchToCharacter(target){
   if(!target || !target.id) return target;
   var patch = await loadChatSettingsPatch(target.id);
   if(patch) applyChatSettingsPatch(target, patch);
+  var storedUserPersona = await loadUserPersonaProfile(target.id);
+  if(storedUserPersona !== null) target.userPersonaProfile = storedUserPersona;
   normalizeImportedCharacterMeta(target);
   return target;
 }
@@ -18402,7 +18438,14 @@ function buildSystemPrompt() {
 
   // User persona
   var userName = isDefaultAccountContext() ? (getChatUserName(character && character.id) || localStorage.getItem(userKey('user_name')) || '') : getActiveAccountProfileName();
-  var userPersona = isDefaultAccountContext() ? (localStorage.getItem(userKey('user_persona')) || '') : '';
+  var userPersona = '';
+  if(isDefaultAccountContext()){
+    var userPersonaCharId = String((character && character.id) || '');
+    userPersona = String((character && character.userPersonaProfile) || '').trim()
+      || String(localStorage.getItem(accountScopedKey('user_persona_' + userPersonaCharId)) || '').trim()
+      || String(localStorage.getItem('user_persona_' + userPersonaCharId) || '').trim()
+      || String(localStorage.getItem(userKey('user_persona')) || '').trim();
+  }
   var userNickNote = String((character && character.userNicknameNote) || '').trim();
   if(userNickNote){
     parts.push([
@@ -24896,8 +24939,8 @@ function getContextTokenStats(){
     getPromptGreeting()
   ].join('\n');
   var userParts = [
-    localStorage.getItem(userKey('user_name')) || '',
-    localStorage.getItem(userKey('user_persona')) || ''
+    getChatUserName(character && character.id) || localStorage.getItem(userKey('user_name')) || '',
+    String((character && character.userPersonaProfile) || '').trim() || localStorage.getItem(userKey('user_persona')) || ''
   ].join('\n');
   var enabledBooks = (wbBooks || []).filter(function(book){ return book.enabled; });
   var worldbookTokens = enabledBooks.reduce(function(sum, book){ return sum + (Number(book.tokenCount || 0) || 0); }, 0);
@@ -28866,7 +28909,7 @@ function renderImportedResourceSettings(){
   if(regexToggle) regexToggle.classList.toggle('on', character.regexRulesEnabled !== false && !!character.importedRegexScripts.length);
 }
 
-function openChatSettings() {
+async function openChatSettings() {
   if(isSunnyChat()){
     toast('Sunny 不走普通角色设置链，老板，汪');
     return;
@@ -29040,8 +29083,13 @@ function openChatSettings() {
     document.getElementById('csUserNick').value = String((character && character.userNicknameNote) || '').trim();
     document.getElementById('csUserName').disabled = !isDefault;
     document.getElementById('csUserAvatar').style.pointerEvents = '';
+    var storedUserPersonaForSettings = isDefault && character && character.id
+      ? await loadUserPersonaProfile(character.id)
+      : null;
     document.getElementById('csUserPersona').value = isDefault
-      ? (String((character && character.userPersonaProfile) || '').trim() || localStorage.getItem(accountScopedKey('user_persona_' + String((character && character.id) || ''))) || localStorage.getItem('user_persona_' + String((character && character.id) || '')) || localStorage.getItem(userKey('user_persona')) || '')
+      ? (storedUserPersonaForSettings !== null
+        ? storedUserPersonaForSettings
+        : (String((character && character.userPersonaProfile) || '').trim() || localStorage.getItem(accountScopedKey('user_persona_' + String((character && character.id) || ''))) || localStorage.getItem('user_persona_' + String((character && character.id) || '')) || localStorage.getItem(userKey('user_persona')) || ''))
       : '';
     document.getElementById('csUserPersonaWrap').style.display = isDefault ? '' : 'none';
     document.getElementById('csSubUserHint').style.display = isDefault ? 'none' : 'block';
@@ -29326,9 +29374,6 @@ function persistActiveCharacterSnapshot(slim){
   if(!slim) return;
   var light = Object.assign({}, slim || {});
   if(/^data:/i.test(String(light.imageData || '').trim())) light.imageData = '';
-  if(typeof light.userPersonaProfile === 'string' && light.userPersonaProfile){
-    light.userPersonaProfile = '';
-  }
   if(isDefaultAccountContext()){
     safeLocalStorageSet('activeCharacter', JSON.stringify(light));
     safeLocalStorageSet('activeChatCharacterId', String((light && light.id) || ''));
@@ -30091,6 +30136,7 @@ async function saveChatSettings() {
     character.userNicknameNote = unick;
     character.userAvatarProfile = settingsUserAvatarProfile;
     character.userPersonaProfile = isDefault ? up : '';
+    await saveUserPersonaProfile(character.id, character.userPersonaProfile);
     if(settingsUserAvatar){
       await saveMatchedUserAvatarForCharacter(settingsUserAvatar, character.id);
     }
@@ -30256,9 +30302,6 @@ function persistCharacter(){
   try{ if(window.AccountManager) activeAcctId = (window.AccountManager.getActive()||{}).id || ''; }catch(err){}
   var nextChar = Object.assign({}, character);
   if(/^data:/i.test(String(nextChar.imageData || '').trim())) nextChar.imageData = '';
-  if(typeof nextChar.userPersonaProfile === 'string' && nextChar.userPersonaProfile.length){
-    nextChar.userPersonaProfile = '';
-  }
   delete nextChar.voiceCallInputMode;
   delete nextChar.voiceCallStarter;
   delete nextChar.voiceCallTone;
