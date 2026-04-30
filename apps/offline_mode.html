@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-30T10:42:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T10:42:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T10:42:00Z"></script>
-<script src="../promptManager.js?v=2026-04-30T10:42:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T10:42:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T10:42:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T10:42:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T10:42:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T11:20:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T11:20:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T11:20:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T11:20:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T11:20:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T11:20:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T11:20:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T11:20:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -2422,7 +2422,7 @@ async function syncOfflineStageSummariesToMemoryStore(stageItems, charIdOverride
   return nextStore;
 }
 async function mergeOfflineStageSummariesIntoOnlineMemoryStore(targetCharId, snapshot){
-  var items = Array.isArray(snapshot && snapshot.stageSummaries) ? snapshot.stageSummaries.slice() : [];
+  var items = await buildOfflineEndStageSummary(snapshot);
   await syncOfflineStageSummariesToMemoryStore(items, targetCharId);
 }
 function clearLiveOfflineSession(targetCharId, source){
@@ -12727,6 +12727,10 @@ async function rerollOfflineTurn(){
 }
 async function summarizeOfflineMemory(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
+  return summarizeOfflineMemoryEntries(list);
+}
+async function summarizeOfflineMemoryEntries(list){
+  list = Array.isArray(list) ? list : [];
   var lines = list.map(function(entry){
     return (entry.role === 'user' ? '用户' : '角色') + '：' + String(entry.text || '').replace(/\s+/g, ' ').trim();
   }).join('\n');
@@ -12762,6 +12766,35 @@ function summarizeOfflineMemoryLocally(snapshot){
   if(lastUser) parts.push('用户最后表达了：' + lastUser.slice(0, 60) + '。');
   if(lastAssistant) parts.push('角色最后回应了：' + lastAssistant.slice(0, 60) + '。');
   return parts.join('');
+}
+async function buildOfflineEndStageSummary(snapshot){
+  var existing = (Array.isArray(snapshot && snapshot.stageSummaries) ? snapshot.stageSummaries : []).filter(function(item){
+    return !!String(item && item.summary || '').trim();
+  });
+  if(existing.length) return existing;
+  var list = Array.isArray(snapshot && snapshot.entries) ? snapshot.entries : [];
+  if(!list.length) return [];
+  var summary = '';
+  try{
+    summary = await summarizeOfflineMemoryEntries(list);
+  }catch(e){
+    summary = '';
+  }
+  if(!summary){
+    summary = summarizeOfflineMemoryLocally(snapshot);
+  }
+  summary = String(summary || '').trim();
+  if(!summary) return [];
+  var assistantCount = list.filter(function(entry){ return entry && entry.role === 'assistant'; }).length;
+  var now = Date.now();
+  return [{
+    label: '结束总结',
+    summary: summary,
+    createdAt: Number(snapshot && (snapshot.completedAt || snapshot.updatedAt || snapshot.createdAt) || now) || now,
+    updatedAt: now,
+    uptoAssistantCount: assistantCount,
+    sourceType: 'offline_end'
+  }];
 }
 function currentOfflineInviteFocusId(){
   return currentOfflineInviteRecordId() || getOfflineInviteRecordIdFromSource(session) || '';

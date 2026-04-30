@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T10:42:00Z';
+const APP_BUILD_ID = '2026-04-30T11:20:00Z';
 const APP_UPDATE_NOTES = [
-  '导入或新建联系人后强制回到全部列表，避免角色已保存但被筛选页藏起来。',
-  '已读事件会先清掉 shell 内存红点，再从 PhoneStorage 复算，避免旧 iframe 把红点顶回来。',
-  'QQ 列表和聊天页头像读取同时尝试账号作用域与旧键，减少头像空白。'
+  '线下结束归档会主动生成结束总结，再同步进线上记忆，不再只依赖已有阶段总结。',
+  '刷新按钮会清 service worker 与缓存，并预拉所有核心页面和共享数据脚本，减少主屏幕旧壳残留。',
+  '设置页 API 保存回执修正到当前 iframe，通知系统头像优先使用已物化头像。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1245,12 +1245,23 @@ async function primeLatestCoreFiles(){
     'manifest.webmanifest',
     'version.json',
     'apps/qq.html',
+    'apps/qq_moments.html',
+    'apps/qq_profile.html',
     'apps/chat.html',
+    'apps/characters.html',
+    'apps/customize.html',
+    'apps/settings.html',
     'apps/offline.html',
     'apps/offline_mode.html',
+    'apps/offline_archive.html',
     'apps/schedule.html',
+    'apps/backend.html',
+    'apps/worldbook.html',
     'apps/map6.html',
-    'apps/offline_archive.html'
+    'offlineInviteStore.js',
+    'metadataStore.js',
+    'presenceShared.js',
+    'accountManager.js'
   ];
   await Promise.all(targets.map(function(path){
     var url = new URL(path || './', window.location.href);
@@ -2703,7 +2714,7 @@ function maybeShowShellActivityNotification(payload){
         app: appName,
         charId: charId,
         name: name,
-        avatar: rawAvatar || cardAvatar,
+        avatar: cardAvatar || rawAvatar,
         text: text
       }).catch(function(){});
     });
@@ -8817,7 +8828,7 @@ window.addEventListener('message',(e)=>{
     var settingsRecord = payload && payload.settings;
     var replyToSettingsFrame = function(replyPayload){
       try{
-        var frame = document.getElementById('app-frame');
+        var frame = document.getElementById('app-iframe');
         if(frame && frame.contentWindow){
           frame.contentWindow.postMessage(replyPayload, '*');
         }
