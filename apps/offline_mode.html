@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-04-29T18:50:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-29T18:50:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-29T18:50:00Z"></script>
-<script src="../promptManager.js?v=2026-04-29T18:50:00Z"></script>
-<script src="../accountManager.js?v=2026-04-29T18:50:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-29T18:50:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-29T18:50:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T18:50:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T19:18:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-29T19:18:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-29T19:18:00Z"></script>
+<script src="../promptManager.js?v=2026-04-29T19:18:00Z"></script>
+<script src="../accountManager.js?v=2026-04-29T19:18:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-29T19:18:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-29T19:18:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T19:18:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -2586,6 +2586,25 @@ function loadStoredAsset(key){
   }
   return Promise.resolve(localStorage.getItem(key) || '');
 }
+function normalizeOfflineAssetSrc(src){
+  return String(src || '').trim();
+}
+function isRenderableOfflineAvatarSrc(src){
+  var value = normalizeOfflineAssetSrc(src);
+  return !!(value && value !== '__asset__' && /^(data:|https?:|blob:|\/|\.\.?\/|assets\/|apps\/assets\/)/i.test(value));
+}
+function getOfflineCharAvatarAssetKeys(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return [];
+  var keys = [];
+  function add(key){
+    key = String(key || '').trim();
+    if(key && keys.indexOf(key) === -1) keys.push(key);
+  }
+  add(scopedKey('char_avatar_' + safeId));
+  add('char_avatar_' + safeId);
+  return keys;
+}
 function saveStoredAsset(key, value){
   if(window.assetStore && typeof window.assetStore.saveOrFallback === 'function'){
     return window.assetStore.saveOrFallback(key, value);
@@ -3177,13 +3196,15 @@ function getOfflineLobbyModeAsset(mode){
 }
 function resolveOfflineLobbyAvatar(entry){
   if(!entry || typeof entry !== 'object') return '';
-  var direct = String(entry.imageData || entry.avatar || '').trim();
-  if(direct && direct !== '__asset__') return direct;
-  try{
-    var key = 'char_avatar_' + String(entry.id || '').trim();
-    var raw = localStorage.getItem(key) || '';
-    if(raw && raw !== '__asset__') return raw;
-  }catch(e){}
+  var direct = normalizeOfflineAssetSrc(entry.imageData || entry.avatarUrl || entry.avatar || '');
+  if(isRenderableOfflineAvatarSrc(direct)) return direct;
+  var keys = getOfflineCharAvatarAssetKeys(entry.id);
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var raw = normalizeOfflineAssetSrc(localStorage.getItem(keys[i]) || '');
+      if(isRenderableOfflineAvatarSrc(raw)) return raw;
+    }catch(e){}
+  }
   return '';
 }
 function getOfflineLobbyModeLabel(mode){
@@ -3758,8 +3779,18 @@ async function consumePendingOfflineResume(charId){
   return null;
 }
 function resolveCharAvatar(){
-  if(runtimeCharAvatar) return runtimeCharAvatar;
-  if(character && character.imageData) return character.imageData;
+  if(isRenderableOfflineAvatarSrc(runtimeCharAvatar)) return runtimeCharAvatar;
+  if(character && isRenderableOfflineAvatarSrc(character.imageData)) return normalizeOfflineAssetSrc(character.imageData);
+  if(character && isRenderableOfflineAvatarSrc(character.avatarUrl)) return normalizeOfflineAssetSrc(character.avatarUrl);
+  if(character && isRenderableOfflineAvatarSrc(character.avatar)) return normalizeOfflineAssetSrc(character.avatar);
+  var charId = character && character.id ? String(character.id) : '';
+  var keys = getOfflineCharAvatarAssetKeys(charId);
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var raw = normalizeOfflineAssetSrc(localStorage.getItem(keys[i]) || '');
+      if(isRenderableOfflineAvatarSrc(raw)) return raw;
+    }catch(e){}
+  }
   return '';
 }
 function offlineHashSeed(input){
@@ -4518,7 +4549,7 @@ function refreshOfflineAvatarAssets(){
   if(charId){
     userKeys.push(scopedKey('user_avatar_' + charId));
     userKeys.push('user_avatar_' + charId);
-    charKeys.push('char_avatar_' + charId);
+    charKeys = getOfflineCharAvatarAssetKeys(charId);
   }
   userKeys.push(scopedKey('user_avatar'));
   userKeys.push('user_avatar');
@@ -4526,8 +4557,8 @@ function refreshOfflineAvatarAssets(){
     Promise.all(charKeys.map(function(key){ return loadStoredAsset(key).catch(function(){ return ''; }); })),
     Promise.all(userKeys.map(function(key){ return loadStoredAsset(key).catch(function(){ return ''; }); }))
   ]).then(function(results){
-    var nextChar = (results[0] || []).find(function(it){ return String(it || '').trim().startsWith('data:'); }) || '';
-    var nextUser = (results[1] || []).find(function(it){ return String(it || '').trim().startsWith('data:'); }) || '';
+    var nextChar = (results[0] || []).map(normalizeOfflineAssetSrc).find(isRenderableOfflineAvatarSrc) || '';
+    var nextUser = (results[1] || []).map(normalizeOfflineAssetSrc).find(isRenderableOfflineAvatarSrc) || '';
     var changed = false;
     if(nextChar && nextChar !== runtimeCharAvatar){
       runtimeCharAvatar = nextChar;
@@ -9150,6 +9181,28 @@ function getOfflineHistorySnippetByBudget(limit, maxChars){
   var summaryLimit = Math.max(2, detailLimit * 2);
   return clipOfflinePromptText(formatOfflineHistoryForPrompt(detailLimit, summaryLimit) || '无', maxChars);
 }
+function buildOfflinePresencePromptBlock(){
+  if(!(window.PresenceShared && character && character.id && typeof window.PresenceShared.getPresenceSnapshot === 'function')) return '';
+  try{
+    var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now()) || {};
+    var user = snapshot.user || {};
+    var charPresence = snapshot.char || {};
+    var charCity = charPresence.city || {};
+    var settings = charPresence.settings || {};
+    var lines = [
+      '聊天设置地点 / Presence（优先级高于世界书地点）：',
+      '用户当前显示地点：' + (String(user.label || user.weatherName || '').trim() || '未设置'),
+      '角色当前显示城市：' + (String(charCity.name || settings.cityName || settings.cityId || '').trim() || '未设置'),
+      '角色当前地点：' + (String(charPresence.placeLabel || '').trim() || '未设置'),
+      '角色当前状态：' + (String(charPresence.activityLabel || '').trim() || '未设置'),
+      '双方距离/交通：' + (String(snapshot.distanceLabel || '').trim() || '未知') + (snapshot.travel && snapshot.travel.text ? '，' + snapshot.travel.text : ''),
+      '写线下约会时，现实地理、碰面距离、从哪里来、去哪里、角色此刻在哪儿，必须优先使用这一段聊天设置地点；如果世界书、persona、旧设定里有冲突地点，只能当旧背景，不得覆盖这里。'
+    ];
+    return lines.join('\n');
+  }catch(err){
+    return '';
+  }
+}
 function buildOfflineCoreSettingSummary(compactLevel){
   var level = Math.max(0, Number(compactLevel) || 0);
   var persona = clipOfflinePromptText(character ? (character.personality || character.description || '') : '', offlinePromptLimit(isMobileOfflineRuntime() ? 1450 : 2200, level, 620));
@@ -9166,6 +9219,10 @@ function buildOfflineCoreSettingSummary(compactLevel){
     buildOfflineSchedulePromptBlock(),
     offlinePromptLimit(isMobileOfflineRuntime() ? 320 : 520, level, 140)
   );
+  var presenceRule = clipOfflinePromptText(
+    buildOfflinePresencePromptBlock(),
+    offlinePromptLimit(isMobileOfflineRuntime() ? 520 : 760, level, 180)
+  );
   return [
     '角色 persona：' + (persona || '未提供'),
     '用户 persona：' + (userPersona || '未提供'),
@@ -9173,6 +9230,7 @@ function buildOfflineCoreSettingSummary(compactLevel){
     '写正文时必须让衣着、体感、动作和时间感符合这些天气线索；冬天/夜里/低温时不要写得像盛夏白天一样。',
     buildOfflineReplyLanguagePromptLine(),
     '如果角色城市设定里同时存在真实天气城市和显示城市，正文里提到地点名称时一律使用显示城市，不要说出真实定位城市名。',
+    presenceRule ? presenceRule : '聊天设置地点 / Presence：未启用',
     scenario ? ('场景设定：' + scenario) : '场景设定：无',
     systemPrompt ? ('角色补充规则：' + systemPrompt) : '角色补充规则：无',
     worldBook ? ('世界书（优先保留）：\n' + worldBook) : '世界书（优先保留）：无',
@@ -9196,12 +9254,17 @@ function buildOfflineOpeningCoreSettingSummary(compactLevel){
     buildOfflineSchedulePromptBlock(),
     offlinePromptLimit(isMobileOfflineRuntime() ? 260 : 420, level, 120)
   );
+  var presenceRule = clipOfflinePromptText(
+    buildOfflinePresencePromptBlock(),
+    offlinePromptLimit(isMobileOfflineRuntime() ? 320 : 480, level, 120)
+  );
   return [
     '角色 persona：' + (persona || '未提供'),
     '用户 persona：' + (userPersona || '未提供'),
     weatherRule ? ('当前天气/温度/昼夜线索：' + weatherRule) : '当前天气/温度/昼夜线索：无',
     scheduleRule ? ('当前时间/日程感知：\n' + scheduleRule) : '当前时间/日程感知：无',
     buildOfflineReplyLanguagePromptLine(),
+    presenceRule ? presenceRule : '聊天设置地点 / Presence：未启用',
     scenario ? ('场景设定：' + scenario) : '场景设定：无',
     systemPrompt ? ('角色补充规则：' + systemPrompt) : '角色补充规则：无',
     worldBook ? ('世界书（超轻摘要）：\n' + worldBook) : '世界书（超轻摘要）：无',

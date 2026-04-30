@@ -635,10 +635,10 @@ body{display:flex;justify-content:center}
       </div>
     </div>
   </div>
-<script src="../assetStore.js?v=2026-04-29T18:50:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-29T18:50:00Z"></script>
+<script src="../assetStore.js?v=2026-04-29T19:18:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-29T19:18:00Z"></script>
 <script>
-var OFFLINE_APP_BUILD_ID = '2026-04-29T18:50:00Z';
+var OFFLINE_APP_BUILD_ID = '2026-04-29T19:18:00Z';
 var currentFilter = 'all';
 var currentSelectedId = '';
 var currentSelectedDateKey = '';
@@ -670,7 +670,25 @@ function getParentCharacters(){
 
 function isRenderableAssetSource(src){
   var value = String(src || '').trim();
-  return !!(value && value !== '__asset__' && (value.indexOf('data:') === 0 || value.indexOf('blob:') === 0 || value.indexOf('http') === 0 || value.indexOf('/') === 0 || value.indexOf('./') === 0 || value.indexOf('../') === 0));
+  return !!(value && value !== '__asset__' && (value.indexOf('data:') === 0 || value.indexOf('blob:') === 0 || value.indexOf('http') === 0 || value.indexOf('/') === 0 || value.indexOf('./') === 0 || value.indexOf('../') === 0 || value.indexOf('assets/') === 0 || value.indexOf('apps/assets/') === 0));
+}
+
+function getOfflineAvatarAssetKeys(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return [];
+  var keys = [];
+  function add(key){
+    key = String(key || '').trim();
+    if(key && keys.indexOf(key) === -1) keys.push(key);
+  }
+  try{
+    if(window.parent && window.parent !== window && typeof window.parent.getActiveAccountId === 'function' && typeof window.parent.scopedKeyForAccount === 'function'){
+      var accountId = String(window.parent.getActiveAccountId() || '').trim();
+      if(accountId) add(window.parent.scopedKeyForAccount('char_avatar_' + safeId, accountId));
+    }
+  }catch(err){}
+  add('char_avatar_' + safeId);
+  return keys;
 }
 
 function getParentCharByIdOrName(charId, charName){
@@ -697,13 +715,16 @@ function readStoredCharAvatar(charId){
   var safeId = String(charId || '').trim();
   if(!safeId) return '';
   if(avatarAssetCache[safeId]) return avatarAssetCache[safeId];
-  try{
-    var direct = String(localStorage.getItem('char_avatar_' + safeId) || '').trim();
-    if(isRenderableAssetSource(direct)){
-      avatarAssetCache[safeId] = direct;
-      return direct;
-    }
-  }catch(err){}
+  var keys = getOfflineAvatarAssetKeys(safeId);
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var direct = String(localStorage.getItem(keys[i]) || '').trim();
+      if(isRenderableAssetSource(direct)){
+        avatarAssetCache[safeId] = direct;
+        return direct;
+      }
+    }catch(err){}
+  }
   return '';
 }
 
@@ -712,8 +733,18 @@ function requestStoredCharAvatar(charId, recordId){
   var safeRecordId = String(recordId || '').trim();
   if(!safeId || avatarAssetCache[safeId]) return;
   if(!(window.assetStore && typeof window.assetStore.load === 'function')) return;
-  window.assetStore.load('char_avatar_' + safeId).then(function(src){
-    var clean = String(src || '').trim();
+  var keys = getOfflineAvatarAssetKeys(safeId);
+  var chain = Promise.resolve('');
+  keys.forEach(function(key){
+    chain = chain.then(function(found){
+      if(isRenderableAssetSource(found)) return found;
+      return window.assetStore.load(key).then(function(src){
+        var clean = String(src || '').trim();
+        return isRenderableAssetSource(clean) ? clean : '';
+      }).catch(function(){ return ''; });
+    });
+  });
+  chain.then(function(clean){
     if(!isRenderableAssetSource(clean)) return;
     avatarAssetCache[safeId] = clean;
     applyThreadAvatarSource(safeRecordId, { type:'image', value: clean });
