@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T09:28:00Z';
+const APP_BUILD_ID = '2026-04-30T09:42:00Z';
 const APP_UPDATE_NOTES = [
-  '账号与头像数据改为优先走 PhoneStorage，避免 localStorage 满后保存/读取抽风。',
-  '修复设置页 API 保存确认回包，保存失败会真的报错。',
-  'QQ 未读红点在 PhoneStorage 可用时不再从旧聊天副本复活。'
+  '修复新导入/新创建角色在 QQ 聊天列表被非默认账号过滤掉的问题。',
+  '导入回包会显式归属当前账号并立即刷新聊天列表。',
+  '继续保持账号与头像数据优先走 PhoneStorage。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';

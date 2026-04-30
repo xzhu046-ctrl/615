@@ -2215,18 +2215,18 @@ async function loadChars(){
         window.MetadataStore.saveCharacters(chars).catch(function(){});
       }
     }
-    if(acct){
-      chars = chars.filter(function(c){ return c && c.ownerAccountId === acct.id; });
-    }
     if(acct && !acct.isDefault){
       var friendSet = new Set(Array.isArray(acct.friends) ? acct.friends : []);
       var visibility = await Promise.all(chars.map(async function(c){
+        var ownedByActive = !!(c && String(c.ownerAccountId || '') === String(acct.id || ''));
         return {
           char: c,
-          keep: !!(c && friendSet.has(c.id)) || await hasChatRecordForChar(c && c.id)
+          keep: ownedByActive || !!(c && friendSet.has(c.id)) || await hasChatRecordForChar(c && c.id)
         };
       }));
       chars = visibility.filter(function(item){ return item.keep; }).map(function(item){ return item.char; });
+    }else if(acct){
+      chars = chars.filter(function(c){ return c && c.ownerAccountId === acct.id; });
     }
   }
   hydrateAvatarAssets();
@@ -3496,6 +3496,11 @@ async function submitContactsCreate(){
     if(window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
       await window.MetadataStore.saveCharacters(nextList);
     }
+    try{
+      if(window.AccountManager && typeof window.AccountManager.addFriend === 'function'){
+        window.AccountManager.addFriend(charId);
+      }
+    }catch(friendErr){}
     if(qqCreateAvatarUpload){
       if(window.assetStore && typeof window.assetStore.saveOrFallback === 'function'){
         await window.assetStore.saveOrFallback('char_avatar_' + charId, qqCreateAvatarUpload);
@@ -3517,6 +3522,47 @@ async function submitContactsCreate(){
     console.error('create character in qq failed', err);
     showToast('创建失败，稍后再试试');
   }
+}
+async function adoptImportedCharacterForActiveAccount(imported){
+  var payload = imported && typeof imported === 'object' ? Object.assign({}, imported) : {};
+  var charId = String(payload.id || '').trim();
+  if(!charId) return false;
+  var accountId = '';
+  try{
+    if(window.AccountManager){
+      if(typeof window.AccountManager.hydrateFromStorage === 'function'){
+        await window.AccountManager.hydrateFromStorage().catch(function(){});
+      }
+      window.AccountManager.ensure();
+      var acct = window.AccountManager.getActive();
+      accountId = String((acct && acct.id) || '').trim();
+      if(typeof window.AccountManager.addFriend === 'function') window.AccountManager.addFriend(charId);
+    }
+  }catch(err){}
+  if(!accountId) return false;
+  if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
+    try{ await window.MetadataStore.loadCharacters(true); }catch(err2){}
+  }
+  var all = getStoredCharactersSnapshot();
+  if(!Array.isArray(all)) all = [];
+  var changed = false;
+  var found = false;
+  all = all.map(function(item){
+    if(!item || String(item.id || '') !== charId) return item;
+    found = true;
+    if(String(item.ownerAccountId || '') === accountId) return item;
+    changed = true;
+    return Object.assign({}, item, { ownerAccountId: accountId });
+  });
+  if(!found){
+    payload.ownerAccountId = accountId;
+    all.push(payload);
+    changed = true;
+  }
+  if(changed && window.MetadataStore && typeof window.MetadataStore.saveCharacters === 'function'){
+    await window.MetadataStore.saveCharacters(all).catch(function(){});
+  }
+  return true;
 }
 function handleContactsImportFiles(files){
   var input = document.getElementById('contactsImportInput');
@@ -3552,7 +3598,13 @@ window.addEventListener('load', function(){
 });
 window.addEventListener('message', async function(e){
   var d=e.data||{};
-  if(d.type==='CHARACTER_IMPORTED'){ await loadChars(); renderMomentsBadge(); syncHomeBadgeCount(); forward(d); }
+  if(d.type==='CHARACTER_IMPORTED'){
+    await adoptImportedCharacterForActiveAccount(d.payload || {}).catch(function(err){ console.warn('adopt imported character failed', err); });
+    await loadChars();
+    renderMomentsBadge();
+    syncHomeBadgeCount();
+    forward(d);
+  }
   if(d.type==='SET_ACTIVE_CHARACTER'){
     var payload = d.payload || {};
     var payloadId = String((payload && payload.id) || '').trim();
