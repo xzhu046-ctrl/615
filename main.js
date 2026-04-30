@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T12:18:00Z';
+const APP_BUILD_ID = '2026-04-30T12:34:00Z';
 const APP_UPDATE_NOTES = [
-  'MetadataStore 新增跨 iframe 广播，导入/删除角色后 QQ、聊天和主壳会从 PhoneStorage 重新读角色。',
-  '导入角色后 shell 会主动刷新角色缓存并通知当前 app，避免联系人列表继续显示旧数据。',
-  'API 设置保存不再丢弃 AI 后台开关和间隔字段，设置页保存后会完整落到 PhoneStorage。'
+  '参考 SullyOS 增加已安装版本确认弹窗，每个 build 首次打开会展示本版更新日志。',
+  '更新确认状态优先写入 PhoneStorage kv，localStorage 只作为极小兼容回退。',
+  '远端有更新时刷新弹窗优先级高于已安装说明，避免 PWA 卡在旧版本提示。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -66,6 +66,8 @@ const HOSTED_UPDATE_ACCEPTED_BUILD_KEY = 'hosted_update_accepted_build_v1';
 const HOSTED_UPDATE_ACCEPTED_AT_KEY = 'hosted_update_accepted_at_v1';
 const HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY = 'hosted_update_last_seen_remote_v1';
 const HOSTED_UPDATE_REMOTE_NOTES_KEY = 'hosted_update_remote_notes_v1';
+const INSTALLED_UPDATE_SEEN_BUILD_KEY = 'installed_update_seen_build_v1';
+const INSTALLED_UPDATE_SEEN_BUILD_KV_ID = 'installed_update_seen_build_v1';
 const UPDATE_CHECK_THROTTLE_MS = 45 * 1000;
 const GITHUB_UPDATE_OWNER = 'xzhu046-ctrl';
 const GITHUB_UPDATE_REPO = '615';
@@ -99,6 +101,8 @@ let hostedUpdatePromptDedupeAt = 0;
 let hostedUpdateCardPending = false;
 let lastHostedUpdateCheckStatus = '';
 let hostedUpdateRemoteNotes = {};
+let installedUpdateNoticeActive = false;
+let installedUpdateNoticeChecked = false;
 let chatInputFocusActive = false;
 let chatReportedKeyboardShift = 0;
 var shellActiveCharacterCache = {};
@@ -890,6 +894,7 @@ function rememberHostedUpdateRemoteNotes(buildId, notes){
 }
 
 function getHostedUpdateNotes(remoteFingerprint){
+  if(installedUpdateNoticeActive) return APP_UPDATE_NOTES.slice();
   var remote = String(remoteFingerprint || pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
   if(remote){
     var store = loadHostedUpdateRemoteNotes();
@@ -932,6 +937,8 @@ function showHostedUpdateCard(){
   }
   if(!card.hidden) return;
   if(shouldSuppressHostedUpdatePrompt(fingerprint)) return;
+  installedUpdateNoticeActive = false;
+  setUpdateToastCopy('remote');
   updateHostedUpdateMeta();
   card.hidden = false;
   hostedUpdateCardPending = false;
@@ -945,12 +952,20 @@ function updateHostedUpdateMeta(remoteFingerprint){
   var notes = document.getElementById('update-toast-notes');
   if(!meta && !notes) return;
   var remote = String(remoteFingerprint || pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
-  var lines = [
-    '当前版本：' + APP_BUILD_ID,
-    '远端版本：' + (remote || '未读到')
-  ];
-  if(lastHostedUpdateCheckStatus){
-    lines.push('检查状态：' + lastHostedUpdateCheckStatus);
+  var lines;
+  if(installedUpdateNoticeActive){
+    lines = [
+      '当前版本：' + APP_BUILD_ID,
+      '更新状态：本机已安装这一版'
+    ];
+  }else{
+    lines = [
+      '当前版本：' + APP_BUILD_ID,
+      '远端版本：' + (remote || '未读到')
+    ];
+    if(lastHostedUpdateCheckStatus){
+      lines.push('检查状态：' + lastHostedUpdateCheckStatus);
+    }
   }
   if(meta){
     meta.innerHTML = lines.map(function(line){
@@ -994,6 +1009,12 @@ function announceHostedUpdate(fingerprint){
   if(shownHostedUpdateFingerprint === nextFingerprint){
     return;
   }
+  if(installedUpdateNoticeActive){
+    installedUpdateNoticeActive = false;
+    hostedUpdateLockedOpen = false;
+    hostedUpdateModalShown = false;
+    setUpdateToastCopy('remote');
+  }
   shownHostedUpdateFingerprint = nextFingerprint;
   showHostedUpdateCard();
 }
@@ -1003,6 +1024,106 @@ function hideHostedUpdateCard(){
   var card = document.getElementById('update-toast-card');
   if(card) card.hidden = true;
   hostedUpdateCardPending = false;
+}
+
+function getPhoneStorageKvValue(id){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.get === 'function')) return Promise.resolve(null);
+  return window.PhoneStorage.get('kv', id).then(function(record){
+    if(!record) return null;
+    if(Object.prototype.hasOwnProperty.call(record, 'value')) return record.value;
+    if(Object.prototype.hasOwnProperty.call(record, 'data')) return record.data;
+    return null;
+  }).catch(function(){ return null; });
+}
+
+function putPhoneStorageKvValue(id, value){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.put === 'function')) return Promise.resolve(false);
+  return window.PhoneStorage.put('kv', { id:id, value:value, updatedAt:Date.now() }).then(function(){ return true; }).catch(function(){ return false; });
+}
+
+function getInstalledUpdateSeenBuild(){
+  return getPhoneStorageKvValue(INSTALLED_UPDATE_SEEN_BUILD_KV_ID).then(function(value){
+    var fromKv = String(value || '').trim();
+    if(fromKv) return fromKv;
+    try{ return String(localStorage.getItem(INSTALLED_UPDATE_SEEN_BUILD_KEY) || '').trim(); }catch(e){}
+    return '';
+  });
+}
+
+function setInstalledUpdateSeenBuild(build){
+  var value = String(build || APP_BUILD_ID || '').trim();
+  if(!value) return Promise.resolve(false);
+  return putPhoneStorageKvValue(INSTALLED_UPDATE_SEEN_BUILD_KV_ID, value).then(function(ok){
+    if(!ok){
+      try{ localStorage.setItem(INSTALLED_UPDATE_SEEN_BUILD_KEY, value); }catch(e){}
+    }else{
+      try{ localStorage.removeItem(INSTALLED_UPDATE_SEEN_BUILD_KEY); }catch(e2){}
+    }
+    return true;
+  });
+}
+
+function setUpdateToastCopy(mode){
+  var heading = document.getElementById('update-toast-heading');
+  var subtitle = document.getElementById('update-toast-subtitle');
+  var btn = document.getElementById('update-toast-btn');
+  if(mode === 'installed'){
+    if(heading) heading.textContent = '已经更新好啦';
+    if(subtitle) subtitle.textContent = '先看一眼这版到底改了什么。';
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = '我知道了';
+    }
+  }else{
+    if(heading) heading.textContent = '更新了哦';
+    if(subtitle) subtitle.textContent = '请点击刷新切到最新版本。';
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = '刷新';
+    }
+  }
+}
+
+function showInstalledUpdateNotice(){
+  if(installedUpdateNoticeActive || hostedUpdateLockedOpen || pendingRemoteAppFingerprint) return;
+  var card = document.getElementById('update-toast-card');
+  if(!card){
+    hostedUpdateCardPending = true;
+    return;
+  }
+  installedUpdateNoticeActive = true;
+  hostedUpdateLockedOpen = true;
+  hostedUpdateModalShown = true;
+  setUpdateToastCopy('installed');
+  updateHostedUpdateMeta(APP_BUILD_ID);
+  card.hidden = false;
+}
+
+function maybeShowInstalledUpdateNotice(){
+  if(installedUpdateNoticeChecked) return;
+  installedUpdateNoticeChecked = true;
+  getInstalledUpdateSeenBuild().then(function(seenBuild){
+    if(String(seenBuild || '').trim() === APP_BUILD_ID) return;
+    if(pendingRemoteAppFingerprint && compareHostedBuildIds(pendingRemoteAppFingerprint, APP_BUILD_ID) > 0) return;
+    showInstalledUpdateNotice();
+  }).catch(function(){});
+}
+
+function acknowledgeInstalledUpdateNotice(evt){
+  if(evt){
+    try{ evt.preventDefault(); }catch(e){}
+    try{ evt.stopPropagation(); }catch(e){}
+  }
+  setInstalledUpdateSeenBuild(APP_BUILD_ID).then(function(){
+    installedUpdateNoticeActive = false;
+    hostedUpdateLockedOpen = false;
+    hostedUpdateModalShown = false;
+    var card = document.getElementById('update-toast-card');
+    if(card) card.hidden = true;
+    setUpdateToastCopy('remote');
+    updateHostedUpdateMeta();
+    scheduleHostedUpdateCheck(true);
+  });
 }
 
 function removeAppFromStack(appId){
@@ -1403,6 +1524,10 @@ async function checkForHostedUpdate(){
       lastHostedUpdateCheckStatus = '已是最新';
       setLastSeenHostedRemoteBuild(remoteFingerprint);
       clearAcceptedHostedUpdateBuildIfCurrent();
+      if(installedUpdateNoticeActive){
+        updateHostedUpdateMeta(remoteFingerprint);
+        return;
+      }
       if(compareHostedBuildIds(remoteFingerprint, APP_BUILD_ID) < 0){
         try{ localStorage.removeItem(HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY); }catch(e){}
       }
@@ -1455,6 +1580,9 @@ function bootHostedUpdateCheck(){
     try{ localStorage.removeItem(HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY); }catch(e){}
   }
   kickOffHostedUpdateRetries();
+  setTimeout(function(){
+    maybeShowInstalledUpdateNotice();
+  }, 4500);
   [1200, 3200, 6500, 11000, 18000].forEach(function(delay){
     setTimeout(function(){
       scheduleHostedUpdateCheck(true);
@@ -1529,7 +1657,15 @@ function refreshInstalledApp(evt){
       finishReload();
     });
 }
+function handleUpdateToastAction(evt){
+  if(installedUpdateNoticeActive){
+    acknowledgeInstalledUpdateNotice(evt);
+    return;
+  }
+  refreshInstalledApp(evt);
+}
 window.refreshInstalledApp = refreshInstalledApp;
+window.handleUpdateToastAction = handleUpdateToastAction;
 window.compareHostedBuildIds = compareHostedBuildIds;
 window.announceHostedUpdate = announceHostedUpdate;
 window.buildRemoteAppFingerprint = buildRemoteAppFingerprint;
