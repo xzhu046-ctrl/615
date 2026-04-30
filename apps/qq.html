@@ -2586,6 +2586,15 @@ function getMomentsUnreadCount(){
   return count;
 }
 
+function getMaxMomentsCreatedAt(){
+  var maxAt = 0;
+  (Array.isArray(momentsPostsCache) ? momentsPostsCache : []).forEach(function(post){
+    var createdAt = Number(post && post.createdAt || 0) || 0;
+    if(createdAt > maxAt) maxAt = createdAt;
+  });
+  return maxAt;
+}
+
 function renderMomentsBadge(){
   var el = document.getElementById('momentsBadge');
   if(!el) return;
@@ -3163,10 +3172,14 @@ function switchTab(v){
 }
 function openMomentsPage(){
   try{
-    localStorage.setItem(accountScopedKey(MOMENTS_LAST_SEEN_KEY), String(Date.now()));
+    var seenAt = Math.max(Date.now(), getMaxMomentsCreatedAt() + 1);
+    localStorage.setItem(accountScopedKey(MOMENTS_LAST_SEEN_KEY), String(seenAt));
     var bridgePayload = JSON.stringify(Array.isArray(momentsPostsCache) ? momentsPostsCache : []);
     localStorage.setItem(accountScopedKey(MOMENTS_BRIDGE_KEY), bridgePayload);
     localStorage.setItem(MOMENTS_BRIDGE_KEY, bridgePayload);
+    if(window.parent && window.parent !== window){
+      window.parent.postMessage({ type:'MOMENTS_SEEN', payload:{ at: seenAt, maxCreatedAt: getMaxMomentsCreatedAt() } }, '*');
+    }
   }catch(e){}
   renderMomentsBadge();
   window.location.href = 'qq_moments.html';

@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T21:02:00Z';
+const APP_BUILD_ID = '2026-04-30T06:18:00Z';
 const APP_UPDATE_NOTES = [
-  '明确发朋友圈会等真实写入完成。',
-  '用户命令不再被自动开关误拦。',
-  '避免 iOS 后台中断发布动作。'
+  '朋友圈入口红点按最大动态时间清除。',
+  '通知优先使用角色头像并避免黑底。',
+  '主页 USER 头像会从匹配头像异步拉回。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -2465,7 +2465,8 @@ async function showSystemShellNotification(payload){
       ],
       data: notifyData
     };
-    if(isRenderableShellAvatarSrc(heroAvatar) && String(heroAvatar).length < 120000){
+    if(isRenderableShellAvatarSrc(heroAvatar) && String(heroAvatar).length < 500000){
+      options.icon = heroAvatar;
       options.image = heroAvatar;
     }
     var shown = false;
@@ -4852,6 +4853,7 @@ function showAppNotificationCard(payload){
       if(avatarImg){
         avatarImg.onload = function(){
           avatarImg.classList.add('show');
+          if(avatarFallback) avatarFallback.style.display = 'none';
         };
         avatarImg.onerror = function(){
           avatarImg.classList.remove('show');
@@ -4863,10 +4865,13 @@ function showAppNotificationCard(payload){
             avatar.textContent = String(title || '角').slice(0, 1);
           }
         };
+        avatarImg.classList.remove('show');
         avatarImg.src = safeSrc;
-        avatarImg.classList.add('show');
       }
-      if(avatarFallback) avatarFallback.style.display = 'none';
+      if(avatarFallback){
+        avatarFallback.style.display = 'flex';
+        avatarFallback.textContent = String(title || '角').slice(0, 1);
+      }
       avatar.textContent = '';
       return true;
     }
@@ -5952,6 +5957,25 @@ function applyBondWidgetPreview(payload){
       } else {
         userAvatarEl.innerHTML = baseHtml;
       }
+    }
+    if(c && c.id && !isRenderableShellAvatarSrc(previewUserSrc)){
+      getChatUserAvatar(c.id, c).then(function(resolvedUserSrc){
+        if(!isRenderableShellAvatarSrc(resolvedUserSrc)) return;
+        if(widgetUserAvatarEl && (!c || String(widgetUserAvatarEl.dataset.charId || '') === String((c && c.id) || ''))){
+          applyWidgetUserAvatarContent(widgetUserAvatarEl, resolvedUserSrc, '你');
+        }
+        if(userAvatarEl){
+          var frameUrl2 = getActiveBondAvatarFrameUrl('user');
+          var baseHtml2 = '<span class="bond-avatar-base"><img src="' + escapeHtmlAttr(resolvedUserSrc) + '" alt="" onerror="this.closest(\'.bond-avatar-base\').textContent=\'你\'"></span>';
+          if(frameUrl2){
+            var frameVisual2 = getTopFrameVisual(frameUrl2);
+            var frameStyle2 = '--frame-scale:' + frameVisual2.scale + ';--frame-offset-x:' + frameVisual2.offsetX + 'px;--frame-offset-y:' + frameVisual2.offsetY + 'px;';
+            userAvatarEl.innerHTML = baseHtml2 + buildAvatarFrameImg('bond-avatar-frame', frameUrl2, frameStyle2);
+          }else{
+            userAvatarEl.innerHTML = baseHtml2;
+          }
+        }
+      }).catch(function(){});
     }
   }
 }
