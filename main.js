@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T19:32:00Z';
+const APP_BUILD_ID = '2026-04-29T19:43:00Z';
 const APP_UPDATE_NOTES = [
-  '修复 user 与 char 头像读取顺序。',
-  '非默认账号优先显示账号头像。',
-  '线下约会同步读取 user 头像。'
+  'user 头像优先匹配当前 char。',
+  '进入聊天前先写入已读状态。',
+  '小红点同步清理真实未读数据。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1795,15 +1795,11 @@ function getShellUserAvatarAssetKeys(charId, accountId){
     key = String(key || '').trim();
     if(key && keys.indexOf(key) === -1) keys.push(key);
   }
-  if(activeId && !isDefaultAccountActive()){
-    add(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
-    add('qq_profile_avatar_asset');
-  }
   if(id) add(scopedKeyForAccount('user_avatar_' + id, activeId));
   if(id) add('user_avatar_' + id);
   add(scopedKeyForAccount('user_avatar', activeId));
   add('user_avatar');
-  if(activeId && isDefaultAccountActive()){
+  if(activeId){
     add(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
     add('qq_profile_avatar_asset');
   }
@@ -8468,6 +8464,7 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='OPEN_CHAT_WITH'){
     const slim = persistShellActiveCharacter(payload) || slimChar(payload);
+    if(slim && slim.id) markShellChatAsRead(slim.id).catch(function(){});
     setWidgetCharacter(payload);
     renderBondWidget(payload);
     try{ localStorage.setItem('pendingChatChar',JSON.stringify(slim)); }catch(e){}
@@ -8584,7 +8581,8 @@ window.addEventListener('message',(e)=>{
     renderHomeDockBadges();
   }
   if(type==='CHAT_SEEN'){
-    refreshQqUnreadCountSoon();
+    if(payload && payload.charId) markShellChatAsRead(payload.charId).catch(function(){ refreshQqUnreadCountSoon(); });
+    else refreshQqUnreadCountSoon();
   }
   if(type==='MOMENTS_SEEN'){
     clearMomentsUnreadForActive();
@@ -9493,6 +9491,84 @@ async function refreshQqUnreadCountCache(){
     qqUnreadCountCache[activeId] = total;
     renderHomeDockBadges();
   }catch(e){}
+}
+
+function getShellChatStorageKeysForChar(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return [];
+  var activeId = getActiveAccountId();
+  var keys = [];
+  function add(key){
+    key = String(key || '').trim();
+    if(key && keys.indexOf(key) === -1) keys.push(key);
+  }
+  add(mainScopedKey('chat_' + safeId));
+  if(activeId) add(scopedKeyForAccount('chat_' + safeId, activeId));
+  add('chat_' + safeId);
+  return keys;
+}
+
+async function markShellChatAsRead(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return false;
+  var keys = getShellChatStorageKeysForChar(safeId);
+  var changed = false;
+  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function' && typeof window.PhoneStorage.put === 'function'){
+    for(var i = 0; i < keys.length; i += 1){
+      try{
+        var saved = await window.PhoneStorage.get('chats', keys[i]);
+        var list = saved && Array.isArray(saved.history) ? saved.history : [];
+        if(!list.length) continue;
+        var now = Date.now();
+        var idbChanged = false;
+        var nextList = list.map(function(m){
+          if(m && m.role === 'assistant' && !m.readAt){
+            idbChanged = true;
+            var next = Array.isArray(m) ? m.slice() : Object.assign({}, m);
+            if(Array.isArray(next)) next[5] = now;
+            else next.readAt = now;
+            return next;
+          }
+          return m;
+        });
+        if(idbChanged){
+          changed = true;
+          await window.PhoneStorage.put('chats', {
+            id: keys[i],
+            charId: safeId,
+            updatedAt: Date.now(),
+            history: nextList
+          });
+        }
+      }catch(e){}
+    }
+  }
+  keys.forEach(function(key){
+    try{
+      var saved = JSON.parse(localStorage.getItem(key) || 'null');
+      var list = saved && (Array.isArray(saved.history) ? saved.history : (Array.isArray(saved.messages) ? saved.messages : []));
+      if(!list.length) return;
+      var now = Date.now();
+      var localChanged = false;
+      var nextList = list.map(function(m){
+        if(m && m.role === 'assistant' && !m.readAt){
+          localChanged = true;
+          var next = Object.assign({}, m);
+          next.readAt = now;
+          return next;
+        }
+        return m;
+      });
+      if(localChanged){
+        changed = true;
+        localStorage.setItem(key, JSON.stringify({ history: nextList, messages: nextList }));
+      }
+    }catch(e){}
+  });
+  if(changed){
+    refreshQqUnreadCountSoon();
+  }
+  return changed;
 }
 
 function refreshQqUnreadCountSoon(){
