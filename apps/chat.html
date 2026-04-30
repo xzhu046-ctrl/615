@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T13:02:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T13:02:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T13:02:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T13:02:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T13:02:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T13:02:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T13:02:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T13:02:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T13:02:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T13:02:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T13:18:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T13:18:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T13:18:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T13:18:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T13:18:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T13:18:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T13:18:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T13:18:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T13:18:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T13:18:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -6267,6 +6267,17 @@ function isDefaultAccountContext(){
   return true;
 }
 
+function ensureAccountManagerReady(){
+  if(!(window.AccountManager && typeof window.AccountManager.hydrateFromStorage === 'function')){
+    try{ if(window.AccountManager && typeof window.AccountManager.ensure === 'function') window.AccountManager.ensure(); }catch(err){}
+    return Promise.resolve(false);
+  }
+  return window.AccountManager.hydrateFromStorage().catch(function(){ return false; }).then(function(){
+    try{ if(window.AccountManager && typeof window.AccountManager.ensure === 'function') window.AccountManager.ensure(); }catch(err2){}
+    return true;
+  });
+}
+
 function accountScopedKey(base){
   if(window.AccountManager){
     window.AccountManager.ensure();
@@ -9174,7 +9185,9 @@ function applyChatSettingsPatch(target, patch){
 
 function loadChatSettingsPatch(charId){
   if(!charId) return Promise.resolve(null);
-  return loadJsonFromLargeStore(chatSettingsPatchStorageId(charId)).then(function(stored){
+  return ensureAccountManagerReady().then(function(){
+    return loadJsonFromLargeStore(chatSettingsPatchStorageId(charId));
+  }).then(function(stored){
     if(!stored || typeof stored !== 'object') return null;
     if(String(stored.id || '') !== String(charId || '')) return null;
     return stored;
@@ -9183,8 +9196,13 @@ function loadChatSettingsPatch(charId){
 
 function saveChatSettingsPatch(charId, patch){
   if(!charId || !patch) return Promise.resolve(null);
-  return requestPersistentChatStorage().catch(function(){ return false; }).then(function(){
+  return ensureAccountManagerReady().then(function(){
+    return requestPersistentChatStorage().catch(function(){ return false; });
+  }).then(function(){
     return saveJsonToLargeStore(chatSettingsPatchStorageId(charId), patch);
+  }).then(function(saved){
+    if(!saved) throw new Error('chat settings patch save failed');
+    return saved;
   });
 }
 
@@ -29908,6 +29926,7 @@ async function saveChatSettings() {
   if(saveBtn) saveBtn.disabled = true;
   var patchSaved = false;
   try{
+  await ensureAccountManagerReady();
   requestPersistentChatStorage().catch(function(){ return false; });
   var isDefault = isDefaultAccountContext();
   var un = isDefault ? document.getElementById('csUserName').value.trim() : getActiveAccountProfileName();
@@ -30125,11 +30144,15 @@ async function saveChatSettings() {
     applyChatHeaderCss(character.chatHeaderCss || getDefaultHeaderThemeCss());
     applyInnerVoiceCustomCss(character.innerVoiceCss || getDefaultInnerVoiceCss());
     applyBubbleCharmSettings(character);
+    var persistedCharacterResult = null;
     try{
-      await persistCharacter();
+      persistedCharacterResult = await persistCharacter();
     }catch(persistErr){
       console.warn('persistCharacter skipped after settings save', persistErr);
       if(!isQuotaLikeError(persistErr)) throw persistErr;
+    }
+    if(!patchSaved && !persistedCharacterResult){
+      throw new Error('聊天设置没有写入 PhoneStorage');
     }
     var slim = compactChar(character);
     persistActiveCharacterSnapshot(slim);
@@ -30231,7 +30254,7 @@ function persistCharacter(){
   return Promise.resolve()
     .then(async function(){
       if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
-        try{ return await window.MetadataStore.loadCharacters(); }catch(err){}
+        try{ return await window.MetadataStore.loadCharacters(true); }catch(err){}
       }
       return getStoredCharactersSnapshot();
     })

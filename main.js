@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T13:02:00Z';
+const APP_BUILD_ID = '2026-04-30T13:18:00Z';
 const APP_UPDATE_NOTES = [
-  '修复 QQ 导入角色卡时隐藏解析器被反复重载，导致文件选中后没有真正导入的问题。',
-  '导入时会等待角色卡解析器准备好，再把 PNG/JSON 文件交给 characters.html 处理。',
-  '导入完成后 QQ 会重新从 MetadataStore/PhoneStorage 读取联系人列表。'
+  '修复聊天设置保存前没有等待账号状态 hydrate，导致设置写到错误账号作用域的问题。',
+  '聊天设置 patch 现在必须真实写入 PhoneStorage，失败不会再假装保存成功。',
+  '角色列表持久化前会强制从 MetadataStore/PhoneStorage 读取最新角色，避免旧缓存覆盖新设置。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
