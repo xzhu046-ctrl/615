@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T14:18:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T14:18:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T14:18:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T14:18:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T14:18:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T14:18:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T14:18:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T14:18:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T14:18:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T14:18:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T14:36:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T14:36:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T14:36:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T14:36:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T14:36:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T14:36:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T14:36:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T14:36:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T14:36:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T14:36:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -6322,6 +6322,15 @@ function getSharedCharacterId(){
 function chatStorageKey(charId){
   return accountScopedKey('chat_' + charId);
 }
+function accountScopedKeyForAccount(base, accountId){
+  var safeBase = String(base || '');
+  var safeAccount = String(accountId || '').trim();
+  if(!safeAccount) return safeBase;
+  if(window.AccountManager && typeof window.AccountManager.scopedKey === 'function'){
+    return window.AccountManager.scopedKey(safeBase, safeAccount);
+  }
+  return safeBase + '__acct_' + safeAccount;
+}
 function getAccountIdCandidates(){
   var ids = [''];
   try{
@@ -6341,6 +6350,19 @@ function getAccountIdCandidates(){
   }catch(e){}
   return Array.from(new Set(ids.filter(Boolean).concat([''])));
 }
+function getWriteAccountIdCandidates(){
+  var ids = [''];
+  try{
+    if(window.AccountManager){
+      window.AccountManager.ensure();
+      var active = window.AccountManager.getActive();
+      var defaultId = window.AccountManager.getDefaultId ? window.AccountManager.getDefaultId() : '';
+      if(active && active.id) ids.push(String(active.id));
+      if(defaultId) ids.push(String(defaultId));
+    }
+  }catch(e){}
+  return Array.from(new Set(ids.filter(Boolean).concat([''])));
+}
 function getChatCharacterIdCandidates(charId){
   var safeId = String(charId || '').trim();
   return safeId ? [safeId] : [];
@@ -6350,6 +6372,20 @@ function getChatStorageKeyCandidates(charId){
   var charIds = getChatCharacterIdCandidates(charId);
   var accountIds = getAccountIdCandidates();
   charIds.forEach(function(id){
+    keys.push(chatStorageKey(id));
+    keys.push('chat_' + id);
+    accountIds.forEach(function(accountId){
+      if(accountId) keys.push('chat_' + id + '__acct_' + accountId);
+    });
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+function getChatStorageWriteKeyCandidates(charId){
+  var keys = [];
+  var charIds = getChatCharacterIdCandidates(charId);
+  var accountIds = getWriteAccountIdCandidates();
+  charIds.forEach(function(id){
+    keys.push(chatStorageKey(id));
     keys.push('chat_' + id);
     accountIds.forEach(function(accountId){
       if(accountId) keys.push('chat_' + id + '__acct_' + accountId);
@@ -6406,6 +6442,28 @@ function chatHeaderBackgroundAssetKey(charId){
 
 function chatSettingsBundleStorageId(charId){
   return accountScopedKey('chat_settings_bundle_' + String(charId || '').trim());
+}
+
+function chatSettingsBundleStorageIdCandidates(charId){
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return [];
+  var base = 'chat_settings_bundle_' + safeCharId;
+  var keys = [chatSettingsBundleStorageId(safeCharId), base];
+  getAccountIdCandidates().forEach(function(accountId){
+    if(accountId) keys.push(accountScopedKeyForAccount(base, accountId));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+
+function chatSettingsBundleStorageWriteIds(charId){
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return [];
+  var base = 'chat_settings_bundle_' + safeCharId;
+  var keys = [chatSettingsBundleStorageId(safeCharId), base];
+  getWriteAccountIdCandidates().forEach(function(accountId){
+    if(accountId) keys.push(accountScopedKeyForAccount(base, accountId));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
 }
 
 function getCharAvatarStorageKeysForChat(charId){
@@ -9073,6 +9131,28 @@ function chatSettingsPatchStorageId(charId){
   return accountScopedKey('chat_settings_patch_' + String(charId || ''));
 }
 
+function chatSettingsPatchStorageIdCandidates(charId){
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return [];
+  var base = 'chat_settings_patch_' + safeCharId;
+  var keys = [chatSettingsPatchStorageId(safeCharId), base];
+  getAccountIdCandidates().forEach(function(accountId){
+    if(accountId) keys.push(accountScopedKeyForAccount(base, accountId));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+
+function chatSettingsPatchStorageWriteIds(charId){
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return [];
+  var base = 'chat_settings_patch_' + safeCharId;
+  var keys = [chatSettingsPatchStorageId(safeCharId), base];
+  getWriteAccountIdCandidates().forEach(function(accountId){
+    if(accountId) keys.push(accountScopedKeyForAccount(base, accountId));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+
 function buildChatSettingsPatchFromCharacter(c){
   if(!c || !c.id) return null;
   var patch = {
@@ -9200,11 +9280,21 @@ function applyChatSettingsPatch(target, patch){
 function loadChatSettingsPatch(charId){
   if(!charId) return Promise.resolve(null);
   return ensureAccountManagerReady().then(function(){
-    return loadJsonFromLargeStore(chatSettingsPatchStorageId(charId));
-  }).then(function(stored){
-    if(!stored || typeof stored !== 'object') return null;
-    if(String(stored.id || '') !== String(charId || '')) return null;
-    return stored;
+    var keys = chatSettingsPatchStorageIdCandidates(charId);
+    return Promise.all(keys.map(function(key){
+      return loadJsonFromLargeStore(key).then(function(stored){
+        if(!stored || typeof stored !== 'object') return null;
+        if(String(stored.id || '') !== String(charId || '')) return null;
+        return stored;
+      }).catch(function(){ return null; });
+    }));
+  }).then(function(items){
+    var best = null;
+    (items || []).forEach(function(item){
+      if(!item) return;
+      if(!best || Number(item.updatedAt || 0) > Number(best.updatedAt || 0)) best = item;
+    });
+    return best;
   });
 }
 
@@ -9213,7 +9303,13 @@ function saveChatSettingsPatch(charId, patch){
   return ensureAccountManagerReady().then(function(){
     return requestPersistentChatStorage().catch(function(){ return false; });
   }).then(function(){
-    return saveJsonToLargeStore(chatSettingsPatchStorageId(charId), patch);
+    var nextPatch = Object.assign({}, patch || {}, { updatedAt: Date.now() });
+    var keys = chatSettingsPatchStorageWriteIds(charId);
+    return Promise.all(keys.map(function(key){
+      return saveJsonToLargeStore(key, nextPatch);
+    })).then(function(results){
+      return results.find(function(item){ return !!item; }) || null;
+    });
   }).then(function(saved){
     if(!saved) throw new Error('chat settings patch save failed');
     return saved;
@@ -9242,10 +9338,19 @@ function normalizeChatSettingsBundle(raw){
 function loadChatSettingsBundle(charId){
   if(!charId) return Promise.resolve(null);
   return ensureAccountManagerReady().then(function(){
-    return loadJsonFromLargeStore(chatSettingsBundleStorageId(charId));
-  }).then(function(stored){
-    if(!stored || typeof stored !== 'object') return null;
-    return normalizeChatSettingsBundle(stored);
+    var keys = chatSettingsBundleStorageIdCandidates(charId);
+    return Promise.all(keys.map(function(key){
+      return loadJsonFromLargeStore(key).then(function(stored){
+        return stored && typeof stored === 'object' ? normalizeChatSettingsBundle(stored) : null;
+      }).catch(function(){ return null; });
+    }));
+  }).then(function(items){
+    var best = null;
+    (items || []).forEach(function(item){
+      if(!item) return;
+      if(!best || Number(item.updatedAt || 0) > Number(best.updatedAt || 0)) best = item;
+    });
+    return best;
   });
 }
 
@@ -9260,7 +9365,12 @@ function saveChatSettingsBundle(charId, bundle){
       id: String(charId || ''),
       updatedAt: Date.now()
     }));
-    return saveJsonToLargeStore(chatSettingsBundleStorageId(charId), normalized);
+    var keys = chatSettingsBundleStorageWriteIds(charId);
+    return Promise.all(keys.map(function(key){
+      return saveJsonToLargeStore(key, normalized);
+    })).then(function(results){
+      return results.find(function(item){ return !!item; }) || null;
+    });
   }).then(function(saved){
     if(!saved) throw new Error('chat settings bundle save failed');
     return normalizeChatSettingsBundle(saved);
@@ -9271,11 +9381,42 @@ function userPersonaProfileStorageId(charId){
   return accountScopedKey('chat_user_persona_profile_' + String(charId || ''));
 }
 
+function userPersonaProfileStorageIdCandidates(charId){
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return [];
+  var base = 'chat_user_persona_profile_' + safeCharId;
+  var keys = [userPersonaProfileStorageId(safeCharId), base];
+  getAccountIdCandidates().forEach(function(accountId){
+    if(accountId) keys.push(accountScopedKeyForAccount(base, accountId));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+
+function userPersonaProfileStorageWriteIds(charId){
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return [];
+  var base = 'chat_user_persona_profile_' + safeCharId;
+  var keys = [userPersonaProfileStorageId(safeCharId), base];
+  getWriteAccountIdCandidates().forEach(function(accountId){
+    if(accountId) keys.push(accountScopedKeyForAccount(base, accountId));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+
 function loadUserPersonaProfile(charId){
   if(!charId) return Promise.resolve(null);
   return ensureAccountManagerReady().then(function(){
-    return loadJsonFromLargeStore(userPersonaProfileStorageId(charId));
-  }).then(function(stored){
+    var keys = userPersonaProfileStorageIdCandidates(charId);
+    return Promise.all(keys.map(function(key){
+      return loadJsonFromLargeStore(key).catch(function(){ return null; });
+    }));
+  }).then(function(items){
+    var stored = null;
+    (items || []).forEach(function(item){
+      if(item == null) return;
+      if(!stored) stored = item;
+      else if(item && typeof item === 'object' && Number(item.updatedAt || 0) > Number(stored.updatedAt || 0)) stored = item;
+    });
     if(stored == null) return null;
     if(typeof stored === 'string') return stored;
     if(typeof stored === 'object' && Object.prototype.hasOwnProperty.call(stored, 'text')){
@@ -9290,10 +9431,16 @@ function saveUserPersonaProfile(charId, text){
   return ensureAccountManagerReady().then(function(){
     return requestPersistentChatStorage().catch(function(){ return false; });
   }).then(function(){
-    return saveJsonToLargeStore(userPersonaProfileStorageId(charId), {
+    var payload = {
       id: String(charId || ''),
       text: String(text || ''),
       updatedAt: Date.now()
+    };
+    var keys = userPersonaProfileStorageWriteIds(charId);
+    return Promise.all(keys.map(function(key){
+      return saveJsonToLargeStore(key, payload);
+    })).then(function(results){
+      return results.find(function(item){ return !!item; }) || null;
     });
   }).then(function(saved){
     if(!saved) throw new Error('user persona profile save failed');
@@ -17354,6 +17501,16 @@ function buildPresenceHardRulePrompt(){
 function charHeaderStatusKey(charId){
   return accountScopedKey('chat_header_status_' + String(charId || ''));
 }
+function charHeaderStatusKeyCandidates(charId){
+  var safeCharId = String(charId || '').trim();
+  if(!safeCharId) return [];
+  var base = 'chat_header_status_' + safeCharId;
+  var keys = [charHeaderStatusKey(safeCharId), base];
+  getAccountIdCandidates().forEach(function(accountId){
+    if(accountId) keys.push(accountScopedKeyForAccount(base, accountId));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
 var charHeaderStatusCache = {};
 
 function sanitizeHeaderStatusText(text){
@@ -17373,8 +17530,13 @@ function getStoredCharHeaderStatus(charId){
     return charHeaderStatusCache[key] || '在线';
   }
   try{
-    var saved = sanitizeHeaderStatusText(localStorage.getItem(key) || '');
-    if(saved) charHeaderStatusCache[key] = saved;
+    var keys = charHeaderStatusKeyCandidates(charId);
+    var saved = '';
+    for(var i = 0; i < keys.length; i += 1){
+      saved = sanitizeHeaderStatusText(localStorage.getItem(keys[i]) || '');
+      if(saved) break;
+    }
+    if(saved) keys.forEach(function(itemKey){ charHeaderStatusCache[itemKey] = saved; });
     return saved || '在线';
   }catch(e){
     return '在线';
@@ -17384,39 +17546,62 @@ function getStoredCharHeaderStatus(charId){
 function setStoredCharHeaderStatus(charId, text){
   if(!charId) return;
   var next = sanitizeHeaderStatusText(text) || '在线';
-  var key = charHeaderStatusKey(charId);
-  charHeaderStatusCache[key] = next;
+  var keys = charHeaderStatusKeyCandidates(charId);
+  keys.forEach(function(key){
+    charHeaderStatusCache[key] = next;
+    try{ localStorage.setItem(key, next); }catch(err){}
+  });
   var storage = null;
   try{
     if(window.parent && window.parent !== window && window.parent.PhoneStorage) storage = window.parent.PhoneStorage;
   }catch(err){}
   if(!storage) storage = window.PhoneStorage || null;
   if(storage && typeof storage.put === 'function'){
-    storage.put('kv', { id:key, value:next, updatedAt:Date.now() }).catch(function(){});
+    keys.forEach(function(key){
+      storage.put('kv', { id:key, value:next, updatedAt:Date.now() }).catch(function(){});
+    });
   }
 }
 
 function hydrateStoredCharHeaderStatus(charId){
-  var key = charHeaderStatusKey(charId);
-  if(!charId || !key) return Promise.resolve(getStoredCharHeaderStatus(charId));
+  var keys = charHeaderStatusKeyCandidates(charId);
+  if(!charId || !keys.length) return Promise.resolve(getStoredCharHeaderStatus(charId));
   var storage = null;
   try{
     if(window.parent && window.parent !== window && window.parent.PhoneStorage) storage = window.parent.PhoneStorage;
   }catch(err){}
   if(!storage) storage = window.PhoneStorage || null;
   if(!(storage && typeof storage.get === 'function')) return Promise.resolve(getStoredCharHeaderStatus(charId));
-  return storage.get('kv', key).then(function(record){
-    var value = sanitizeHeaderStatusText(record && (record.value || record.data || record.status) || '');
+  return keys.reduce(function(chain, key){
+    return chain.then(function(found){
+      if(found) return found;
+      return storage.get('kv', key).then(function(record){
+        return sanitizeHeaderStatusText(record && (record.value || record.data || record.status) || '');
+      }).catch(function(){ return ''; });
+    });
+  }, Promise.resolve('')).then(function(value){
     if(value){
-      charHeaderStatusCache[key] = value;
+      keys.forEach(function(key){
+        charHeaderStatusCache[key] = value;
+        try{ localStorage.setItem(key, value); }catch(err){}
+        storage.put('kv', { id:key, value:value, updatedAt:Date.now() }).catch(function(){});
+      });
       updateModelLabel();
       return value;
     }
     var legacy = '';
-    try{ legacy = sanitizeHeaderStatusText(localStorage.getItem(key) || ''); }catch(err){}
+    try{
+      for(var i = 0; i < keys.length; i += 1){
+        legacy = sanitizeHeaderStatusText(localStorage.getItem(keys[i]) || '');
+        if(legacy) break;
+      }
+    }catch(err){}
     if(legacy){
-      charHeaderStatusCache[key] = legacy;
-      storage.put('kv', { id:key, value:legacy, updatedAt:Date.now() }).catch(function(){});
+      keys.forEach(function(key){
+        charHeaderStatusCache[key] = legacy;
+        try{ localStorage.setItem(key, legacy); }catch(err2){}
+        storage.put('kv', { id:key, value:legacy, updatedAt:Date.now() }).catch(function(){});
+      });
       updateModelLabel();
       return legacy;
     }
@@ -27268,20 +27453,29 @@ async function confirmClearChatAll(){
 async function saveChat(forceReplace) {
   if (!character) return;
   var run = (async function(){
+    await ensureAccountManagerReady();
     var nextLog = Array.isArray(chatLog) ? chatLog.slice() : [];
     var storedHistory = nextLog.map(compactChatEntryForStorage);
+    var revision = Date.now();
     var storedOk = false;
     try{
       if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
-        await window.PhoneStorage.put('chats', {
-          id: chatStorageKey(character.id),
-          charId: String(character.id || ''),
-          updatedAt: Date.now(),
-          history: storedHistory
-        });
-        try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(ignoreErr){}
+        var keys = getChatStorageWriteKeyCandidates(character.id);
+        await Promise.all(keys.map(function(key){
+          return window.PhoneStorage.put('chats', {
+            id: key,
+            primaryId: chatStorageKey(character.id),
+            charId: String(character.id || ''),
+            updatedAt: revision,
+            revision: revision,
+            history: storedHistory
+          });
+        }));
+        keys.forEach(function(key){ try{ localStorage.removeItem(key); }catch(ignoreErr){} });
       }else{
-        localStorage.setItem(chatStorageKey(character.id), JSON.stringify({ history: storedHistory }));
+        getChatStorageWriteKeyCandidates(character.id).forEach(function(key){
+          localStorage.setItem(key, JSON.stringify({ updatedAt: revision, revision: revision, history: storedHistory }));
+        });
       }
       storedOk = true;
     }catch(err){
@@ -27295,15 +27489,22 @@ async function saveChat(forceReplace) {
         localStorage.removeItem(moneyDebugKey());
         localStorage.removeItem(moneyReplySnapshotKey(character.id));
         if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
-          await window.PhoneStorage.put('chats', {
-            id: chatStorageKey(character.id),
-            charId: String(character.id || ''),
-            updatedAt: Date.now(),
-            history: storedHistory
-          });
-          try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(ignoreErr2){}
+          var retryKeys = getChatStorageWriteKeyCandidates(character.id);
+          await Promise.all(retryKeys.map(function(key){
+            return window.PhoneStorage.put('chats', {
+              id: key,
+              primaryId: chatStorageKey(character.id),
+              charId: String(character.id || ''),
+              updatedAt: revision,
+              revision: revision,
+              history: storedHistory
+            });
+          }));
+          retryKeys.forEach(function(key){ try{ localStorage.removeItem(key); }catch(ignoreErr2){} });
         }else{
-          localStorage.setItem(chatStorageKey(character.id), JSON.stringify({ history: storedHistory }));
+          getChatStorageWriteKeyCandidates(character.id).forEach(function(key){
+            localStorage.setItem(key, JSON.stringify({ updatedAt: revision, revision: revision, history: storedHistory }));
+          });
         }
         storedOk = true;
         appendMoneyDebugLog('save_chat_retry_ok', {
@@ -27346,18 +27547,27 @@ async function saveChat(forceReplace) {
 
 async function persistChatSnapshotDirect(log){
   if(!character || !character.id) return;
+  await ensureAccountManagerReady();
   var nextLog = Array.isArray(log) ? log.slice() : [];
   var storedHistory = nextLog.map(compactChatEntryForStorage);
+  var revision = Date.now();
   if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
-    await window.PhoneStorage.put('chats', {
-      id: chatStorageKey(character.id),
-      charId: String(character.id || ''),
-      updatedAt: Date.now(),
-      history: storedHistory
-    });
-    try{ localStorage.removeItem(chatStorageKey(character.id)); }catch(ignoreErr){}
+    var keys = getChatStorageWriteKeyCandidates(character.id);
+    await Promise.all(keys.map(function(key){
+      return window.PhoneStorage.put('chats', {
+        id: key,
+        primaryId: chatStorageKey(character.id),
+        charId: String(character.id || ''),
+        updatedAt: revision,
+        revision: revision,
+        history: storedHistory
+      });
+    }));
+    keys.forEach(function(key){ try{ localStorage.removeItem(key); }catch(ignoreErr){} });
   }else{
-    localStorage.setItem(chatStorageKey(character.id), JSON.stringify({ history: storedHistory }));
+    getChatStorageWriteKeyCandidates(character.id).forEach(function(key){
+      localStorage.setItem(key, JSON.stringify({ updatedAt: revision, revision: revision, history: storedHistory }));
+    });
   }
   var lastEntry = getLastVisibleChatEntry(nextLog);
   var preview = getChatPreviewPayload(lastEntry);
@@ -27522,6 +27732,18 @@ function parseStoredChatHistory(raw){
   }
 }
 
+function normalizeStoredChatRecord(raw, key){
+  if(!raw || typeof raw !== 'object') return null;
+  var rawHistory = Array.isArray(raw.history) ? raw.history : (Array.isArray(raw.messages) ? raw.messages : null);
+  if(!rawHistory) return null;
+  return {
+    key: key || String(raw.id || ''),
+    updatedAt: Number(raw.updatedAt || raw.savedAt || raw.revision || 0) || 0,
+    revision: Number(raw.revision || raw.updatedAt || 0) || 0,
+    history: rawHistory.map(normalizeChatEntry)
+  };
+}
+
 function historySortStamp(list){
   var entries = Array.isArray(list) ? list : [];
   var lastTs = 0;
@@ -27533,8 +27755,14 @@ function historySortStamp(list){
 }
 
 function chooseBetterChatHistory(best, next){
-  if(!next || !Array.isArray(next.history) || !next.history.length) return best;
-  if(!best || !Array.isArray(best.history) || !best.history.length) return next;
+  if(!next || !Array.isArray(next.history)) return best;
+  if(!best || !Array.isArray(best.history)) return next;
+  var bestUpdatedAt = Number(best.updatedAt || best.revision || 0) || 0;
+  var nextUpdatedAt = Number(next.updatedAt || next.revision || 0) || 0;
+  if(nextUpdatedAt > bestUpdatedAt) return next;
+  if(bestUpdatedAt > nextUpdatedAt) return best;
+  if(!next.history.length) return best && best.history && best.history.length ? best : next;
+  if(!best.history.length) return next;
   var bestIsGreetingOnly = isLikelyStrayGreetingHistory(best.history);
   var nextIsGreetingOnly = isLikelyStrayGreetingHistory(next.history);
   if(bestIsGreetingOnly !== nextIsGreetingOnly){
@@ -27542,8 +27770,6 @@ function chooseBetterChatHistory(best, next){
   }
   var bestStamp = historySortStamp(best.history);
   var nextStamp = historySortStamp(next.history);
-  var bestUpdatedAt = Number(best.updatedAt || 0) || 0;
-  var nextUpdatedAt = Number(next.updatedAt || 0) || 0;
   if(nextStamp.count > 1 && bestStamp.count === 1) return next;
   if(bestStamp.count > 1 && nextStamp.count === 1) return best;
   if(nextUpdatedAt > bestUpdatedAt) return next;
@@ -27553,6 +27779,7 @@ function chooseBetterChatHistory(best, next){
 }
 
 async function loadBestChatHistoryRecord(charId){
+  await ensureAccountManagerReady();
   var candidates = getChatStorageKeyCandidates(charId);
   var best = null;
   for(var i = 0; i < candidates.length; i += 1){
@@ -27560,26 +27787,28 @@ async function loadBestChatHistoryRecord(charId){
     try{
       if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
         var stored = await window.PhoneStorage.get('chats', key);
-        var idbHistory = Array.isArray(stored && stored.history) ? stored.history.map(normalizeChatEntry) : [];
-        if(idbHistory.length){
-          best = chooseBetterChatHistory(best, {
-            key: key,
-            updatedAt: Number(stored && stored.updatedAt) || 0,
-            history: idbHistory
-          });
-        }
+        best = chooseBetterChatHistory(best, normalizeStoredChatRecord(stored, key));
       }
     }catch(e){}
-    var localHistory = parseStoredChatHistory(localStorage.getItem(key));
-    if(localHistory.length){
-      best = chooseBetterChatHistory(best, {
-        key: key,
-        updatedAt: 0,
-        history: localHistory
-      });
+    try{
+      var localRaw = localStorage.getItem(key);
+      if(localRaw){
+        var localObj = JSON.parse(localRaw || 'null');
+        best = chooseBetterChatHistory(best, normalizeStoredChatRecord(localObj, key));
+      }
+    }catch(localErr){
+      var localHistory = parseStoredChatHistory(localStorage.getItem(key));
+      if(localHistory.length){
+        best = chooseBetterChatHistory(best, {
+          key: key,
+          updatedAt: 0,
+          revision: 0,
+          history: localHistory
+        });
+      }
     }
   }
-  if((!best || !best.history.length) && window.PhoneStorage && typeof window.PhoneStorage.list === 'function'){
+  if(!best && window.PhoneStorage && typeof window.PhoneStorage.list === 'function'){
     try{
       var allRecords = await window.PhoneStorage.list('chats');
       var charIds = getChatCharacterIdCandidates(charId);
@@ -27587,14 +27816,10 @@ async function loadBestChatHistoryRecord(charId){
         allRecords.forEach(function(record){
           var recordKey = String((record && record.id) || '');
           var recordCharId = String((record && record.charId) || '').trim();
-          var history = Array.isArray(record && record.history) ? record.history.map(normalizeChatEntry) : [];
-          if(!history.length) return;
+          var normalized = normalizeStoredChatRecord(record, recordKey);
+          if(!normalized) return;
           if(candidates.indexOf(recordKey) === -1 && charIds.indexOf(recordCharId) === -1) return;
-          best = chooseBetterChatHistory(best, {
-            key: recordKey,
-            updatedAt: Number(record && record.updatedAt) || 0,
-            history: history
-          });
+          best = chooseBetterChatHistory(best, normalized);
         });
       }
     }catch(e){}

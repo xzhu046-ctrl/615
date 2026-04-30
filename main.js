@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T14:18:00Z';
+const APP_BUILD_ID = '2026-04-30T14:36:00Z';
 const APP_UPDATE_NOTES = [
-  '聊天设置新增 PhoneStorage 设置包，统一保存双方头像、背景、顶栏和美化 CSS。',
-  '修复 CHAR 头像点保存时没有统一落库的问题，并同时写入账号作用域头像键。',
-  '后台活动开关和记忆模式会随设置包恢复，不再只依赖 localStorage 镜像。'
+  '聊天记录保存会覆盖当前账号、默认账号和旧 key，删除后的记录不再被旧副本复活。',
+  '聊天记录加载改为按最新 revision 选权威记录，不再偏向更长的旧历史。',
+  '角色顶栏状态词同步写入多账号 key、PhoneStorage 和本地镜像，避免状态读回丢失。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
