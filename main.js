@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T10:10:00Z';
+const APP_BUILD_ID = '2026-04-30T10:22:00Z';
 const APP_UPDATE_NOTES = [
-  '为 QQ、导入器、设置等子页面补齐脚本版本号，避免旧主屏幕 PWA 混用旧逻辑。',
-  '隐藏导入器每次随当前 build 重新加载，避免导入后退出列表又丢失。',
-  '继续保持聊天设置头像优先于个人设置头像。'
+  '修复导入角色保存未完成就返回，导致退出 QQ 后列表看不到的问题。',
+  '默认账号不再按 ownerAccountId 隐藏角色，避免旧数据和导入数据被误筛。',
+  '导入回包会立刻补到 QQ 当前内存列表并刷新。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
