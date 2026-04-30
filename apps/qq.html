@@ -1863,16 +1863,40 @@ function getChatStorageKeysForChar(charId){
   }catch(err){}
   return Array.from(new Set(keys.filter(Boolean)));
 }
+function chatSeenAtKey(charId){
+  var safeId = String(charId || '').trim();
+  return safeId ? accountScopedKey('qq_chat_seen_at_' + safeId) : '';
+}
+function getChatSeenAt(charId){
+  var key = chatSeenAtKey(charId);
+  if(!key) return 0;
+  try{
+    var value = parseInt(localStorage.getItem(key) || '0', 10);
+    return Number.isFinite(value) ? Math.max(0, value) : 0;
+  }catch(e){
+    return 0;
+  }
+}
+function setChatSeenAt(charId, ts){
+  var key = chatSeenAtKey(charId);
+  if(!key) return 0;
+  var safeTs = Math.max(0, Number(ts || Date.now()) || Date.now());
+  try{ localStorage.setItem(key, String(safeTs)); }catch(e){}
+  return safeTs;
+}
 
 function summarizeChatHistoryForQq(list, fallbackChar){
   var msgs = normalizeStoredChatHistory(Array.isArray(list) ? list : []);
+  var fallbackCharId = String((fallbackChar && fallbackChar.id) || '').trim();
+  var seenAt = getChatSeenAt(fallbackCharId);
   var last = {content:getCharacterPreviewFallback(fallbackChar), type:'text'};
   var previewSource = getLastVisiblePreviewMessage(msgs);
   var lastAt = Number((previewSource && (previewSource.sentAt || previewSource.readAt)) || 0) || 0;
   if(previewSource) last = normalizePreviewMessage(previewSource);
   var unread = 0;
   msgs.forEach(function(m){
-    if(m && m.role === 'assistant' && !m.readAt) unread++;
+    var ts = Number(m && (m.sentAt || m.updatedAt || m.readAt) || 0) || 0;
+    if(m && m.role === 'assistant' && !m.readAt && ts > seenAt) unread++;
   });
   return { last:last, unread:unread, lastAt:lastAt, count:msgs.length, history:msgs };
 }
@@ -2388,7 +2412,8 @@ function unreadCountOf(c){
     if(!Array.isArray(msgs)) return 0;
     var count = 0;
     msgs.forEach(function(m){
-      if(m && m.role === 'assistant' && !m.readAt) count++;
+      var ts = Number(m && (m.sentAt || m.updatedAt || m.readAt) || 0) || 0;
+      if(m && m.role === 'assistant' && !m.readAt && ts > getChatSeenAt(c.id)) count++;
     });
     return count;
   }catch(e){
@@ -2462,6 +2487,7 @@ function syncHomeBadgeCount(){
 
 async function markChatAsRead(charId){
   if(!charId) return;
+  setChatSeenAt(charId, Date.now());
   if(chatSummaryCache[charId]) chatSummaryCache[charId].unread = 0;
   if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function' && typeof window.PhoneStorage.put === 'function'){
     try{
