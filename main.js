@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T20:31:00Z';
+const APP_BUILD_ID = '2026-04-29T20:45:00Z';
 const APP_UPDATE_NOTES = [
-  '已读水位线会越过旧消息最大时间。',
-  '朋友圈已读会越过旧动态最大时间。',
-  '主页不再接受 QQ 旧红点数回写。'
+  '明确要求发朋友圈时不再静默失败。',
+  '朋友圈生成失败会补足可发布内容。',
+  '提示词禁止只口头假装已发布。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
