@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T17:03:00Z';
+const APP_BUILD_ID = '2026-04-30T17:13:00Z';
 const APP_UPDATE_NOTES = [
-  '修正主页第二页头像内层容器尺寸，避免头像数据已读到但显示不出来。',
-  '第二页头像节点记录当前头像源，刷新后能稳定回填。',
-  '本次只调整主页第二页小组件头像显示。'
+  '主页第二页头像同时写入外层圆形背景层，绕开内层图片显示失败。',
+  '保留原头像框和阴影，只修第二页头像显示。',
+  '本次不改聊天、QQ 列表和其他头像逻辑。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -6314,11 +6314,21 @@ function applyBondAvatarContent(role, src, fallback, charId){
   var safeRole = String(role || '') === 'user' ? 'user' : 'char';
   var target = document.getElementById(safeRole === 'user' ? 'bond-user-avatar' : 'bond-char-avatar');
   if(!target) return;
+  var outer = target.closest ? target.closest('.bond-avatar') : null;
   var expectedId = String(charId || '').trim();
   if(expectedId && String(target.dataset.charId || '') !== expectedId) return;
   var safeSrc = normalizeShellAssetSrc(src || '');
   var safeFallback = String(fallback || (safeRole === 'user' ? '你' : 'C')).trim() || (safeRole === 'user' ? '你' : 'C');
-  target.dataset.avatarSrc = isRenderableShellAvatarSrc(safeSrc) ? safeSrc : '';
+  var hasImage = isRenderableShellAvatarSrc(safeSrc);
+  target.dataset.avatarSrc = hasImage ? safeSrc : '';
+  if(outer){
+    outer.classList.toggle('has-bond-avatar-image', hasImage);
+    if(hasImage){
+      outer.style.setProperty('--bond-avatar-src', 'url("' + safeSrc.replace(/"/g, '\\"') + '")');
+    }else{
+      outer.style.removeProperty('--bond-avatar-src');
+    }
+  }
   var baseHtml = isRenderableShellAvatarSrc(safeSrc)
     ? '<span class="bond-avatar-base"><img src="' + escapeHtmlAttr(safeSrc) + '" alt="" onerror="this.closest(\'.bond-avatar-base\').textContent=\'' + escapeHtmlAttr(safeFallback.slice(0, 2)) + '\'"></span>'
     : '<span class="bond-avatar-base">' + escapeHtml(safeFallback.slice(0, 2)) + '</span>';
