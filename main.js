@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T09:55:00Z';
+const APP_BUILD_ID = '2026-04-30T10:10:00Z';
 const APP_UPDATE_NOTES = [
-  '修正 user 头像优先级：当前聊天设置头像优先于个人设置头像。',
-  '主屏幕组件、线上聊天、线下约会不再用个人头像覆盖当前角色头像。',
-  '没有具体聊天对象的页面仍可使用个人设置头像。'
+  '为 QQ、导入器、设置等子页面补齐脚本版本号，避免旧主屏幕 PWA 混用旧逻辑。',
+  '隐藏导入器每次随当前 build 重新加载，避免导入后退出列表又丢失。',
+  '继续保持聊天设置头像优先于个人设置头像。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
