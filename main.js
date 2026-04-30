@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-29T16:55:00Z';
+const APP_BUILD_ID = '2026-04-29T17:25:00Z';
 const APP_UPDATE_NOTES = [
-  '线下编辑弹窗改成黑白 ins 风。',
-  '输入框换成渐变竖线样式。',
-  '保留线下编辑保存逻辑不变。'
+  '情侣空间页面改成黑白 ins 风。',
+  '修复情侣空间内头像空白显示。',
+  '补读角色与个人中心头像资源。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
