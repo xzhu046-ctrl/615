@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>QQ</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Cormorant+Garamond:wght@600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-04-30T16:22:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T16:22:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T16:22:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T16:22:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T16:22:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T16:40:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T16:40:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T16:40:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T16:40:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T16:40:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1437,7 +1437,7 @@ body{
   <input id="contactsImportInput" type="file" accept=".png,.json,application/json,image/png" multiple style="display:none" onchange="handleContactsImportFiles(this.files)">
   <input id="contactsCreateAvatarInput" type="file" accept="image/*" style="display:none" onchange="handleContactsCreateAvatarFile(this.files[0])">
   <input id="qqHeroPhotoInput" type="file" accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg" style="display:none" onchange="handleQqHeroPhotoFile(this.files[0])">
-  <iframe id="contactsHelperFrame" class="contacts-helper-frame" src="characters.html?__appBuild=2026-04-30T16:22:00Z" tabindex="-1" aria-hidden="true"></iframe>
+  <iframe id="contactsHelperFrame" class="contacts-helper-frame" src="characters.html?__appBuild=2026-04-30T16:40:00Z" tabindex="-1" aria-hidden="true"></iframe>
   <div class="toast" id="toast"></div>
 
 <script>
@@ -1711,6 +1711,28 @@ function loadStoredAsset(key){
   try{ return Promise.resolve(localStorage.getItem(key) || ''); }catch(e){ return Promise.resolve(''); }
 }
 
+function isRenderableAssetSource(src){
+  var value = String(src || '').trim();
+  return !!(value && value !== '__asset__' && (value.indexOf('data:') === 0 || value.indexOf('blob:') === 0 || value.indexOf('http') === 0 || value.indexOf('/') === 0 || value.indexOf('./') === 0 || value.indexOf('../') === 0 || value.indexOf('assets/') === 0));
+}
+
+async function loadChatSettingsBundleForQq(charId){
+  var safeId = String(charId || '').trim();
+  if(!safeId || !(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function')) return null;
+  var base = 'chat_settings_bundle_' + safeId;
+  var keys = [accountScopedKey(base), base];
+  var best = null;
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var item = await window.PhoneStorage.getJson(keys[i]);
+      if(item && typeof item === 'object'){
+        if(!best || Number(item.updatedAt || 0) >= Number(best.updatedAt || 0)) best = item;
+      }
+    }catch(err){}
+  }
+  return best || null;
+}
+
 function getSunnyPreview(){
   return window.SunnySupport && typeof window.SunnySupport.getPinnedPreview === 'function'
     ? window.SunnySupport.getPinnedPreview()
@@ -1721,7 +1743,10 @@ function hydrateAvatarAssets(){
   chars.forEach(function(c){
     if(!c || !c.id) return;
     var keys = [accountScopedKey('char_avatar_' + c.id), 'char_avatar_' + c.id];
-    var chain = Promise.resolve('');
+    var chain = loadChatSettingsBundleForQq(c.id).then(function(bundle){
+      var bundleAvatar = String((bundle && bundle.charAvatar) || '').trim();
+      return isRenderableAssetSource(bundleAvatar) ? bundleAvatar : '';
+    }).catch(function(){ return ''; });
     keys.forEach(function(key){
       chain = chain.then(function(found){
         if(found) return found;
@@ -1735,11 +1760,6 @@ function hydrateAvatarAssets(){
       }
     });
   });
-}
-
-function isRenderableAssetSource(src){
-  var value = String(src || '').trim();
-  return !!(value && value !== '__asset__' && (value.indexOf('data:') === 0 || value.indexOf('blob:') === 0 || value.indexOf('http') === 0 || value.indexOf('/') === 0 || value.indexOf('./') === 0 || value.indexOf('../') === 0 || value.indexOf('assets/') === 0));
 }
 
 function getAvatarSrc(c){
@@ -3325,7 +3345,7 @@ function getQqPageBuildId(){
 function buildContactsHelperSrc(cacheBust){
   var build = getQqPageBuildId();
   var url = new URL('characters.html', window.location.href);
-  url.searchParams.set('__appBuild', build || '2026-04-30T16:22:00Z');
+  url.searchParams.set('__appBuild', build || '2026-04-30T16:40:00Z');
   if(cacheBust) url.searchParams.set('__ts', String(Date.now()));
   return url.toString();
 }
