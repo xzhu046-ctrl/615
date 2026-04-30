@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T17:28:00Z';
+const APP_BUILD_ID = '2026-04-30T17:46:00Z';
 const APP_UPDATE_NOTES = [
-  '主屏第一页和第二页的 user 头像改为优先读取聊天设置里选中的头像。',
-  '没有单独选头像时，主屏 user 头像会回退到个人设置头像。',
-  '本次只修主屏 user 头像解析顺序，不改 char 头像和聊天逻辑。'
+  '主屏第二页不再被唤醒/切页时的空状态覆盖成 CHAR/USER。',
+  '主屏 user 头像同步阶段不再抢先显示个人头像，先等聊天设置头像解析。',
+  '主屏 char 头像使用上一次有效角色兜底，避免稍后消失。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -5965,6 +5965,13 @@ function getActiveCharacterData(){
     if(scopedResolved && scopedResolved.id) return scopedResolved;
   }
   if(scopedActive && scopedActive.id) return resolveShellCharacterById(scopedActive.id, scopedActive) || scopedActive;
+  if(persistedShellActiveCharacter && persistedShellActiveCharacter.id){
+    return resolveShellCharacterById(persistedShellActiveCharacter.id, persistedShellActiveCharacter) || persistedShellActiveCharacter;
+  }
+  var widgetLast = getWidgetLastChatCharacter();
+  if(widgetLast && widgetLast.id){
+    return resolveShellCharacterById(widgetLast.id, widgetLast) || widgetLast;
+  }
   return null;
 }
 
@@ -6099,7 +6106,6 @@ function collectShellUserAvatarCandidates(charId, character){
   keys.forEach(function(key){
     try{ push(localStorage.getItem(key) || ''); }catch(err4){}
   });
-  push(getActiveAccountProfileAvatar());
   return candidates;
 }
 
@@ -6143,9 +6149,9 @@ function getImmediateChatUserAvatar(charId, character){
   var ordered = [
     getForegroundChatUserAvatar(id),
     getBundleAvatarForShell(getCachedShellChatSettingsBundleForChar(id, activeId), 'user'),
-    getImmediateStoredUserAvatarForShell(id),
-    getActiveAccountProfileAvatar()
+    getImmediateStoredUserAvatarForShell(id)
   ];
+  if(!id) ordered.push(getActiveAccountProfileAvatar());
   var legacyCandidates = collectShellUserAvatarCandidates(id, character);
   ordered = ordered.concat(legacyCandidates);
   for(var i = 0; i < ordered.length; i += 1){
@@ -6281,7 +6287,8 @@ async function getStoredChatMessagesAsync(charId){
 }
 
 function renderBondWidget(character){
-  const c = character || getActiveCharacterData();
+  const explicitCharacter = arguments.length > 0;
+  const c = explicitCharacter ? character : (getActiveCharacterData() || getWidgetLastChatCharacter() || persistedShellActiveCharacter || null);
   const charName = document.getElementById('bond-char-name');
   const userName = document.getElementById('bond-user-name');
   const charAvatar = document.getElementById('bond-char-avatar');
@@ -8909,9 +8916,11 @@ window.addEventListener('message',(e)=>{
     var avatarSrc = normalizeShellAssetSrc(payload && payload.src || '');
     var activeCharForAvatar = getActiveCharacterData();
     var widgetUserAvatar = document.getElementById('wgt-user-avatar');
-    applyWidgetUserAvatarContent(widgetUserAvatar, avatarSrc, '你');
+    if(!activeCharForAvatar){
+      applyWidgetUserAvatarContent(widgetUserAvatar, avatarSrc, '你');
+    }
     var bondUserAvatar = document.getElementById('bond-user-avatar');
-    if(bondUserAvatar){
+    if(bondUserAvatar && !activeCharForAvatar){
       var frameUrl = getActiveBondAvatarFrameUrl('user');
       var baseHtml = isRenderableShellAvatarSrc(avatarSrc)
         ? '<span class="bond-avatar-base"><img src="' + escapeHtmlAttr(avatarSrc) + '" alt="" onerror="this.closest(\'.bond-avatar-base\').textContent=\'你\'"></span>'
@@ -8924,7 +8933,10 @@ window.addEventListener('message',(e)=>{
         bondUserAvatar.innerHTML = baseHtml;
       }
     }
-    if(activeCharForAvatar) renderBondWidget(activeCharForAvatar);
+    if(activeCharForAvatar){
+      setWidgetCharacter(activeCharForAvatar);
+      renderBondWidget(activeCharForAvatar);
+    }
   }
   if(type==='CHARACTER_IMPORTED'){
     // When a card is imported, immediately reflect it on the home widget.
@@ -9694,6 +9706,9 @@ function getPreviewStampFromMessages(messages){
 }
 
 function setWidgetCharacter(c){
+  if(c && c.id){
+    persistWidgetLastChatCharacter(c);
+  }
   var widgetEl = document.getElementById('widget-character');
   if(widgetEl){
     widgetEl.dataset.charId = String((c && c.id) || '').trim();
@@ -9760,6 +9775,9 @@ function setWidgetCharacter(c){
     applyWidgetUserAvatarContent(userAvEl, '', '你');
   }
   if(avEl) avEl.dataset.charId = String((c && c.id) || '').trim();
+  if(c && c.id && !isRenderableShellAvatarSrc(liveAvatarSrc)){
+    liveAvatarSrc = getWidgetAvatarMirrorSrc('char', c.id);
+  }
   if (avEl && isRenderableShellAvatarSrc(liveAvatarSrc)) {
     avEl.innerHTML = '<img src="'+liveAvatarSrc+'" style="width:100%;height:100%;object-fit:cover;display:block;transform:scale(1.03);transform-origin:center">';
   } else if(avEl) {
