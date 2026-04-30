@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T13:52:00Z';
+const APP_BUILD_ID = '2026-04-30T14:18:00Z';
 const APP_UPDATE_NOTES = [
-  '修复聊天设置里的 user 人设保存后又被角色快照清空的问题。',
-  'user 人设现在会单独写入 PhoneStorage，并同步保留在角色设置补丁里。',
-  '模型上下文优先读取当前角色绑定的 user 人设，不再只看旧 localStorage。'
+  '聊天设置新增 PhoneStorage 设置包，统一保存双方头像、背景、顶栏和美化 CSS。',
+  '修复 CHAR 头像点保存时没有统一落库的问题，并同时写入账号作用域头像键。',
+  '后台活动开关和记忆模式会随设置包恢复，不再只依赖 localStorage 镜像。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1867,6 +1867,33 @@ function charBgEnabledKeyForAccount(charId, accountId){
   return scopedKeyForAccount('char_bg_activity_enabled_' + charId, accountId);
 }
 
+var shellChatSettingsBundleCache = Object.create(null);
+
+function chatSettingsBundleKeyForAccount(charId, accountId){
+  return scopedKeyForAccount('chat_settings_bundle_' + String(charId || '').trim(), accountId);
+}
+
+async function loadShellChatSettingsBundleForChar(charId, accountId){
+  var safeId = String(charId || '').trim();
+  if(!safeId) return null;
+  var key = chatSettingsBundleKeyForAccount(safeId, accountId || getActiveAccountId() || getDefaultAccountId());
+  if(Object.prototype.hasOwnProperty.call(shellChatSettingsBundleCache, key)){
+    return shellChatSettingsBundleCache[key];
+  }
+  var stored = null;
+  try{
+    if(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function'){
+      stored = await window.PhoneStorage.getJson(key);
+    }
+  }catch(err){}
+  if(stored && typeof stored === 'object'){
+    shellChatSettingsBundleCache[key] = stored;
+    return stored;
+  }
+  shellChatSettingsBundleCache[key] = null;
+  return null;
+}
+
 function isGlobalAiBgEnabled(){
   try{
     return localStorage.getItem(AI_BG_ENABLED_KEY) === '1';
@@ -1876,6 +1903,11 @@ function isGlobalAiBgEnabled(){
 
 function getCharBgOverride(charId, accountId){
   if(!charId) return null;
+  var bundleKey = chatSettingsBundleKeyForAccount(charId, accountId || getActiveAccountId() || getDefaultAccountId());
+  var cachedBundle = shellChatSettingsBundleCache[bundleKey];
+  if(cachedBundle && Object.prototype.hasOwnProperty.call(cachedBundle, 'charBgEnabled')){
+    return cachedBundle.charBgEnabled === null || cachedBundle.charBgEnabled === undefined ? null : !!cachedBundle.charBgEnabled;
+  }
   try{
     var scoped = localStorage.getItem(charBgEnabledKeyForAccount(charId, accountId));
     if(scoped !== null) return scoped !== '0';
@@ -2028,6 +2060,9 @@ async function getBackgroundCharacter(){
     if(c && !c.ownerAccountId) c.ownerAccountId = defaultId;
   });
   var owned = chars.filter(function(c){ return c && c.ownerAccountId === defaultId; });
+  await Promise.all(owned.map(function(c){
+    return c && c.id ? loadShellChatSettingsBundleForChar(c.id, defaultId) : Promise.resolve(null);
+  }));
   var enabledOwned = owned.filter(function(c){ return isCharBgEnabled(c.id, defaultId); });
   if(!enabledOwned.length) return null;
   var active = null;
@@ -3011,6 +3046,7 @@ async function debugShellNotification(){
 
 async function appendBackgroundAiMessage(character, accountId, content){
   if(!character || !character.id) return false;
+  await loadShellChatSettingsBundleForChar(character.id, accountId || getDefaultAccountId());
   if(!isCharBgEnabled(character.id, accountId || getDefaultAccountId())) return false;
   var history = await readBackgroundChatHistory(character.id, accountId);
   var now = Date.now();
@@ -3042,6 +3078,7 @@ async function appendBackgroundAiMessage(character, accountId, content){
 
 async function appendBackgroundMoment(character, accountId, action, content, imageText){
   if(!character || !character.id) return false;
+  await loadShellChatSettingsBundleForChar(character.id, accountId || getDefaultAccountId());
   if(!isCharBgEnabled(character.id, accountId || getDefaultAccountId())) return false;
   var posts = await readBackgroundMoments(accountId);
   var now = Date.now();
@@ -4170,7 +4207,7 @@ async function maybeUnblockFromBackground(cfg, character, accountId, history, sh
 async function runAiBackgroundActivity(){
   var defaultId = getDefaultAccountId();
   if(!defaultId) return false;
-  if(!hasAnyAiBgActivityEnabled(defaultId)) return false;
+  if(!isGlobalAiBgEnabled()) return false;
   var character = await getBackgroundCharacter();
   if(!character || !character.id) return false;
   var cfg = getBackgroundProviderConfig();
@@ -4223,6 +4260,7 @@ async function runAiBackgroundActivity(){
   ].join('\n\n');
 
   var rawReply = await callAiForBackground(cfg, sysPrompt, userPrompt);
+  await loadShellChatSettingsBundleForChar(character.id, defaultId);
   if(!isCharBgEnabled(character.id, defaultId)) return false;
   var parsed = coerceBgAction(parseBgAction(rawReply), convoState);
   if(!parsed) return false;
@@ -4536,6 +4574,7 @@ async function syncScheduleActivityFromChat(payload){
   var speaker = String(payload.speaker || 'user').trim().toLowerCase();
   if(!charId || !userText) return { changed:false, messages:0 };
   var accountId = getActiveAccountId() || getDefaultAccountId();
+  await loadShellChatSettingsBundleForChar(charId, accountId);
   if(!isCharBgEnabled(charId, accountId)) return { changed:false, messages:0 };
   var shared = getScheduleSharedApi();
   if(!shared) return { changed:false, messages:0 };
@@ -8752,6 +8791,14 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='BOND_WIDGET_PREVIEW'){
     applyBondWidgetPreview(payload);
+  }
+  if(type==='CHAT_SETTINGS_BUNDLE_SAVED'){
+    var bundleCharId = String((payload && payload.charId) || '').trim();
+    var bundleAccountId = getActiveAccountId() || getDefaultAccountId();
+    var bundleKey = chatSettingsBundleKeyForAccount(bundleCharId, bundleAccountId);
+    if(bundleCharId && payload && payload.bundle && typeof payload.bundle === 'object'){
+      shellChatSettingsBundleCache[bundleKey] = payload.bundle;
+    }
   }
   if(type==='USER_AVATAR_UPDATED'){
     var avatarSrc = normalizeShellAssetSrc(payload && payload.src || '');
