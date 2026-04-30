@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T15:22:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T15:22:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T15:22:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T15:22:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T15:22:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T15:22:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T15:22:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T15:22:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T15:22:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T15:22:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T15:47:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T15:47:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T15:47:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T15:47:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T15:47:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T15:47:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T15:47:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T15:47:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T15:47:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T15:47:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -6474,6 +6474,26 @@ function chatSettingsBundleStorageWriteIds(charId){
   return Array.from(new Set(keys.filter(Boolean)));
 }
 
+function scopedStorageIdCandidates(base){
+  var safeBase = String(base || '').trim();
+  if(!safeBase) return [];
+  var keys = [accountScopedKey(safeBase), safeBase];
+  getAccountIdCandidates().forEach(function(accountId){
+    if(accountId) keys.push(accountScopedKeyForAccount(safeBase, accountId));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+
+function scopedStorageWriteIds(base){
+  var safeBase = String(base || '').trim();
+  if(!safeBase) return [];
+  var keys = [accountScopedKey(safeBase), safeBase];
+  getWriteAccountIdCandidates().forEach(function(accountId){
+    if(accountId) keys.push(accountScopedKeyForAccount(safeBase, accountId));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+
 function getCharAvatarStorageKeysForChat(charId){
   var safeCharId = String(charId || '').trim();
   var keys = [];
@@ -6488,6 +6508,14 @@ function getCharAvatarStorageKeysForChat(charId){
 
 function avatarLibraryStorageId(charId){
   return accountScopedKey('avatar_library_' + String(charId || '').trim());
+}
+function avatarLibraryStorageIdCandidates(charId){
+  var safeCharId = String(charId || '').trim();
+  return safeCharId ? scopedStorageIdCandidates('avatar_library_' + safeCharId) : [];
+}
+function avatarLibraryStorageWriteIds(charId){
+  var safeCharId = String(charId || '').trim();
+  return safeCharId ? scopedStorageWriteIds('avatar_library_' + safeCharId) : [];
 }
 
 function avatarVisionToggleKey(charId){
@@ -7772,6 +7800,27 @@ function saveJsonToLargeStore(id, data){
   });
 }
 
+async function loadLatestJsonFromLargeStores(ids){
+  var keys = Array.from(new Set((Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean)));
+  var best = null;
+  for(var i = 0; i < keys.length; i += 1){
+    var stored = await loadJsonFromLargeStore(keys[i]).catch(function(){ return null; });
+    if(!stored || typeof stored !== 'object') continue;
+    var item = Object.assign({}, stored, { __storageKey: keys[i] });
+    if(!best || Number(item.updatedAt || 0) > Number(best.updatedAt || 0)) best = item;
+  }
+  return best;
+}
+
+async function saveJsonToLargeStores(ids, data){
+  var keys = Array.from(new Set((Array.isArray(ids) ? ids : []).map(function(id){ return String(id || '').trim(); }).filter(Boolean)));
+  if(!keys.length) return null;
+  var results = await Promise.all(keys.map(function(id){
+    return saveJsonToLargeStore(id, data).catch(function(){ return null; });
+  }));
+  return results.find(function(item){ return !!item; }) || null;
+}
+
 function isQuotaLikeError(err){
   var text = String((err && err.message) || err || '');
   return /quota|exceed|storage|insufficient|space|full|容量|空间/i.test(text);
@@ -7801,6 +7850,7 @@ function normalizeAvatarLibraryItem(raw, role){
 
 function normalizeAvatarLibraryStore(raw){
   var base = defaultAvatarLibraryStore();
+  base.updatedAt = Number(raw && raw.updatedAt || 0) || 0;
   if(!raw || typeof raw !== 'object') return base;
   ['char','user'].forEach(function(role){
     base[role] = Array.isArray(raw[role]) ? raw[role].map(function(item){
@@ -7826,7 +7876,7 @@ async function resolveAvatarLibraryItemSrc(item){
 
 function loadAvatarLibraryStore(charId){
   if(!charId) return Promise.resolve(defaultAvatarLibraryStore());
-  return loadJsonFromLargeStore(avatarLibraryStorageId(charId)).then(function(stored){
+  return loadLatestJsonFromLargeStores(avatarLibraryStorageIdCandidates(charId)).then(function(stored){
     return normalizeAvatarLibraryStore(stored);
   });
 }
@@ -7834,8 +7884,10 @@ function loadAvatarLibraryStore(charId){
 function saveAvatarLibraryStore(charId, store){
   if(!charId) return Promise.resolve(defaultAvatarLibraryStore());
   var normalized = normalizeAvatarLibraryStore(store);
+  normalized.updatedAt = Date.now();
   return requestPersistentChatStorage().catch(function(){ return false; }).then(function(){
-    return saveJsonToLargeStore(avatarLibraryStorageId(charId), normalized).then(function(){
+    return saveJsonToLargeStores(avatarLibraryStorageWriteIds(charId), normalized).then(function(saved){
+      if(!saved) throw new Error('avatar library save failed');
       avatarLibraryCache = normalized;
       return normalized;
     });
@@ -9221,6 +9273,7 @@ function buildChatSettingsPatchFromCharacter(c){
     })(c.memoryVectorStrategy),
     memoryVectorUserMsgCount: Math.max(1, Math.min(10, Number(c.memoryVectorUserMsgCount) || DEFAULT_VECTOR_USER_MSG_COUNT)),
     autoSummaryEnabled: c.autoSummaryEnabled != null ? !!c.autoSummaryEnabled : true,
+    momentsFreq: normalizeMomentsFreq(c.momentsFreq || DEFAULT_MOMENTS_FREQ),
     livePresence: cloneJsonSafe(c.livePresence || null, null),
     importedAvatarResources: cloneJsonSafe(c.importedAvatarResources || [], []),
     importedMemeResources: cloneJsonSafe(c.importedMemeResources || [], []),
@@ -9278,6 +9331,7 @@ function applyChatSettingsPatch(target, patch){
     'memoryVectorStrategy',
     'memoryVectorUserMsgCount',
     'autoSummaryEnabled',
+    'momentsFreq',
     'importedAvatarResources',
     'importedMemeResources',
     'importedRuleBlocks',
@@ -9350,6 +9404,7 @@ function normalizeChatSettingsBundle(raw){
     themeParts: cloneJsonSafe(themeParts, {}),
     memoryMode: normalizeMemoryMode(src.memoryMode || DEFAULT_MEMORY_MODE),
     charBgEnabled: src.charBgEnabled === null || src.charBgEnabled === undefined ? null : !!src.charBgEnabled,
+    momentsFreq: normalizeMomentsFreq(src.momentsFreq || DEFAULT_MOMENTS_FREQ),
     autoSummaryEnabled: src.autoSummaryEnabled === null || src.autoSummaryEnabled === undefined ? null : !!src.autoSummaryEnabled,
     userPersonaProfile: String(src.userPersonaProfile || '')
   };
@@ -9477,6 +9532,7 @@ async function applyStoredChatSettingsPatchToCharacter(target){
     if(bundle.memoryMode) target.memoryMode = bundle.memoryMode;
     if(bundle.autoSummaryEnabled !== null) target.autoSummaryEnabled = !!bundle.autoSummaryEnabled;
     if(bundle.charBgEnabled !== null) target.charBgEnabled = !!bundle.charBgEnabled;
+    if(bundle.momentsFreq) target.momentsFreq = normalizeMomentsFreq(bundle.momentsFreq);
     if(bundle.userPersonaProfile) target.userPersonaProfile = bundle.userPersonaProfile;
     if(isRenderableAvatarSrc(bundle.charAvatar)){
       target.imageData = bundle.charAvatar;
@@ -9651,13 +9707,37 @@ function chatThemeStorageId(charId){
 function chatGlobalThemeStorageId(charId){
   return accountScopedKey('chat_global_theme_css_' + String(charId || ''));
 }
+function chatGlobalThemeStorageIdCandidates(charId){
+  var safeCharId = String(charId || '').trim();
+  return safeCharId ? scopedStorageIdCandidates('chat_global_theme_css_' + safeCharId) : [];
+}
+function chatGlobalThemeStorageWriteIds(charId){
+  var safeCharId = String(charId || '').trim();
+  return safeCharId ? scopedStorageWriteIds('chat_global_theme_css_' + safeCharId) : [];
+}
 
 function chatBubbleThemeStorageId(charId){
   return accountScopedKey('chat_bubble_theme_css_' + String(charId || ''));
 }
+function chatBubbleThemeStorageIdCandidates(charId){
+  var safeCharId = String(charId || '').trim();
+  return safeCharId ? scopedStorageIdCandidates('chat_bubble_theme_css_' + safeCharId) : [];
+}
+function chatBubbleThemeStorageWriteIds(charId){
+  var safeCharId = String(charId || '').trim();
+  return safeCharId ? scopedStorageWriteIds('chat_bubble_theme_css_' + safeCharId) : [];
+}
 
 function chatThemePartStorageId(charId, partId){
   return accountScopedKey('chat_theme_part_' + String(partId || 'bubble') + '_' + String(charId || ''));
+}
+function chatThemePartStorageIdCandidates(charId, partId){
+  var safeCharId = String(charId || '').trim();
+  return safeCharId ? scopedStorageIdCandidates('chat_theme_part_' + String(partId || 'bubble') + '_' + safeCharId) : [];
+}
+function chatThemePartStorageWriteIds(charId, partId){
+  var safeCharId = String(charId || '').trim();
+  return safeCharId ? scopedStorageWriteIds('chat_theme_part_' + String(partId || 'bubble') + '_' + safeCharId) : [];
 }
 
 function chatThemePresetStorageId(){
@@ -10345,37 +10425,39 @@ function applyBubbleChatThemeCss(cssText){
 
 async function loadGlobalChatThemeCss(charId){
   if(!charId) return '';
-  var stored = await loadJsonFromLargeStore(chatGlobalThemeStorageId(charId));
+  var stored = await loadLatestJsonFromLargeStores(chatGlobalThemeStorageIdCandidates(charId));
+  var bundle = await loadChatSettingsBundle(charId);
+  if(bundle && typeof bundle.globalCss === 'string' && Number(bundle.updatedAt || 0) >= Number(stored && stored.updatedAt || 0)) return bundle.globalCss;
   if(typeof stored === 'string') return stored;
   if(stored && typeof stored.css === 'string') return stored.css;
-  var bundle = await loadChatSettingsBundle(charId);
   if(bundle && typeof bundle.globalCss === 'string') return bundle.globalCss;
   return '';
 }
 
 async function saveGlobalChatThemeCss(charId, cssText){
   if(!charId) return null;
-  var saved = await saveJsonToLargeStore(chatGlobalThemeStorageId(charId), { css: String(cssText || '') });
+  var saved = await saveJsonToLargeStores(chatGlobalThemeStorageWriteIds(charId), { css: String(cssText || ''), updatedAt: Date.now() });
   if(!saved) throw new Error('global chat theme save failed');
   return saved;
 }
 
 async function loadBubbleChatThemeCss(charId){
   if(!charId) return '';
-  var stored = await loadJsonFromLargeStore(chatBubbleThemeStorageId(charId));
+  var stored = await loadLatestJsonFromLargeStores(chatBubbleThemeStorageIdCandidates(charId));
+  var legacy = await loadJsonFromLargeStore(chatThemeStorageId(charId));
+  var bundle = await loadChatSettingsBundle(charId);
+  if(bundle && bundle.themeParts && typeof bundle.themeParts.bubble === 'string' && Number(bundle.updatedAt || 0) >= Number(stored && stored.updatedAt || 0)) return bundle.themeParts.bubble;
   if(typeof stored === 'string') return stored;
   if(stored && typeof stored.css === 'string') return stored.css;
-  var legacy = await loadJsonFromLargeStore(chatThemeStorageId(charId));
   if(typeof legacy === 'string') return legacy;
   if(legacy && typeof legacy.css === 'string') return legacy.css;
-  var bundle = await loadChatSettingsBundle(charId);
   if(bundle && bundle.themeParts && typeof bundle.themeParts.bubble === 'string') return bundle.themeParts.bubble;
   return '';
 }
 
 async function saveBubbleChatThemeCss(charId, cssText){
   if(!charId) return null;
-  var saved = await saveJsonToLargeStore(chatBubbleThemeStorageId(charId), { css: String(cssText || '') });
+  var saved = await saveJsonToLargeStores(chatBubbleThemeStorageWriteIds(charId), { css: String(cssText || ''), updatedAt: Date.now() });
   if(!saved) throw new Error('bubble chat theme save failed');
   return saved;
 }
@@ -10384,10 +10466,11 @@ async function loadChatThemePartCss(charId, partId){
   var safePart = String(partId || 'bubble').trim() || 'bubble';
   if(safePart === 'bubble') return loadBubbleChatThemeCss(charId);
   if(!charId) return '';
-  var stored = await loadJsonFromLargeStore(chatThemePartStorageId(charId, safePart));
+  var stored = await loadLatestJsonFromLargeStores(chatThemePartStorageIdCandidates(charId, safePart));
+  var bundle = await loadChatSettingsBundle(charId);
+  if(bundle && bundle.themeParts && typeof bundle.themeParts[safePart] === 'string' && Number(bundle.updatedAt || 0) >= Number(stored && stored.updatedAt || 0)) return bundle.themeParts[safePart];
   if(typeof stored === 'string') return stored;
   if(stored && typeof stored.css === 'string') return stored.css;
-  var bundle = await loadChatSettingsBundle(charId);
   if(bundle && bundle.themeParts && typeof bundle.themeParts[safePart] === 'string') return bundle.themeParts[safePart];
   return '';
 }
@@ -10396,7 +10479,7 @@ async function saveChatThemePartCss(charId, partId, cssText){
   var safePart = String(partId || 'bubble').trim() || 'bubble';
   if(safePart === 'bubble') return saveBubbleChatThemeCss(charId, cssText);
   if(!charId) return null;
-  var saved = await saveJsonToLargeStore(chatThemePartStorageId(charId, safePart), { css: String(cssText || '') });
+  var saved = await saveJsonToLargeStores(chatThemePartStorageWriteIds(charId, safePart), { css: String(cssText || ''), updatedAt: Date.now() });
   if(!saved) throw new Error('chat theme part save failed: ' + safePart);
   return saved;
 }
@@ -12079,6 +12162,9 @@ function saveCharBgEnabled(charId, enabled){
 
 function loadCharMomentsFreq(charId){
   if(!charId) return DEFAULT_MOMENTS_FREQ;
+  if(character && String(character.id || '') === String(charId || '') && character.momentsFreq){
+    return normalizeMomentsFreq(character.momentsFreq);
+  }
   try{
     return normalizeMomentsFreq(localStorage.getItem(charMomentsFreqKey(charId)) || DEFAULT_MOMENTS_FREQ);
   }catch(e){
@@ -12088,7 +12174,14 @@ function loadCharMomentsFreq(charId){
 
 function saveCharMomentsFreq(charId, level){
   if(!charId) return;
-  try{ localStorage.setItem(charMomentsFreqKey(charId), normalizeMomentsFreq(level)); }catch(e){}
+  var next = normalizeMomentsFreq(level);
+  if(character && String(character.id || '') === String(charId || '')){
+    character.momentsFreq = next;
+  }
+  try{ localStorage.setItem(charMomentsFreqKey(charId), next); }catch(e){}
+  saveChatSettingsBundle(charId, { momentsFreq: next }).catch(function(err){
+    console.warn('moments frequency bundle save failed', err);
+  });
 }
 
 function setChatMomentsFreq(level){
@@ -16681,6 +16774,7 @@ function compactChar(c){
     })(c.memoryVectorStrategy),
     memoryVectorUserMsgCount:Math.max(1, Math.min(10, Number(c.memoryVectorUserMsgCount) || DEFAULT_VECTOR_USER_MSG_COUNT)),
     autoSummaryEnabled:c.autoSummaryEnabled != null ? !!c.autoSummaryEnabled : true,
+    momentsFreq:normalizeMomentsFreq(c.momentsFreq || DEFAULT_MOMENTS_FREQ),
     translationEnabled:!!c.translationEnabled,
     replyLanguage:normalizeReplyLanguage(c.replyLanguage||c.language||'zh'),
     translationMode:normalizeTranslationMode(c.translationMode||'ondemand'),
@@ -30575,6 +30669,7 @@ async function saveChatSettings() {
     character.memoryVectorStrategy = vectorStrategyNext;
     character.memoryVectorUserMsgCount = vectorUserMsgCountNext;
     character.autoSummaryEnabled = pendingAutoSummaryEnabled === null ? loadAutoSummaryEnabled() : !!pendingAutoSummaryEnabled;
+    character.momentsFreq = momentsFreq;
     if(window.PresenceShared){
       var currentPresenceSettings = window.PresenceShared.getCharSettings(character);
       character.livePresence = Object.assign({}, currentPresenceSettings, {
@@ -30658,6 +30753,7 @@ async function saveChatSettings() {
       themeParts: cloneJsonSafe(chatThemePartDrafts || {}, {}),
       memoryMode: memoryModeNext,
       charBgEnabled: pendingCharBgEnabled === null ? loadCharBgEnabled(character.id) : !!pendingCharBgEnabled,
+      momentsFreq: momentsFreq,
       autoSummaryEnabled: character.autoSummaryEnabled,
       userPersonaProfile: character.userPersonaProfile
     });
