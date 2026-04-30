@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T09:42:00Z';
+const APP_BUILD_ID = '2026-04-30T09:55:00Z';
 const APP_UPDATE_NOTES = [
-  '修复新导入/新创建角色在 QQ 聊天列表被非默认账号过滤掉的问题。',
-  '导入回包会显式归属当前账号并立即刷新聊天列表。',
-  '继续保持账号与头像数据优先走 PhoneStorage。'
+  '修正 user 头像优先级：当前聊天设置头像优先于个人设置头像。',
+  '主屏幕组件、线上聊天、线下约会不再用个人头像覆盖当前角色头像。',
+  '没有具体聊天对象的页面仍可使用个人设置头像。'
 ];
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -1816,10 +1816,6 @@ function getShellUserAvatarAssetKeys(charId, accountId){
   if(id) add('user_avatar_' + id);
   add(scopedKeyForAccount('user_avatar', activeId));
   add('user_avatar');
-  if(activeId){
-    add(scopedKeyForAccount('qq_profile_avatar_asset', activeId));
-    add('qq_profile_avatar_asset');
-  }
   return keys;
 }
 
@@ -5805,7 +5801,6 @@ function collectShellUserAvatarCandidates(charId, character){
   keys.forEach(function(key){
     try{ push(localStorage.getItem(key) || ''); }catch(err4){}
   });
-  push(getActiveAccountProfileAvatar());
   return candidates;
 }
 
@@ -5819,7 +5814,7 @@ function getChatUserAvatar(charId, character){
   var keys = getShellUserAvatarAssetKeys(charId, activeId);
   function loadAt(idx){
     if(idx >= keys.length){
-      var accountAvatar = getActiveAccountProfileAvatar();
+      var accountAvatar = charId ? '' : getActiveAccountProfileAvatar();
       return Promise.resolve(isRenderableShellAvatarSrc(accountAvatar) ? accountAvatar : '');
     }
     return loadStoredAsset(keys[idx]).then(function(src){

@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T09:42:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T09:42:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T09:42:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T09:42:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T09:42:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T09:42:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T09:42:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T09:42:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T09:42:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T09:42:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T09:55:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T09:55:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T09:55:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T09:55:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T09:55:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T09:55:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T09:55:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T09:55:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T09:55:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T09:55:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -8561,10 +8561,12 @@ function currentRawUserAvatarSource(charId){
       if(isRenderableAvatarSrc(src)) return src;
     }catch(err){}
   }
-  try{
-    var active = String(getActiveAccountProfileAvatar() || '').trim();
-    if(isRenderableAvatarSrc(active)) return active;
-  }catch(err2){}
+  if(!charId){
+    try{
+      var active = String(getActiveAccountProfileAvatar() || '').trim();
+      if(isRenderableAvatarSrc(active)) return active;
+    }catch(err2){}
+  }
   return currentUserAvatarForFamily(charId) || '';
 }
 
@@ -9994,7 +9996,7 @@ function getChatBubblePreviewAvatarHtml(role){
   var safeRole = role === 'user' ? 'user' : 'ai';
   var src = '';
   if(safeRole === 'user'){
-    src = String((document.querySelector('#csUserAvatar img') || {}).src || '').trim() || String(getActiveAccountProfileAvatar() || '').trim();
+    src = String((document.querySelector('#csUserAvatar img') || {}).src || '').trim() || String(currentUserAvatarForFamily(character && character.id) || '').trim();
   }else{
     src = normalizeAvatarSrc(getAvatarSrcFromSelectors(['#csCharAvatar img','#hdrAvatar img']) || currentVisibleCharAvatarSrc() || '');
   }
@@ -16215,8 +16217,6 @@ function getUserAvatarStorageKeysForChat(charId){
   add(accountScopedKey('user_avatar'));
   if(safeCharId) add('user_avatar_' + safeCharId);
   add('user_avatar');
-  add(accountScopedKey('qq_profile_avatar_asset'));
-  add('qq_profile_avatar_asset');
   return keys;
 }
 function ensureMsgRange(){
@@ -22626,12 +22626,14 @@ function resolveChatUserAvatarAsync(charId){
     src = String(src || '').trim();
     if(isRenderableAvatarSrc(src)) return ensureChatRenderableAvatarSrc(src);
     var activeProfileSrc = '';
-    try{ activeProfileSrc = String(getActiveAccountProfileAvatar() || '').trim(); }catch(err){}
+    if(!charId){
+      try{ activeProfileSrc = String(getActiveAccountProfileAvatar() || '').trim(); }catch(err){}
+    }
     return ensureChatRenderableAvatarSrc(currentUserAvatarForFamily(charId) || activeProfileSrc || '');
   }).catch(function(){
     var fallback = currentUserAvatarForFamily(charId);
     if(isRenderableAvatarSrc(fallback)) return ensureChatRenderableAvatarSrc(fallback);
-    return ensureChatRenderableAvatarSrc(getActiveAccountProfileAvatar() || '');
+    return ensureChatRenderableAvatarSrc(charId ? '' : (getActiveAccountProfileAvatar() || ''));
   });
 }
 
@@ -28097,7 +28099,7 @@ function syncChatSettingsHero(){
   var userSrc = String((userImg && (userImg.getAttribute('src') || userImg.src)) || '').trim();
   if(!isRenderableAvatarSrc(userSrc)){
     try{
-      userSrc = String(currentUserAvatarForFamily(character && character.id) || getActiveAccountProfileAvatar() || '').trim();
+      userSrc = String(currentUserAvatarForFamily(character && character.id) || '').trim();
     }catch(e){}
   }
   renderChatSettingsHeroPhoto('csHeroUserPhoto', userSrc, userName.slice(0, 2), userName);
@@ -29554,7 +29556,7 @@ function renderChatSettingsAvatarShelf(role){
   if(safeRole === 'char'){
     currentSrc = normalizeAvatarSrc(getAvatarSrcFromSelectors(['#csCharAvatar img','#hdrAvatar img']) || currentVisibleCharAvatarSrc() || '');
   }else{
-    currentSrc = normalizeAvatarSrc(String((document.querySelector('#csUserAvatar img') || {}).src || '').trim() || String(currentUserAvatarForFamily(character && character.id) || getActiveAccountProfileAvatar() || '').trim());
+    currentSrc = normalizeAvatarSrc(String((document.querySelector('#csUserAvatar img') || {}).src || '').trim() || String(currentUserAvatarForFamily(character && character.id) || '').trim());
   }
   var html = [
     '<button class="cs-avatar-shelf-card add" type="button" data-avatar-shelf-add="' + safeRole + '">' +
