@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T14:36:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T14:36:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T14:36:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T14:36:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T14:36:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T14:36:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T14:36:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T14:36:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T14:36:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T14:36:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T14:50:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T14:50:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T14:50:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T14:50:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T14:50:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T14:50:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T14:50:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T14:50:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T14:50:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T14:50:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -3568,6 +3568,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 //  State
 // ════════════════════════════════════════════
 var chatLog = [];
+var chatStorageHadCanonicalEmpty = false;
 var character = null;
 var importedRegexEditorIndex = -1;
 var desiredChatCharId = '';
@@ -4736,9 +4737,16 @@ async function hydrateCharacterStorageState(){
   var moneyRec = results[3];
   var callRec = results[4];
 
-  var chatHistory = Array.isArray(chatRec && chatRec.history) ? chatRec.history.map(normalizeChatEntry) : [];
-  if(!chatHistory.length){
+  var hasPrimaryChatRecord = !!(chatRec && Array.isArray(chatRec.history));
+  var chatHistory = hasPrimaryChatRecord ? chatRec.history.map(normalizeChatEntry) : [];
+  if(hasPrimaryChatRecord && !chatHistory.length){
+    chatStorageHadCanonicalEmpty = true;
+  }
+  if(!hasPrimaryChatRecord || !chatHistory.length){
     var bestChatRecord = await loadBestChatHistoryRecord(charId);
+    if(bestChatRecord && Array.isArray(bestChatRecord.history) && !bestChatRecord.history.length){
+      chatStorageHadCanonicalEmpty = true;
+    }
     chatHistory = Array.isArray(bestChatRecord && bestChatRecord.history) ? bestChatRecord.history.slice() : [];
   }
 
@@ -18467,6 +18475,7 @@ function getStrictPromptWorldbookEntries(){
 async function restoreOrStartChat() {
   var msgs = document.getElementById('messages');
   replyTargetId = null;
+  chatStorageHadCanonicalEmpty = false;
   renderLoadingState();
   var restored = [];
   try{
@@ -18499,6 +18508,16 @@ async function restoreOrStartChat() {
   }
   if(restored.length && !hasAnyGreetingForCharacter() && isLikelyStrayGreetingHistory(restored)){
     restored = [];
+  }
+  if(!restored.length && chatStorageHadCanonicalEmpty){
+    maybeResetGreetingSelectionForRenderableDefault([]);
+    msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">' + esc(character.name) + '</div><div class="welcome-sub">发送消息开始对话，或按 ✦ 触发回复</div></div>';
+    chatLog = [];
+    renderReplyPreview();
+    updateFloatingUi();
+    refreshMemoryUi();
+    postToShell({ type:'CHAT_SEEN', payload:{ charId: character && character.id } });
+    return;
   }
   maybeResetGreetingSelectionForRenderableDefault(restored);
   if (restored.length) {
@@ -27744,6 +27763,10 @@ function normalizeStoredChatRecord(raw, key){
   };
 }
 
+function hasCanonicalEmptyChatRecord(record){
+  return !!(record && Array.isArray(record.history) && !record.history.length && (Number(record.updatedAt || record.revision || 0) || 0));
+}
+
 function historySortStamp(list){
   var entries = Array.isArray(list) ? list : [];
   var lastTs = 0;
@@ -27787,6 +27810,7 @@ async function loadBestChatHistoryRecord(charId){
     try{
       if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
         var stored = await window.PhoneStorage.get('chats', key);
+        if(hasCanonicalEmptyChatRecord(stored)) chatStorageHadCanonicalEmpty = true;
         best = chooseBetterChatHistory(best, normalizeStoredChatRecord(stored, key));
       }
     }catch(e){}
@@ -27794,6 +27818,7 @@ async function loadBestChatHistoryRecord(charId){
       var localRaw = localStorage.getItem(key);
       if(localRaw){
         var localObj = JSON.parse(localRaw || 'null');
+        if(hasCanonicalEmptyChatRecord(localObj)) chatStorageHadCanonicalEmpty = true;
         best = chooseBetterChatHistory(best, normalizeStoredChatRecord(localObj, key));
       }
     }catch(localErr){
@@ -27818,6 +27843,7 @@ async function loadBestChatHistoryRecord(charId){
           var recordCharId = String((record && record.charId) || '').trim();
           var normalized = normalizeStoredChatRecord(record, recordKey);
           if(!normalized) return;
+          if(!normalized.history.length) chatStorageHadCanonicalEmpty = true;
           if(candidates.indexOf(recordKey) === -1 && charIds.indexOf(recordCharId) === -1) return;
           best = chooseBetterChatHistory(best, normalized);
         });
@@ -27840,33 +27866,7 @@ async function loadBestChatHistoryRecord(charId){
 async function loadPreferredStoredChatForCurrentCharacter(){
   if(!character || !character.id) return [];
   var bestRecord = await loadBestChatHistoryRecord(character.id);
-  var primary = Array.isArray(bestRecord && bestRecord.history) ? bestRecord.history.slice() : [];
-  var backup = [];
-  var currentCharId = String((character && character.id) || '').trim();
-  try{
-    var moneyState = moneyStateCache;
-    if((!moneyState || !moneyState.replySnapshot) && window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
-      var moneyRecord = await window.PhoneStorage.get('moneyStates', moneyStateStorageId());
-      moneyState = normalizeMoneyStateCache(moneyRecord && moneyRecord.data ? moneyRecord.data : defaultMoneyStateCache());
-      if(character && character.id) moneyStateCache = moneyState;
-    }
-    var snap = moneyState && moneyState.replySnapshot ? moneyState.replySnapshot : null;
-    if(snap && String(snap.charId || '').trim() !== currentCharId){
-      snap = null;
-    }
-    if(!snap){
-      snap = JSON.parse(localStorage.getItem(moneyReplySnapshotKey(character.id)) || 'null');
-      if(snap && String(snap.charId || '').trim() !== currentCharId){
-        snap = null;
-      }
-    }
-    backup = Array.isArray(snap && snap.history) ? snap.history.map(normalizeChatEntry) : [];
-  }catch(e){}
-  var primaryStamp = historySortStamp(primary);
-  var backupStamp = historySortStamp(backup);
-  if(backupStamp.lastTs > primaryStamp.lastTs) return backup;
-  if(backupStamp.lastTs === primaryStamp.lastTs && backupStamp.count > primaryStamp.count) return backup;
-  return primary;
+  return Array.isArray(bestRecord && bestRecord.history) ? bestRecord.history.slice() : [];
 }
 
 function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
