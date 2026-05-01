@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T06:52:00Z';
+const APP_BUILD_ID = '2026-05-01T07:18:00Z';
 const APP_UPDATE_NOTES = [
-  '更新弹窗只在 GitHub Pages 真正同步新版本后出现。',
-  '同源 version/main/index 三份文件未齐时不提示刷新。',
-  '刷新预热使用目标 build，减少假更新和旧缓存。'
+  '安卓主页底栏改为可视底部固定，不再被缩放框挤出屏幕。',
+  '同一安卓设备换浏览器优先用物理指纹合并设备数。',
+  '邀请码旧浏览器安装 ID 会作为别名迁移，不再轻易占满两台。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -365,11 +365,11 @@ async function sha256Hex(value){
 }
 
 async function inviteGateDeviceHash(){
-  return sha256Hex(await getInviteGateDeviceSeedV4());
+  return sha256Hex(getInviteGateDeviceSeedV3());
 }
 
 async function inviteGateDeviceHashes(extraHash){
-  var seeds = [await getInviteGateDeviceSeedV4(), getInviteGateDeviceSeedV3(), getInviteGateDeviceSeedV2(), getInviteGateDeviceSeedV1()].filter(Boolean);
+  var seeds = [getInviteGateDeviceSeedV3(), await getInviteGateDeviceSeedV4(), getInviteGateDeviceSeedV2(), getInviteGateDeviceSeedV1()].filter(Boolean);
   var out = [];
   if(extraHash) out.push(String(extraHash || '').trim());
   for(var i = 0; i < seeds.length; i += 1){

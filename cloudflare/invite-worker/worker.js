@@ -422,6 +422,20 @@ async function touchOrMigrateInviteDevice(env, device, targetHash, meta, token){
   ).bind(nextHash, nextToken, stamp, meta.ipHash, meta.uaHash, code, oldHash).run();
 }
 
+async function cleanupInviteDeviceDuplicatesForHashes(env, code, canonicalHash, hashes){
+  const safeCode = normalizeCode(code);
+  const canonical = normalizeDeviceHash(canonicalHash);
+  const aliases = Array.from(new Set((hashes || []).map(normalizeDeviceHash).filter(Boolean)))
+    .filter((hash)=>hash && hash !== canonical)
+    .slice(0, 8);
+  if(!safeCode || !canonical || !aliases.length) return;
+  for(const alias of aliases){
+    await env.DB.prepare(
+      'DELETE FROM invite_devices WHERE code = ? AND device_hash = ?'
+    ).bind(safeCode, alias).run();
+  }
+}
+
 function nowMs(){
   return Date.now();
 }
@@ -748,6 +762,7 @@ async function handleVerify(request, env){
   const token = randomToken();
   if(existing){
     await touchOrMigrateInviteDevice(env, existing, deviceHash, meta, token);
+    await cleanupInviteDeviceDuplicatesForHashes(env, code, deviceHash, deviceHashes);
     const countRow = await env.DB.prepare(
       'SELECT COUNT(*) AS count FROM invite_devices WHERE code = ? AND revoked = 0'
     ).bind(code).first();
@@ -794,6 +809,7 @@ async function handleSession(request, env){
   if(!device) return reject(env, meta, code, deviceHash, 'session', '这台设备没有通行权，请重新验证邀请码。', 401);
 
   await touchOrMigrateInviteDevice(env, device, deviceHash, meta, token);
+  await cleanupInviteDeviceDuplicatesForHashes(env, code, deviceHash, deviceHashes);
   const countRow = await env.DB.prepare(
     'SELECT COUNT(*) AS count FROM invite_devices WHERE code = ? AND revoked = 0'
   ).bind(code).first();
