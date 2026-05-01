@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T06:34:00Z';
+const APP_BUILD_ID = '2026-05-01T06:52:00Z';
 const APP_UPDATE_NOTES = [
-  '邀请码设备身份改为 PhoneStorage 稳定安装 ID。',
-  '旧硬件指纹只做迁移别名，不再当主身份。',
-  '安卓动态补 interactive-widget 适配，iOS 不动。'
+  '更新弹窗只在 GitHub Pages 真正同步新版本后出现。',
+  '同源 version/main/index 三份文件未齐时不提示刷新。',
+  '刷新预热使用目标 build，减少假更新和旧缓存。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -112,6 +112,7 @@ let hostedUpdatePromptDedupeAt = 0;
 let hostedUpdateCardPending = false;
 let lastHostedUpdateCheckStatus = '';
 let hostedUpdateRemoteNotes = {};
+let hostedPagesReadyBuilds = {};
 let installedUpdateNoticeActive = false;
 let installedUpdateNoticeChecked = false;
 let chatInputFocusActive = false;
@@ -1451,6 +1452,11 @@ function announceHostedUpdate(fingerprint){
   if(!nextFingerprint) return;
   pendingRemoteAppFingerprint = nextFingerprint;
   if(compareHostedBuildIds(nextFingerprint, APP_BUILD_ID) <= 0) return;
+  if(!isHostedPagesBuildReady(nextFingerprint)){
+    lastHostedUpdateCheckStatus = 'GitHub 已更新，等待 Pages 同步';
+    updateHostedUpdateMeta(nextFingerprint);
+    return;
+  }
   if(isAcceptedHostedRemoteBuild(nextFingerprint)) return;
   if(shownHostedUpdateFingerprint === nextFingerprint){
     return;
@@ -1657,6 +1663,43 @@ function readBuildIdFromMainJsText(text){
   }
 }
 
+function readBuildIdFromIndexHtmlText(text){
+  try{
+    var source = String(text || '');
+    var mainMatch = source.match(/main\.js\?v=([^"'<\s]+)/);
+    if(mainMatch && mainMatch[1]) return decodeURIComponent(String(mainMatch[1]).trim());
+    var buildMatch = source.match(/APP_BUILD_ID\s*[:=]\s*['"]([^'"]+)['"]/);
+    return String(buildMatch && buildMatch[1] || '').trim();
+  }catch(err){
+    return '';
+  }
+}
+
+function getOldestHostedBuildId(builds){
+  var oldest = '';
+  (Array.isArray(builds) ? builds : []).forEach(function(build){
+    var value = String(build || '').trim();
+    if(!value) return;
+    if(!oldest || compareHostedBuildIds(value, oldest) < 0){
+      oldest = value;
+    }
+  });
+  return oldest;
+}
+
+function markHostedPagesReadyBuild(build){
+  var value = String(build || '').trim();
+  if(!value) return;
+  hostedPagesReadyBuilds[value] = Date.now();
+}
+
+function isHostedPagesBuildReady(build){
+  var value = String(build || '').trim();
+  if(!value) return false;
+  if(compareHostedBuildIds(value, APP_BUILD_ID) <= 0) return true;
+  return Boolean(hostedPagesReadyBuilds[value]);
+}
+
 function readBuildIdFromServiceWorkerUrl(url){
   try{
     if(!url) return '';
@@ -1690,6 +1733,12 @@ function syncHostedUpdateFromServiceWorker(reg){
   }
   pendingRemoteAppFingerprint = swBuild;
   setLastSeenHostedRemoteBuild(swBuild);
+  if(!isHostedPagesBuildReady(swBuild)){
+    lastHostedUpdateCheckStatus = '检测到新壳，等待 Pages 同步';
+    updateHostedUpdateMeta(swBuild);
+    scheduleHostedUpdateCheck(true);
+    return false;
+  }
   if(isAcceptedHostedRemoteBuild(swBuild)){
     lastHostedUpdateCheckStatus = reg && reg.waiting ? '检测到新壳版本' : '检测到新版本';
     updateHostedUpdateMeta(swBuild);
@@ -1792,6 +1841,40 @@ async function buildRemoteAppFingerprint(){
   return '';
 }
 
+async function buildHostedPagesFingerprint(){
+  if(!/^https?:$/.test(window.location.protocol)) return '';
+  var stamp = Date.now();
+  var versionInfo = { buildId:'', updateNotes:[] };
+  var versionPromise = fetchJsonWithTimeout(new URL('version.json?pagesReady=' + stamp, window.location.href).toString(), 15000)
+    .then(function(data){
+      versionInfo = readVersionInfoFromVersionPayload(data);
+      return versionInfo.buildId;
+    });
+  var mainPromise = fetchTextWithTimeout(new URL('main.js?pagesReady=' + stamp, window.location.href).toString(), 15000)
+    .then(function(text){ return readBuildIdFromMainJsText(text); });
+  var indexPromise = fetchTextWithTimeout(new URL('index.html?pagesReady=' + stamp, window.location.href).toString(), 15000)
+    .then(function(text){ return readBuildIdFromIndexHtmlText(text); });
+  var results = await Promise.allSettled([versionPromise, mainPromise, indexPromise]);
+  var builds = results.map(function(result){
+    return result && result.status === 'fulfilled' ? String(result.value || '').trim() : '';
+  }).filter(Boolean);
+  if(builds.length < 3){
+    lastHostedUpdateCheckStatus = 'Pages 还没同步完整';
+    return '';
+  }
+  var readyBuild = getOldestHostedBuildId(builds);
+  if(!readyBuild){
+    lastHostedUpdateCheckStatus = 'Pages 未读到版本';
+    return '';
+  }
+  if(compareHostedBuildIds(readyBuild, APP_BUILD_ID) > 0){
+    markHostedPagesReadyBuild(readyBuild);
+    rememberHostedUpdateRemoteNotes(readyBuild, versionInfo.updateNotes);
+    return readyBuild;
+  }
+  return readyBuild;
+}
+
 function getRequestedHostedBuild(){
   try{
     var url = new URL(window.location.href);
@@ -1808,9 +1891,10 @@ function getServiceWorkerUrl(buildOverride){
   return SERVICE_WORKER_PATH + '?build=' + encodeURIComponent(build);
 }
 
-async function primeLatestCoreFiles(){
+async function primeLatestCoreFiles(buildOverride){
   if(!/^https?:$/.test(window.location.protocol)) return;
   var stamp = Date.now();
+  var refreshBuild = String(buildOverride || pendingRemoteAppFingerprint || shownHostedUpdateFingerprint || APP_BUILD_ID).trim() || APP_BUILD_ID;
   var targets = [
     '',
     'index.html',
@@ -1846,7 +1930,8 @@ async function primeLatestCoreFiles(){
   ];
   await Promise.all(targets.map(function(path){
     var url = new URL(path || './', window.location.href);
-    url.searchParams.set('refreshBuild', String(stamp));
+    url.searchParams.set('refreshBuild', refreshBuild);
+    url.searchParams.set('__ts', String(stamp));
     return fetch(url.toString(), { cache:'no-store' }).catch(function(){ return null; });
   }));
 }
@@ -1887,9 +1972,9 @@ function bindHostedServiceWorker(){
         if(waitingBuild && compareHostedBuildIds(waitingBuild, APP_BUILD_ID) > 0){
           pendingRemoteAppFingerprint = waitingBuild;
           setLastSeenHostedRemoteBuild(waitingBuild);
-          lastHostedUpdateCheckStatus = '检测到新壳版本';
+          lastHostedUpdateCheckStatus = isHostedPagesBuildReady(waitingBuild) ? '检测到新壳版本' : '检测到新壳，等待 Pages 同步';
           updateHostedUpdateMeta(waitingBuild);
-          if(!isAcceptedHostedRemoteBuild(waitingBuild)){
+          if(isHostedPagesBuildReady(waitingBuild) && !isAcceptedHostedRemoteBuild(waitingBuild)){
             announceHostedUpdate(waitingBuild);
           }
         }
@@ -1955,28 +2040,29 @@ async function checkForHostedUpdate(){
     if(hostedUpdateLockedOpen && pendingRemoteAppFingerprint){
       return;
     }
-    var remoteFingerprint = await buildRemoteAppFingerprint();
-    if(remoteFingerprint && compareHostedBuildIds(remoteFingerprint, APP_BUILD_ID) > 0){
-      lastHostedUpdateCheckStatus = '检测到新版本';
-      setLastSeenHostedRemoteBuild(remoteFingerprint);
-      if(isAcceptedHostedRemoteBuild(remoteFingerprint)){
-        updateHostedUpdateMeta(remoteFingerprint);
+    var pagesFingerprint = await buildHostedPagesFingerprint();
+    if(pagesFingerprint && compareHostedBuildIds(pagesFingerprint, APP_BUILD_ID) > 0){
+      lastHostedUpdateCheckStatus = 'Pages 已同步新版本';
+      setLastSeenHostedRemoteBuild(pagesFingerprint);
+      markHostedPagesReadyBuild(pagesFingerprint);
+      if(isAcceptedHostedRemoteBuild(pagesFingerprint)){
+        updateHostedUpdateMeta(pagesFingerprint);
         return;
       }
-      pendingRemoteAppFingerprint = remoteFingerprint;
-      updateHostedUpdateMeta(remoteFingerprint);
-      announceHostedUpdate(remoteFingerprint);
+      pendingRemoteAppFingerprint = pagesFingerprint;
+      updateHostedUpdateMeta(pagesFingerprint);
+      announceHostedUpdate(pagesFingerprint);
       return;
     }
-    if(remoteFingerprint && compareHostedBuildIds(remoteFingerprint, APP_BUILD_ID) <= 0){
+    if(pagesFingerprint && compareHostedBuildIds(pagesFingerprint, APP_BUILD_ID) <= 0){
       lastHostedUpdateCheckStatus = '已是最新';
-      setLastSeenHostedRemoteBuild(remoteFingerprint);
+      setLastSeenHostedRemoteBuild(pagesFingerprint);
       clearAcceptedHostedUpdateBuildIfCurrent();
       if(installedUpdateNoticeActive){
-        updateHostedUpdateMeta(remoteFingerprint);
+        updateHostedUpdateMeta(pagesFingerprint);
         return;
       }
-      if(compareHostedBuildIds(remoteFingerprint, APP_BUILD_ID) < 0){
+      if(compareHostedBuildIds(pagesFingerprint, APP_BUILD_ID) < 0){
         try{ localStorage.removeItem(HOSTED_UPDATE_LAST_SEEN_REMOTE_KEY); }catch(e){}
       }
       if(hostedUpdateLockedOpen && shownHostedUpdateFingerprint){
@@ -1989,8 +2075,8 @@ async function checkForHostedUpdate(){
       hideHostedUpdateCard();
       return;
     }
-    lastHostedUpdateCheckStatus = '未读到远端版本';
-    updateHostedUpdateMeta(remoteFingerprint);
+    lastHostedUpdateCheckStatus = lastHostedUpdateCheckStatus || 'Pages 未读到版本';
+    updateHostedUpdateMeta(pagesFingerprint);
   }catch(err){
     lastHostedUpdateCheckStatus = '检查失败';
     updateHostedUpdateMeta('');
@@ -2021,7 +2107,7 @@ function bootHostedUpdateCheck(){
   hostedUpdateBootstrapped = true;
   var cachedRemoteFingerprint = getLastSeenHostedRemoteBuild();
   updateHostedUpdateMeta(cachedRemoteFingerprint);
-  if(cachedRemoteFingerprint && compareHostedBuildIds(cachedRemoteFingerprint, APP_BUILD_ID) > 0 && !isAcceptedHostedRemoteBuild(cachedRemoteFingerprint)){
+  if(cachedRemoteFingerprint && compareHostedBuildIds(cachedRemoteFingerprint, APP_BUILD_ID) > 0 && !isAcceptedHostedRemoteBuild(cachedRemoteFingerprint) && isHostedPagesBuildReady(cachedRemoteFingerprint)){
     pendingRemoteAppFingerprint = cachedRemoteFingerprint;
     announceHostedUpdate(cachedRemoteFingerprint);
   }else if(cachedRemoteFingerprint && compareHostedBuildIds(cachedRemoteFingerprint, APP_BUILD_ID) <= 0){
@@ -2092,7 +2178,7 @@ function refreshInstalledApp(evt){
     .then(function(){ return flushCurrentAppState(); })
     .then(function(){ return unregisterHostedServiceWorkers(); })
     .then(function(){ return clearHostedUpdateCaches(); })
-    .then(function(){ return primeLatestCoreFiles(); })
+    .then(function(){ return primeLatestCoreFiles(targetBuild); })
     .then(function(){
       finishReload();
     })
