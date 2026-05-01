@@ -50,7 +50,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T18:52:00Z';
+const APP_BUILD_ID = '2026-04-30T19:08:00Z';
 const APP_UPDATE_NOTES = [
   '朋友圈帖子头像会在渲染后异步补齐真实 user/char 头像。',
   '带 charId 的朋友圈不再停留在黑色头像底色。',

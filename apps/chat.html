@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-04-30T17:13:00Z"></script>
-<script src="../chatStorage.js?v=2026-04-30T17:13:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T17:13:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T17:13:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T17:13:00Z"></script>
-<script src="../scheduleShared.js?v=2026-04-30T17:13:00Z"></script>
-<script src="../presenceShared.js?v=2026-04-30T17:13:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-04-30T17:13:00Z"></script>
-<script src="../sunnySupport.js?v=2026-04-30T17:13:00Z"></script>
-<script src="offlineInvite.js?v=2026-04-30T17:13:00Z"></script>
+<script src="../promptManager.js?v=2026-04-30T19:08:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T19:08:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T19:08:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T19:08:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T19:08:00Z"></script>
+<script src="../scheduleShared.js?v=2026-04-30T19:08:00Z"></script>
+<script src="../presenceShared.js?v=2026-04-30T19:08:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-04-30T19:08:00Z"></script>
+<script src="../sunnySupport.js?v=2026-04-30T19:08:00Z"></script>
+<script src="offlineInvite.js?v=2026-04-30T19:08:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -5962,6 +5962,9 @@ function getMainMomentsName(){
 function pendingFirstUserTurnKey(charId){
   return accountScopedKey('friend_first_user_turn_' + charId);
 }
+function suppressedOpeningAfterClearKey(charId){
+  return accountScopedKey('chat_opening_suppressed_after_clear_' + charId);
+}
 function shouldWaitForFirstUserTurn(charId){
   if(!charId) return false;
   return String(localStorage.getItem(pendingFirstUserTurnKey(charId)) || '') === '1';
@@ -5973,6 +5976,18 @@ function markNeedFirstUserTurn(charId){
 function consumeFirstUserTurn(charId){
   if(!charId) return;
   try{ localStorage.removeItem(pendingFirstUserTurnKey(charId)); }catch(e){}
+}
+function shouldSuppressOpeningAfterClear(charId){
+  if(!charId) return false;
+  try{ return String(localStorage.getItem(suppressedOpeningAfterClearKey(charId)) || '') === '1'; }catch(e){ return false; }
+}
+function markSuppressOpeningAfterClear(charId){
+  if(!charId) return;
+  try{ localStorage.setItem(suppressedOpeningAfterClearKey(charId), '1'); }catch(e){}
+}
+function clearSuppressOpeningAfterClear(charId){
+  if(!charId) return;
+  try{ localStorage.removeItem(suppressedOpeningAfterClearKey(charId)); }catch(e){}
 }
 function getActiveAccountProfileName(){
   try{
@@ -18653,13 +18668,17 @@ async function restoreOrStartChat() {
   }
   if(!restored.length && chatStorageHadCanonicalEmpty){
     maybeResetGreetingSelectionForRenderableDefault([]);
-    msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">' + esc(character.name) + '</div><div class="welcome-sub">发送消息开始对话，或按 ✦ 触发回复</div></div>';
-    chatLog = [];
-    renderReplyPreview();
-    updateFloatingUi();
-    refreshMemoryUi();
-    postToShell({ type:'CHAT_SEEN', payload:{ charId: character && character.id } });
-    return;
+    var emptyGreetingRecord = getGreetingRenderRecord(shouldRenderGreetingWithRegex());
+    var emptyGreeting = String(emptyGreetingRecord && emptyGreetingRecord.text || '').trim();
+    if(!emptyGreeting || shouldSuppressOpeningAfterClear(character && character.id)){
+      msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">💬</div><div class="welcome-title">' + esc(character.name) + '</div><div class="welcome-sub">发送消息开始对话，或按 ✦ 触发回复</div></div>';
+      chatLog = [];
+      renderReplyPreview();
+      updateFloatingUi();
+      refreshMemoryUi();
+      postToShell({ type:'CHAT_SEEN', payload:{ charId: character && character.id } });
+      return;
+    }
   }
   maybeResetGreetingSelectionForRenderableDefault(restored);
   if (restored.length) {
@@ -18686,10 +18705,11 @@ async function restoreOrStartChat() {
   // Fresh start — show greeting
   var greetingRecord = getGreetingRenderRecord(shouldRenderGreetingWithRegex());
   var greeting = String(greetingRecord && greetingRecord.text || '').trim();
-  if(shouldWaitForFirstUserTurn(character && character.id)) greeting = '';
   msgs.innerHTML = '';
   chatLog = [];
   if (greeting) {
+    consumeFirstUserTurn(character && character.id);
+    clearSuppressOpeningAfterClear(character && character.id);
     var greetingType = String(greetingRecord && greetingRecord.type || getGreetingMessageType(greeting) || 'text');
     var first = makeChatEntry('assistant', greeting, greetingType);
     chatLog = [first];
@@ -27600,6 +27620,7 @@ async function clearChatData(opts){
   var msgs = document.getElementById('messages');
   msgs.innerHTML = '';
   if(options.keepGreeting){
+    clearSuppressOpeningAfterClear(character && character.id);
     var g = getGreeting();
     if (g) {
       var greetingType = getGreetingMessageType(g);
@@ -27610,6 +27631,7 @@ async function clearChatData(opts){
       msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">🗑</div><div class="welcome-title">已清空</div></div>';
     }
   }else{
+    markSuppressOpeningAfterClear(character && character.id);
     msgs.innerHTML = '<div class="welcome"><div class="welcome-icon">🗑</div><div class="welcome-title">已清空聊天与记忆</div></div>';
   }
   await saveChat(true);
