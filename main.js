@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T05:08:00Z';
+const APP_BUILD_ID = '2026-05-01T05:24:00Z';
 const APP_UPDATE_NOTES = [
-  '修复安卓浏览器默认图片加载兼容问题。',
-  '修复安卓 PWA 主页底栏被挤出屏幕的问题。',
-  '邀请码 USERNAME 改为同设备跨浏览器稳定。'
+  '修复邀请码更新后掉验证的问题。',
+  '验证会兼容旧设备指纹并自动迁移。',
+  'USERNAME 显示会缓存，不再每次更新乱跳。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -62,6 +62,7 @@ const INVITE_GATE_CONFIG = {
   maxDevices: 2,
   sessionKey: 'invite_gate_session_v1',
   deviceKey: 'invite_gate_device_v1',
+  publicNameKey: 'invite_gate_public_name_v1',
   cacheMs: 12 * 60 * 60 * 1000
 };
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
@@ -138,7 +139,15 @@ function randomInviteGatePublicName(){
 function setInviteGatePublicName(value){
   var el = document.getElementById('invite-gate-public-name');
   if(!el) return;
-  el.value = String(value || randomInviteGatePublicName()).trim() || randomInviteGatePublicName();
+  var next = String(value || randomInviteGatePublicName()).trim() || randomInviteGatePublicName();
+  el.value = next;
+  if(next && next !== '生成中...'){
+    try{ localStorage.setItem(INVITE_GATE_CONFIG.publicNameKey, next); }catch(e){}
+  }
+}
+
+function readInviteGatePublicNameCache(){
+  try{ return String(localStorage.getItem(INVITE_GATE_CONFIG.publicNameKey) || '').trim(); }catch(e){ return ''; }
 }
 
 async function copyInviteGatePublicName(){
@@ -156,7 +165,8 @@ async function copyInviteGatePublicName(){
 }
 
 async function loadInviteGatePublicName(){
-  setInviteGatePublicName(randomInviteGatePublicName());
+  var cachedName = readInviteGatePublicNameCache();
+  setInviteGatePublicName(cachedName || randomInviteGatePublicName());
   var base = inviteGateApiBase();
   if(!base) return;
   try{
@@ -167,7 +177,7 @@ async function loadInviteGatePublicName(){
       body: JSON.stringify({ deviceHash: deviceHash })
     });
     var data = await res.json().catch(function(){ return null; });
-    if(res.ok && data && data.ok && data.publicName){
+    if(!cachedName && res.ok && data && data.ok && data.publicName){
       setInviteGatePublicName(data.publicName);
     }
   }catch(err){}
@@ -206,12 +216,40 @@ function clearInviteGateSession(){
   try{ localStorage.removeItem(INVITE_GATE_CONFIG.sessionKey); }catch(e){}
 }
 
-function getInviteGateDeviceId(){
+function normalizeInviteGateDevicePart(value){
+  return String(value == null ? '' : value).trim().toLowerCase();
+}
+
+function getInviteGateLegacyRandomDeviceId(){
+  try{ return String(localStorage.getItem(INVITE_GATE_CONFIG.deviceKey) || '').trim(); }catch(e){ return ''; }
+}
+
+function getInviteGateDeviceSeedV3(){
   var nav = window.navigator || {};
   var scr = window.screen || {};
   var tz = '';
   try{ tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch(e){}
+  var w = Number(scr.width || 0) || 0;
+  var h = Number(scr.height || 0) || 0;
   var parts = [
+    'device-v3',
+    Math.min(w, h) || '',
+    Math.max(w, h) || '',
+    scr.colorDepth || '',
+    nav.hardwareConcurrency || '',
+    nav.maxTouchPoints || '',
+    nav.language || '',
+    tz
+  ];
+  return parts.map(normalizeInviteGateDevicePart).join('|');
+}
+
+function getInviteGateDeviceSeedV2(){
+  var nav = window.navigator || {};
+  var scr = window.screen || {};
+  var tz = '';
+  try{ tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch(e){}
+  return [
     'device-v2',
     scr.width || '',
     scr.height || '',
@@ -225,8 +263,21 @@ function getInviteGateDeviceId(){
     nav.platform || '',
     nav.language || '',
     tz
-  ];
-  return parts.map(function(value){ return String(value == null ? '' : value).trim().toLowerCase(); }).join('|');
+  ].map(normalizeInviteGateDevicePart).join('|');
+}
+
+function getInviteGateDeviceSeedV1(){
+  var legacyId = getInviteGateLegacyRandomDeviceId();
+  if(!legacyId) return '';
+  var nav = window.navigator || {};
+  var scr = window.screen || {};
+  return [
+    legacyId,
+    nav.userAgent || '',
+    nav.language || '',
+    scr.width || '',
+    scr.height || ''
+  ].map(function(value){ return String(value == null ? '' : value).trim(); }).join('|');
 }
 
 async function sha256Hex(value){
@@ -245,7 +296,17 @@ async function sha256Hex(value){
 }
 
 async function inviteGateDeviceHash(){
-  return sha256Hex(getInviteGateDeviceId());
+  return sha256Hex(getInviteGateDeviceSeedV3());
+}
+
+async function inviteGateDeviceHashes(extraHash){
+  var seeds = [getInviteGateDeviceSeedV3(), getInviteGateDeviceSeedV2(), getInviteGateDeviceSeedV1()].filter(Boolean);
+  var out = [];
+  if(extraHash) out.push(String(extraHash || '').trim());
+  for(var i = 0; i < seeds.length; i += 1){
+    out.push(await sha256Hex(seeds[i]));
+  }
+  return Array.from(new Set(out.filter(Boolean)));
 }
 
 async function inviteGateRequest(path, payload){
@@ -283,6 +344,7 @@ async function verifyInviteGateCode(code){
   var data = await inviteGateRequest('/verify', {
     code: safeCode,
     deviceHash: deviceHash,
+    deviceHashes: await inviteGateDeviceHashes(deviceHash),
     appBuild: APP_BUILD_ID
   });
   return Object.assign({}, data, {
@@ -300,6 +362,7 @@ async function validateInviteGateSession(session){
     token: session.token,
     code: session.code || '',
     deviceHash: deviceHash,
+    deviceHashes: await inviteGateDeviceHashes(session.deviceHash),
     appBuild: APP_BUILD_ID
   });
   saveInviteGateSession(Object.assign({}, session, data, {

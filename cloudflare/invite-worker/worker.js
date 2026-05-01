@@ -364,6 +364,64 @@ function normalizeDeviceHash(value){
   return String(value || '').trim().toLowerCase().replace(/[^a-f0-9]/g, '').slice(0, 128);
 }
 
+function normalizeDeviceHashes(body){
+  const out = [];
+  const push = (value)=>{
+    const safe = normalizeDeviceHash(value);
+    if(safe && out.indexOf(safe) < 0) out.push(safe);
+  };
+  push(body && body.deviceHash);
+  const list = Array.isArray(body && body.deviceHashes) ? body.deviceHashes : [];
+  for(const value of list) push(value);
+  return out.slice(0, 8);
+}
+
+async function findInviteDeviceByHashes(env, code, hashes){
+  for(const hash of hashes || []){
+    const row = await env.DB.prepare(
+      'SELECT * FROM invite_devices WHERE code = ? AND device_hash = ? AND revoked = 0'
+    ).bind(code, hash).first();
+    if(row) return row;
+  }
+  return null;
+}
+
+async function findInviteDeviceByToken(env, code, token){
+  return env.DB.prepare(
+    'SELECT * FROM invite_devices WHERE code = ? AND session_token = ? AND revoked = 0 ORDER BY last_seen DESC LIMIT 1'
+  ).bind(code, token).first();
+}
+
+async function touchOrMigrateInviteDevice(env, device, targetHash, meta, token){
+  const code = normalizeCode(device && device.code);
+  const oldHash = normalizeDeviceHash(device && device.device_hash);
+  const nextHash = normalizeDeviceHash(targetHash) || oldHash;
+  const nextToken = String(token || (device && device.session_token) || '').trim();
+  if(!code || !oldHash || !nextHash) return;
+  const stamp = nowMs();
+  if(oldHash === nextHash){
+    await env.DB.prepare(
+      'UPDATE invite_devices SET session_token = ?, last_seen = ?, last_ip_hash = ?, last_ua_hash = ? WHERE code = ? AND device_hash = ?'
+    ).bind(nextToken, stamp, meta.ipHash, meta.uaHash, code, oldHash).run();
+    return;
+  }
+  const target = await env.DB.prepare(
+    'SELECT * FROM invite_devices WHERE code = ? AND device_hash = ? AND revoked = 0'
+  ).bind(code, nextHash).first();
+  if(target){
+    await env.DB.prepare(
+      'UPDATE invite_devices SET session_token = ?, last_seen = ?, last_ip_hash = ?, last_ua_hash = ? WHERE code = ? AND device_hash = ?'
+    ).bind(nextToken, stamp, meta.ipHash, meta.uaHash, code, nextHash).run();
+    await env.DB.prepare(
+      'DELETE FROM invite_devices WHERE code = ? AND device_hash = ?'
+    ).bind(code, oldHash).run();
+    return;
+  }
+  await env.DB.prepare(
+    'UPDATE invite_devices SET device_hash = ?, session_token = ?, last_seen = ?, last_ip_hash = ?, last_ua_hash = ? WHERE code = ? AND device_hash = ?'
+  ).bind(nextHash, nextToken, stamp, meta.ipHash, meta.uaHash, code, oldHash).run();
+}
+
 function nowMs(){
   return Date.now();
 }
@@ -640,7 +698,8 @@ async function handleVerify(request, env){
   const body = await readJson(request);
   const meta = await requestMeta(request, env);
   const code = normalizeCode(body.code);
-  const deviceHash = normalizeDeviceHash(body.deviceHash);
+  const deviceHashes = normalizeDeviceHashes(body);
+  const deviceHash = deviceHashes[0] || '';
   if(!code) return reject(env, meta, code, deviceHash, 'verify', '邀请码不能为空', 400);
   if(!deviceHash) return reject(env, meta, code, deviceHash, 'verify', '设备信息无效', 400);
   if(await deletedCodeExists(env, code)) return reject(env, meta, code, deviceHash, 'verify', '邀请码不存在', 404);
@@ -650,15 +709,11 @@ async function handleVerify(request, env){
   if(Number(invite.revoked || 0)) return reject(env, meta, code, deviceHash, 'verify', '邀请码已停用', 403);
   if(invite.expires_at && Number(invite.expires_at) < nowMs()) return reject(env, meta, code, deviceHash, 'verify', '邀请码已过期', 403);
 
-  const existing = await env.DB.prepare(
-    'SELECT * FROM invite_devices WHERE code = ? AND device_hash = ? AND revoked = 0'
-  ).bind(code, deviceHash).first();
+  const existing = await findInviteDeviceByHashes(env, code, deviceHashes);
 
   const token = randomToken();
   if(existing){
-    await env.DB.prepare(
-      'UPDATE invite_devices SET session_token = ?, last_seen = ?, last_ip_hash = ?, last_ua_hash = ? WHERE code = ? AND device_hash = ?'
-    ).bind(token, nowMs(), meta.ipHash, meta.uaHash, code, deviceHash).run();
+    await touchOrMigrateInviteDevice(env, existing, deviceHash, meta, token);
     const countRow = await env.DB.prepare(
       'SELECT COUNT(*) AS count FROM invite_devices WHERE code = ? AND revoked = 0'
     ).bind(code).first();
@@ -689,21 +744,22 @@ async function handleSession(request, env){
   const meta = await requestMeta(request, env);
   const code = normalizeCode(body.code);
   const token = String(body.token || '').trim();
-  const deviceHash = normalizeDeviceHash(body.deviceHash);
+  const deviceHashes = normalizeDeviceHashes(body);
+  const deviceHash = deviceHashes[0] || '';
   if(!code || !token || !deviceHash) return reject(env, meta, code, deviceHash, 'session', '通行凭证无效，请重新输入邀请码。', 401);
   if(await deletedCodeExists(env, code)) return reject(env, meta, code, deviceHash, 'session', '邀请码已失效，请联系作者。', 403);
 
   const invite = await env.DB.prepare('SELECT * FROM invite_codes WHERE code = ?').bind(code).first();
   if(!invite || Number(invite.revoked || 0)) return reject(env, meta, code, deviceHash, 'session', '邀请码已失效，请联系作者。', 403);
 
-  const device = await env.DB.prepare(
-    'SELECT * FROM invite_devices WHERE code = ? AND device_hash = ? AND session_token = ? AND revoked = 0'
-  ).bind(code, deviceHash, token).first();
+  let device = await findInviteDeviceByToken(env, code, token);
+  if(!device){
+    device = await findInviteDeviceByHashes(env, code, deviceHashes);
+    if(device && String(device.session_token || '') !== token) device = null;
+  }
   if(!device) return reject(env, meta, code, deviceHash, 'session', '这台设备没有通行权，请重新验证邀请码。', 401);
 
-  await env.DB.prepare(
-    'UPDATE invite_devices SET last_seen = ?, last_ip_hash = ?, last_ua_hash = ? WHERE code = ? AND device_hash = ?'
-  ).bind(nowMs(), meta.ipHash, meta.uaHash, code, deviceHash).run();
+  await touchOrMigrateInviteDevice(env, device, deviceHash, meta, token);
   const countRow = await env.DB.prepare(
     'SELECT COUNT(*) AS count FROM invite_devices WHERE code = ? AND revoked = 0'
   ).bind(code).first();
