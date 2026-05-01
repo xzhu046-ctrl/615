@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-01T12:02:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-01T12:02:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T12:02:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T12:02:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T12:02:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-01T12:02:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-01T12:02:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-01T12:02:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-01T12:02:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-01T12:02:00Z"></script>
+<script src="../promptManager.js?v=2026-05-01T12:30:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T12:30:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T12:30:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T12:30:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T12:30:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-01T12:30:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-01T12:30:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-01T12:30:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-01T12:30:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-01T12:30:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -966,8 +966,9 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .input-wrap.has-reply{border-radius:16px !important}
 .input-wrap.narrator-mode{padding-top:7px;border-radius:16px}
 .input-wrap:focus-within{box-shadow:none}
-#msg-input{flex:1;border:none;background:transparent;font-family:var(--font);font-size:13px;font-weight:600;color:var(--b);outline:none;resize:none;max-height:90px;line-height:1.5;-webkit-text-fill-color:currentColor;font-variant-emoji:text}
-#msg-input::placeholder{color:#bbb}
+#msg-input{flex:1;min-height:20px;border:none;background:transparent;font-family:var(--font);font-size:13px;font-weight:600;color:var(--b);outline:none;resize:none;max-height:90px;overflow-y:auto;line-height:1.5;-webkit-text-fill-color:currentColor;font-variant-emoji:text;white-space:pre-wrap;word-break:break-word;-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+#msg-input:empty::before{content:attr(data-placeholder);color:#bbb;pointer-events:none}
+#msg-input[aria-disabled="true"]{opacity:.62;pointer-events:none}
 .reply-preview{display:none;border:var(--bd);border-radius:12px;background:var(--w);box-shadow:1px 1px 0 var(--b);padding:8px 10px;gap:8px;align-items:flex-start}
 .reply-preview.show{display:flex}
 .reply-preview-text{flex:1;min-width:0}
@@ -2315,7 +2316,7 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
       <span class="composer-mode-pill-label" id="composerModeLabel">旁白模式</span>
       <button class="composer-mode-pill-close" type="button" onclick="clearComposerMode()">×</button>
     </div>
-    <textarea id="msg-input" rows="1" placeholder="输入消息..." onkeydown="onKey(event)" oninput="autoResize(this)"></textarea>
+    <div id="msg-input" class="chat-editable-input" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="输入消息..." spellcheck="false" autocorrect="off" autocapitalize="off" onkeydown="onKey(event)" oninput="autoResize(this)"></div>
   </div>
   <!-- Gen: triggers AI reply — LEFT of send -->
   <button class="gen-btn" id="genBtn" onclick="triggerReply()" title="触发 AI 回复">✦</button>
@@ -20058,7 +20059,76 @@ function buildChatExtendedFormatPrompt(){
 // ════════════════════════════════════════════
 //  Messaging — SPLIT: sendOnly vs triggerReply
 // ════════════════════════════════════════════
-function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 90) + 'px'; }
+function getEditablePlainText(el){
+  if(!el) return '';
+  if('value' in el && el.id !== 'msg-input') return String(el.value || '');
+  var text = typeof el.innerText === 'string' ? el.innerText : String(el.textContent || '');
+  return String(text || '').replace(/\u00a0/g, ' ');
+}
+
+function setEditablePlainText(el, value){
+  if(!el) return;
+  if('value' in el && el.id !== 'msg-input'){
+    el.value = String(value || '');
+    return;
+  }
+  el.textContent = String(value || '');
+}
+
+function placeEditableCaretAtEnd(el){
+  if(!el || !el.isContentEditable) return;
+  try{
+    el.focus();
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }catch(err){}
+}
+
+function installChatEditableInputShim(){
+  var input = document.getElementById('msg-input');
+  if(!input || input.dataset.valueShim === '1') return;
+  input.dataset.valueShim = '1';
+  Object.defineProperty(input, 'value', {
+    configurable: true,
+    get: function(){ return getEditablePlainText(input); },
+    set: function(value){ setEditablePlainText(input, value); }
+  });
+  Object.defineProperty(input, 'placeholder', {
+    configurable: true,
+    get: function(){ return input.getAttribute('data-placeholder') || ''; },
+    set: function(value){ input.setAttribute('data-placeholder', String(value || '')); }
+  });
+  Object.defineProperty(input, 'disabled', {
+    configurable: true,
+    get: function(){ return input.getAttribute('aria-disabled') === 'true'; },
+    set: function(value){
+      var disabled = !!value;
+      input.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+      input.setAttribute('contenteditable', disabled ? 'false' : 'true');
+    }
+  });
+  input.addEventListener('paste', function(event){
+    event.preventDefault();
+    var text = '';
+    try{ text = (event.clipboardData || window.clipboardData).getData('text/plain') || ''; }catch(err){}
+    try{
+      document.execCommand('insertText', false, text);
+    }catch(err){
+      setEditablePlainText(input, getEditablePlainText(input) + text);
+      placeEditableCaretAtEnd(input);
+    }
+  });
+}
+
+function autoResize(el) {
+  if(!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 90) + 'px';
+}
 
 async function waitForPendingChatSave(){
   if(!pendingChatSavePromise) return;
@@ -32565,7 +32635,7 @@ function normalizeHeartText(value){
 
 document.addEventListener('input', function(e){
   var target = e.target;
-  if(!target || (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA')) return;
+  if(!target || (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA' && target.id !== 'msg-input')) return;
   if(!('value' in target)) return;
   var next = normalizeHeartText(target.value);
   if(next === target.value) return;
@@ -32580,7 +32650,7 @@ window.addEventListener('orientationchange', function(){
   syncChatViewport();
 });
 window.addEventListener('focusin', function(e){
-  if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')){
+  if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.target.id === 'msg-input' || e.target.isContentEditable)){
     scheduleComposerPlacementSync();
     try{
       if(window.parent) window.parent.postMessage({ type:'CHAT_INPUT_FOCUS' }, '*');
@@ -32588,10 +32658,10 @@ window.addEventListener('focusin', function(e){
   }
 });
 window.addEventListener('focusout', function(e){
-  if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')){
+  if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.target.id === 'msg-input' || e.target.isContentEditable)){
     setTimeout(function(){
       var active = document.activeElement;
-      var isTextField = !!(active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT'));
+      var isTextField = !!(active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.id === 'msg-input' || active.isContentEditable));
       if(isTextField) return;
       try{
         if(window.parent) window.parent.postMessage({ type:'CHAT_INPUT_BLUR' }, '*');
@@ -32638,6 +32708,7 @@ window.addEventListener('pagehide', restoreParentTopbarFromChat);
 // ════════════════════════════════════════════
 //  Start
 // ════════════════════════════════════════════
+installChatEditableInputShim();
 syncChatViewport();
 init().catch(function(err){
   console.error('chat init failed', err);

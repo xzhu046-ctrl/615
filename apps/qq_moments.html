@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-01T12:02:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T12:02:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T12:02:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T12:02:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T12:30:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T12:30:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T12:30:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T12:30:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -56,9 +56,8 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
 .tiny-btn.plus-btn{background:#fff;color:#111;border-color:#111;font-family:var(--fontd);font-size:22px;font-weight:900;line-height:1;box-shadow:2px 2px 0 rgba(8,8,8,.88)}
 .tiny-btn.delete-active{background:#111}
 .tiny-btn.delete-active img{filter:brightness(0) invert(1)}
-.tiny-confirm-delete{display:none;height:30px;padding:0 10px;border:2px solid #111;border-radius:999px;background:#fff;color:#111;box-shadow:2px 2px 0 #111;font-family:var(--fontd);font-size:10px;font-weight:900;white-space:nowrap}
-.tiny-confirm-delete.show{display:inline-flex;align-items:center;justify-content:center}
-.tiny-confirm-delete:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #111}
+.tiny-btn.confirm-delete-mode{width:auto;min-width:82px;padding:0 12px;border-radius:999px;background:#111;color:#fff;font-family:var(--fontd);font-size:10px;font-weight:900;white-space:nowrap}
+.tiny-btn.confirm-delete-mode:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #111}
 @media (max-width:360px){
   .hero{left:8px;right:8px}
   .moments-captcha{height:246px;padding:8px}
@@ -286,7 +285,6 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none}
             <button class="tiny-btn" id="deleteFab" type="button" aria-label="删除朋友圈" title="删除朋友圈">
               <img src="assets/Recycle-Bin-2--Streamline-Sharp.png" alt="">
             </button>
-            <button class="tiny-confirm-delete" id="deleteConfirmFab" type="button" aria-label="确认删除朋友圈" title="确认删除朋友圈">确认删除</button>
           </div>
         </div>
         <div class="captcha-grid" aria-label="验证图片">
@@ -1836,8 +1834,6 @@ function toggleDeleteMode(){
   if(!deleteMode){
     deleteMode = true;
     deleteSelection = [];
-    const btn = document.getElementById('deleteFab');
-    if(btn) btn.classList.add('delete-active');
     renderFeed();
     syncDeleteConfirmFab();
     showToast('选择要删除的朋友圈');
@@ -1846,8 +1842,6 @@ function toggleDeleteMode(){
   if(!deleteSelection.length){
     deleteMode = false;
     replyTarget = {};
-    const btn = document.getElementById('deleteFab');
-    if(btn) btn.classList.remove('delete-active');
     renderFeed();
     syncDeleteConfirmFab();
     showToast('已退出删除模式');
@@ -1857,11 +1851,22 @@ function toggleDeleteMode(){
 }
 
 function syncDeleteConfirmFab(){
-  const btn = document.getElementById('deleteConfirmFab');
+  const btn = document.getElementById('deleteFab');
   if(!btn) return;
   const count = deleteSelection.length;
-  btn.classList.toggle('show', !!(deleteMode && count));
-  btn.textContent = count ? ('确认删除 ' + count) : '确认删除';
+  if(deleteMode && count){
+    btn.classList.add('confirm-delete-mode');
+    btn.classList.add('delete-active');
+    btn.textContent = '确认删除 ' + count;
+    btn.setAttribute('aria-label', '确认删除 ' + count + ' 条朋友圈');
+    btn.setAttribute('title', '确认删除');
+    return;
+  }
+  btn.classList.remove('confirm-delete-mode');
+  btn.classList.toggle('delete-active', !!deleteMode);
+  btn.innerHTML = '<img src="assets/Recycle-Bin-2--Streamline-Sharp.png" alt="">';
+  btn.setAttribute('aria-label', deleteMode ? '退出删除模式' : '删除朋友圈');
+  btn.setAttribute('title', deleteMode ? '退出删除模式' : '删除朋友圈');
 }
 
 function toggleDeletePost(postId){
@@ -1886,8 +1891,6 @@ function closeDeleteConfirm(){
   deleteMode = false;
   deleteSelection = [];
   replyTarget = {};
-  const btn = document.getElementById('deleteFab');
-  if(btn) btn.classList.remove('delete-active');
   renderFeed();
   syncDeleteConfirmFab();
 }
@@ -1909,8 +1912,6 @@ function confirmDeletePosts(){
   const next = getPosts().filter((post)=>!selected.has(String(post && post.id || '')));
   savePosts(next);
   removeMomentPostRecords(Array.from(selected));
-  const btn = document.getElementById('deleteFab');
-  if(btn) btn.classList.remove('delete-active');
   const overlay = document.getElementById('deleteConfirmOverlay');
   if(overlay) overlay.classList.remove('open');
   deleteMode = false;
@@ -2825,8 +2826,6 @@ function bindInputs(){
   }
   const deleteFab = document.getElementById('deleteFab');
   bindTap(deleteFab, ()=>{ toggleDeleteMode(); });
-  const deleteConfirmFab = document.getElementById('deleteConfirmFab');
-  bindTap(deleteConfirmFab, ()=>{ openDeleteConfirm(); });
   const heroToolbar = document.querySelector('.hero-toolbar');
   if(heroToolbar && heroToolbar.dataset.stopHeroBubble !== '1'){
     heroToolbar.dataset.stopHeroBubble = '1';
