@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T05:24:00Z';
+const APP_BUILD_ID = '2026-05-01T05:48:00Z';
 const APP_UPDATE_NOTES = [
-  '修复邀请码更新后掉验证的问题。',
-  '验证会兼容旧设备指纹并自动迁移。',
-  'USERNAME 显示会缓存，不再每次更新乱跳。'
+  '修复第二页被主页分页轨道裁掉的问题。',
+  '远端版本更新未真正完成时会继续提示刷新。',
+  '继续保护邀请码验证和设备迁移。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1146,6 +1146,7 @@ function hydrateHostedUpdatePromptDedupe(fingerprint){
 function shouldSuppressHostedUpdatePrompt(fingerprint){
   var value = String(fingerprint || pendingRemoteAppFingerprint || '').trim();
   if(!value) return false;
+  if(compareHostedBuildIds(value, APP_BUILD_ID) > 0) return false;
   try{
     if(String(sessionStorage.getItem(HOSTED_UPDATE_SESSION_SHOWN_KEY) || '').trim() === value){
       var card = document.getElementById('update-toast-card');
@@ -1949,8 +1950,6 @@ function refreshInstalledApp(evt){
     refreshBtn.textContent = '刷新中...';
   }
   var targetBuild = String(pendingRemoteAppFingerprint || shownHostedUpdateFingerprint || getLastSeenHostedRemoteBuild() || APP_BUILD_ID).trim() || APP_BUILD_ID;
-  setAcceptedHostedUpdateBuild(targetBuild);
-  markHostedUpdatePromptShown(targetBuild);
   var finishReload = function(){
     swControllerRefreshPending = false;
     hostedRefreshInFlight = false;
@@ -1965,8 +1964,6 @@ function refreshInstalledApp(evt){
     }
     try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
     hideHostedUpdateCard();
-    setAcceptedHostedUpdateBuild(String(targetBuild || APP_BUILD_ID).trim() || APP_BUILD_ID);
-    markHostedUpdatePromptShown(String(targetBuild || APP_BUILD_ID).trim() || APP_BUILD_ID);
     try{
       var url = new URL(window.location.href);
       url.searchParams.set('__appBuild', String(targetBuild || APP_BUILD_ID));
