@@ -10016,6 +10016,15 @@ function getCustomInnerVoicePromptForAi(){
   return '';
 }
 
+function getActiveInnerVoicePromptForAi(){
+  var savedPrompt = normalizeInnerVoicePromptText(character && character.innerVoicePrompt);
+  if(savedPrompt) return extractInnerVoicePromptInstruction(savedPrompt);
+  var savedCss = normalizeInnerVoicePromptText(character && character.innerVoiceCss);
+  var extractedFromCss = extractInnerVoicePromptInstruction(savedCss);
+  if(extractedFromCss && extractedFromCss !== savedCss) return extractedFromCss;
+  return getDefaultInnerVoicePrompt();
+}
+
 function getDefaultHeaderThemeCss(){
   return [
     '/* 当前聊天顶栏默认 CSS */',
@@ -13030,7 +13039,7 @@ function saveMomentsSocialState(state){
 function getMomentsFreqProfile(){
   var level = loadCharMomentsFreq(character && character.id);
   if(level === 'low'){
-    return { level: level, cooldownMs: 72 * 60 * 60 * 1000, mentionPostChance: 0.008, moodPostChance: 0.012, idleLikeChance: 0.002 };
+    return { level: level, cooldownMs: 14 * 24 * 60 * 60 * 1000, mentionPostChance: 0, moodPostChance: 0, idleLikeChance: 0 };
   }
   if(level === 'high'){
     return { level: level, cooldownMs: 9000, mentionPostChance: 0.78, moodPostChance: 0.82, idleLikeChance: 0.22 };
@@ -13306,6 +13315,9 @@ function getSignalsForMoments(text, msgType){
 function captureUserMomentIntent(text, msgType){
   if(isSunnyChat()) return;
   var sig = getSignalsForMoments(text, msgType);
+  var lowFreq = getMomentsFreqProfile().level === 'low';
+  var hasExplicitMomentAction = !!(sig.wantsPostAny || sig.wantsLike || sig.wantsComment || sig.wantsReply);
+  if(lowFreq && !hasExplicitMomentAction) return;
   if(!(sig.wantsPostAny || sig.wantsLike || sig.wantsComment || sig.wantsReply || sig.emotional || sig.reflective || sig.imageHint || sig.mentionsMoments)) return;
   var cardPayload = (sig.wantsLike || sig.wantsComment || sig.wantsReply || sig.mentionsMoments) ? getLatestMomentCardPayloadFromChat() : null;
   momentsIntentFromUser = {
@@ -13724,28 +13736,37 @@ async function maybeRunAiMomentsFromChat(text, msgType){
 
   var forceActions = [];
   var forcedPostType = '';
+  var userExplicitPostRequest = !!(pending && (pending.wantsPostAny || pending.wantsPostSay || pending.wantsPostDynamic));
+  var userExplicitSocialRequest = !!(pending && (pending.wantsLike || pending.wantsComment || pending.wantsReply));
   if(pending){
     if(pending.wantsLike) forceActions.push('like');
     if(pending.wantsComment) forceActions.push('comment');
     if(pending.wantsReply) forceActions.push('reply');
-    if(pending.wantsPostAny || pending.emotional || pending.imageHint) forceActions.push('post');
+    if(pending.wantsPostAny || (freq.level !== 'low' && (pending.emotional || pending.imageHint))) forceActions.push('post');
     if(pending.wantsPostDynamic) forcedPostType = 'dynamic';
     else if(pending.wantsPostSay) forcedPostType = 'say';
   }
-  if(sig.wantsLike) forceActions.push('like');
-  if(sig.wantsComment) forceActions.push('comment');
-  if(sig.wantsReply) forceActions.push('reply');
-  if(sig.wantsPostAny) forceActions.push('post');
-  if(sig.wantsPostDynamic) forcedPostType = 'dynamic';
-  else if(sig.wantsPostSay && !forcedPostType) forcedPostType = 'say';
-  var explicitPostRequest = !!(forcedPostType || sig.wantsPostAny || (pending && (pending.wantsPostAny || pending.wantsPostSay || pending.wantsPostDynamic)));
-  var explicitSocialRequest = !!(sig.wantsLike || sig.wantsComment || sig.wantsReply || (pending && (pending.wantsLike || pending.wantsComment || pending.wantsReply)));
+  if(freq.level !== 'low'){
+    if(sig.wantsLike) forceActions.push('like');
+    if(sig.wantsComment) forceActions.push('comment');
+    if(sig.wantsReply) forceActions.push('reply');
+    if(sig.wantsPostAny) forceActions.push('post');
+    if(sig.wantsPostDynamic) forcedPostType = 'dynamic';
+    else if(sig.wantsPostSay && !forcedPostType) forcedPostType = 'say';
+  }
+  var explicitPostRequest = freq.level === 'low'
+    ? userExplicitPostRequest
+    : !!(forcedPostType || sig.wantsPostAny || userExplicitPostRequest);
+  var explicitSocialRequest = freq.level === 'low'
+    ? userExplicitSocialRequest
+    : !!(sig.wantsLike || sig.wantsComment || sig.wantsReply || userExplicitSocialRequest);
   if(!isCharMomentsAutomationEnabled() && !explicitPostRequest && !explicitSocialRequest) return;
   if(!forceActions.length && pending && pending.mentionsMoments && !pending.wantsLike && !pending.wantsComment && !pending.wantsReply){
     if(Math.random() < freq.mentionPostChance) forceActions.push('post');
   }
-  if(freq.level === 'low' && !explicitPostRequest){
-    forceActions = forceActions.filter(function(action){ return action !== 'post'; });
+  if(freq.level === 'low'){
+    if(!explicitPostRequest) forceActions = forceActions.filter(function(action){ return action !== 'post'; });
+    if(!explicitSocialRequest) forceActions = forceActions.filter(function(action){ return action === 'post'; });
   }
 
   if(!forceActions.length && now - momentsLastActionAt < freq.cooldownMs) return;
@@ -20191,19 +20212,17 @@ function buildChatExtendedFormatPrompt(){
     lines.push('如果是 rich_html，translation 必须翻译整张卡片里所有可见文字，不要偷懒只写一句“这是一张什么卡片”的概括。');
   }
   if(getInnerVoiceGenerationMode() === 'together'){
-    var inlineInnerVoiceCustomPrompt = getCustomInnerVoicePromptForAi();
+    var inlineInnerVoiceActivePrompt = getActiveInnerVoicePromptForAi();
+    var inlineInnerVoiceHasCustomPrompt = !!getCustomInnerVoicePromptForAi();
     lines.push('【心声同轮输出铁律】');
     lines.push('当前心声模式是“和聊天一起生成”：本轮回复必须是可解析 JSON 数组，或包含 messages/replies 的 JSON 对象；除了聊天动作外，必须额外带一条独立对象 {"type":"inner_voice","headline":"...","body":"...","strike":"..."}。');
     lines.push('数组或 messages/replies 里至少要有一条可显示聊天动作，也至少要有一条 inner_voice；inner_voice 可放最后，不占聊天气泡数量。');
     lines.push('inner_voice 是隐藏系统动作，不是角色台词；不要写进 text/narrator/rich_html，不要解释“我生成了心声”，不要省略 type。');
     lines.push('headline/body/strike 必须基于本轮已经决定发出的角色回复、最近聊天、记忆、世界书和当前关系；不能敷衍，不能只写一句泛泛总结。');
     lines.push('headline 8-18 字，短、狠、抓人；body 必须写 2-4 句像报道内文又像脑内独白的内容，每句都要贴本轮回复和上下文；strike 是差点说出口又划掉的话，没有才空字符串。');
-    lines.push('同轮 inner_voice 必须服从聊天设置里的心声提示词；如果用户写了自定义心声提示词，它的优先级高于默认报纸头条版式。');
-    if(inlineInnerVoiceCustomPrompt){
-      lines.push('【用户自定义心声提示词】\n' + String(inlineInnerVoiceCustomPrompt || '').slice(0, 900));
-    }else{
-      lines.push('【默认心声提示词】这次请生成黑白报纸头条风格的角色心声：headline 是短、狠、抓人的头条；body 是像报道内文又像脑内独白的正文；strike 是可选的划掉句。');
-    }
+    lines.push('同轮 inner_voice 必须逐条执行聊天设置里的“当前心声提示词”，不要自创版式，不要用与提示词冲突的结构。');
+    lines.push(inlineInnerVoiceHasCustomPrompt ? '当前心声提示词来自用户自定义，优先级最高。' : '当前心声提示词是默认黑白报纸头条，也必须完整执行，不是可选建议。');
+    lines.push('【当前心声提示词，最高优先级】\n' + String(inlineInnerVoiceActivePrompt || getDefaultInnerVoicePrompt()).slice(0, 1400));
     lines.push('如果本轮输出 rich_html/offline_invite/narrator/rename_profile/change_avatar 等特殊动作，也仍然必须另外带 inner_voice 对象。');
   }
   var richReplyLang = getCharacterReplyLanguage();

@@ -52,7 +52,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T22:20:00Z';
+const APP_BUILD_ID = '2026-05-01T22:45:00Z';
 const APP_UPDATE_NOTES = [
   '酒馆导入按钮修正'
 ];
@@ -2655,6 +2655,14 @@ async function loadShellChatSettingsBundleForChar(charId, accountId){
     }
   }
   shellChatSettingsBundleCache[cacheKey] = best || null;
+  if(best && best.momentsFreq){
+    try{
+      var freq = normalizeShellMomentsFreq(best.momentsFreq);
+      var activeId = String(accountId || getActiveAccountId() || '').trim();
+      if(activeId) localStorage.setItem(scopedKeyForAccount('char_moments_freq_' + safeId, activeId), freq);
+      localStorage.setItem('char_moments_freq_' + safeId, freq);
+    }catch(freqErr){}
+  }
   return best || null;
 }
 
@@ -2783,6 +2791,10 @@ function loadShellCharMomentsFreq(charId, accountId){
   charId = String(charId || '').trim();
   if(!charId) return DEFAULT_MOMENTS_FREQ;
   try{
+    var bundle = getCachedShellChatSettingsBundleForChar(charId, accountId || getActiveAccountId());
+    if(bundle && bundle.momentsFreq){
+      return normalizeShellMomentsFreq(bundle.momentsFreq);
+    }
     var scoped = scopedKeyForAccount('char_moments_freq_' + charId, accountId || getActiveAccountId());
     return normalizeShellMomentsFreq(localStorage.getItem(scoped) || localStorage.getItem('char_moments_freq_' + charId) || DEFAULT_MOMENTS_FREQ);
   }catch(err){
@@ -10262,6 +10274,13 @@ window.addEventListener('message',(e)=>{
       if(savedUserAvatar){
         saveStoredAsset('user_avatar_' + bundleCharId, savedUserAvatar);
         if(bundleAccountId) saveStoredAsset(scopedKeyForAccount('user_avatar_' + bundleCharId, bundleAccountId), savedUserAvatar);
+      }
+      if(payload.bundle.momentsFreq){
+        try{
+          var savedFreq = normalizeShellMomentsFreq(payload.bundle.momentsFreq);
+          localStorage.setItem('char_moments_freq_' + bundleCharId, savedFreq);
+          if(bundleAccountId) localStorage.setItem(scopedKeyForAccount('char_moments_freq_' + bundleCharId, bundleAccountId), savedFreq);
+        }catch(freqMsgErr){}
       }
       var activeAfterBundle = getActiveCharacterData();
       if(activeAfterBundle && String(activeAfterBundle.id || '') === bundleCharId){
