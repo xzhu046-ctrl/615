@@ -10,8 +10,9 @@ const ADMIN_HTML = `<!doctype html>
 <title>0615 邀请码管理</title>
 <style>
   *{box-sizing:border-box}
+  html,body{width:100%;max-width:100%;overflow-x:hidden}
   body{margin:0;background:#f6f6f3;color:#111;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Arial,sans-serif}
-  .page{max-width:980px;margin:0 auto;padding:34px 18px 48px}
+  .page{width:100%;max-width:980px;margin:0 auto;padding:34px 18px 48px;overflow-x:hidden}
   .hero{border:2px solid #111;background:#fff;padding:22px 20px 18px;box-shadow:8px 8px 0 #111}
   .kicker{font-size:12px;text-transform:uppercase;letter-spacing:.18em;color:#555;font-weight:800}
   h1{margin:8px 0 6px;font-size:30px;line-height:1.05}
@@ -74,27 +75,21 @@ const ADMIN_HTML = `<!doctype html>
     </div>
     <div class="kicker">0615 admin pass</div>
     <h1 id="adminGateTitle"><span>欢迎管理</span><span>0615小手机^^</span></h1>
-    <p class="admin-gate-copy">请输入管理员口令进入邀请码后台。刷新页面后需要重新输入。</p>
+    <p class="admin-gate-copy">请输入管理员口令进入邀请码后台。</p>
     <form class="admin-gate-form" id="adminGateForm">
       <label for="adminGateToken">ADMIN PASS</label>
       <input id="adminGateToken" type="text" autocomplete="off" placeholder="输入管理员口令">
       <button id="adminGateSubmit" type="submit">进入</button>
-      <div class="admin-gate-status" id="adminGateStatus">黑白音符正在等你敲门。</div>
+      <div class="admin-gate-status" id="adminGateStatus"></div>
     </form>
   </div>
 </section>
 <main class="page" id="adminPage" hidden>
-  <section class="hero">
-    <div class="kicker">0615 invite console</div>
-    <h1>欢迎管理 0615 小手机邀请码</h1>
-    <p class="sub">一键生成不可猜的邀请码；每个码默认绑定两台设备，使用次数和最后使用时间会在这里显示。</p>
-  </section>
-
   <section class="panel">
     <div class="grid">
       <div>
-        <label for="label">备注（必填）</label>
-        <input id="label" placeholder="例如：小A发放 / 用户昵称" required>
+        <label for="label">用户名（必填）</label>
+        <input id="label" placeholder="例如：呆呆的水星" required>
       </div>
       <div>
         <label for="maxDevices">设备数</label>
@@ -127,8 +122,8 @@ const ADMIN_HTML = `<!doctype html>
   <section class="panel">
     <div class="kicker">records</div>
     <div class="search-row">
-      <label for="searchBox">搜索备注 / USERNAME / 邀请码</label>
-      <input id="searchBox" placeholder="输入备注、USERNAME 或邀请码">
+      <label for="searchBox">搜索用户名 / USERNAME / 邀请码</label>
+      <input id="searchBox" placeholder="输入用户名、USERNAME 或邀请码">
     </div>
     <div id="list" class="list"><div class="empty">输入管理员口令后点击刷新记录</div></div>
   </section>
@@ -220,7 +215,7 @@ function renderRows(rows){
       <div>
         <div class="card-name">\${escapeHtml(row.publicName || '未命名的通行证')}</div>
         <div class="card-code">\${escapeHtml(row.code)}</div>
-        <div class="card-label">\${escapeHtml(row.label || '未备注')}</div>
+        <div class="card-label">\${escapeHtml(row.label || '未填写用户名')}</div>
         <div class="stats">
           <span class="pill">设备 \${row.deviceCount || 0}/\${row.maxDevices || 2}</span>
           <span class="pill">验证 \${row.verifyCount || 0}</span>
@@ -292,7 +287,7 @@ document.getElementById('createBtn').addEventListener('click', async ()=>{
     const label = labelEl.value.trim();
     if(!label){
       labelEl.focus();
-      toast('请先填写备注');
+      toast('请先填写用户名');
       return;
     }
     const data = await api('/admin/create', { label, maxDevices: Number(maxEl.value || 2) });
@@ -443,6 +438,12 @@ async function ensureAdminSchema(env){
   await env.DB.prepare(
     'CREATE INDEX IF NOT EXISTS idx_invite_code_names_public_name ON invite_code_names (public_name)'
   ).run();
+  await env.DB.prepare(
+    'CREATE TABLE IF NOT EXISTS invite_public_names (device_hash TEXT PRIMARY KEY, public_name TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL)'
+  ).run();
+  await env.DB.prepare(
+    'CREATE INDEX IF NOT EXISTS idx_invite_public_names_public_name ON invite_public_names (public_name)'
+  ).run();
 }
 
 async function deletedCodeExists(env, code){
@@ -457,10 +458,38 @@ async function deletedCodeExists(env, code){
 async function randomPublicName(env){
   for(let i = 0; i < 80; i += 1){
     const candidate = randomPublicNameCandidate();
-    const exists = await env.DB.prepare('SELECT code FROM invite_code_names WHERE public_name = ?').bind(candidate).first();
+    const exists = await env.DB.prepare(
+      `SELECT public_name FROM invite_code_names WHERE public_name = ?
+       UNION ALL
+       SELECT public_name FROM invite_public_names WHERE public_name = ?
+       LIMIT 1`
+    ).bind(candidate, candidate).first();
     if(!exists) return candidate;
   }
   return randomPublicNameCandidate() + '-' + Math.floor(1000 + Math.random() * 9000);
+}
+
+async function getStablePublicName(env, deviceHash){
+  const safeHash = normalizeDeviceHash(deviceHash);
+  if(!safeHash) return randomPublicName(env);
+  const existing = await env.DB.prepare(
+    'SELECT public_name AS publicName FROM invite_public_names WHERE device_hash = ?'
+  ).bind(safeHash).first();
+  if(existing && existing.publicName){
+    await env.DB.prepare(
+      'UPDATE invite_public_names SET last_seen = ? WHERE device_hash = ?'
+    ).bind(nowMs(), safeHash).run();
+    return existing.publicName;
+  }
+  const publicName = await randomPublicName(env);
+  const stamp = nowMs();
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO invite_public_names (device_hash, public_name, created_at, last_seen) VALUES (?, ?, ?, ?)'
+  ).bind(safeHash, publicName, stamp, stamp).run();
+  const saved = await env.DB.prepare(
+    'SELECT public_name AS publicName FROM invite_public_names WHERE device_hash = ?'
+  ).bind(safeHash).first();
+  return saved && saved.publicName ? saved.publicName : publicName;
 }
 
 async function backfillMissingPublicNames(env){
@@ -585,8 +614,9 @@ async function handleAdminList(request, env){
 }
 
 async function handlePublicName(request, env){
+  const body = await readJson(request);
   await ensureAdminSchema(env);
-  const publicName = await randomPublicName(env);
+  const publicName = await getStablePublicName(env, body.deviceHash);
   return json({ ok:true, publicName }, 200, env);
 }
 
@@ -595,7 +625,7 @@ async function handleAdminCreate(request, env){
   const error = assertAdmin(request, env, body);
   if(error) return json({ ok:false, message:error }, 403, env);
   const label = String(body.label || '').trim().slice(0, 80);
-  if(!label) return json({ ok:false, message:'请先填写备注' }, 400, env);
+  if(!label) return json({ ok:false, message:'请先填写用户名' }, 400, env);
   const maxDevices = Math.max(1, Math.min(6, Number(body.maxDevices || 2) || 2));
   const stamp = nowMs();
   await ensureAdminSchema(env);

@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T04:13:04Z';
+const APP_BUILD_ID = '2026-05-01T04:20:30Z';
 const APP_UPDATE_NOTES = [
-  '验证码弹窗把用户名标签改为大写 USERNAME。',
-  'USERNAME 下方新增请小心保留此 USERNAME提醒。',
-  '移除邀请码输入框下方默认提示文本。'
+  '邀请码后台口令弹窗去掉多余说明和默认状态文案。',
+  '后台管理页去掉欢迎管理标题，并把备注输入改为用户名。',
+  '验证码页随机 USERNAME 会按设备固定保持一致。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -160,10 +160,11 @@ async function loadInviteGatePublicName(){
   var base = inviteGateApiBase();
   if(!base) return;
   try{
+    var deviceHash = await inviteGateDeviceHash();
     var res = await fetch(base + '/public-name', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: '{}'
+      body: JSON.stringify({ deviceHash: deviceHash })
     });
     var data = await res.json().catch(function(){ return null; });
     if(res.ok && data && data.ok && data.publicName){
