@@ -50,10 +50,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T10:47:00Z';
+const APP_BUILD_ID = '2026-05-01T11:28:00Z';
 const APP_UPDATE_NOTES = [
-  '主页与表情包修正',
-  '朋友圈删除修正'
+  '朋友圈保存修正',
+  '键盘布局修正'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1058,8 +1058,11 @@ function ensureAndroidViewportMeta(){
     var meta = document.querySelector('meta[name="viewport"]');
     if(!meta) return;
     var content = String(meta.getAttribute('content') || '');
-    if(/\binteractive-widget\s*=/.test(content)) return;
-    meta.setAttribute('content', content.replace(/\s*,\s*$/, '') + ', interactive-widget=resizes-content');
+    if(/\binteractive-widget\s*=/.test(content)){
+      meta.setAttribute('content', content.replace(/\binteractive-widget\s*=\s*[^,\s]+/i, 'interactive-widget=overlays-content'));
+      return;
+    }
+    meta.setAttribute('content', content.replace(/\s*,\s*$/, '') + ', interactive-widget=overlays-content');
   }catch(e){}
 }
 
@@ -1128,6 +1131,12 @@ function syncAppHeight(){
   const currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
   const androidViewportGap = isAndroid && visualHeight ? Math.max(0, currentHeight - visualHeight) : 0;
   const keyboardLikelyOpen = rawBottomOffset > 120 || androidViewportGap > 180;
+  if(keyboardLikelyOpen && currentApp && currentApp !== 'chat'){
+    return;
+  }
+  if(keyboardLikelyOpen && document.activeElement && document.activeElement.closest && document.activeElement.closest('.widget-character-line')){
+    return;
+  }
   const vvBottomOffset = keyboardLikelyOpen ? 0 : rawBottomOffset;
   if(!stableShellAppHeight){
     stableShellAppHeight = currentHeight;

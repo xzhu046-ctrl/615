@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-01T10:47:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T10:47:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T10:47:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T10:47:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T11:28:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T11:28:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T11:28:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T11:28:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1217,6 +1217,7 @@ function savePosts(posts){
   const payload = JSON.stringify(safePosts);
   hydratedPostsCache = safePosts.slice();
   writePostsToAllLocalStores(payload);
+  const writes = [];
   if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
     const phoneKeys = [
       scopedKey(STORAGE_POSTS),
@@ -1227,10 +1228,11 @@ function savePosts(posts){
     Array.from(new Set(phoneKeys.filter(Boolean))).forEach((key)=>{
       if(!key) return;
       try{
-        window.PhoneStorage.putJson(key, safePosts).catch(()=>{});
+        writes.push(window.PhoneStorage.putJson(key, safePosts).catch(()=>null));
       }catch(ignorePhoneErr){}
     });
   }
+  return Promise.all(writes).then(()=>safePosts).catch(()=>safePosts);
 }
 
 async function hydratePostsFromLargeStore(){
@@ -1924,7 +1926,12 @@ async function publishCurrent(){
     updatedAt: Date.now(),
     comments: []
   });
-  savePosts(posts);
+  try{
+    await savePosts(posts);
+  }catch(e){
+    showToast('保存失败，请再试一次');
+    return;
+  }
   closePublishOverlay();
   renderFeed();
   showToast('已发布');
