@@ -50,15 +50,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T17:40:00Z';
+const APP_BUILD_ID = '2026-05-01T18:08:00Z';
 const APP_UPDATE_NOTES = [
-  '键盘输入框修正',
-  '音乐备用音源',
-  '朋友圈动态显示修正',
-  '天气搜索修正',
-  '酒馆权限实时校验',
-  '邀请状态实时失效',
-  '酒馆导入体验修正'
+  '全球音乐预览源',
+  '酒馆权限状态保留'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -106,6 +101,7 @@ const HOME_MUSIC_METING_BASES = [
   'https://metingapi.mo-app.cn/',
   'https://api.moeyao.cn/meting/'
 ];
+const HOME_MUSIC_ITUNES_SEARCH_BASE = 'https://itunes.apple.com/search';
 const API_SETTINGS_KV_ID = 'api_settings_v1';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
@@ -7626,7 +7622,8 @@ function sanitizeHomeMusicTrackForStorage(track){
     })(),
     remoteProvider: (function(){
       var val = String(safe.remoteProvider || '').trim().toLowerCase();
-      return val === 'netease' ? 'netease' : (val === 'tencent' || safe.source === 'search' ? 'tencent' : '');
+      if(val === 'netease' || val === 'tencent' || val === 'itunes') return val;
+      return safe.source === 'search' ? 'tencent' : '';
     })(),
     remoteId: normalizeHomeMusicStorageText(safe.remoteId || '', 160),
     name: normalizeHomeMusicStorageText(safe.name || '未命名歌曲', 180) || '未命名歌曲',
@@ -7674,11 +7671,13 @@ function getHomeMusicPlaylistTrackById(trackId){
   return tracks.find(function(track){ return track && track.id === trackId; }) || null;
 }
 
-function getHomeMusicPlaylistTrackByRemoteId(remoteId){
+function getHomeMusicPlaylistTrackByRemoteId(remoteId, remoteProvider){
   var key = String(remoteId || '').trim();
   if(!key) return null;
+  var provider = String(remoteProvider || '').trim().toLowerCase();
   var tracks = Array.isArray(homeMusicState.tracks) ? homeMusicState.tracks : [];
   return tracks.find(function(track){
+    if(provider && String(track.remoteProvider || '').trim().toLowerCase() !== provider) return false;
     return track && String(track.remoteId || '').trim() === key;
   }) || null;
 }
@@ -7856,7 +7855,8 @@ function getHomeMusicProvider(){
         };
         var settled = await Promise.allSettled([
           fetchProvider(HOME_MUSIC_NETEASE_BASE, 'netease'),
-          fetchProvider(HOME_MUSIC_THIRD_PARTY_BASE, 'tencent')
+          fetchProvider(HOME_MUSIC_THIRD_PARTY_BASE, 'tencent'),
+          searchHomeMusicItunesTracks(query, 10)
         ]);
         var tracks = [];
         settled.forEach(function(result){
@@ -7864,7 +7864,7 @@ function getHomeMusicProvider(){
             tracks = tracks.concat(result.value.slice(0, 8));
           }
         });
-        if(tracks.length) return tracks.slice(0, 16);
+        if(tracks.length) return tracks.slice(0, 20);
         var res = await fetch(HOME_MUSIC_NETEASE_BASE + '?word=' + encodeURIComponent(query), {
           method: 'GET',
           mode: 'cors',
@@ -7873,7 +7873,9 @@ function getHomeMusicProvider(){
         });
         if(!res.ok) throw new Error('搜索失败：' + res.status);
         var payload = await res.json();
-        return normalizeHomeMusicProviderSearchPayload(payload, query, 'netease');
+        var fallbackTracks = normalizeHomeMusicProviderSearchPayload(payload, query, 'netease');
+        if(fallbackTracks.length) return fallbackTracks;
+        return searchHomeMusicItunesTracks(query, 16);
       }
     }
   };
@@ -7987,9 +7989,15 @@ function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
   return normalizeHomeMusicProviderSearchPayload(payload, queryHint, 'tencent');
 }
 
+function normalizeHomeMusicProviderName(providerName){
+  var provider = String(providerName || '').trim().toLowerCase();
+  if(provider === 'netease' || provider === 'tencent' || provider === 'itunes') return provider;
+  return 'tencent';
+}
+
 function normalizeHomeMusicProviderSearchPayload(payload, queryHint, providerName){
   var fallbackBase = String(queryHint || '').trim();
-  var provider = String(providerName || 'tencent').trim().toLowerCase() === 'netease' ? 'netease' : 'tencent';
+  var provider = normalizeHomeMusicProviderName(providerName || 'tencent');
   var list = findHomeMusicSearchItems(payload);
   return list.map(function(item, idx){
     var remoteId = String(
@@ -8043,6 +8051,81 @@ function normalizeHomeMusicProviderSearchPayload(payload, queryHint, providerNam
   }).filter(function(item){
     return !!String(item.name || '').trim();
   });
+}
+
+function upgradeHomeMusicItunesArtwork(url){
+  var text = String(url || '').trim();
+  if(!text) return '';
+  return text.replace(/\/\d+x\d+bb\.(jpg|jpeg|png|webp)(?:[?#].*)?$/i, '/600x600bb.$1');
+}
+
+function normalizeHomeMusicItunesSearchPayload(payload, queryHint){
+  var fallbackBase = String(queryHint || '').trim();
+  var list = payload && Array.isArray(payload.results) ? payload.results : [];
+  return list.map(function(item, idx){
+    var previewUrl = normalizeHomeMusicPlayableUrl(item && item.previewUrl);
+    if(!previewUrl || !isHomeMusicPlayableAudioUrl(previewUrl)) return null;
+    var normalizedPair = splitHomeMusicNameAndArtist(
+      item.trackName || item.collectionName || fallbackBase || ('歌曲 ' + String(idx + 1)),
+      item.artistName || '未知歌手'
+    );
+    if(isHomeMusicUnknownName(normalizedPair.name)){
+      normalizedPair.name = fallbackBase || ('歌曲 ' + String(idx + 1));
+    }
+    return {
+      id: createTrackId('search'),
+      source: 'search',
+      remoteProvider: 'itunes',
+      remoteId: String(item.trackId || item.collectionId || previewUrl || ('itunes_' + idx)),
+      name: normalizedPair.name,
+      artist: normalizedPair.artist,
+      cover: upgradeHomeMusicItunesArtwork(item.artworkUrl100 || item.artworkUrl60 || ''),
+      remoteUrl: previewUrl,
+      lyricsText: '',
+      duration: normalizeHomeMusicDurationSeconds(item.trackTimeMillis || 30000)
+    };
+  }).filter(Boolean);
+}
+
+async function searchHomeMusicItunesTracks(query, limit){
+  var safeQuery = String(query || '').trim();
+  if(!safeQuery) return [];
+  var params = new URLSearchParams({
+    term: safeQuery,
+    media: 'music',
+    entity: 'song',
+    country: 'US',
+    limit: String(Math.max(1, Math.min(25, Number(limit) || 12)))
+  });
+  var payload = await new Promise(function(resolve, reject){
+    var callbackName = '__homeMusicItunesJsonp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    var script = document.createElement('script');
+    var done = false;
+    var timer = setTimeout(function(){
+      cleanup();
+      reject(new Error('全球预览源搜索超时'));
+    }, 8000);
+    function cleanup(){
+      if(done) return;
+      done = true;
+      clearTimeout(timer);
+      try{ delete window[callbackName]; }catch(err){ window[callbackName] = undefined; }
+      if(script && script.parentNode) script.parentNode.removeChild(script);
+    }
+    window[callbackName] = function(data){
+      cleanup();
+      resolve(data || {});
+    };
+    script.onerror = function(){
+      cleanup();
+      reject(new Error('全球预览源搜索失败'));
+    };
+    params.set('callback', callbackName);
+    script.src = HOME_MUSIC_ITUNES_SEARCH_BASE + '?' + params.toString();
+    script.async = true;
+    (document.head || document.documentElement).appendChild(script);
+  });
+  return normalizeHomeMusicItunesSearchPayload(payload, safeQuery);
 }
 
 function extractHomeMusicLyricText(payload){
@@ -8232,8 +8315,36 @@ async function hydrateHomeMusicMetingTrack(track){
   return track;
 }
 
+async function hydrateHomeMusicItunesTrack(track){
+  if(!track) return track;
+  if(track.remoteUrl && isHomeMusicPlayableAudioUrl(track.remoteUrl)){
+    track.remoteProvider = 'itunes';
+    track.source = 'search';
+    track.duration = normalizeHomeMusicDurationSeconds(track.duration || 30);
+    return track;
+  }
+  var query = [track.name, track.artist].map(function(part){ return String(part || '').trim(); }).filter(Boolean).join(' ');
+  if(!query) return track;
+  var candidates = await searchHomeMusicItunesTracks(query, 8);
+  var fallback = pickHomeMusicFallbackTrack(candidates, track);
+  if(fallback){
+    track.remoteProvider = 'itunes';
+    track.remoteId = fallback.remoteId || track.remoteId || '';
+    track.remoteUrl = fallback.remoteUrl || '';
+    track.cover = fallback.cover || track.cover || '';
+    track.name = fallback.name || track.name || '';
+    track.artist = fallback.artist || track.artist || '';
+    track.duration = fallback.duration || track.duration || 30;
+    track.lyricsText = '';
+  }
+  return track;
+}
+
 async function hydrateHomeMusicThirdPartyTrack(track){
   if(!track || !track.remoteId) return track;
+  if(String(track.remoteProvider || '').trim().toLowerCase() === 'itunes'){
+    return hydrateHomeMusicItunesTrack(track);
+  }
   if(!track.remoteUrl){
     var provider = String(track.remoteProvider || 'tencent').trim().toLowerCase() === 'netease' ? 'netease' : 'tencent';
     var base = provider === 'netease' ? HOME_MUSIC_NETEASE_BASE : (HOME_MUSIC_THIRD_PARTY_BASE + '/geturl');
@@ -8296,10 +8407,48 @@ function pickHomeMusicFallbackTrack(candidates, track){
   return list[0] || null;
 }
 
+async function tryHomeMusicGlobalPreviewFallback(track, autoplay){
+  if(homeMusicPlaybackFallbackBusy) return false;
+  if(!track || track.source !== 'search') return false;
+  if(String(track.remoteProvider || '').trim().toLowerCase() === 'itunes') return false;
+  if(track._itunesFallbackTried) return false;
+  track._itunesFallbackTried = true;
+  homeMusicPlaybackFallbackBusy = true;
+  try{
+    var query = [track.name, track.artist].map(function(part){ return String(part || '').trim(); }).filter(Boolean).join(' ');
+    if(!query) return false;
+    var candidates = await searchHomeMusicItunesTracks(query, 10);
+    var fallback = pickHomeMusicFallbackTrack(candidates, track);
+    if(!fallback || !fallback.remoteUrl) return false;
+    track.remoteProvider = 'itunes';
+    track.remoteId = fallback.remoteId || track.remoteId || '';
+    track.remoteUrl = fallback.remoteUrl || '';
+    track.cover = fallback.cover || track.cover || '';
+    track.name = fallback.name || track.name || '';
+    track.artist = fallback.artist || track.artist || '';
+    track.duration = fallback.duration || track.duration || 30;
+    track.lyricsText = '';
+    homeMusicState.currentTime = 0;
+    await persistHomeMusicStateAsync();
+    renderHomeMusic();
+    showHomeToast('已切到全球预览音源');
+    await ensureHomeMusicTrackLoaded(track, autoplay !== false);
+    return true;
+  }catch(err){
+    console.warn('[home-music] global preview fallback failed', err);
+    return false;
+  }finally{
+    homeMusicPlaybackFallbackBusy = false;
+  }
+}
+
 async function tryHomeMusicProviderFallback(track, autoplay){
   if(homeMusicPlaybackFallbackBusy) return false;
   if(!track || track.source !== 'search') return false;
-  if(String(track.remoteProvider || '').trim().toLowerCase() === 'netease') return false;
+  if(String(track.remoteProvider || '').trim().toLowerCase() === 'itunes') return false;
+  if(String(track.remoteProvider || '').trim().toLowerCase() === 'netease'){
+    return tryHomeMusicGlobalPreviewFallback(track, autoplay);
+  }
   if(track._neteaseFallbackTried) return false;
   track._neteaseFallbackTried = true;
   homeMusicPlaybackFallbackBusy = true;
@@ -8768,7 +8917,8 @@ function renderHomeMusicSearchResults(message){
     return;
   }
   root.innerHTML = results.map(function(track, idx){
-    var providerTag = String(track && track.remoteProvider || '').trim().toLowerCase() === 'netease' ? 'NETEASE' : 'QQ MUSIC';
+    var provider = String(track && track.remoteProvider || '').trim().toLowerCase();
+    var providerTag = provider === 'itunes' ? 'GLOBAL' : (provider === 'netease' ? 'NETEASE' : 'QQ MUSIC');
     return (
       '<div class="home-music-search-item">' +
         '<div class="home-music-search-item-top">' +
@@ -8834,7 +8984,7 @@ async function submitHomeMusicSearch(){
 async function previewHomeMusicSearchResult(index){
   var candidate = Array.isArray(homeMusicState.searchResults) ? homeMusicState.searchResults[index] : null;
   if(!candidate) return;
-  var existing = getHomeMusicPlaylistTrackByRemoteId(candidate.remoteId);
+  var existing = getHomeMusicPlaylistTrackByRemoteId(candidate.remoteId, candidate.remoteProvider);
   if(existing){
     setCurrentHomeMusicTrack(existing.id, true);
     closeHomeMusicSearchEditor();
@@ -8862,7 +9012,7 @@ async function previewHomeMusicSearchResult(index){
 async function addHomeMusicSearchResult(index){
   var candidate = Array.isArray(homeMusicState.searchResults) ? homeMusicState.searchResults[index] : null;
   if(!candidate) return;
-  var existing = getHomeMusicPlaylistTrackByRemoteId(candidate.remoteId);
+  var existing = getHomeMusicPlaylistTrackByRemoteId(candidate.remoteId, candidate.remoteProvider);
   if(existing){
     setCurrentHomeMusicTrack(existing.id, true);
     closeHomeMusicSearchEditor();
@@ -9083,6 +9233,9 @@ async function attemptHomeMusicPlay(audio){
     if(await tryHomeMusicAlternateUrlFallback(playTrack, true)){
       return true;
     }
+    if(await tryHomeMusicGlobalPreviewFallback(playTrack, true)){
+      return true;
+    }
     homeMusicPendingAutoplay = false;
     showHomeToast(describeHomeMusicAudioError(audio));
     return false;
@@ -9116,6 +9269,9 @@ async function ensureHomeMusicTrackLoaded(track, autoplay){
       return;
     }
     if(await tryHomeMusicAlternateUrlFallback(track, autoplay)){
+      return;
+    }
+    if(await tryHomeMusicGlobalPreviewFallback(track, autoplay)){
       return;
     }
     homeMusicPendingAutoplay = false;
@@ -9403,6 +9559,9 @@ function bindHomeMusicSystem(){
       tryHomeMusicProviderFallback(failedTrack, true).then(function(recovered){
         if(recovered) return true;
         return tryHomeMusicAlternateUrlFallback(failedTrack, true);
+      }).then(function(recovered){
+        if(recovered) return true;
+        return tryHomeMusicGlobalPreviewFallback(failedTrack, true);
       }).then(function(recovered){
         if(!recovered) showHomeToast(describeHomeMusicAudioError(audio));
       });
