@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-01T09:46:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-01T09:46:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T09:46:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T09:46:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T09:46:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-01T09:46:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-01T09:46:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-01T09:46:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-01T09:46:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-01T09:46:00Z"></script>
+<script src="../promptManager.js?v=2026-05-01T10:18:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T10:18:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T10:18:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T10:18:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T10:18:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-01T10:18:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-01T10:18:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-01T10:18:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-01T10:18:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-01T10:18:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -3866,17 +3866,37 @@ function findMemeByName(name){
   var target = canonicalizeMemeLookupName(name).toLowerCase();
   if(!target) return null;
   var targetCompact = target.replace(/[\s\-_.|:：]/g, '');
+  var basename = function(value){
+    return String(value || '').trim().split(/[?#]/)[0].split(/[\\/]/).pop();
+  };
+  var memeSearchKeys = function(item){
+    return [
+      item && item.name,
+      item && item.fileName,
+      basename(item && item.src),
+      basename(item && item.assetKey),
+      item && item.assetKey
+    ].map(function(value){
+      return canonicalizeMemeLookupName(value).toLowerCase();
+    }).filter(Boolean);
+  };
   var items = getAllMemeItems();
   for(var i = 0; i < items.length; i++){
-    var exact = canonicalizeMemeLookupName(items[i].name).toLowerCase();
-    if(exact === target) return items[i];
-    if(exact.replace(/[\s\-_.|:：]/g, '') === targetCompact) return items[i];
+    var exactKeys = memeSearchKeys(items[i]);
+    for(var k = 0; k < exactKeys.length; k += 1){
+      var exact = exactKeys[k];
+      if(exact === target) return items[i];
+      if(exact.replace(/[\s\-_.|:：]/g, '') === targetCompact) return items[i];
+    }
   }
   for(var j = 0; j < items.length; j++){
-    var fuzzy = canonicalizeMemeLookupName(items[j].name).toLowerCase();
-    var fuzzyCompact = fuzzy.replace(/[\s\-_.|:：]/g, '');
-    if(fuzzy.indexOf(target) >= 0 || target.indexOf(fuzzy) >= 0) return items[j];
-    if(fuzzyCompact && targetCompact && (fuzzyCompact.indexOf(targetCompact) >= 0 || targetCompact.indexOf(fuzzyCompact) >= 0)) return items[j];
+    var fuzzyKeys = memeSearchKeys(items[j]);
+    for(var m = 0; m < fuzzyKeys.length; m += 1){
+      var fuzzy = fuzzyKeys[m];
+      var fuzzyCompact = fuzzy.replace(/[\s\-_.|:：]/g, '');
+      if(fuzzy.indexOf(target) >= 0 || target.indexOf(fuzzy) >= 0) return items[j];
+      if(fuzzyCompact && targetCompact && (fuzzyCompact.indexOf(targetCompact) >= 0 || targetCompact.indexOf(fuzzyCompact) >= 0)) return items[j];
+    }
   }
   return null;
 }
@@ -3893,6 +3913,7 @@ function parseMemeMarker(raw){
     .replace(/[。.!！?？]+$/g, '')
     .trim();
   var match = text.match(/^\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\]$/i)
+    || text.match(/^<\s*bqb\s*>\s*([\s\S]+?)\s*<\s*\/\s*bqb\s*>$/i)
     || text.match(/^【(?:表情包|meme)\s*[:：]?\s*(.+)】$/i)
     || text.match(/^【(?:表情包|meme)】\s*(.+)$/i)
     || text.match(/^(?:表情包|meme)\s*[:：]\s*(.+)$/i);
@@ -3904,14 +3925,14 @@ function parseMemeMarker(raw){
 function splitTextAndMemeMarkers(raw){
   var text = String(raw || '').trim();
   if(!text) return [];
-  var pattern = /(\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\][。.!！?？]?|【(?:表情包|meme)\s*[:：]?\s*([^\n\r】]+)】[。.!！?？]?|【(?:表情包|meme)】\s*([^\n\r]+?)(?=(?:[。.!！?？]|\s|$)))/ig;
+  var pattern = /(\[(?:表情包|meme)\s*[:：]\s*([^\]]+)\][。.!！?？]?|<\s*bqb\s*>\s*([\s\S]+?)\s*<\s*\/\s*bqb\s*>[。.!！?？]?|【(?:表情包|meme)\s*[:：]?\s*([^\n\r】]+)】[。.!！?？]?|【(?:表情包|meme)】\s*([^\n\r]+?)(?=(?:[。.!！?？]|\s|$)))/ig;
   var parts = [];
   var lastIndex = 0;
   var match;
   while((match = pattern.exec(text))){
     var before = text.slice(lastIndex, match.index).trim();
     if(before) parts.push({ text: before, t: 'text' });
-    var memeName = canonicalizeMemeLookupName(match[2] || match[3] || match[4] || '');
+    var memeName = canonicalizeMemeLookupName(match[2] || match[3] || match[4] || match[5] || '');
     if(memeName) parts.push({ text: memeName, t: 'meme' });
     lastIndex = pattern.lastIndex;
   }
@@ -13466,6 +13487,10 @@ function sanitizeAssistantTextForChat(raw){
   if(/^【亲属卡】[\s\S]*[；;]状态[：:](待处理|已同意|已拒绝)\s*$/.test(t)) return '';
   if(/^\[family_card\s+[^\]]+\]$/i.test(t)) return '';
   t = t.replace(/<\/?msg>/ig, '');
+  t = t.replace(/[［]/g, '[').replace(/[］]/g, ']');
+  t = t.replace(/\[\s*reply_to\s*=\s*["']?[^"'\]\s]+["']?\s*\]([\s\S]*?)\[\s*\/\s*reply_to\s*\]/ig, '$1');
+  t = t.replace(/<\s*bqb\s*>[\s\S]*?<\s*\/\s*bqb\s*>/ig, '');
+  t = t.replace(/\[\s*(?:image_message|image|图片消息|图片)\s*[:：]\s*([\s\S]*?)\s*\]/ig, '$1');
   t = t.replace(/\[family_card\s+[^\]]+\]/ig, '');
   t = t.replace(/\[\s*offline_invite\b[\s\S]*?\]/ig, '');
   t = t.replace(/【亲属卡】[\s\S]*?[；;]状态[：:](待处理|已同意|已拒绝)/g, '');
@@ -19964,6 +19989,7 @@ function buildChatExtendedFormatPrompt(){
     '别有“AI 在完成回复任务”的味道：少用安抚模板、总结模板和反复提问收尾，不要每轮都“我理解/我知道/没关系/我会陪着你”。不要车轱辘话，最近几轮说过的安抚、解释、反问、口头禅别换皮重复。角色该嘴硬就嘴硬，该绕开就绕开，该短短刺一下也可以。',
     '日常 text 结尾别老带句号，也别为了句子完整把口语补成书面长句。像真人发消息那样，意思到了就自然停住。',
     'rich_html 是机器输出协议，不是角色台词。角色不能在正文里解释“我在写代码/html/css/js”，但你生成卡片时必须把完整 html/css/js 放进 rich_html JSON 字段里，不能改成普通文字解释。',
+    '不要输出旧标签或半结构化标签：禁止 [reply_to="..."]...[/reply_to]、<bqb>...</bqb>、[image_message:...]、［image_message：...］。引用必须用 JSON 字段 reply_to/reply_role；表情包必须用 {"type":"meme","content":"表情包名"}；图片必须用 {"type":"image_message","content":"画面描述"}。',
     '历史消息里如果出现“历史消息：可见页面/物件”的摘要，那只是帮助你理解之前发生过什么；不要把这类摘要、摘录、主题、链接说明原样复述成正文。',
     'rich_html 要完整、精致、可读、可玩：层级清楚、细节到位、文字和按钮都是真的内容，别给空盒子、假按钮、占位符、乱码；不要输出“这是一张卡片/我会把它当成页面”这种说明来代替 html/css/js。发真实网页时直接给 url/title/text，不要再硬包一层假 html。',
     '不要返回 {"html":"","css":"","js":""} 这种空壳卡片。做不到完整卡片就改回完整 text/narrator。',
@@ -31195,6 +31221,52 @@ async function deliverAiReply(text, limitOverride, options){
     }
     return splitParts.map(function(){ return ''; });
   };
+  var parseLegacyTaggedReplyParts = function(raw){
+    var source = clean(raw);
+    if(!source) return [];
+    var normalized = source.replace(/[［]/g, '[').replace(/[］]/g, ']');
+    if(!/\[\s*reply_to\s*=|<\s*bqb\s*>|\[\s*(?:image_message|image|图片消息|图片)\s*[:：]/i.test(normalized)){
+      return [];
+    }
+    var parts = [];
+    var pattern = /\[\s*reply_to\s*=\s*["']?([^"'\]\s]+)["']?\s*\]([\s\S]*?)\[\s*\/\s*reply_to\s*\]|<\s*bqb\s*>\s*([\s\S]*?)\s*<\s*\/\s*bqb\s*>|\[\s*(image_message|image|图片消息|图片)\s*[:：]\s*([\s\S]*?)\s*\]/ig;
+    var lastIndex = 0;
+    var match;
+    var pushPlain = function(chunk){
+      splitPlainTextToParts(chunk).forEach(function(part){
+        if(part && part.text) parts.push({
+          text: part.text,
+          t: part.t || 'text',
+          replyTo: '',
+          replyRole: '',
+          translationText: ''
+        });
+      });
+    };
+    while((match = pattern.exec(normalized))){
+      pushPlain(normalized.slice(lastIndex, match.index));
+      if(match[1]){
+        splitPlainTextToParts(match[2] || '').forEach(function(part){
+          if(part && part.text) parts.push({
+            text: part.text,
+            t: part.t || 'text',
+            replyTo: String(match[1] || '').trim(),
+            replyRole: '',
+            translationText: ''
+          });
+        });
+      }else if(match[3]){
+        var memeName = canonicalizeMemeLookupName(match[3] || '');
+        if(memeName) parts.push({ text: memeName, t: 'meme', replyTo: '', replyRole: '', translationText: '' });
+      }else if(match[5]){
+        var imageText = String(match[5] || '').trim();
+        if(imageText) parts.push({ text: imageText, t: 'image', replyTo: '', replyRole: '', translationText: '' });
+      }
+      lastIndex = pattern.lastIndex;
+    }
+    pushPlain(normalized.slice(lastIndex));
+    return parts;
+  };
   var tryPromoteTextToOfflineInvite = function(raw){
     var source = clean(raw);
     if(!source || !/\boffline_invite\b/i.test(source)) return '';
@@ -31822,6 +31894,11 @@ async function deliverAiReply(text, limitOverride, options){
       var loose = parseLooseJsonishObject(fragment);
       if(loose) appendRawPart(loose);
     });
+  }
+
+  // Compatibility: consume legacy loose tags as structure instead of leaking them into bubbles.
+  if(!rawParts.length && text){
+    rawParts = parseLegacyTaggedReplyParts(text);
   }
 
   if(text){

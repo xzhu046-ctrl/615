@@ -50,10 +50,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T09:46:00Z';
+const APP_BUILD_ID = '2026-05-01T10:18:00Z';
 const APP_UPDATE_NOTES = [
-  '保存与音乐修正',
-  '加载白屏兜底'
+  '格式与音乐修正',
+  '备用音源切换'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -7394,6 +7394,7 @@ var homeMusicSearchBusy = false;
 var homeMusicPendingAutoplay = false;
 var homeMusicAutoplayToastTimer = 0;
 var homeMusicPersistPromise = Promise.resolve();
+var homeMusicPlaybackFallbackBusy = false;
 
 function normalizeHomeMusicStorageText(value, limit){
   var text = String(value == null ? '' : value).trim();
@@ -7434,9 +7435,6 @@ function normalizeHomeMusicDurationSeconds(value){
 function normalizeHomeMusicPlayableUrl(value){
   var text = String(value || '').trim();
   if(!text) return '';
-  if(/^http:\/\//i.test(text)){
-    return text.replace(/^http:\/\//i, 'https://');
-  }
   return text;
 }
 
@@ -7689,8 +7687,8 @@ function getHomeMusicProvider(){
           });
         };
         var settled = await Promise.allSettled([
-          fetchProvider(HOME_MUSIC_THIRD_PARTY_BASE, 'tencent'),
-          fetchProvider(HOME_MUSIC_NETEASE_BASE, 'netease')
+          fetchProvider(HOME_MUSIC_NETEASE_BASE, 'netease'),
+          fetchProvider(HOME_MUSIC_THIRD_PARTY_BASE, 'tencent')
         ]);
         var tracks = [];
         settled.forEach(function(result){
@@ -7699,7 +7697,7 @@ function getHomeMusicProvider(){
           }
         });
         if(tracks.length) return tracks.slice(0, 16);
-        var res = await fetch(HOME_MUSIC_THIRD_PARTY_BASE + '?word=' + encodeURIComponent(query), {
+        var res = await fetch(HOME_MUSIC_NETEASE_BASE + '?word=' + encodeURIComponent(query), {
           method: 'GET',
           mode: 'cors',
           credentials: 'omit',
@@ -7707,7 +7705,7 @@ function getHomeMusicProvider(){
         });
         if(!res.ok) throw new Error('搜索失败：' + res.status);
         var payload = await res.json();
-        return normalizeHomeMusicThirdPartySearchPayload(payload, query);
+        return normalizeHomeMusicProviderSearchPayload(payload, query, 'netease');
       }
     }
   };
@@ -8048,6 +8046,70 @@ async function hydrateHomeMusicThirdPartyTrack(track){
   }
   track.duration = normalizeHomeMusicDurationSeconds(track.duration);
   return track;
+}
+
+function normalizeHomeMusicMatchText(value){
+  return String(value || '').toLowerCase().replace(/[\s\-_.·・/\\|:：，,。.!！?？'"“”‘’（）()\[\]【】]/g, '');
+}
+
+function pickHomeMusicFallbackTrack(candidates, track){
+  var list = Array.isArray(candidates) ? candidates : [];
+  if(!list.length) return null;
+  var nameKey = normalizeHomeMusicMatchText(track && track.name);
+  var artistKey = normalizeHomeMusicMatchText(track && track.artist);
+  for(var i = 0; i < list.length; i += 1){
+    var candidate = list[i];
+    var candidateName = normalizeHomeMusicMatchText(candidate && candidate.name);
+    var candidateArtist = normalizeHomeMusicMatchText(candidate && candidate.artist);
+    if(nameKey && candidateName && (candidateName === nameKey || candidateName.indexOf(nameKey) >= 0 || nameKey.indexOf(candidateName) >= 0)){
+      if(!artistKey || !candidateArtist || candidateArtist.indexOf(artistKey) >= 0 || artistKey.indexOf(candidateArtist) >= 0){
+        return candidate;
+      }
+    }
+  }
+  return list[0] || null;
+}
+
+async function tryHomeMusicProviderFallback(track, autoplay){
+  if(homeMusicPlaybackFallbackBusy) return false;
+  if(!track || track.source !== 'search') return false;
+  if(String(track.remoteProvider || '').trim().toLowerCase() === 'netease') return false;
+  if(track._neteaseFallbackTried) return false;
+  track._neteaseFallbackTried = true;
+  homeMusicPlaybackFallbackBusy = true;
+  try{
+    var query = [track.name, track.artist].map(function(part){ return String(part || '').trim(); }).filter(Boolean).join(' ');
+    if(!query) return false;
+    var res = await fetch(HOME_MUSIC_NETEASE_BASE + '?word=' + encodeURIComponent(query), {
+      method: 'GET',
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store'
+    });
+    if(!res.ok) return false;
+    var payload = await res.json();
+    var candidates = normalizeHomeMusicProviderSearchPayload(payload, query, 'netease');
+    var fallback = pickHomeMusicFallbackTrack(candidates, track);
+    if(!fallback || !fallback.remoteId) return false;
+    track.remoteProvider = 'netease';
+    track.remoteId = fallback.remoteId;
+    track.remoteUrl = '';
+    track.cover = fallback.cover || track.cover || '';
+    track.name = fallback.name || track.name || '';
+    track.artist = fallback.artist || track.artist || '';
+    track.duration = fallback.duration || track.duration || 0;
+    await hydrateHomeMusicThirdPartyTrack(track);
+    await persistHomeMusicStateAsync();
+    renderHomeMusic();
+    showHomeToast('已切到备用音源');
+    await ensureHomeMusicTrackLoaded(track, autoplay !== false);
+    return true;
+  }catch(err){
+    console.warn('[home-music] provider fallback failed', err);
+    return false;
+  }finally{
+    homeMusicPlaybackFallbackBusy = false;
+  }
 }
 
 function cloneHomeMusicTrack(track){
@@ -8768,6 +8830,10 @@ async function attemptHomeMusicPlay(audio){
       }
       return false;
     }
+    var playTrack = getCurrentHomeMusicTrack();
+    if(await tryHomeMusicProviderFallback(playTrack, true)){
+      return true;
+    }
     homeMusicPendingAutoplay = false;
     showHomeToast(describeHomeMusicAudioError(audio));
     return false;
@@ -8797,6 +8863,9 @@ async function ensureHomeMusicTrackLoaded(track, autoplay){
     }
   }catch(err){
     console.error('[home-music] load failed', err);
+    if(await tryHomeMusicProviderFallback(track, autoplay)){
+      return;
+    }
     homeMusicPendingAutoplay = false;
     homeMusicState.isPlaying = false;
     renderHomeMusicPlaybackUi();
@@ -9078,7 +9147,10 @@ function bindHomeMusicSystem(){
       homeMusicPendingAutoplay = false;
       homeMusicState.isPlaying = false;
       renderHomeMusicPlaybackUi();
-      showHomeToast(describeHomeMusicAudioError(audio));
+      var failedTrack = getCurrentHomeMusicTrack();
+      tryHomeMusicProviderFallback(failedTrack, true).then(function(recovered){
+        if(!recovered) showHomeToast(describeHomeMusicAudioError(audio));
+      });
     });
     audio.addEventListener('timeupdate', function(){
       homeMusicState.currentTime = Number(audio.currentTime) || 0;
