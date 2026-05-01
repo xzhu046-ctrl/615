@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T04:20:30Z';
+const APP_BUILD_ID = '2026-05-01T04:37:00Z';
 const APP_UPDATE_NOTES = [
-  '邀请码后台口令弹窗去掉多余说明和默认状态文案。',
-  '后台管理页去掉欢迎管理标题，并把备注输入改为用户名。',
-  '验证码页随机 USERNAME 会按设备固定保持一致。'
+  '后台生成邀请码不再额外生成第二个 USERNAME。',
+  '邀请码记录只显示填写的用户名和邀请码。',
+  '小手机验证码页的设备 USERNAME 仍然按设备固定。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,

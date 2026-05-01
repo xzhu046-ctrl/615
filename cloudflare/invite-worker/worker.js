@@ -43,10 +43,6 @@ const ADMIN_HTML = `<!doctype html>
   button:disabled{opacity:.45;cursor:not-allowed}
   .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
   .result{margin-top:14px;border:1.5px dashed #111;padding:14px;background:#fafafa;display:none}
-  .name-box{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;margin-bottom:10px}
-  .public-name{font-weight:900;font-size:18px}
-  .small-copy{padding:8px 10px;font-size:12px}
-  .keep-tip{font-size:12px;color:#555;line-height:1.6;margin-top:8px}
   .code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:22px;font-weight:900;word-break:break-all}
   .meta{font-size:12px;color:#555;margin-top:8px;line-height:1.6}
   .list{display:grid;gap:12px;margin-top:14px}
@@ -106,24 +102,16 @@ const ADMIN_HTML = `<!doctype html>
       <button class="danger" id="resetAllBtn">清空所有登录设备</button>
     </div>
     <div class="result" id="result">
-      <div class="name-box">
-        <div>
-          <label for="newName">USERNAME</label>
-          <input class="public-name" id="newName" type="text" readonly value="">
-        </div>
-        <button class="secondary small-copy" id="copyNameBtn" type="button">复制</button>
-      </div>
       <div class="code" id="newCode"></div>
       <div class="meta">邀请码已复制到剪贴板。把这个码发给用户即可。</div>
-      <div class="keep-tip">小提醒：请玩家记得保留 USERNAME，之后找码会更快。</div>
     </div>
   </section>
 
   <section class="panel">
     <div class="kicker">records</div>
     <div class="search-row">
-      <label for="searchBox">搜索用户名 / USERNAME / 邀请码</label>
-      <input id="searchBox" placeholder="输入用户名、USERNAME 或邀请码">
+      <label for="searchBox">搜索用户名 / 邀请码</label>
+      <input id="searchBox" placeholder="输入用户名或邀请码">
     </div>
     <div id="list" class="list"><div class="empty">输入管理员口令后点击刷新记录</div></div>
   </section>
@@ -141,12 +129,9 @@ const maxEl = document.getElementById('maxDevices');
 const listEl = document.getElementById('list');
 const resultEl = document.getElementById('result');
 const newCodeEl = document.getElementById('newCode');
-const newNameEl = document.getElementById('newName');
-const copyNameBtn = document.getElementById('copyNameBtn');
 const searchEl = document.getElementById('searchBox');
 const toastEl = document.getElementById('toast');
 let allRows = [];
-let latestPublicName = '';
 let adminTokenValue = '';
 
 function toast(text){
@@ -213,9 +198,8 @@ function renderRows(rows){
   listEl.innerHTML = rows.map((row)=>\`
     <article class="card \${Number(row.revoked || 0) ? 'revoked' : ''}">
       <div>
-        <div class="card-name">\${escapeHtml(row.publicName || '未命名的通行证')}</div>
+        <div class="card-name">\${escapeHtml(row.label || '未填写用户名')}</div>
         <div class="card-code">\${escapeHtml(row.code)}</div>
-        <div class="card-label">\${escapeHtml(row.label || '未填写用户名')}</div>
         <div class="stats">
           <span class="pill">设备 \${row.deviceCount || 0}/\${row.maxDevices || 2}</span>
           <span class="pill">验证 \${row.verifyCount || 0}</span>
@@ -225,7 +209,6 @@ function renderRows(rows){
         </div>
       </div>
       <div class="actions">
-        <button class="secondary" data-copy-name="\${escapeHtml(row.publicName || '')}">复制 USERNAME</button>
         <button class="secondary" data-copy="\${escapeHtml(row.code)}">复制邀请码</button>
         <button class="danger" data-reset="\${escapeHtml(row.code)}">清空设备</button>
         <button class="danger" data-toggle="\${escapeHtml(row.code)}" data-revoked="\${Number(row.revoked || 0)}">\${Number(row.revoked || 0) ? '启用' : '停用'}</button>
@@ -240,8 +223,7 @@ function renderFiltered(){
   if(!q) return renderRows(allRows);
   renderRows(allRows.filter((row)=>{
     return String(row.code || '').toLowerCase().includes(q)
-      || String(row.label || '').toLowerCase().includes(q)
-      || String(row.publicName || '').toLowerCase().includes(q);
+      || String(row.label || '').toLowerCase().includes(q);
   }));
 }
 
@@ -291,8 +273,6 @@ document.getElementById('createBtn').addEventListener('click', async ()=>{
       return;
     }
     const data = await api('/admin/create', { label, maxDevices: Number(maxEl.value || 2) });
-    latestPublicName = data.publicName || '';
-    newNameEl.value = latestPublicName;
     newCodeEl.textContent = data.code;
     resultEl.style.display = 'block';
     labelEl.value = '';
@@ -305,7 +285,6 @@ document.getElementById('createBtn').addEventListener('click', async ()=>{
 
 document.getElementById('refreshBtn').addEventListener('click', refresh);
 searchEl.addEventListener('input', renderFiltered);
-copyNameBtn.addEventListener('click', ()=>copyText(latestPublicName));
 document.getElementById('resetAllBtn').addEventListener('click', async ()=>{
   try{
     if(!confirm('确认清空所有邀请码已经绑定的登录设备吗？\\n\\n邀请码会保留，所有用户需要重新输入邀请码登录。')) return;
@@ -317,16 +296,14 @@ document.getElementById('resetAllBtn').addEventListener('click', async ()=>{
   }
 });
 listEl.addEventListener('click', async (event)=>{
-  const actionEl = event.target.closest('button[data-copy],button[data-copy-name],button[data-reset],button[data-toggle],button[data-delete]');
+  const actionEl = event.target.closest('button[data-copy],button[data-reset],button[data-toggle],button[data-delete]');
   if(!actionEl) return;
   const copy = actionEl.getAttribute('data-copy');
-  const copyName = actionEl.getAttribute('data-copy-name');
   const reset = actionEl.getAttribute('data-reset');
   const toggle = actionEl.getAttribute('data-toggle');
   const remove = actionEl.getAttribute('data-delete');
   try{
     if(copy) return copyText(copy);
-    if(copyName) return copyText(copyName);
     if(reset){
       if(!confirm('确认清空这个邀请码已经绑定的设备吗？用户需要重新输入邀请码。')) return;
       await api('/admin/reset-devices', { code: reset });
@@ -433,12 +410,6 @@ async function ensureAdminSchema(env){
     'CREATE TABLE IF NOT EXISTS invite_deleted_codes (code TEXT PRIMARY KEY, deleted_at INTEGER NOT NULL)'
   ).run();
   await env.DB.prepare(
-    'CREATE TABLE IF NOT EXISTS invite_code_names (code TEXT PRIMARY KEY, public_name TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL)'
-  ).run();
-  await env.DB.prepare(
-    'CREATE INDEX IF NOT EXISTS idx_invite_code_names_public_name ON invite_code_names (public_name)'
-  ).run();
-  await env.DB.prepare(
     'CREATE TABLE IF NOT EXISTS invite_public_names (device_hash TEXT PRIMARY KEY, public_name TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL)'
   ).run();
   await env.DB.prepare(
@@ -459,11 +430,8 @@ async function randomPublicName(env){
   for(let i = 0; i < 80; i += 1){
     const candidate = randomPublicNameCandidate();
     const exists = await env.DB.prepare(
-      `SELECT public_name FROM invite_code_names WHERE public_name = ?
-       UNION ALL
-       SELECT public_name FROM invite_public_names WHERE public_name = ?
-       LIMIT 1`
-    ).bind(candidate, candidate).first();
+      'SELECT public_name FROM invite_public_names WHERE public_name = ?'
+    ).bind(candidate).first();
     if(!exists) return candidate;
   }
   return randomPublicNameCandidate() + '-' + Math.floor(1000 + Math.random() * 9000);
@@ -490,29 +458,6 @@ async function getStablePublicName(env, deviceHash){
     'SELECT public_name AS publicName FROM invite_public_names WHERE device_hash = ?'
   ).bind(safeHash).first();
   return saved && saved.publicName ? saved.publicName : publicName;
-}
-
-async function backfillMissingPublicNames(env){
-  const rows = await env.DB.prepare(
-    `SELECT c.code
-     FROM invite_codes c
-     LEFT JOIN invite_code_names n ON n.code = c.code
-     WHERE n.code IS NULL
-       AND NOT EXISTS (SELECT 1 FROM invite_deleted_codes x WHERE x.code = c.code)
-     ORDER BY c.created_at DESC
-     LIMIT 300`
-  ).all();
-  const missing = rows.results || [];
-  for(const row of missing){
-    const code = normalizeCode(row.code);
-    if(!code) continue;
-    try{
-      const publicName = await randomPublicName(env);
-      await env.DB.prepare(
-        'INSERT OR IGNORE INTO invite_code_names (code, public_name, created_at) VALUES (?, ?, ?)'
-      ).bind(code, publicName, nowMs()).run();
-    }catch(err){}
-  }
 }
 
 async function sha256Hex(value){
@@ -589,12 +534,10 @@ async function handleAdminList(request, env){
   const error = assertAdmin(request, env, body);
   if(error) return json({ ok:false, message:error }, 403, env);
   await ensureAdminSchema(env);
-  await backfillMissingPublicNames(env);
   const result = await env.DB.prepare(
     `SELECT
       c.code,
       c.label,
-      n.public_name AS publicName,
       c.max_devices AS maxDevices,
       c.revoked,
       c.expires_at AS expiresAt,
@@ -605,7 +548,6 @@ async function handleAdminList(request, env){
       (SELECT COUNT(*) FROM invite_access_logs l WHERE l.code = c.code AND l.action = 'verify' AND l.ok = 1) AS verifyCount,
       (SELECT COUNT(*) FROM invite_access_logs l WHERE l.code = c.code AND l.action = 'session' AND l.ok = 1) AS sessionCount
      FROM invite_codes c
-     LEFT JOIN invite_code_names n ON n.code = c.code
      WHERE NOT EXISTS (SELECT 1 FROM invite_deleted_codes x WHERE x.code = c.code)
      ORDER BY c.created_at DESC
      LIMIT 300`
@@ -629,7 +571,6 @@ async function handleAdminCreate(request, env){
   const maxDevices = Math.max(1, Math.min(6, Number(body.maxDevices || 2) || 2));
   const stamp = nowMs();
   await ensureAdminSchema(env);
-  const publicName = await randomPublicName(env);
   let code = randomInviteCode();
   for(let i = 0; i < 20; i += 1){
     const exists = await env.DB.prepare('SELECT code FROM invite_codes WHERE code = ?').bind(code).first();
@@ -640,10 +581,7 @@ async function handleAdminCreate(request, env){
   await env.DB.prepare(
     'INSERT INTO invite_codes (code, label, max_devices, revoked, expires_at, created_at, updated_at) VALUES (?, ?, ?, 0, NULL, ?, ?)'
   ).bind(code, label, maxDevices, stamp, stamp).run();
-  await env.DB.prepare(
-    'INSERT INTO invite_code_names (code, public_name, created_at) VALUES (?, ?, ?)'
-  ).bind(code, publicName, stamp).run();
-  return json({ ok:true, code, label, publicName, maxDevices }, 200, env);
+  return json({ ok:true, code, label, maxDevices }, 200, env);
 }
 
 async function handleAdminRevoke(request, env){

@@ -38,12 +38,6 @@ CREATE TABLE IF NOT EXISTS invite_deleted_codes (
   deleted_at INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS invite_code_names (
-  code TEXT PRIMARY KEY,
-  public_name TEXT NOT NULL UNIQUE,
-  created_at INTEGER NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS invite_public_names (
   device_hash TEXT PRIMARY KEY,
   public_name TEXT NOT NULL UNIQUE,
@@ -56,9 +50,6 @@ CREATE INDEX IF NOT EXISTS idx_invite_devices_code_active
 
 CREATE INDEX IF NOT EXISTS idx_invite_access_logs_code_created
   ON invite_access_logs (code, created_at);
-
-CREATE INDEX IF NOT EXISTS idx_invite_code_names_public_name
-  ON invite_code_names (public_name);
 
 CREATE INDEX IF NOT EXISTS idx_invite_public_names_public_name
   ON invite_public_names (public_name);
