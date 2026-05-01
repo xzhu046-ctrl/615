@@ -50,10 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T12:45:00Z';
+const APP_BUILD_ID = '2026-05-01T13:10:00Z';
 const APP_UPDATE_NOTES = [
   '键盘白条修正',
-  '聊天输入修正'
+  '线下邀约去重',
+  '心声生成模式'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -770,6 +771,20 @@ function getFallbackChatKeyboardShift(){
 
 function syncChatKeyboardShift(){
   setChatKeyboardShift(0);
+}
+
+function resetShellViewportAfterChatInput(){
+  chatInputFocusActive = false;
+  chatReportedKeyboardShift = 0;
+  setChatKeyboardShift(0);
+  try{ window.scrollTo(0, 0); }catch(err){}
+  try{
+    if(document.scrollingElement) document.scrollingElement.scrollTop = 0;
+    if(document.body) document.body.scrollTop = 0;
+  }catch(err2){}
+  syncAppHeight();
+  var container = document.getElementById('app-container');
+  if(container) container.style.removeProperty('--chat-keyboard-shift');
 }
 
 function offlineMinimizedStorageKey(){
@@ -10038,10 +10053,9 @@ window.addEventListener('message',(e)=>{
     });
   }
   if(type==='CHAT_INPUT_BLUR'){
-    chatInputFocusActive = false;
-    chatReportedKeyboardShift = 0;
-    setTimeout(syncChatKeyboardShift, 60);
-    setTimeout(syncChatKeyboardShift, 220);
+    [0, 60, 160, 320, 620].forEach(function(delay){
+      setTimeout(resetShellViewportAfterChatInput, delay);
+    });
   }
   if(type==='SET_APP_ICON'){
     const app = payload && payload.app;

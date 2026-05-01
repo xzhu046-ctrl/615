@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-05-01T12:45:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-01T12:45:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T12:45:00Z"></script>
-<script src="../promptManager.js?v=2026-05-01T12:45:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T12:45:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-01T12:45:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-01T12:45:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-01T12:45:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T13:10:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T13:10:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T13:10:00Z"></script>
+<script src="../promptManager.js?v=2026-05-01T13:10:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T13:10:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-01T13:10:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-01T13:10:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-01T13:10:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1414,6 +1414,43 @@ function collectOfflineInviteRecordIdsFromSource(source, list, options){
   if(launchRecord) collectOfflineInviteRecordIdsFromSource(launchRecord, out, opts);
   return out;
 }
+function isCanonicalOfflineInviteRecordId(id){
+  var safeId = String(id || '').trim();
+  return !!safeId && /^invite_/i.test(safeId);
+}
+function getCanonicalOfflineInviteRecordIdFromSource(source){
+  var candidates = [];
+  function add(value){
+    var safeId = String(value || '').trim();
+    if(safeId && candidates.indexOf(safeId) === -1) candidates.push(safeId);
+  }
+  function collect(obj){
+    if(!(obj && typeof obj === 'object')) return;
+    var invite = obj.invite && typeof obj.invite === 'object' ? obj.invite : null;
+    var payload = obj.payload && typeof obj.payload === 'object' ? obj.payload : null;
+    var launchRecord = obj.offlineLaunchRecord && typeof obj.offlineLaunchRecord === 'object' ? obj.offlineLaunchRecord : null;
+    if(invite){
+      add(invite.recordId);
+      add(invite.inviteRecordId);
+      add(invite.id);
+      if(isCanonicalOfflineInviteRecordId(invite.threadId)) add(invite.threadId);
+    }
+    add(obj.recordId);
+    add(obj.inviteRecordId);
+    add(obj.id);
+    if(isCanonicalOfflineInviteRecordId(obj.threadId)) add(obj.threadId);
+    if(payload) collect(payload);
+    if(launchRecord) collect(launchRecord);
+  }
+  add(lockedOfflineInviteRecordId);
+  add(activeOfflineInviteRecordId);
+  add(getFocusedOfflineInviteRecordId());
+  collect(source || session);
+  for(var i = 0; i < candidates.length; i += 1){
+    if(isCanonicalOfflineInviteRecordId(candidates[i])) return candidates[i];
+  }
+  return candidates[0] || '';
+}
 function assignCurrentOfflineInviteRecordId(recordId){
   var safeId = String(recordId || '').trim();
   if(!safeId) return '';
@@ -1438,11 +1475,15 @@ function currentOfflineInviteRecordId(options){
   var opts = options && typeof options === 'object' ? options : {};
   if(lockedOfflineInviteRecordId) return lockedOfflineInviteRecordId;
   if(activeOfflineInviteRecordId) return activeOfflineInviteRecordId;
+  var canonicalId = getCanonicalOfflineInviteRecordIdFromSource(session);
+  if(canonicalId) return canonicalId;
   var ids = collectOfflineInviteRecordIdsFromSource(session, []);
-  if(ids.length) return ids[0];
+  var recordLikeId = ids.find(function(id){ return isCanonicalOfflineInviteRecordId(id); }) || '';
+  if(recordLikeId) return recordLikeId;
   if(opts.create && session && session.invite && typeof session.invite === 'object'){
     return assignCurrentOfflineInviteRecordId(createOfflineInviteRecordId());
   }
+  if(ids.length) return ids[0];
   return '';
 }
 function getOfflineLaunchReadOnlyFlag(source){
@@ -1489,6 +1530,8 @@ function getCurrentOfflineInviteStoreRecordIds(store, options, sourceOverride){
   var opts = options && typeof options === 'object' ? options : {};
   var source = sourceOverride && typeof sourceOverride === 'object' ? sourceOverride : session;
   var ids = collectOfflineInviteRecordIdsFromSource(source, []);
+  var canonicalId = getCanonicalOfflineInviteRecordIdFromSource(source);
+  if(canonicalId) pushUniqueOfflineInviteId(ids, canonicalId);
   pushUniqueOfflineInviteId(ids, lockedOfflineInviteRecordId);
   pushUniqueOfflineInviteId(ids, activeOfflineInviteRecordId);
   pushUniqueOfflineInviteId(ids, getFocusedOfflineInviteRecordId());
@@ -1549,9 +1592,20 @@ function getCurrentOfflineInviteStoreRecordIds(store, options, sourceOverride){
     var verifiedIds = ids.filter(function(id){
       try{ return !!store.getRecord(id); }catch(e){ return false; }
     });
-    if(verifiedIds.length) return verifiedIds;
+    if(verifiedIds.length){
+      if(opts.strictRecordId){
+        if(canonicalId && verifiedIds.indexOf(canonicalId) !== -1) return [canonicalId];
+        return [verifiedIds[0]];
+      }
+      return verifiedIds;
+    }
   }
-  if(opts.strictRecordId && ids.length) return ids;
+  if(opts.strictRecordId){
+    var strictIds = [];
+    pushUniqueOfflineInviteId(strictIds, canonicalId);
+    if(!strictIds.length && opts.create) pushUniqueOfflineInviteId(strictIds, currentOfflineInviteRecordId({ create:true }));
+    return strictIds;
+  }
   if(looseBest && looseBest.id) pushUniqueOfflineInviteId(ids, looseBest.id);
   if(!ids.length && opts.create) pushUniqueOfflineInviteId(ids, currentOfflineInviteRecordId({ create:true }));
   return ids;
@@ -1791,7 +1845,12 @@ function completeOfflineInviteRecordsInStore(ids, charId, sourceOverride){
   var existingTargetIds = targetIds.filter(function(id){
     try{ return !!(typeof store.getRecord === 'function' && store.getRecord(id)); }catch(e){ return false; }
   });
-  if(existingTargetIds.length) targetIds = existingTargetIds;
+  if(existingTargetIds.length){
+    targetIds = existingTargetIds;
+  }else{
+    var canonicalId = getCanonicalOfflineInviteRecordIdFromSource(source);
+    targetIds = canonicalId ? [canonicalId] : targetIds.slice(0, 1);
+  }
   var patch = { status:'completed', meetState:'complete', readOnly:true, completedAt:now, updatedAt:now };
   targetIds.forEach(function(id){
     try{
@@ -1833,8 +1892,12 @@ async function completeCurrentOfflineInviteEverywhere(reason, sourceOverride){
   var adoptedCompletedIds = await patchAdoptedOfflineInviteRecords(ids, patch, source).catch(function(){ return []; });
   adoptedCompletedIds.forEach(function(id){ pushUniqueOfflineInviteId(ids, id); });
   if(store && typeof store.upsertRecord === 'function'){
-    var primaryId = String(ids[0] || '').trim();
-    ids.forEach(function(id){
+    var storeWriteIds = storeCompletedIds.length ? storeCompletedIds.slice() : [];
+    if(!storeWriteIds.length){
+      pushUniqueOfflineInviteId(storeWriteIds, getCanonicalOfflineInviteRecordIdFromSource(source));
+      if(!storeWriteIds.length) pushUniqueOfflineInviteId(storeWriteIds, ids[0]);
+    }
+    storeWriteIds.forEach(function(id){
       var safeId = String(id || '').trim();
       if(!safeId) return;
       try{
@@ -7626,7 +7689,17 @@ async function generateOfflineUnifiedScene(context, options){
     buildOfflineRequestOptions(systemPrompt, String(context || '').trim(), targetChars)
   );
   var parsed = normalizeOfflineBodyDisplayPayload(parseOfflineJsonObject(raw) || {});
-  if(!hasValidOfflineUnifiedScenePayload(parsed)) throw new Error('线下 unified 结果不完整');
+  if(!(parsed && typeof parsed === 'object')) parsed = {};
+  if(!String(parsed.text || '').trim()){
+    var rawText = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+    if(rawText && rawText.charAt(0) !== '{' && rawText.charAt(0) !== '[') parsed.text = rawText;
+  }
+  if(!String(parsed.title || '').trim()) parsed.title = buildOfflineTitleFallback();
+  if(!String(parsed.quote || '').trim()) parsed.quote = buildOfflineQuoteFallback();
+  if(!parsed.thought_chain || typeof parsed.thought_chain !== 'object'){
+    parsed.thought_chain = normalizeOfflineThoughtChain(null, parsed.text || '');
+  }
+  if(!hasValidOfflineBodyPayload(parsed)) throw new Error('线下 unified 结果不完整');
   var finalText = ensureOfflineSpeechPresence(String(parsed.text || '').trim());
   var statusCard = hasValidOfflineStatusPayload(parsed) ? normalizeOfflineStatusCard(parsed.status_card, finalText) : null;
   finalText = ensureOfflineSpeechPresence(removeOfflineStatusLeakageFromBody(finalText, statusCard));
