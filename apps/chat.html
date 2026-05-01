@@ -13039,7 +13039,7 @@ function saveMomentsSocialState(state){
 function getMomentsFreqProfile(){
   var level = loadCharMomentsFreq(character && character.id);
   if(level === 'low'){
-    return { level: level, cooldownMs: 14 * 24 * 60 * 60 * 1000, mentionPostChance: 0, moodPostChance: 0, idleLikeChance: 0 };
+    return { level: level, cooldownMs: 20 * 60 * 1000, mentionPostChance: 0.2, moodPostChance: 0.2, idleLikeChance: 0.04 };
   }
   if(level === 'high'){
     return { level: level, cooldownMs: 9000, mentionPostChance: 0.78, moodPostChance: 0.82, idleLikeChance: 0.22 };
@@ -13315,9 +13315,6 @@ function getSignalsForMoments(text, msgType){
 function captureUserMomentIntent(text, msgType){
   if(isSunnyChat()) return;
   var sig = getSignalsForMoments(text, msgType);
-  var lowFreq = getMomentsFreqProfile().level === 'low';
-  var hasExplicitMomentAction = !!(sig.wantsPostAny || sig.wantsLike || sig.wantsComment || sig.wantsReply);
-  if(lowFreq && !hasExplicitMomentAction) return;
   if(!(sig.wantsPostAny || sig.wantsLike || sig.wantsComment || sig.wantsReply || sig.emotional || sig.reflective || sig.imageHint || sig.mentionsMoments)) return;
   var cardPayload = (sig.wantsLike || sig.wantsComment || sig.wantsReply || sig.mentionsMoments) ? getLatestMomentCardPayloadFromChat() : null;
   momentsIntentFromUser = {
@@ -13871,7 +13868,6 @@ async function maybeRunAiMomentsFromChat(text, msgType){
 
   var shouldPostByMood = !forceActions.length && (sig.emotional || sig.reflective || sig.imageHint || (pending && (pending.emotional || pending.reflective))) && Math.random() < freq.moodPostChance;
   if(onlySocialAction) shouldPostByMood = false;
-  if(freq.level === 'low' && !explicitPostRequest) shouldPostByMood = false;
   if(shouldPostByMood) forceActions.push('post');
   if(!forceActions.length && posts.length && Math.random() < freq.idleLikeChance) forceActions.push('like');
   if(!forceActions.length) return;
@@ -25536,8 +25532,13 @@ function syncChatViewport(){
   var textInputActive = chatTextFieldFocusActive || isChatTextInputActive();
   var rawBottomOffset = Math.max(0, Number(metrics.rawBottomOffset || 0) || 0);
   var parentInset = textInputActive ? Math.max(0, Math.min(520, Number(parentComposerShift || 0) || 0)) : 0;
-  var keyboardInset = textInputActive ? Math.max(rawBottomOffset > 80 ? rawBottomOffset : 0, parentInset) : 0;
-  var keyboardLikelyOpen = rawBottomOffset > 80 || parentInset > 80;
+  var inferredInset = textInputActive ? Math.max(0, (stableChatAppHeight || metrics.currentHeight || 0) - (metrics.visibleHeight || 0)) : 0;
+  var keyboardInset = textInputActive ? Math.max(
+    rawBottomOffset > 80 ? rawBottomOffset : 0,
+    parentInset,
+    inferredInset > 80 ? inferredInset : 0
+  ) : 0;
+  var keyboardLikelyOpen = keyboardInset > 80 || rawBottomOffset > 80 || parentInset > 80;
   var fullHeight = Math.round((window.visualViewport && window.visualViewport.height)
     ? (window.visualViewport.height + rawBottomOffset + (window.visualViewport.offsetTop || 0))
     : metrics.currentHeight);
