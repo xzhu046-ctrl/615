@@ -50,14 +50,15 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T17:25:00Z';
+const APP_BUILD_ID = '2026-05-01T17:40:00Z';
 const APP_UPDATE_NOTES = [
   '键盘输入框修正',
   '音乐备用音源',
   '朋友圈动态显示修正',
   '天气搜索修正',
   '酒馆权限实时校验',
-  '邀请状态实时失效'
+  '邀请状态实时失效',
+  '酒馆导入体验修正'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
