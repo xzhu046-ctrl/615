@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T04:37:00Z';
+const APP_BUILD_ID = '2026-05-01T05:08:00Z';
 const APP_UPDATE_NOTES = [
-  '后台生成邀请码不再额外生成第二个 USERNAME。',
-  '邀请码记录只显示填写的用户名和邀请码。',
-  '小手机验证码页的设备 USERNAME 仍然按设备固定。'
+  '修复安卓浏览器默认图片加载兼容问题。',
+  '修复安卓 PWA 主页底栏被挤出屏幕的问题。',
+  '邀请码 USERNAME 改为同设备跨浏览器稳定。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -207,17 +207,26 @@ function clearInviteGateSession(){
 }
 
 function getInviteGateDeviceId(){
-  try{
-    var existing = localStorage.getItem(INVITE_GATE_CONFIG.deviceKey);
-    if(existing) return existing;
-    var next = (window.crypto && typeof window.crypto.randomUUID === 'function')
-      ? window.crypto.randomUUID()
-      : ('dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2));
-    localStorage.setItem(INVITE_GATE_CONFIG.deviceKey, next);
-    return next;
-  }catch(e){
-    return 'volatile_' + Math.random().toString(36).slice(2);
-  }
+  var nav = window.navigator || {};
+  var scr = window.screen || {};
+  var tz = '';
+  try{ tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch(e){}
+  var parts = [
+    'device-v2',
+    scr.width || '',
+    scr.height || '',
+    scr.availWidth || '',
+    scr.availHeight || '',
+    scr.colorDepth || '',
+    window.devicePixelRatio || '',
+    nav.hardwareConcurrency || '',
+    nav.deviceMemory || '',
+    nav.maxTouchPoints || '',
+    nav.platform || '',
+    nav.language || '',
+    tz
+  ];
+  return parts.map(function(value){ return String(value == null ? '' : value).trim().toLowerCase(); }).join('|');
 }
 
 async function sha256Hex(value){
@@ -236,14 +245,7 @@ async function sha256Hex(value){
 }
 
 async function inviteGateDeviceHash(){
-  var seed = [
-    getInviteGateDeviceId(),
-    navigator.userAgent || '',
-    navigator.language || '',
-    screen && screen.width ? String(screen.width) : '',
-    screen && screen.height ? String(screen.height) : ''
-  ].join('|');
-  return sha256Hex(seed);
+  return sha256Hex(getInviteGateDeviceId());
 }
 
 async function inviteGateRequest(path, payload){
@@ -918,6 +920,9 @@ function syncAppHeight(){
   const vvBottomOffset = keyboardLikelyOpen ? 0 : rawBottomOffset;
   const currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
   if(!stableShellAppHeight){
+    stableShellAppHeight = currentHeight;
+  }
+  if(isStandalone && !keyboardLikelyOpen && currentHeight > 0){
     stableShellAppHeight = currentHeight;
   }
   if(!keyboardLikelyOpen && currentHeight > stableShellAppHeight){
@@ -2940,9 +2945,9 @@ function getShellNotificationVibration(pattern){
 
 function getShellNotificationIcon(){
   try{
-    return new URL('./apps/assets/海边小屋.webp', window.location.href).toString();
+    return new URL('./apps/assets/海边小屋.png', window.location.href).toString();
   }catch(err){
-    return './apps/assets/海边小屋.webp';
+    return './apps/assets/海边小屋.png';
   }
 }
 

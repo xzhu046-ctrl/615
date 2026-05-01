@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-05-01T04:37:00Z';
+const CACHE_VERSION = '2026-05-01T05:08:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -24,7 +24,9 @@ const CORE_URLS = [
   './apps/customize.html',
   './apps/worldbook.html',
   './apps/backend.html',
-  './apps/assets/海边小屋.webp',
+  './apps/assets/海边小屋.png',
+  './apps/assets/海边风景长条.png',
+  './apps/assets/长条花.png',
   './apps/assets/亲亲脸.png',
   './apps/assets/约会提醒.svg',
   './apps/assets/吉他小黑猫.jpg',
@@ -238,15 +240,18 @@ self.addEventListener('fetch', (event)=>{
 
   if(isImageOrFont){
     event.respondWith(
-      caches.match(event.request).then((cached)=>{
+      caches.match(event.request, { ignoreSearch:true }).then((cached)=>{
         if(cached) return cached;
         return fetch(event.request).then((response)=>{
           if(response && response.ok){
             const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache)=>cache.put(event.request, copy)).catch(()=>null);
+            caches.open(CACHE_NAME).then((cache)=>{
+              cache.put(event.request, copy.clone()).catch(()=>null);
+              cache.put(new Request(url.pathname, { method:'GET' }), copy).catch(()=>null);
+            }).catch(()=>null);
           }
           return response;
-        });
+        }).catch(()=>caches.match(new Request(url.pathname, { method:'GET' }), { ignoreSearch:true }));
       })
     );
     return;
