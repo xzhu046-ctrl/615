@@ -17,10 +17,23 @@ const ADMIN_HTML = `<!doctype html>
   h1{margin:8px 0 6px;font-size:30px;line-height:1.05}
   .sub{margin:0;color:#555;line-height:1.6;font-size:14px}
   .panel{margin-top:20px;background:#fff;border:1.5px solid #111;padding:16px;box-shadow:5px 5px 0 rgba(0,0,0,.92)}
-  .grid{display:grid;grid-template-columns:1.2fr 1fr auto;gap:10px;align-items:end}
+  .admin-gate-shell{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:22px;background:linear-gradient(135deg,#fff 0%,#e9e9e9 42%,#111 42%,#111 44%,#f7f7f7 44%,#fff 100%)}
+  .admin-gate-shell[hidden],.page[hidden]{display:none}
+  .admin-gate-card{position:relative;width:min(420px,100%);min-height:390px;border:2px solid #111;background:#fff;padding:28px 24px 22px;box-shadow:8px 8px 0 #111,0 22px 70px rgba(0,0,0,.18);overflow:hidden}
+  .admin-gate-card::before{content:"";position:absolute;inset:10px;border:2px dashed rgba(17,17,17,.42);pointer-events:none}
+  .admin-gate-staff{position:absolute;left:34px;right:24px;top:28px;display:flex;flex-direction:column;gap:10px;opacity:.22;pointer-events:none}
+  .admin-gate-staff span{height:2px;background:#111}
+  .admin-gate-card h1{position:relative;margin:62px 0 0;display:flex;flex-direction:column;gap:4px;font-size:34px;line-height:1.08;text-decoration-line:underline;text-decoration-style:dashed;text-decoration-thickness:4px;text-underline-offset:8px}
+  .admin-gate-copy{position:relative;margin:22px 0 0;color:#333;font-size:13px;line-height:1.75;font-weight:800}
+  .admin-gate-form{position:relative;margin-top:24px;display:grid;gap:9px}
+  .admin-gate-status{min-height:20px;font-size:12px;font-weight:800;color:#555}
+  .admin-gate-status.error{color:#9b1111}
+  .admin-gate-status.ok{color:#111}
+  .grid{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}
   .search-row{margin-top:14px}
   label{display:block;font-size:12px;color:#555;font-weight:800;margin-bottom:6px}
   input,select{width:100%;border:1.5px solid #111;background:#fff;color:#111;padding:11px 12px;font-size:15px;outline:none;border-radius:0}
+  input[readonly]{background:#f7f7f7;cursor:default;font-weight:900}
   input:focus,select:focus{box-shadow:0 0 0 3px rgba(0,0,0,.12)}
   button{border:1.5px solid #111;background:#111;color:#fff;padding:11px 16px;font-weight:900;font-size:14px;cursor:pointer;box-shadow:3px 3px 0 rgba(0,0,0,.28);transition:transform .12s ease,box-shadow .12s ease}
   button:active{transform:translate(2px,2px);box-shadow:1px 1px 0 rgba(0,0,0,.25)}
@@ -29,7 +42,7 @@ const ADMIN_HTML = `<!doctype html>
   button:disabled{opacity:.45;cursor:not-allowed}
   .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
   .result{margin-top:14px;border:1.5px dashed #111;padding:14px;background:#fafafa;display:none}
-  .name-box{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1.5px solid #111;background:#fff;padding:10px 12px;margin-bottom:10px;box-shadow:3px 3px 0 rgba(0,0,0,.18)}
+  .name-box{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;margin-bottom:10px}
   .public-name{font-weight:900;font-size:18px}
   .small-copy{padding:8px 10px;font-size:12px}
   .keep-tip{font-size:12px;color:#555;line-height:1.6;margin-top:8px}
@@ -54,19 +67,31 @@ const ADMIN_HTML = `<!doctype html>
 </style>
 </head>
 <body>
-<main class="page">
+<section class="admin-gate-shell" id="adminGate">
+  <div class="admin-gate-card" role="dialog" aria-modal="true" aria-labelledby="adminGateTitle">
+    <div class="admin-gate-staff" aria-hidden="true">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="kicker">0615 admin pass</div>
+    <h1 id="adminGateTitle"><span>欢迎管理</span><span>0615小手机^^</span></h1>
+    <p class="admin-gate-copy">请输入管理员口令进入邀请码后台。刷新页面后需要重新输入。</p>
+    <form class="admin-gate-form" id="adminGateForm">
+      <label for="adminGateToken">ADMIN PASS</label>
+      <input id="adminGateToken" type="text" autocomplete="off" placeholder="输入管理员口令">
+      <button id="adminGateSubmit" type="submit">进入</button>
+      <div class="admin-gate-status" id="adminGateStatus">黑白音符正在等你敲门。</div>
+    </form>
+  </div>
+</section>
+<main class="page" id="adminPage" hidden>
   <section class="hero">
     <div class="kicker">0615 invite console</div>
     <h1>欢迎管理 0615 小手机邀请码</h1>
-    <p class="sub">管理员不需要进 Cloudflare 后台。输入口令后，一键生成不可猜的邀请码；每个码默认绑定两台设备，使用次数和最后使用时间会在这里显示。</p>
+    <p class="sub">一键生成不可猜的邀请码；每个码默认绑定两台设备，使用次数和最后使用时间会在这里显示。</p>
   </section>
 
   <section class="panel">
     <div class="grid">
-      <div>
-        <label for="adminToken">管理员口令</label>
-        <input id="adminToken" type="text" autocomplete="current-password" placeholder="输入管理员口令">
-      </div>
       <div>
         <label for="label">备注（必填）</label>
         <input id="label" placeholder="例如：小A发放 / 用户昵称" required>
@@ -88,8 +113,8 @@ const ADMIN_HTML = `<!doctype html>
     <div class="result" id="result">
       <div class="name-box">
         <div>
-          <div class="kicker">旁白名</div>
-          <div class="public-name" id="newName"></div>
+          <label for="newName">旁白名</label>
+          <input class="public-name" id="newName" type="text" readonly value="">
         </div>
         <button class="secondary small-copy" id="copyNameBtn" type="button">复制</button>
       </div>
@@ -110,7 +135,12 @@ const ADMIN_HTML = `<!doctype html>
 </main>
 <div class="toast" id="toast"></div>
 <script>
-const tokenEl = document.getElementById('adminToken');
+const gateEl = document.getElementById('adminGate');
+const pageEl = document.getElementById('adminPage');
+const gateFormEl = document.getElementById('adminGateForm');
+const gateTokenEl = document.getElementById('adminGateToken');
+const gateSubmitEl = document.getElementById('adminGateSubmit');
+const gateStatusEl = document.getElementById('adminGateStatus');
 const labelEl = document.getElementById('label');
 const maxEl = document.getElementById('maxDevices');
 const listEl = document.getElementById('list');
@@ -122,6 +152,7 @@ const searchEl = document.getElementById('searchBox');
 const toastEl = document.getElementById('toast');
 let allRows = [];
 let latestPublicName = '';
+let adminTokenValue = '';
 
 function toast(text){
   toastEl.textContent = text;
@@ -131,7 +162,13 @@ function toast(text){
 }
 
 function token(){
-  return tokenEl.value.trim();
+  return adminTokenValue.trim();
+}
+
+function setGateStatus(text, kind){
+  gateStatusEl.textContent = text || '';
+  gateStatusEl.classList.toggle('error', kind === 'error');
+  gateStatusEl.classList.toggle('ok', kind === 'ok');
 }
 
 async function api(path, body){
@@ -224,6 +261,32 @@ async function refresh(){
   }
 }
 
+gateFormEl.addEventListener('submit', async (event)=>{
+  event.preventDefault();
+  const nextToken = gateTokenEl.value.trim();
+  if(!nextToken){
+    gateTokenEl.focus();
+    setGateStatus('请输入管理员口令。', 'error');
+    return;
+  }
+  adminTokenValue = nextToken;
+  gateSubmitEl.disabled = true;
+  setGateStatus('正在验证口令...', '');
+  try{
+    const data = await api('/admin/list');
+    allRows = data.codes || [];
+    renderFiltered();
+    gateEl.hidden = true;
+    pageEl.hidden = false;
+    setGateStatus('验证成功。', 'ok');
+  }catch(err){
+    adminTokenValue = '';
+    setGateStatus(err.message || '管理员口令不对', 'error');
+  }finally{
+    gateSubmitEl.disabled = false;
+  }
+});
+
 document.getElementById('createBtn').addEventListener('click', async ()=>{
   try{
     const label = labelEl.value.trim();
@@ -234,7 +297,7 @@ document.getElementById('createBtn').addEventListener('click', async ()=>{
     }
     const data = await api('/admin/create', { label, maxDevices: Number(maxEl.value || 2) });
     latestPublicName = data.publicName || '';
-    newNameEl.textContent = latestPublicName;
+    newNameEl.value = latestPublicName;
     newCodeEl.textContent = data.code;
     resultEl.style.display = 'block';
     labelEl.value = '';
@@ -521,6 +584,12 @@ async function handleAdminList(request, env){
   return json({ ok:true, codes:result.results || [] }, 200, env);
 }
 
+async function handlePublicName(request, env){
+  await ensureAdminSchema(env);
+  const publicName = await randomPublicName(env);
+  return json({ ok:true, publicName }, 200, env);
+}
+
 async function handleAdminCreate(request, env){
   const body = await readJson(request);
   const error = assertAdmin(request, env, body);
@@ -694,6 +763,7 @@ export default {
     if(!env.DB){
       return json({ ok:false, message:'D1 DB binding is missing' }, 500, env);
     }
+    if(url.pathname === '/public-name') return handlePublicName(request, env);
     if(url.pathname === '/verify') return handleVerify(request, env);
     if(url.pathname === '/session') return handleSession(request, env);
     if(url.pathname === '/admin/list') return handleAdminList(request, env);

@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T03:43:37Z';
+const APP_BUILD_ID = '2026-05-01T04:03:03Z';
 const APP_UPDATE_NOTES = [
-  '验证码弹窗背景改为高清竖屏图，手机端不再拉糊。',
-  '欢迎标题和顶部线谱拉开距离。',
-  '邀请码后台新增随机旁白名、必填备注、搜索和删除防复现逻辑。'
+  '小手机验证码弹窗新增更紧凑的只读旁白名框和复制按钮。',
+  '邀请码后台改为先验证口令再进入管理面板。',
+  '后台生成结果把旁白名固定放在邀请码上方。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -129,6 +129,49 @@ function inviteGateApiBase(){
   return String(INVITE_GATE_CONFIG.apiBase || '').replace(/\/+$/, '');
 }
 
+function randomInviteGatePublicName(){
+  var adjectives = ['开心','难受','温柔','勇敢','发呆','闪亮','安静','热烈','迷路','清醒','浪漫','倔强','圆滚滚','慢吞吞','亮晶晶','会唱歌','不睡觉','爱冒险','软乎乎','认真'];
+  var nouns = ['水母','小红','月亮','黑猫','云朵','鲸鱼','玫瑰','星星','橘子','小狗','邮票','纸船','雨伞','贝壳','蝴蝶','玻璃糖','小煤球','蒲公英','小行星','胶片'];
+  return adjectives[Math.floor(Math.random() * adjectives.length)] + '的' + nouns[Math.floor(Math.random() * nouns.length)];
+}
+
+function setInviteGatePublicName(value){
+  var el = document.getElementById('invite-gate-public-name');
+  if(!el) return;
+  el.value = String(value || randomInviteGatePublicName()).trim() || randomInviteGatePublicName();
+}
+
+async function copyInviteGatePublicName(){
+  var el = document.getElementById('invite-gate-public-name');
+  var value = String(el && el.value || '').trim();
+  if(!value || value === '生成中...') return;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(value);
+      setInviteGateStatus('旁白名已复制。', 'ok');
+    }
+  }catch(err){
+    setInviteGateStatus('复制失败，请长按旁白名手动复制。', 'error');
+  }
+}
+
+async function loadInviteGatePublicName(){
+  setInviteGatePublicName(randomInviteGatePublicName());
+  var base = inviteGateApiBase();
+  if(!base) return;
+  try{
+    var res = await fetch(base + '/public-name', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}'
+    });
+    var data = await res.json().catch(function(){ return null; });
+    if(res.ok && data && data.ok && data.publicName){
+      setInviteGatePublicName(data.publicName);
+    }
+  }catch(err){}
+}
+
 function setInviteGateStatus(message, kind){
   var el = document.getElementById('invite-gate-status');
   if(!el) return;
@@ -142,6 +185,7 @@ function setInviteGateVisible(visible){
   if(!shell) return;
   shell.hidden = !visible;
   if(visible){
+    loadInviteGatePublicName();
     setTimeout(function(){
       var input = document.getElementById('invite-gate-input');
       if(input) input.focus();
@@ -266,6 +310,12 @@ function bindInviteGateForm(){
   var form = document.getElementById('invite-gate-form');
   if(!form || form.dataset.bound === '1') return;
   form.dataset.bound = '1';
+  var copyNameButton = document.getElementById('invite-gate-copy-name');
+  if(copyNameButton){
+    copyNameButton.addEventListener('click', function(){
+      copyInviteGatePublicName();
+    });
+  }
   form.addEventListener('submit', function(evt){
     evt.preventDefault();
     var input = document.getElementById('invite-gate-input');
