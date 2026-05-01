@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-01T14:45:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-01T14:45:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T14:45:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T14:45:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T14:45:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-01T14:45:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-01T14:45:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-01T14:45:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-01T14:45:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-01T14:45:00Z"></script>
+<script src="../promptManager.js?v=2026-05-01T15:10:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T15:10:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T15:10:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T15:10:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T15:10:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-01T15:10:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-01T15:10:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-01T15:10:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-01T15:10:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-01T15:10:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -25375,6 +25375,7 @@ function closeImageViewer(){
 
 var stableChatAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
 var parentComposerShift = 0;
+var chatTextFieldFocusActive = false;
 function getChatViewportMetrics(){
   var vv = window.visualViewport;
   var vvTopOffset = Math.round(vv ? Math.max(0, vv.offsetTop || 0) : 0);
@@ -25400,6 +25401,14 @@ function syncChatViewport(){
   var inferredInset = Math.max(0, stableChatAppHeight - metrics.visibleHeight);
   var keyboardInset = Math.max(metrics.rawBottomOffset, inferredInset);
   if(keyboardInset < 120) keyboardInset = 0;
+  if(chatTextFieldFocusActive && keyboardInset < 120){
+    try{
+      var isTouch = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+      if(isTouch){
+        keyboardInset = Math.round(Math.min(460, Math.max(300, (stableChatAppHeight || metrics.currentHeight || 760) * 0.44)));
+      }
+    }catch(err){}
+  }
   var vh = stableChatAppHeight || metrics.currentHeight;
   document.documentElement.style.setProperty('--chat-app-height', vh + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
@@ -25411,6 +25420,7 @@ function syncChatViewport(){
 }
 
 function resetChatViewportAfterTextInput(){
+  chatTextFieldFocusActive = false;
   document.documentElement.style.setProperty('--vv-top-offset', '0px');
   document.documentElement.style.setProperty('--vv-bottom-offset', '0px');
   document.documentElement.style.setProperty('--keyboard-inset', '0px');
@@ -32766,6 +32776,7 @@ window.addEventListener('orientationchange', function(){
 });
 window.addEventListener('focusin', function(e){
   if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.target.id === 'msg-input' || e.target.isContentEditable)){
+    chatTextFieldFocusActive = true;
     scheduleComposerPlacementSync();
     try{
       if(window.parent) window.parent.postMessage({ type:'CHAT_INPUT_FOCUS' }, '*');
@@ -32778,6 +32789,7 @@ window.addEventListener('focusout', function(e){
       var active = document.activeElement;
       var isTextField = !!(active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.id === 'msg-input' || active.isContentEditable));
       if(isTextField) return;
+      chatTextFieldFocusActive = false;
       [0, 80, 180, 360, 620].forEach(function(delay){
         setTimeout(function(){
           resetChatViewportAfterTextInput();
@@ -32819,7 +32831,10 @@ if(window.visualViewport){
     syncChatViewport();
     keepComposerVisible();
   });
-  window.visualViewport.addEventListener('scroll', syncComposerMetrics);
+  window.visualViewport.addEventListener('scroll', function(){
+    syncChatViewport();
+    keepComposerVisible();
+  });
 }
 window.addEventListener('beforeunload', restoreParentTopbarForSettings);
 window.addEventListener('pagehide', restoreParentTopbarForSettings);

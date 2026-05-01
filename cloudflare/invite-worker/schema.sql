@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS invite_codes (
   code TEXT PRIMARY KEY,
+  code_kind TEXT NOT NULL DEFAULT 'login',
   label TEXT NOT NULL DEFAULT '',
   max_devices INTEGER NOT NULL DEFAULT 2,
   revoked INTEGER NOT NULL DEFAULT 0,
@@ -53,3 +54,6 @@ CREATE INDEX IF NOT EXISTS idx_invite_access_logs_code_created
 
 CREATE INDEX IF NOT EXISTS idx_invite_public_names_public_name
   ON invite_public_names (public_name);
+
+CREATE INDEX IF NOT EXISTS idx_invite_codes_kind_label
+  ON invite_codes (code_kind, label, created_at);

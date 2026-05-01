@@ -47,8 +47,10 @@ const ADMIN_HTML = `<!doctype html>
   .meta{font-size:12px;color:#555;margin-top:8px;line-height:1.6}
   .list{display:grid;gap:12px;margin-top:14px}
   .card{border:1.5px solid #111;background:#fff;padding:14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:start}
-  .card.revoked{opacity:.55}
+  .card.revoked,.code-row.revoked{opacity:.55}
   .card-code{font-family:"SF Mono",Menlo,Consolas,monospace;font-weight:900;font-size:16px;word-break:break-all}
+  .code-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .code-kind{min-width:42px;border:1.5px solid #111;background:#111;color:#fff;padding:4px 7px;font-size:12px;font-weight:900;text-align:center}
   .card-name{display:inline-flex;border:1.5px solid #111;background:#fafafa;padding:6px 9px;font-weight:900;margin-bottom:8px;box-shadow:2px 2px 0 rgba(0,0,0,.16)}
   .card-label{font-weight:800;margin-top:5px}
   .stats{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
@@ -99,7 +101,8 @@ const ADMIN_HTML = `<!doctype html>
     <div class="toolbar">
       <button id="createBtn">生成邀请码</button>
       <button class="secondary" id="refreshBtn">刷新记录</button>
-      <button class="danger" id="resetAllBtn">清空所有登录设备</button>
+      <button class="danger" id="resetLoginBtn">清空所有登录</button>
+      <button class="danger" id="resetTavernBtn">清空酒馆权限</button>
     </div>
     <div class="result" id="result">
       <div class="code" id="newCode"></div>
@@ -190,29 +193,52 @@ function escapeHtml(value){
   }[ch]));
 }
 
+function codeKindLabel(kind){
+  return String(kind || 'login') === 'tavern' ? '酒馆' : '登入';
+}
+
+function groupRowsByLabel(rows){
+  const map = new Map();
+  rows.forEach((row)=>{
+    const label = String(row.label || '未填写用户名');
+    if(!map.has(label)){
+      map.set(label, { label, createdAt: Number(row.createdAt || 0), rows: [] });
+    }
+    const group = map.get(label);
+    group.createdAt = Math.max(group.createdAt, Number(row.createdAt || 0));
+    group.rows.push(row);
+  });
+  return Array.from(map.values()).sort((a,b)=>b.createdAt - a.createdAt);
+}
+
 function renderRows(rows){
   if(!rows.length){
     listEl.innerHTML = '<div class="empty">还没有邀请码</div>';
     return;
   }
-  listEl.innerHTML = rows.map((row)=>\`
-    <article class="card \${Number(row.revoked || 0) ? 'revoked' : ''}">
+  listEl.innerHTML = groupRowsByLabel(rows).map((group)=>\`
+    <article class="card">
       <div>
-        <div class="card-name">\${escapeHtml(row.label || '未填写用户名')}</div>
-        <div class="card-code">\${escapeHtml(row.code)}</div>
-        <div class="stats">
-          <span class="pill">设备 \${row.deviceCount || 0}/\${row.maxDevices || 2}</span>
-          <span class="pill">验证 \${row.verifyCount || 0}</span>
-          <span class="pill">续期 \${row.sessionCount || 0}</span>
-          <span class="pill">最后 \${fmtTime(row.lastSeen)}</span>
-          \${Number(row.revoked || 0) ? '<span class="pill">已停用</span>' : ''}
-        </div>
+        <div class="card-name">\${escapeHtml(group.label || '未填写用户名')}</div>
+        \${group.rows.map((row)=>\`
+          <div class="code-row \${Number(row.revoked || 0) ? 'revoked' : ''}">
+            <span class="code-kind">\${codeKindLabel(row.codeKind)}</span>
+            <span class="card-code">\${escapeHtml(row.code)}</span>
+          </div>
+          <div class="stats">
+            <span class="pill">设备 \${row.deviceCount || 0}/\${row.maxDevices || 2}</span>
+            <span class="pill">验证 \${row.verifyCount || 0}</span>
+            <span class="pill">续期 \${row.sessionCount || 0}</span>
+            <span class="pill">最后 \${fmtTime(row.lastSeen)}</span>
+          </div>
+        \`).join('')}
       </div>
       <div class="actions">
-        <button class="secondary" data-copy="\${escapeHtml(row.code)}">复制邀请码</button>
-        <button class="danger" data-reset="\${escapeHtml(row.code)}">清空设备</button>
-        <button class="danger" data-toggle="\${escapeHtml(row.code)}" data-revoked="\${Number(row.revoked || 0)}">\${Number(row.revoked || 0) ? '启用' : '停用'}</button>
-        <button class="danger" data-delete="\${escapeHtml(row.code)}">删除</button>
+        \${group.rows.map((row)=>\`
+          <button class="secondary" data-copy="\${escapeHtml(row.code)}">复制\${codeKindLabel(row.codeKind)}</button>
+          <button class="danger" data-reset="\${escapeHtml(row.code)}">清空\${codeKindLabel(row.codeKind)}</button>
+          <button class="danger" data-delete="\${escapeHtml(row.code)}">删除\${codeKindLabel(row.codeKind)}</button>
+        \`).join('')}
       </div>
     </article>
   \`).join('');
@@ -273,10 +299,10 @@ document.getElementById('createBtn').addEventListener('click', async ()=>{
       return;
     }
     const data = await api('/admin/create', { label, maxDevices: Number(maxEl.value || 2) });
-    newCodeEl.textContent = data.code;
+    newCodeEl.textContent = '登入：' + data.loginCode + '\\n酒馆：' + data.tavernCode;
     resultEl.style.display = 'block';
     labelEl.value = '';
-    await copyText(data.code);
+    await copyText('登入：' + data.loginCode + '\\n酒馆：' + data.tavernCode);
     await refresh();
   }catch(err){
     toast(err.message);
@@ -285,22 +311,31 @@ document.getElementById('createBtn').addEventListener('click', async ()=>{
 
 document.getElementById('refreshBtn').addEventListener('click', refresh);
 searchEl.addEventListener('input', renderFiltered);
-document.getElementById('resetAllBtn').addEventListener('click', async ()=>{
+document.getElementById('resetLoginBtn').addEventListener('click', async ()=>{
   try{
-    if(!confirm('确认清空所有邀请码已经绑定的登录设备吗？\\n\\n邀请码会保留，所有用户需要重新输入邀请码登录。')) return;
-    await api('/admin/reset-all-devices');
-    toast('所有登录设备已清空');
+    if(!confirm('确认清空所有登录设备吗？\\n\\n登入码会保留，所有用户需要重新输入登入邀请码。')) return;
+    await api('/admin/reset-all-devices', { kind:'login' });
+    toast('所有登录已清空');
+    return refresh();
+  }catch(err){
+    toast(err.message);
+  }
+});
+document.getElementById('resetTavernBtn').addEventListener('click', async ()=>{
+  try{
+    if(!confirm('确认清空所有酒馆权限吗？\\n\\n酒馆码会保留，用户导入酒馆角色卡前需要重新验证。')) return;
+    await api('/admin/reset-all-devices', { kind:'tavern' });
+    toast('酒馆权限已清空');
     return refresh();
   }catch(err){
     toast(err.message);
   }
 });
 listEl.addEventListener('click', async (event)=>{
-  const actionEl = event.target.closest('button[data-copy],button[data-reset],button[data-toggle],button[data-delete]');
+  const actionEl = event.target.closest('button[data-copy],button[data-reset],button[data-delete]');
   if(!actionEl) return;
   const copy = actionEl.getAttribute('data-copy');
   const reset = actionEl.getAttribute('data-reset');
-  const toggle = actionEl.getAttribute('data-toggle');
   const remove = actionEl.getAttribute('data-delete');
   try{
     if(copy) return copyText(copy);
@@ -308,12 +343,6 @@ listEl.addEventListener('click', async (event)=>{
       if(!confirm('确认清空这个邀请码已经绑定的设备吗？用户需要重新输入邀请码。')) return;
       await api('/admin/reset-devices', { code: reset });
       toast('设备已清空');
-      return refresh();
-    }
-    if(toggle){
-      const revoked = actionEl.getAttribute('data-revoked') === '1';
-      await api('/admin/revoke', { code: toggle, revoked: revoked ? 0 : 1 });
-      toast(revoked ? '已启用' : '已停用');
       return refresh();
     }
     if(remove){
@@ -358,6 +387,15 @@ function json(data, status, env){
 
 function normalizeCode(value){
   return String(value || '').trim().toUpperCase();
+}
+
+function normalizeInviteKind(value){
+  const safe = String(value || '').trim().toLowerCase();
+  return safe === 'tavern' ? 'tavern' : 'login';
+}
+
+function inviteKindLabel(kind){
+  return normalizeInviteKind(kind) === 'tavern' ? '酒馆' : '登入';
 }
 
 function normalizeDeviceHash(value){
@@ -487,6 +525,12 @@ async function ensureAdminSchema(env){
   await env.DB.prepare(
     'CREATE INDEX IF NOT EXISTS idx_invite_public_names_public_name ON invite_public_names (public_name)'
   ).run();
+  try{
+    await env.DB.prepare("ALTER TABLE invite_codes ADD COLUMN code_kind TEXT NOT NULL DEFAULT 'login'").run();
+  }catch(err){}
+  try{
+    await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_invite_codes_kind_label ON invite_codes (code_kind, label, created_at)').run();
+  }catch(err2){}
 }
 
 async function deletedCodeExists(env, code){
@@ -643,6 +687,7 @@ async function handleAdminList(request, env){
   const result = await env.DB.prepare(
     `SELECT
       c.code,
+      COALESCE(c.code_kind, 'login') AS codeKind,
       c.label,
       c.max_devices AS maxDevices,
       c.revoked,
@@ -655,7 +700,7 @@ async function handleAdminList(request, env){
       (SELECT COUNT(*) FROM invite_access_logs l WHERE l.code = c.code AND l.action = 'session' AND l.ok = 1) AS sessionCount
      FROM invite_codes c
      WHERE NOT EXISTS (SELECT 1 FROM invite_deleted_codes x WHERE x.code = c.code)
-     ORDER BY c.created_at DESC
+     ORDER BY c.created_at DESC, c.code_kind ASC
      LIMIT 300`
   ).all();
   return json({ ok:true, codes:result.results || [] }, 200, env);
@@ -677,17 +722,28 @@ async function handleAdminCreate(request, env){
   const maxDevices = Math.max(1, Math.min(6, Number(body.maxDevices || 2) || 2));
   const stamp = nowMs();
   await ensureAdminSchema(env);
-  let code = randomInviteCode();
-  for(let i = 0; i < 20; i += 1){
-    const exists = await env.DB.prepare('SELECT code FROM invite_codes WHERE code = ?').bind(code).first();
-    const deleted = await deletedCodeExists(env, code);
-    if(!exists && !deleted) break;
-    code = randomInviteCode();
+  async function makeUniqueCode(){
+    let code = randomInviteCode();
+    for(let i = 0; i < 40; i += 1){
+      const exists = await env.DB.prepare('SELECT code FROM invite_codes WHERE code = ?').bind(code).first();
+      const deleted = await deletedCodeExists(env, code);
+      if(!exists && !deleted) return code;
+      code = randomInviteCode();
+    }
+    return code;
   }
-  await env.DB.prepare(
-    'INSERT INTO invite_codes (code, label, max_devices, revoked, expires_at, created_at, updated_at) VALUES (?, ?, ?, 0, NULL, ?, ?)'
-  ).bind(code, label, maxDevices, stamp, stamp).run();
-  return json({ ok:true, code, label, maxDevices }, 200, env);
+  const loginCode = await makeUniqueCode();
+  let tavernCode = await makeUniqueCode();
+  if(tavernCode === loginCode) tavernCode = await makeUniqueCode();
+  await env.DB.batch([
+    env.DB.prepare(
+      'INSERT INTO invite_codes (code, code_kind, label, max_devices, revoked, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, 0, NULL, ?, ?)'
+    ).bind(loginCode, 'login', label, maxDevices, stamp, stamp),
+    env.DB.prepare(
+      'INSERT INTO invite_codes (code, code_kind, label, max_devices, revoked, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, 0, NULL, ?, ?)'
+    ).bind(tavernCode, 'tavern', label, maxDevices, stamp, stamp)
+  ]);
+  return json({ ok:true, loginCode, tavernCode, label, maxDevices }, 200, env);
 }
 
 async function handleAdminRevoke(request, env){
@@ -716,9 +772,17 @@ async function handleAdminResetAllDevices(request, env){
   const body = await readJson(request);
   const error = assertAdmin(request, env, body);
   if(error) return json({ ok:false, message:error }, 403, env);
-  await env.DB.prepare('DELETE FROM invite_devices').run();
-  await env.DB.prepare('UPDATE invite_codes SET updated_at = ?').bind(nowMs()).run();
-  return json({ ok:true }, 200, env);
+  await ensureAdminSchema(env);
+  const kind = normalizeInviteKind(body.kind);
+  const rows = await env.DB.prepare(
+    "SELECT code FROM invite_codes WHERE COALESCE(code_kind, 'login') = ?"
+  ).bind(kind).all();
+  const codes = (rows.results || []).map((row)=>row.code).filter(Boolean);
+  for(const code of codes){
+    await env.DB.prepare('DELETE FROM invite_devices WHERE code = ?').bind(code).run();
+  }
+  await env.DB.prepare("UPDATE invite_codes SET updated_at = ? WHERE COALESCE(code_kind, 'login') = ?").bind(nowMs(), kind).run();
+  return json({ ok:true, kind, count:codes.length }, 200, env);
 }
 
 async function handleAdminDelete(request, env){
@@ -746,14 +810,18 @@ async function handleVerify(request, env){
   const body = await readJson(request);
   const meta = await requestMeta(request, env);
   const code = normalizeCode(body.code);
+  const kind = normalizeInviteKind(body.kind);
   const deviceHashes = normalizeDeviceHashes(body);
   const deviceHash = deviceHashes[0] || '';
   if(!code) return reject(env, meta, code, deviceHash, 'verify', '邀请码不能为空', 400);
   if(!deviceHash) return reject(env, meta, code, deviceHash, 'verify', '设备信息无效', 400);
+  await ensureAdminSchema(env);
   if(await deletedCodeExists(env, code)) return reject(env, meta, code, deviceHash, 'verify', '邀请码不存在', 404);
 
   const invite = await env.DB.prepare('SELECT * FROM invite_codes WHERE code = ?').bind(code).first();
   if(!invite) return reject(env, meta, code, deviceHash, 'verify', '邀请码不存在', 404);
+  const inviteKind = normalizeInviteKind(invite.code_kind || invite.codeKind || 'login');
+  if(inviteKind !== kind) return reject(env, meta, code, deviceHash, 'verify', '这不是' + inviteKindLabel(kind) + '邀请码', 403);
   if(Number(invite.revoked || 0)) return reject(env, meta, code, deviceHash, 'verify', '邀请码已停用', 403);
   if(invite.expires_at && Number(invite.expires_at) < nowMs()) return reject(env, meta, code, deviceHash, 'verify', '邀请码已过期', 403);
 
@@ -768,7 +836,7 @@ async function handleVerify(request, env){
     ).bind(code).first();
     const count = Number(countRow && countRow.count || 0);
     await logAccess(env, { code, deviceHash, action:'verify', ok:true, reason:'existing_device', ipHash:meta.ipHash, uaHash:meta.uaHash });
-    return json({ ok:true, code, token, deviceCount:count, maxDevices:Number(invite.max_devices || 2) || 2 }, 200, env);
+    return json({ ok:true, code, kind, token, deviceCount:count, maxDevices:Number(invite.max_devices || 2) || 2 }, 200, env);
   }
 
   const countRow = await env.DB.prepare(
@@ -785,21 +853,25 @@ async function handleVerify(request, env){
   ).bind(code, deviceHash, token, nowMs(), nowMs(), meta.ipHash, meta.uaHash).run();
   await env.DB.prepare('UPDATE invite_codes SET updated_at = ? WHERE code = ?').bind(nowMs(), code).run();
   await logAccess(env, { code, deviceHash, action:'verify', ok:true, reason:'new_device', ipHash:meta.ipHash, uaHash:meta.uaHash });
-  return json({ ok:true, code, token, deviceCount:count + 1, maxDevices }, 200, env);
+  return json({ ok:true, code, kind, token, deviceCount:count + 1, maxDevices }, 200, env);
 }
 
 async function handleSession(request, env){
   const body = await readJson(request);
   const meta = await requestMeta(request, env);
   const code = normalizeCode(body.code);
+  const kind = normalizeInviteKind(body.kind);
   const token = String(body.token || '').trim();
   const deviceHashes = normalizeDeviceHashes(body);
   const deviceHash = deviceHashes[0] || '';
   if(!code || !token || !deviceHash) return reject(env, meta, code, deviceHash, 'session', '通行凭证无效，请重新输入邀请码。', 401);
+  await ensureAdminSchema(env);
   if(await deletedCodeExists(env, code)) return reject(env, meta, code, deviceHash, 'session', '邀请码已失效，请联系作者。', 403);
 
   const invite = await env.DB.prepare('SELECT * FROM invite_codes WHERE code = ?').bind(code).first();
   if(!invite || Number(invite.revoked || 0)) return reject(env, meta, code, deviceHash, 'session', '邀请码已失效，请联系作者。', 403);
+  const inviteKind = normalizeInviteKind(invite.code_kind || invite.codeKind || 'login');
+  if(inviteKind !== kind) return reject(env, meta, code, deviceHash, 'session', inviteKindLabel(kind) + '权限已失效，请重新验证。', 403);
 
   let device = await findInviteDeviceByToken(env, code, token);
   if(!device){
@@ -817,6 +889,7 @@ async function handleSession(request, env){
   return json({
     ok:true,
     code,
+    kind,
     deviceCount:Number(countRow && countRow.count || 0),
     maxDevices:Number(invite.max_devices || 2) || 2
   }, 200, env);

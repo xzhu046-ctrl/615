@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T14:45:00Z';
+const APP_BUILD_ID = '2026-05-01T15:10:00Z';
 const APP_UPDATE_NOTES = [
-  '心声同轮提示词修正',
-  '聊天输出协议收紧',
-  '心声不再二次兜底'
+  '输入框键盘适配修正',
+  '酒馆导入权限上线',
+  '邀请码后台生成双码'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -436,6 +436,7 @@ async function verifyInviteGateCode(code){
   }
   var data = await inviteGateRequest('/verify', {
     code: safeCode,
+    kind: 'login',
     deviceHash: deviceHash,
     deviceHashes: await inviteGateDeviceHashes(deviceHash),
     appBuild: APP_BUILD_ID
@@ -454,6 +455,7 @@ async function validateInviteGateSession(session){
   var data = await inviteGateRequest('/session', {
     token: session.token,
     code: session.code || '',
+    kind: 'login',
     deviceHash: deviceHash,
     deviceHashes: await inviteGateDeviceHashes(session.deviceHash),
     appBuild: APP_BUILD_ID

@@ -44,6 +44,24 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
 .drop-icon{font-size:56px;margin-bottom:14px}
 .drop-title{font-family:var(--fontd);font-size:20px;font-weight:900}
 .drop-sub{font-size:13px;opacity:.7;margin-top:6px}
+.tavern-gate-shell{position:fixed;inset:0;z-index:430;display:flex;align-items:center;justify-content:center;padding:22px;background:#fff url('assets/%E9%AA%8C%E8%AF%81%E7%A0%81%E5%BC%B9%E7%AA%97.jpg') center/cover no-repeat}
+.tavern-gate-shell[hidden]{display:none}
+.tavern-gate-card{position:relative;width:min(360px,100%);min-height:388px;border:2px solid var(--b);background:rgba(255,255,255,.94);padding:30px 24px 22px;box-shadow:8px 8px 0 var(--b),0 22px 70px rgba(0,0,0,.18);overflow:hidden}
+.tavern-gate-card::before{content:"";position:absolute;inset:10px;border:2px dashed rgba(10,10,10,.42);pointer-events:none}
+.tavern-gate-staff{position:absolute;left:34px;right:24px;top:30px;display:flex;flex-direction:column;gap:10px;opacity:.24;pointer-events:none}
+.tavern-gate-staff span{height:2px;background:var(--b)}
+.tavern-gate-note-row{position:absolute;right:24px;top:22px;font-family:var(--fontd);font-weight:900;font-size:22px;letter-spacing:6px;opacity:.8}
+.tavern-gate-eyebrow{position:relative;margin-top:56px;font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.18em;color:#555}
+.tavern-gate-card h3{position:relative;margin:8px 0 20px;display:flex;flex-direction:column;gap:4px;font-family:var(--fontd);font-size:30px;line-height:1.08;text-decoration-line:underline;text-decoration-style:dashed;text-decoration-thickness:4px;text-underline-offset:8px}
+.tavern-gate-form{position:relative;display:grid;gap:9px}
+.tavern-gate-form label{font-family:var(--fontd);font-size:11px;font-weight:900;letter-spacing:.14em;color:#555}
+.tavern-gate-input-wrap{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+.tavern-gate-input-wrap input{width:100%;border:2px solid var(--b);border-radius:0;background:#fff;color:var(--b);padding:12px;font-family:var(--fontd);font-size:15px;font-weight:900;outline:none;text-transform:uppercase;-webkit-text-fill-color:currentColor}
+.tavern-gate-input-wrap button,.tavern-gate-close{border:2px solid var(--b);border-radius:0;background:var(--b);color:#fff;padding:12px 16px;font-family:var(--fontd);font-size:13px;font-weight:900;box-shadow:3px 3px 0 rgba(0,0,0,.25)}
+.tavern-gate-close{width:100%;margin-top:10px;background:#fff;color:var(--b)}
+.tavern-gate-status{min-height:18px;font-size:12px;font-weight:900;color:#555;line-height:1.5}
+.tavern-gate-status.error{color:#9b1111}
+.tavern-gate-status.ok{color:#111}
 /* Detail panel */
 .detail-panel{position:fixed;inset:0;background:var(--w);z-index:100;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column}
 .detail-panel.open{transform:translateX(0)}
@@ -125,10 +143,10 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
 .share-card-action-btn{flex:1;min-height:34px;border:2px solid #111;border-radius:999px;background:#fff;font-family:var(--fontd);font-size:12px;font-weight:900;color:#111;box-shadow:2px 2px 0 rgba(0,0,0,.85);cursor:pointer}
 .share-card-action-btn:active{transform:translate(1px,1px);box-shadow:0 0 0}
 </style>
-<script src="../assetStore.js?v=2026-05-01T12:45:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-01T12:45:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T12:45:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T12:45:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T15:10:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T15:10:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T15:10:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T15:10:00Z"></script>
 </head>
 <body>
 
@@ -139,7 +157,7 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
       <div class="sub" id="charCount">加载中...</div>
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="import-btn" onclick="document.getElementById('file-input').click()">+ 导入</button>
+      <button class="import-btn" onclick="requestTavernImport()">+ 导入</button>
       <button class="import-btn" onclick="openCreate()">+ 创建</button>
     </div>
   </div>
@@ -156,6 +174,26 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
     <div class="drop-icon">🃏</div>
     <div class="drop-title">拖放角色卡</div>
     <div class="drop-sub">支持 .png (SillyTavern) 或 .json</div>
+  </div>
+</div>
+
+<div class="tavern-gate-shell" id="tavernGateShell" hidden>
+  <div class="tavern-gate-card" role="dialog" aria-modal="true" aria-labelledby="tavernGateTitle">
+    <div class="tavern-gate-staff" aria-hidden="true">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="tavern-gate-note-row" aria-hidden="true">♪ ♫</div>
+    <div class="tavern-gate-eyebrow">TAVERN PASS</div>
+    <h3 id="tavernGateTitle"><span>欢迎导入</span><span>酒馆角色卡^^</span></h3>
+    <form class="tavern-gate-form" id="tavernGateForm">
+      <label for="tavernGateInput">TAVERN CODE</label>
+      <div class="tavern-gate-input-wrap">
+        <input id="tavernGateInput" type="text" autocomplete="one-time-code" inputmode="text" placeholder="输入酒馆邀请码" maxlength="40">
+        <button id="tavernGateSubmit" type="submit">进入</button>
+      </div>
+      <div class="tavern-gate-status" id="tavernGateStatus"></div>
+    </form>
+    <button class="tavern-gate-close" type="button" onclick="closeTavernGate()">取消</button>
   </div>
 </div>
 
@@ -1986,6 +2024,213 @@ async function confirmExportCharacterCard(){
 // ════════════════════════════════════════════
 //  IMPORT — Robust PNG chunk parser
 // ════════════════════════════════════════════
+const TAVERN_GATE_CONFIG = {
+  apiBase: 'https://0615phone-invite-worker.xzhu046.workers.dev',
+  sessionKey: 'invite_gate_tavern_session_v1',
+  deviceKey: 'invite_gate_device_v1',
+  installKey: 'invite_gate_install_id_v2',
+  cacheMs: 7 * 24 * 60 * 60 * 1000
+};
+let pendingTavernImportFiles = null;
+
+function setTavernGateStatus(message, kind){
+  var el = document.getElementById('tavernGateStatus');
+  if(!el) return;
+  el.textContent = String(message || '');
+  el.classList.toggle('error', kind === 'error');
+  el.classList.toggle('ok', kind === 'ok');
+}
+
+function openTavernGate(files){
+  pendingTavernImportFiles = files ? Array.from(files) : null;
+  var shell = document.getElementById('tavernGateShell');
+  if(shell) shell.hidden = false;
+  setTavernGateStatus('', '');
+  setTimeout(function(){
+    var input = document.getElementById('tavernGateInput');
+    if(input) input.focus();
+  }, 60);
+}
+
+function closeTavernGate(){
+  pendingTavernImportFiles = null;
+  var shell = document.getElementById('tavernGateShell');
+  if(shell) shell.hidden = true;
+}
+
+function readTavernGateSession(){
+  try{ return JSON.parse(localStorage.getItem(TAVERN_GATE_CONFIG.sessionKey) || 'null') || null; }catch(e){ return null; }
+}
+
+function saveTavernGateSession(session){
+  try{ localStorage.setItem(TAVERN_GATE_CONFIG.sessionKey, JSON.stringify(session || {})); }catch(e){}
+}
+
+function normalizeTavernGateDevicePart(value){
+  return String(value == null ? '' : value).trim().toLowerCase();
+}
+
+function getTavernGateLegacyRandomDeviceId(){
+  try{ return String(localStorage.getItem(TAVERN_GATE_CONFIG.deviceKey) || '').trim(); }catch(e){ return ''; }
+}
+
+function randomTavernGateInstallId(){
+  try{
+    if(window.crypto && typeof window.crypto.randomUUID === 'function') return 'install-' + window.crypto.randomUUID();
+  }catch(e){}
+  return 'install-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+}
+
+async function getTavernGateInstallId(){
+  var fromLocal = '';
+  try{ fromLocal = String(localStorage.getItem(TAVERN_GATE_CONFIG.installKey) || localStorage.getItem(TAVERN_GATE_CONFIG.deviceKey) || '').trim(); }catch(e){}
+  if(fromLocal) return fromLocal;
+  var next = randomTavernGateInstallId();
+  try{
+    localStorage.setItem(TAVERN_GATE_CONFIG.installKey, next);
+    localStorage.setItem(TAVERN_GATE_CONFIG.deviceKey, next);
+  }catch(e2){}
+  return next;
+}
+
+async function tavernGateDeviceSeedV4(){
+  return ['device-v4', await getTavernGateInstallId()].map(normalizeTavernGateDevicePart).join('|');
+}
+
+function tavernGateDeviceSeedV3(){
+  var nav = window.navigator || {};
+  var scr = window.screen || {};
+  var tz = '';
+  try{ tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch(e){}
+  var w = Number(scr.width || 0) || 0;
+  var h = Number(scr.height || 0) || 0;
+  return ['device-v3', Math.min(w, h) || '', Math.max(w, h) || '', scr.colorDepth || '', nav.hardwareConcurrency || '', nav.maxTouchPoints || '', nav.language || '', tz].map(normalizeTavernGateDevicePart).join('|');
+}
+
+function tavernGateDeviceSeedV2(){
+  var nav = window.navigator || {};
+  var scr = window.screen || {};
+  var tz = '';
+  try{ tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch(e){}
+  return ['device-v2', scr.width || '', scr.height || '', scr.availWidth || '', scr.availHeight || '', scr.colorDepth || '', window.devicePixelRatio || '', nav.hardwareConcurrency || '', nav.deviceMemory || '', nav.maxTouchPoints || '', nav.platform || '', nav.language || '', tz].map(normalizeTavernGateDevicePart).join('|');
+}
+
+function tavernGateDeviceSeedV1(){
+  var legacyId = getTavernGateLegacyRandomDeviceId();
+  if(!legacyId) return '';
+  var nav = window.navigator || {};
+  var scr = window.screen || {};
+  return [legacyId, nav.userAgent || '', nav.language || '', scr.width || '', scr.height || ''].map(function(value){ return String(value == null ? '' : value).trim(); }).join('|');
+}
+
+async function tavernSha256Hex(value){
+  var text = String(value || '');
+  if(window.crypto && window.crypto.subtle && window.TextEncoder){
+    var bytes = new TextEncoder().encode(text);
+    var digest = await window.crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest)).map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+  }
+  var hash = 2166136261;
+  for(var i = 0; i < text.length; i += 1){
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+async function tavernGateDeviceHash(){
+  return tavernSha256Hex(tavernGateDeviceSeedV3());
+}
+
+async function tavernGateDeviceHashes(extraHash){
+  var seeds = [tavernGateDeviceSeedV3(), await tavernGateDeviceSeedV4(), tavernGateDeviceSeedV2(), tavernGateDeviceSeedV1()].filter(Boolean);
+  var out = [];
+  if(extraHash) out.push(String(extraHash || '').trim());
+  for(var i = 0; i < seeds.length; i += 1) out.push(await tavernSha256Hex(seeds[i]));
+  return Array.from(new Set(out.filter(Boolean)));
+}
+
+async function tavernGateRequest(path, payload){
+  var res = await fetch(TAVERN_GATE_CONFIG.apiBase + path, {
+    method:'POST',
+    headers:{ 'content-type':'application/json' },
+    body: JSON.stringify(payload || {})
+  });
+  var data = await res.json().catch(function(){ return null; });
+  if(!res.ok || !data || data.ok === false) throw new Error(String((data && data.message) || '酒馆权限验证失败'));
+  return data;
+}
+
+async function verifyTavernGateCode(code){
+  var safeCode = String(code || '').trim();
+  if(!safeCode) throw new Error('先输入酒馆邀请码哦');
+  var deviceHash = await tavernGateDeviceHash();
+  var data = await tavernGateRequest('/verify', {
+    code: safeCode,
+    kind: 'tavern',
+    deviceHash: deviceHash,
+    deviceHashes: await tavernGateDeviceHashes(deviceHash)
+  });
+  return Object.assign({}, data, { code: data.code || safeCode, kind:'tavern', deviceHash: deviceHash, checkedAt: Date.now() });
+}
+
+async function validateTavernGateSession(session){
+  if(!session || !session.token || !session.code) return false;
+  if(Date.now() - Number(session.checkedAt || 0) < TAVERN_GATE_CONFIG.cacheMs) return true;
+  var deviceHash = await tavernGateDeviceHash();
+  var data = await tavernGateRequest('/session', {
+    token: session.token,
+    code: session.code || '',
+    kind: 'tavern',
+    deviceHash: deviceHash,
+    deviceHashes: await tavernGateDeviceHashes(session.deviceHash)
+  });
+  saveTavernGateSession(Object.assign({}, session, data, { kind:'tavern', deviceHash:deviceHash, checkedAt:Date.now() }));
+  return true;
+}
+
+async function hasTavernImportPermission(){
+  var session = readTavernGateSession();
+  try{ return await validateTavernGateSession(session); }catch(err){ return false; }
+}
+
+async function requestTavernImport(){
+  if(await hasTavernImportPermission()){
+    var input = document.getElementById('file-input');
+    if(input) input.click();
+    return;
+  }
+  openTavernGate(null);
+}
+
+var _tavernGateForm = document.getElementById('tavernGateForm');
+if(_tavernGateForm){
+  _tavernGateForm.addEventListener('submit', function(event){
+    event.preventDefault();
+    var input = document.getElementById('tavernGateInput');
+    var button = document.getElementById('tavernGateSubmit');
+    var code = input ? input.value : '';
+    if(button) button.disabled = true;
+    setTavernGateStatus('正在验证酒馆邀请码...', '');
+    verifyTavernGateCode(code).then(async function(session){
+      saveTavernGateSession(session);
+      setTavernGateStatus('验证成功。', 'ok');
+      var pending = pendingTavernImportFiles ? pendingTavernImportFiles.slice() : null;
+      closeTavernGate();
+      if(pending && pending.length){
+        await onFiles(pending);
+      }else{
+        var fileInput = document.getElementById('file-input');
+        if(fileInput) fileInput.click();
+      }
+    }).catch(function(err){
+      setTavernGateStatus(err && err.message ? err.message : '酒馆邀请码验证失败', 'error');
+    }).finally(function(){
+      if(button) button.disabled = false;
+    });
+  });
+}
+
 async function onFiles(files) {
   for (const f of Array.from(files)) {
     if (f.name.toLowerCase().endsWith('.json')) await importJson(f);
@@ -3452,10 +3697,14 @@ function mapPos(p) {
 // ── Drag & Drop ──
 document.addEventListener('dragover', function(e){ e.preventDefault(); document.getElementById('dropOverlay').classList.add('active'); });
 document.addEventListener('dragleave', function(e){ if(!e.relatedTarget) document.getElementById('dropOverlay').classList.remove('active'); });
-document.addEventListener('drop', function(e){
+document.addEventListener('drop', async function(e){
   e.preventDefault();
   document.getElementById('dropOverlay').classList.remove('active');
-  onFiles(e.dataTransfer.files);
+  if(await hasTavernImportPermission()){
+    onFiles(e.dataTransfer.files);
+  }else{
+    openTavernGate(e.dataTransfer.files);
+  }
 });
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
