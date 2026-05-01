@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T16:20:00Z';
+const APP_BUILD_ID = '2026-05-01T16:35:00Z';
 const APP_UPDATE_NOTES = [
   '角色卡导入入口加锁',
-  '登录状态持久化修正',
-  '大图上传自动轻压缩'
+  '酒馆权限记忆修正',
+  '登录状态持久化修正'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
