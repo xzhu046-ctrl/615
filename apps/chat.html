@@ -20209,16 +20209,37 @@ function buildChatExtendedFormatPrompt(){
   }
   if(getInnerVoiceGenerationMode() === 'together'){
     var inlineInnerVoiceActivePrompt = getActiveInnerVoicePromptForAi();
-    var inlineInnerVoiceHasCustomPrompt = !!getCustomInnerVoicePromptForAi();
+    var inlineInnerVoiceCustomPrompt = getCustomInnerVoicePromptForAi();
+    var inlineInnerVoiceHasCustomPrompt = !!inlineInnerVoiceCustomPrompt;
+    var inlineInnerVoiceHistory = '';
+    var inlineInnerVoiceMemory = '';
+    var inlineInnerVoiceWorldbook = '';
+    try{ inlineInnerVoiceHistory = buildInnerVoiceHistoryForPrompt(10); }catch(err){}
+    try{ inlineInnerVoiceMemory = buildInnerVoiceMemorySnippet(8); }catch(err2){}
+    try{
+      inlineInnerVoiceWorldbook = (getStrictPromptWorldbookEntries() || []).map(function(entry){
+        return '- ' + String(entry && (entry.content || entry.text || entry.name) || '').trim();
+      }).filter(Boolean).slice(0, 8).join('\n');
+    }catch(err3){}
     lines.push('【心声同轮输出铁律】');
     lines.push('当前心声模式是“和聊天一起生成”：本轮回复必须是可解析 JSON 数组，或包含 messages/replies 的 JSON 对象；除了聊天动作外，必须额外带一条独立对象 {"type":"inner_voice","headline":"...","body":"...","strike":"..."}。');
     lines.push('数组或 messages/replies 里至少要有一条可显示聊天动作，也至少要有一条 inner_voice；inner_voice 可放最后，不占聊天气泡数量。');
     lines.push('inner_voice 是隐藏系统动作，不是角色台词；不要写进 text/narrator/rich_html，不要解释“我生成了心声”，不要省略 type。');
-    lines.push('headline/body/strike 必须基于本轮已经决定发出的角色回复、最近聊天、记忆、世界书和当前关系；不能敷衍，不能只写一句泛泛总结。');
-    lines.push('headline 8-18 字，短、狠、抓人；body 必须写 2-4 句像报道内文又像脑内独白的内容，每句都要贴本轮回复和上下文；strike 是差点说出口又划掉的话，没有才空字符串。');
-    lines.push('同轮 inner_voice 必须逐条执行聊天设置里的“当前心声提示词”，不要自创版式，不要用与提示词冲突的结构。');
-    lines.push(inlineInnerVoiceHasCustomPrompt ? '当前心声提示词来自用户自定义，优先级最高。' : '当前心声提示词是默认黑白报纸头条，也必须完整执行，不是可选建议。');
-    lines.push('【当前心声提示词，最高优先级】\n' + String(inlineInnerVoiceActivePrompt || getDefaultInnerVoicePrompt()).slice(0, 1400));
+    lines.push('headline/body/strike 必须基于本轮已经决定发出的角色回复、最近聊天、记忆、世界书和当前关系；不能敷衍，不能只写一句泛泛总结，也不能写成和本轮回复无关的随机小作文。');
+    lines.push('同轮 inner_voice 必须逐条执行聊天设置里的“当前心声提示词”。这个提示词是最高优先级，不是参考灵感；不要自创版式，不要用与提示词冲突的结构。');
+    if(inlineInnerVoiceHasCustomPrompt){
+      lines.push('当前心声提示词来自用户自定义：禁止套用默认报纸头条规则，禁止擅自改成别的风格；headline/body/strike 只是存储字段，字段里的文字必须服务于用户自定义提示词。');
+    }else{
+      lines.push('当前心声提示词是默认黑白报纸头条：headline 8-18 字，短、狠、抓人；body 必须写 2-4 句像报道内文又像脑内独白的内容，每句都要贴本轮回复和上下文；strike 是差点说出口又划掉的话，没有才空字符串。');
+    }
+    lines.push('【当前心声提示词，最高优先级】\n' + String(inlineInnerVoiceActivePrompt || getDefaultInnerVoicePrompt()).slice(0, 1800));
+    lines.push('【心声可用上下文】');
+    lines.push('角色：' + String(character && (character.name || character.charName) || 'CHAR'));
+    lines.push('用户：' + String(getChatUserName(character && character.id) || resolveDisplayUserName() || 'USER'));
+    if(inlineInnerVoiceMemory) lines.push('记忆摘录：\n' + inlineInnerVoiceMemory.slice(0, 900));
+    if(inlineInnerVoiceWorldbook) lines.push('世界书/设定摘录：\n' + inlineInnerVoiceWorldbook.slice(0, 900));
+    if(inlineInnerVoiceHistory) lines.push('最近聊天：\n' + inlineInnerVoiceHistory.slice(0, 1100));
+    lines.push('先决定本轮真正要发出的聊天内容，再围绕这轮聊天内容写 inner_voice；inner_voice 不能替代聊天，也不能只复述聊天。');
     lines.push('如果本轮输出 rich_html/offline_invite/narrator/rename_profile/change_avatar 等特殊动作，也仍然必须另外带 inner_voice 对象。');
   }
   var richReplyLang = getCharacterReplyLanguage();
@@ -25553,8 +25574,7 @@ function syncChatViewport(){
   document.documentElement.style.setProperty('--chat-app-height', vh + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', '0px');
-  var composerLift = keyboardInset > 0 ? 21 : 0;
-  document.documentElement.style.setProperty('--keyboard-inset', (keyboardInset + composerLift) + 'px');
+  document.documentElement.style.setProperty('--keyboard-inset', keyboardInset + 'px');
   document.documentElement.style.setProperty('--composer-bottom', '12px');
   syncComposerMetrics();
   applyComposerPlacement(metrics, keyboardInset);
@@ -25592,11 +25612,36 @@ function applyComposerPlacement(metrics, keyboardInset){
   composer.style.bottom = '';
 }
 
+function nudgeFocusedChatInputIntoView(){
+  var input = document.getElementById('msg-input');
+  if(!input || document.activeElement !== input) return;
+  try{
+    input.scrollIntoView({ block:'nearest', inline:'nearest' });
+  }catch(err){}
+  var composer = document.querySelector('.chat-input-area');
+  if(composer){
+    try{ composer.scrollIntoView({ block:'nearest', inline:'nearest' }); }catch(err2){}
+  }
+}
+
+function scheduleFocusedChatInputVisibility(){
+  [0, 60, 140, 260, 420].forEach(function(delay){
+    setTimeout(function(){
+      requestAnimationFrame(function(){
+        requestAnimationFrame(function(){
+          nudgeFocusedChatInputIntoView();
+        });
+      });
+    }, delay);
+  });
+}
+
 function scheduleComposerPlacementSync(){
   [0, 80, 180, 320].forEach(function(delay){
     setTimeout(function(){
       syncChatViewport();
       keepComposerVisible();
+      scheduleFocusedChatInputVisibility();
     }, delay);
   });
 }
