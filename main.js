@@ -50,10 +50,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T10:18:00Z';
+const APP_BUILD_ID = '2026-05-01T10:47:00Z';
 const APP_UPDATE_NOTES = [
-  '格式与音乐修正',
-  '备用音源切换'
+  '主页与表情包修正',
+  '朋友圈删除修正'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -8797,7 +8797,7 @@ function describeHomeMusicAudioError(audio){
   if(code === 1) return '播放被取消';
   if(code === 2) return '网络断开，歌曲没加载起来';
   if(code === 3) return '歌曲文件暂时无法解码';
-  if(code === 4) return '这首歌地址暂时不能播放';
+  if(code === 4) return '这首歌地址暂时不能播放，可能是地区或音源限制';
   return '歌曲播放失败';
 }
 
@@ -10619,37 +10619,17 @@ function setWidgetCharacter(c){
   const displayName = c?.nickname || c?.name || 'No companion yet';
   var hiddenNameEl = document.getElementById('wgt-name');
   if(hiddenNameEl) hiddenNameEl.textContent = displayName;
-  function applyWidgetSub(messages){
-    var charLine = '';
-    var userLine = '';
-    try{
-      if(Array.isArray(messages) && messages.length){
-        var charMsg = getLatestPreviewForRole(messages, 'assistant');
-        charLine = getPreviewTextForWidget(charMsg);
-        var userMsg = getLatestPreviewForRole(messages, 'user');
-        userLine = getPreviewTextForWidget(userMsg);
-      }
-    }catch(e){}
+  function applyWidgetSub(){
     var charOverride = getWidgetTextOverride('char');
     var userOverride = getWidgetTextOverride('user');
-    if(charOverride) charLine = charOverride;
-    if(userOverride) userLine = userOverride;
-    var charText = formatWidgetConversationLine(charLine || '', getDefaultWidgetCharacterQuote('char'));
-    var userText = formatWidgetConversationLine(userLine, getDefaultWidgetCharacterQuote('user'));
+    var charText = formatWidgetConversationLine(charOverride || '', getDefaultWidgetCharacterQuote('char'));
+    var userText = formatWidgetConversationLine(userOverride || '', getDefaultWidgetCharacterQuote('user'));
     var charLineEl = document.getElementById('wgt-char-last');
     var userLineEl = document.getElementById('wgt-user-last');
     if(charLineEl) charLineEl.textContent = charText;
     if(userLineEl) userLineEl.textContent = userText;
   }
-  applyWidgetSub(c?.id ? getStoredChatMessages(c.id) : []);
-  if(c?.id){
-    getStoredChatMessagesAsync(c.id).then(function(msgs){
-      var liveWidget = document.getElementById('widget-character');
-      var boundId = String((liveWidget && liveWidget.dataset && liveWidget.dataset.charId) || '').trim();
-      if(boundId !== String(c.id || '').trim()) return;
-      applyWidgetSub(msgs);
-    });
-  }
+  applyWidgetSub();
   const avEl = document.getElementById('wgt-avatar');
   const userAvEl = document.getElementById('wgt-user-avatar');
   const sideNameEl = document.getElementById('wgt-side-name');
@@ -10775,6 +10755,11 @@ function bindWidgetBubbleEditors(){
       if(target.getAttribute('data-editing') === 'true'){
         finishWidgetBubbleEdit(role, { cancel: false });
       }
+    });
+    target.addEventListener('input', function(){
+      if(target.getAttribute('data-editing') !== 'true') return;
+      var value = String(target.textContent || '').replace(/\s+/g, ' ').trim();
+      setWidgetTextOverride(role, value);
     });
     target.addEventListener('paste', function(evt){
       evt.preventDefault();
