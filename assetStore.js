@@ -53,6 +53,72 @@
     return typeof value === 'string' && (value.startsWith('data:') || value.startsWith('http'));
   }
 
+  function shouldOptimizeImage(value){
+    var text = String(value || '');
+    if(!/^data:image\//i.test(text)) return false;
+    if(/^data:image\/(?:gif|svg\+xml)/i.test(text)) return false;
+    return text.length > 900000;
+  }
+
+  function optimizeImageDataUrl(value){
+    var source = String(value || '');
+    if(!shouldOptimizeImage(source)) return Promise.resolve(value);
+    return new Promise(function(resolve){
+      try{
+        var img = new Image();
+        img.onload = function(){
+          try{
+            var maxSide = 1800;
+            var width = Number(img.naturalWidth || img.width || 0) || 0;
+            var height = Number(img.naturalHeight || img.height || 0) || 0;
+            if(!width || !height){
+              resolve(value);
+              return;
+            }
+            var scale = Math.min(1, maxSide / Math.max(width, height));
+            var outW = Math.max(1, Math.round(width * scale));
+            var outH = Math.max(1, Math.round(height * scale));
+            var canvas = document.createElement('canvas');
+            canvas.width = outW;
+            canvas.height = outH;
+            var ctx = canvas.getContext('2d');
+            if(!ctx){
+              resolve(value);
+              return;
+            }
+            ctx.drawImage(img, 0, 0, outW, outH);
+            var out = canvas.toDataURL('image/jpeg', 0.84);
+            if(out.length > 1800000){
+              maxSide = 1400;
+              scale = Math.min(1, maxSide / Math.max(width, height));
+              canvas.width = Math.max(1, Math.round(width * scale));
+              canvas.height = Math.max(1, Math.round(height * scale));
+              ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              out = canvas.toDataURL('image/jpeg', 0.78);
+            }
+            if(out.length > 3000000){
+              maxSide = 1100;
+              scale = Math.min(1, maxSide / Math.max(width, height));
+              canvas.width = Math.max(1, Math.round(width * scale));
+              canvas.height = Math.max(1, Math.round(height * scale));
+              ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              out = canvas.toDataURL('image/jpeg', 0.72);
+            }
+            resolve(out && out.length < source.length ? out : value);
+          }catch(drawErr){
+            resolve(value);
+          }
+        };
+        img.onerror = function(){ resolve(value); };
+        img.src = source;
+      }catch(err){
+        resolve(value);
+      }
+    });
+  }
+
   function phoneAssetId(key){
     return 'asset_store_v1__' + String(key || '');
   }
@@ -108,7 +174,10 @@
     },
 
     set: function(key, value){
-      return withStore('readwrite', function(store){ return store.put(value, key); }).then(function(){
+      return optimizeImageDataUrl(value).then(function(prepared){
+        value = prepared;
+        return withStore('readwrite', function(store){ return store.put(value, key); });
+      }).then(function(){
         safeStorageRemove(key);
         return value;
       }).catch(function(idbErr){
@@ -124,6 +193,8 @@
         });
       });
     },
+
+    optimizeImageDataUrl: optimizeImageDataUrl,
 
     remove: function(key){
       return withStore('readwrite', function(store){ return store.delete(key); }).catch(function(){}).then(function(){

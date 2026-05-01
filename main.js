@@ -2,7 +2,7 @@
 const APP_MAP = {
   qq:         { title: 'QQ',             src: 'apps/qq.html', hideTopbar: true },
   chat:       { title: 'Chat',           src: 'apps/chat.html', hideTopbar: true },
-  characters: { title: 'Contacts',       src: 'apps/characters.html' },
+  characters: { title: 'QQ',             src: 'apps/qq.html', hideTopbar: true },
   settings:   { title: '设置',           src: 'apps/settings.html' },
   customize:  { title: '外观',           src: 'apps/customize.html' },
   worldbook:  { title: '档案',           src: 'apps/worldbook.html' },
@@ -50,17 +50,18 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T15:10:00Z';
+const APP_BUILD_ID = '2026-05-01T16:20:00Z';
 const APP_UPDATE_NOTES = [
-  '输入框键盘适配修正',
-  '酒馆导入权限上线',
-  '邀请码后台生成双码'
+  '角色卡导入入口加锁',
+  '登录状态持久化修正',
+  '大图上传自动轻压缩'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
   apiBase: 'https://0615phone-invite-worker.xzhu046.workers.dev',
   maxDevices: 2,
   sessionKey: 'invite_gate_session_v1',
+  sessionKvId: 'invite_gate_session_v1',
   deviceKey: 'invite_gate_device_v1',
   installKey: 'invite_gate_install_id_v2',
   installKvId: 'invite_gate_install_id_v2',
@@ -212,12 +213,52 @@ function readInviteGateSession(){
   try{ return JSON.parse(localStorage.getItem(INVITE_GATE_CONFIG.sessionKey) || 'null') || null; }catch(e){ return null; }
 }
 
+async function readInviteGateSessionFromPhoneStorage(){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.get === 'function')) return null;
+  try{
+    var record = await window.PhoneStorage.get('kv', INVITE_GATE_CONFIG.sessionKvId);
+    var value = record && (Object.prototype.hasOwnProperty.call(record, 'value') ? record.value : record.data);
+    if(!value) return null;
+    if(typeof value === 'string') return JSON.parse(value || 'null') || null;
+    if(typeof value === 'object') return value || null;
+  }catch(e){}
+  return null;
+}
+
+async function readInviteGateSessionAsync(){
+  var local = readInviteGateSession();
+  if(local && local.token) return local;
+  var stored = await readInviteGateSessionFromPhoneStorage();
+  if(stored && stored.token){
+    try{ localStorage.setItem(INVITE_GATE_CONFIG.sessionKey, JSON.stringify(stored)); }catch(e){}
+    return stored;
+  }
+  return null;
+}
+
+async function writeInviteGateSessionToPhoneStorage(session){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.put === 'function')) return;
+  try{
+    await window.PhoneStorage.put('kv', {
+      id: INVITE_GATE_CONFIG.sessionKvId,
+      value: session || {},
+      updatedAt: Date.now()
+    });
+  }catch(e){}
+}
+
 function saveInviteGateSession(session){
   try{ localStorage.setItem(INVITE_GATE_CONFIG.sessionKey, JSON.stringify(session || {})); }catch(e){}
+  writeInviteGateSessionToPhoneStorage(session || {});
 }
 
 function clearInviteGateSession(){
   try{ localStorage.removeItem(INVITE_GATE_CONFIG.sessionKey); }catch(e){}
+  try{
+    if(window.PhoneStorage && typeof window.PhoneStorage.remove === 'function'){
+      window.PhoneStorage.remove('kv', INVITE_GATE_CONFIG.sessionKvId).catch(function(){});
+    }
+  }catch(e2){}
 }
 
 function normalizeInviteGateDevicePart(value){
@@ -498,10 +539,10 @@ function bindInviteGateForm(){
   });
 }
 
-function initInviteGate(){
+async function initInviteGate(){
   if(!inviteGateEnabled()) return;
   bindInviteGateForm();
-  var session = readInviteGateSession();
+  var session = await readInviteGateSessionAsync();
   if(session && session.token && (Date.now() - Number(session.checkedAt || 0) < INVITE_GATE_CONFIG.cacheMs)){
     setInviteGateVisible(false);
     validateInviteGateSession(session).catch(function(err){
@@ -6599,7 +6640,7 @@ function openPlaceholderMiniApp(idx){
       pendingOpenChatNonce = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
       openApp('chat');
     }else{
-      openApp('characters');
+      openApp('qq');
     }
     return;
   }
@@ -7118,7 +7159,7 @@ function onBondAvatarTap(e, role){
   }
   const active = getActiveCharacterData();
   if(!active || !active.id){
-    openApp('characters');
+    openApp('qq');
     return;
   }
   persistShellActiveCharacter(active);
@@ -7131,7 +7172,7 @@ function onBondNameTap(e, role){
   if(e && e.stopPropagation) e.stopPropagation();
   const active = getActiveCharacterData();
   if(!active || !active.id){
-    openApp('characters');
+    openApp('qq');
     return;
   }
   persistShellActiveCharacter(active);
