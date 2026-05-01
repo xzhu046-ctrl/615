@@ -50,10 +50,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T09:12:00Z';
+const APP_BUILD_ID = '2026-05-01T09:46:00Z';
 const APP_UPDATE_NOTES = [
-  '旁白与音乐修正',
-  '激活码离线保留'
+  '保存与音乐修正',
+  '加载白屏兜底'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -93,6 +93,7 @@ const HOME_MUSIC_FLOATING_ENABLED_KEY = 'home_music_floating_enabled_v1';
 const HOME_MUSIC_FLOATING_ICON_KEY = 'home_music_floating_icon_v1';
 const HOME_MUSIC_FLOATING_SIZE_KEY = 'home_music_floating_size_v1';
 const HOME_MUSIC_THIRD_PARTY_BASE = 'https://api.vkeys.cn/v2/music/tencent';
+const HOME_MUSIC_NETEASE_BASE = 'https://api.vkeys.cn/v2/music/netease';
 const API_SETTINGS_KV_ID = 'api_settings_v1';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
@@ -7392,6 +7393,7 @@ var homeMusicRenameIndex = -1;
 var homeMusicSearchBusy = false;
 var homeMusicPendingAutoplay = false;
 var homeMusicAutoplayToastTimer = 0;
+var homeMusicPersistPromise = Promise.resolve();
 
 function normalizeHomeMusicStorageText(value, limit){
   var text = String(value == null ? '' : value).trim();
@@ -7455,6 +7457,10 @@ function sanitizeHomeMusicTrackForStorage(track){
       var val = String(safe.source || '').trim();
       if(val === 'local' || val === 'search' || val === 'proxy') return val;
       return 'local';
+    })(),
+    remoteProvider: (function(){
+      var val = String(safe.remoteProvider || '').trim().toLowerCase();
+      return val === 'netease' ? 'netease' : (val === 'tencent' || safe.source === 'search' ? 'tencent' : '');
     })(),
     remoteId: normalizeHomeMusicStorageText(safe.remoteId || '', 160),
     name: normalizeHomeMusicStorageText(safe.name || '未命名歌曲', 180) || '未命名歌曲',
@@ -7559,8 +7565,14 @@ function persistHomeMusicState(){
     localStorage.setItem(HOME_MUSIC_FLOATING_SIZE_KEY, String(normalizeHomeMusicBubbleScale(homeMusicState.bubbleScale)));
   }catch(err){}
   if(stateObject){
-    saveLargeState(getHomeMusicLargeStateStorageId(), stateObject).catch(function(){ return null; });
+    homeMusicPersistPromise = saveLargeState(getHomeMusicLargeStateStorageId(), stateObject).catch(function(){ return null; });
   }
+  return homeMusicPersistPromise;
+}
+
+function persistHomeMusicStateAsync(){
+  persistHomeMusicState();
+  return homeMusicPersistPromise.catch(function(){ return null; });
 }
 
 function hydrateHomeMusicState(){
@@ -7586,9 +7598,11 @@ function hydrateHomeMusicState(){
   }catch(storageErr){}
   homeMusicState.previewTrack = null;
   homeMusicState.searchResults = [];
-  loadLargeState(getHomeMusicLargeStateStorageId()).then(function(parsed){
+  return loadLargeState(getHomeMusicLargeStateStorageId()).then(function(parsed){
     if(!parsed || typeof parsed !== 'object') return;
-    if(Array.isArray(homeMusicState.tracks) && homeMusicState.tracks.length) return;
+    var localTracks = Array.isArray(homeMusicState.tracks) ? homeMusicState.tracks : [];
+    var largeTracks = Array.isArray(parsed.tracks) ? parsed.tracks : [];
+    if(localTracks.length && localTracks.length >= largeTracks.length) return;
     applyHydratedHomeMusicState(parsed);
     if(typeof renderHomeMusic === 'function') renderHomeMusic();
   }).catch(function(){ return null; });
@@ -7661,6 +7675,30 @@ function getHomeMusicProvider(){
     },
     search: {
       async searchTracks(query){
+        var fetchProvider = function(base, provider){
+          return fetch(base + '?word=' + encodeURIComponent(query), {
+            method: 'GET',
+            mode: 'cors',
+            credentials: 'omit',
+            cache: 'no-store'
+          }).then(function(res){
+            if(!res.ok) throw new Error('搜索失败：' + res.status);
+            return res.json();
+          }).then(function(payload){
+            return normalizeHomeMusicProviderSearchPayload(payload, query, provider);
+          });
+        };
+        var settled = await Promise.allSettled([
+          fetchProvider(HOME_MUSIC_THIRD_PARTY_BASE, 'tencent'),
+          fetchProvider(HOME_MUSIC_NETEASE_BASE, 'netease')
+        ]);
+        var tracks = [];
+        settled.forEach(function(result){
+          if(result.status === 'fulfilled' && Array.isArray(result.value)){
+            tracks = tracks.concat(result.value.slice(0, 8));
+          }
+        });
+        if(tracks.length) return tracks.slice(0, 16);
         var res = await fetch(HOME_MUSIC_THIRD_PARTY_BASE + '?word=' + encodeURIComponent(query), {
           method: 'GET',
           mode: 'cors',
@@ -7780,7 +7818,12 @@ function parseHomeMusicNameArtistFromFileName(filename){
 }
 
 function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
+  return normalizeHomeMusicProviderSearchPayload(payload, queryHint, 'tencent');
+}
+
+function normalizeHomeMusicProviderSearchPayload(payload, queryHint, providerName){
   var fallbackBase = String(queryHint || '').trim();
+  var provider = String(providerName || 'tencent').trim().toLowerCase() === 'netease' ? 'netease' : 'tencent';
   var list = findHomeMusicSearchItems(payload);
   return list.map(function(item, idx){
     var remoteId = String(
@@ -7819,6 +7862,7 @@ function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
     return {
       id: createTrackId('search'),
       source: 'search',
+      remoteProvider: provider,
       remoteId: remoteId || ('search_' + idx),
       name: normalizedPair.name,
       artist: normalizedPair.artist,
@@ -7972,7 +8016,9 @@ function extractHomeMusicDuration(payload){
 async function hydrateHomeMusicThirdPartyTrack(track){
   if(!track || !track.remoteId) return track;
   if(!track.remoteUrl){
-    var detailRes = await fetch(HOME_MUSIC_THIRD_PARTY_BASE + '?id=' + encodeURIComponent(track.remoteId), {
+    var provider = String(track.remoteProvider || 'tencent').trim().toLowerCase() === 'netease' ? 'netease' : 'tencent';
+    var base = provider === 'netease' ? HOME_MUSIC_NETEASE_BASE : (HOME_MUSIC_THIRD_PARTY_BASE + '/geturl');
+    var detailRes = await fetch(base + '?id=' + encodeURIComponent(track.remoteId) + '&quality=0', {
       method: 'GET',
       mode: 'cors',
       credentials: 'omit',
@@ -8414,6 +8460,7 @@ function renderHomeMusicSearchResults(message){
     return;
   }
   root.innerHTML = results.map(function(track, idx){
+    var providerTag = String(track && track.remoteProvider || '').trim().toLowerCase() === 'netease' ? 'NETEASE' : 'QQ MUSIC';
     return (
       '<div class="home-music-search-item">' +
         '<div class="home-music-search-item-top">' +
@@ -8421,7 +8468,7 @@ function renderHomeMusicSearchResults(message){
             '<div class="home-music-search-item-name">' + escapeHtml(track.name || '未命名歌曲') + '</div>' +
             '<div class="home-music-search-item-artist">' + escapeHtml(track.artist || '未知歌手') + '</div>' +
           '</div>' +
-          '<div class="home-music-search-item-tag">QQ MUSIC</div>' +
+          '<div class="home-music-search-item-tag">' + escapeHtml(providerTag) + '</div>' +
         '</div>' +
         '<div class="home-music-search-item-actions">' +
           '<button class="home-music-search-item-btn" type="button" onclick="previewHomeMusicSearchResult(' + idx + ')">试听</button>' +
@@ -8535,7 +8582,7 @@ async function addHomeMusicSearchResult(index){
       homeMusicState.currentTime = 0;
       homeMusicState.currentLyricIndex = -1;
     }
-    persistHomeMusicState();
+    await persistHomeMusicStateAsync();
     renderHomeMusic();
     closeHomeMusicSearchEditor();
     showHomeToast('已添加到歌单');
@@ -8574,7 +8621,7 @@ async function deleteHomeMusicTrack(index){
       ensureHomeMusicTrackLoaded(getCurrentHomeMusicTrack(), false);
     }
   }
-  persistHomeMusicState();
+  await persistHomeMusicStateAsync();
   renderHomeMusic();
   showHomeToast('已删除歌曲');
 }
@@ -8784,7 +8831,7 @@ async function importHomeMusicFiles(files){
   }
   homeMusicState.tracks = tracks.concat(homeMusicState.tracks);
   if(!homeMusicState.currentTrackId && tracks[0]) homeMusicState.currentTrackId = tracks[0].id;
-  persistHomeMusicState();
+  await persistHomeMusicStateAsync();
   renderHomeMusic();
   ensureHomeMusicTrackLoaded(getCurrentHomeMusicTrack(), false);
   showHomeToast('已导入 ' + tracks.length + ' 首歌曲');
@@ -9187,6 +9234,7 @@ async function flushCurrentAppState(){
 }
 
 async function performCloseApp(){
+  clearAppFrameLoadWatchdog();
   await flushCurrentAppState();
   var foregroundChar = getCurrentForegroundCharacter();
   if(foregroundChar && foregroundChar.id){
@@ -9260,6 +9308,8 @@ function buildAppFrameUrl(src){
 
 var shellLoadingHideTimer = 0;
 var shellLoadingForceTimer = 0;
+var appFrameLoadWatchdogTimer = 0;
+var appFrameLoadWatchdogNonce = 0;
 function setChatHardCutMode(enabled){
   var outer = document.querySelector('.phone-outer');
   if(outer) outer.classList.toggle('chat-hard-cut', !!enabled);
@@ -9304,6 +9354,41 @@ function hideShellLoadingOverlay(delay){
     overlay.classList.remove('instant');
     shellLoadingHideTimer = 0;
   }, Math.max(0, Number(delay) || 0));
+}
+
+function clearAppFrameLoadWatchdog(){
+  appFrameLoadWatchdogNonce += 1;
+  if(appFrameLoadWatchdogTimer){
+    clearTimeout(appFrameLoadWatchdogTimer);
+    appFrameLoadWatchdogTimer = 0;
+  }
+}
+
+function armAppFrameLoadWatchdog(frame, appId, attempt){
+  if(!frame || !appId) return;
+  clearAppFrameLoadWatchdog();
+  var nonce = appFrameLoadWatchdogNonce;
+  var currentAttempt = Math.max(0, Number(attempt) || 0);
+  appFrameLoadWatchdogTimer = setTimeout(function(){
+    if(nonce !== appFrameLoadWatchdogNonce || currentApp !== appId) return;
+    appFrameLoadWatchdogTimer = 0;
+    if(currentAttempt < 1){
+      try{
+        var retryUrl = new URL(frame.src || buildAppFrameUrl((APP_MAP[appId] || {}).src || ''), window.location.href);
+        retryUrl.searchParams.set('__retry', String(Date.now()));
+        frame.style.opacity = '0';
+        frame.src = retryUrl.toString();
+        showHomeToast('页面加载慢，正在重试');
+        armAppFrameLoadWatchdog(frame, appId, currentAttempt + 1);
+      }catch(err){
+        hideShellLoadingOverlay(0);
+      }
+      return;
+    }
+    try{ frame.style.opacity = '1'; }catch(err2){}
+    hideShellLoadingOverlay(0);
+    showHomeToast('页面加载失败，请返回后再打开');
+  }, currentAttempt < 1 ? 7000 : 9000);
 }
 
 function renderApp(id){
@@ -9352,7 +9437,9 @@ function renderApp(id){
     }
   }
   showShellLoadingOverlay('app');
-  document.getElementById('app-iframe').src = buildAppFrameUrl(a.src);
+  var appFrame = document.getElementById('app-iframe');
+  appFrame.src = buildAppFrameUrl(a.src);
+  armAppFrameLoadWatchdog(appFrame, id, 0);
   if(id === 'chat'){
     pendingOpenChatCharId = '';
     pendingOpenChatNonce = '';
@@ -11412,6 +11499,7 @@ window.addEventListener('load', ()=>{
   var frame = document.getElementById('app-iframe');
   if(frame){
     frame.addEventListener('load', function(){
+      clearAppFrameLoadWatchdog();
       try{ frame.style.opacity = '1'; }catch(err){}
       applyIframeSafeAreaOverrides();
       installBackendLogBridge(frame.contentWindow, currentApp || 'app');
@@ -11425,6 +11513,7 @@ window.addEventListener('load', ()=>{
       hideShellLoadingOverlay(currentApp === 'chat' ? 360 : (currentApp ? 260 : 2000));
     });
     frame.addEventListener('error', function(){
+      clearAppFrameLoadWatchdog();
       try{ frame.style.opacity = '1'; }catch(err){}
       hideShellLoadingOverlay(0);
     });

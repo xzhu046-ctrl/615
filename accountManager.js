@@ -53,6 +53,23 @@
     }catch(e){ return []; }
   }
 
+  function writeLegacyAccountsLite(accounts){
+    try{
+      var lite = normalizeAccounts(accounts).map(function(account){
+        return {
+          id: account.id,
+          name: account.name,
+          avatar: String(account.avatar || '').length < 5000 ? String(account.avatar || '') : '',
+          friends: Array.isArray(account.friends) ? account.friends.slice(0, 200) : [],
+          favorites: [],
+          createdAt: account.createdAt,
+          isDefault: !!account.isDefault
+        };
+      });
+      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(lite));
+    }catch(err){}
+  }
+
   function readLegacyText(key){
     try{ return String(localStorage.getItem(key) || '').trim(); }catch(err){ return ''; }
   }
@@ -114,14 +131,14 @@
 
   function persistActiveId(id){
     activeIdCache = String(id || '').trim();
+    writeLegacyText(ACTIVE_KEY, activeIdCache);
     if(getPhoneStorage()) putKv(KV_ACTIVE_ID, activeIdCache);
-    else writeLegacyText(ACTIVE_KEY, activeIdCache);
   }
 
   function persistDefaultId(id){
     defaultIdCache = String(id || '').trim();
+    writeLegacyText(DEFAULT_KEY, defaultIdCache);
     if(getPhoneStorage()) putKv(KV_DEFAULT_ID, defaultIdCache);
-    else writeLegacyText(DEFAULT_KEY, defaultIdCache);
   }
 
   function loadAccounts(){
@@ -137,6 +154,7 @@
   function saveAccounts(accounts){
     accountsCache = normalizeAccounts(accounts);
     if(getPhoneStorage()){
+      writeLegacyAccountsLite(accountsCache);
       putKv(KV_ACCOUNTS_ID, accountsCache);
       return true;
     }
