@@ -50,9 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T07:52:00Z';
+const APP_BUILD_ID = '2026-05-01T08:20:00Z';
 const APP_UPDATE_NOTES = [
-  '修复安卓布局'
+  '安卓主页底栏改为可视底部固定，不再被缩放框挤出屏幕。',
+  '同一安卓设备换浏览器优先用物理指纹合并设备数。',
+  '邀请码旧浏览器安装 ID 会作为别名迁移，不再轻易占满两台。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1397,15 +1399,36 @@ function updateHostedUpdateMeta(remoteFingerprint){
   var notes = document.getElementById('update-toast-notes');
   if(!meta && !notes) return;
   var remote = String(remoteFingerprint || pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
+  var lines;
+  if(installedUpdateNoticeActive){
+    lines = [
+      '当前版本：' + APP_BUILD_ID,
+      '更新状态：本机已安装这一版'
+    ];
+  }else{
+    lines = [
+      '当前版本：' + APP_BUILD_ID,
+      '远端版本：' + (remote || '未读到')
+    ];
+    if(lastHostedUpdateCheckStatus){
+      lines.push('检查状态：' + lastHostedUpdateCheckStatus);
+    }
+  }
   if(meta){
-    meta.textContent = '';
+    meta.innerHTML = lines.map(function(line){
+      return line.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    }).join('<br>');
   }
   if(notes){
     var noteLines = getHostedUpdateNotes(remote);
-    notes.innerHTML = noteLines.map(function(line){
-      var safe = String(line || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
-      return '<div class="update-toast-note-line"><span class="update-toast-note-text">' + safe + '</span></div>';
-    }).join('');
+    var noteIcons = ['❶︎','❷︎','❸︎','❹︎','❺︎','❻︎','❼︎','❽︎','❾︎','❿︎'];
+    notes.innerHTML = [
+      '<div class="update-toast-notes-label">更新日志</div>',
+      noteLines.map(function(line, idx){
+        var safe = String(line || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        return '<div class="update-toast-note-line"><span class="update-toast-note-icon" aria-hidden="true">' + (noteIcons[idx] || String(idx + 1)) + '</span><span class="update-toast-note-text">' + safe + '</span></div>';
+      }).join('')
+    ].join('');
   }
 }
 
@@ -1497,20 +1520,20 @@ function setUpdateToastCopy(mode){
   var subtitle = document.getElementById('update-toast-subtitle');
   var btn = document.getElementById('update-toast-btn');
   if(mode === 'installed'){
-    if(heading) heading.textContent = '';
-    if(subtitle) subtitle.textContent = '';
+    if(heading) heading.textContent = '已经更新好啦';
+    if(subtitle) subtitle.textContent = '先看一眼这版到底改了什么。';
     if(btn){
       btn.disabled = false;
-      btn.textContent = '✓';
-      btn.setAttribute('aria-label', '确认');
+      btn.textContent = '我知道了';
+      btn.setAttribute('aria-label', '我知道了');
       btn.onclick = acknowledgeInstalledUpdateNotice;
     }
   }else{
-    if(heading) heading.textContent = '';
-    if(subtitle) subtitle.textContent = '';
+    if(heading) heading.textContent = '更新了哦';
+    if(subtitle) subtitle.textContent = '请点击刷新切到最新版本。';
     if(btn){
       btn.disabled = false;
-      btn.textContent = '↻';
+      btn.textContent = '刷新';
       btn.setAttribute('aria-label', '刷新');
       btn.onclick = refreshInstalledApp;
     }
@@ -7346,10 +7369,43 @@ function normalizeHomeMusicBubbleScale(value){
 }
 
 function normalizeHomeMusicDurationSeconds(value){
+  if(typeof value === 'string'){
+    var text = value.trim();
+    if(!text) return 0;
+    var chinese = text.match(/(?:(\d+(?:\.\d+)?)\s*小?时)?\s*(?:(\d+(?:\.\d+)?)\s*分)?\s*(?:(\d+(?:\.\d+)?)\s*秒)?/);
+    if(chinese && (chinese[1] || chinese[2] || chinese[3])){
+      return Math.max(0, Math.round((Number(chinese[1]) || 0) * 3600 + (Number(chinese[2]) || 0) * 60 + (Number(chinese[3]) || 0)));
+    }
+    var colon = text.match(/^(\d+):([0-5]?\d)(?::([0-5]?\d))?$/);
+    if(colon){
+      var a = Number(colon[1]) || 0;
+      var b = Number(colon[2]) || 0;
+      var c = colon[3] != null ? (Number(colon[3]) || 0) : null;
+      return c == null ? (a * 60 + b) : (a * 3600 + b * 60 + c);
+    }
+  }
   var num = Number(value);
   if(!isFinite(num) || num <= 0) return 0;
   if(num > 7200) num = num / 1000;
   return Math.max(0, Math.round(num));
+}
+
+function normalizeHomeMusicPlayableUrl(value){
+  var text = String(value || '').trim();
+  if(!text) return '';
+  if(/^http:\/\//i.test(text)){
+    return text.replace(/^http:\/\//i, 'https://');
+  }
+  return text;
+}
+
+function isHomeMusicPlayableAudioUrl(value){
+  var text = String(value || '').trim();
+  if(!/^https?:\/\//i.test(text)) return false;
+  if(/\.(mp3|m4a|aac|flac|wav|ogg)(?:[?#]|$)/i.test(text)) return true;
+  if(/(?:^|\/\/)(?:ws\.stream|dl\.stream|isure\.stream|stream)\.qqmusic\.qq\.com\//i.test(text)) return true;
+  if(/\/(?:audio|song|play|stream)(?:\/|\?|$)/i.test(text) && !/\.(jpg|jpeg|png|gif|webp)(?:[?#]|$)/i.test(text)) return true;
+  return false;
 }
 
 function sanitizeHomeMusicTrackForStorage(track){
@@ -7365,7 +7421,7 @@ function sanitizeHomeMusicTrackForStorage(track){
     name: normalizeHomeMusicStorageText(safe.name || '未命名歌曲', 180) || '未命名歌曲',
     artist: normalizeHomeMusicStorageText(safe.artist || '本地导入', 180) || '本地导入',
     cover: normalizeHomeMusicStorageText(safe.cover || '', 2000),
-    remoteUrl: normalizeHomeMusicStorageText(safe.remoteUrl || '', 2000),
+    remoteUrl: normalizeHomeMusicStorageText(normalizeHomeMusicPlayableUrl(safe.remoteUrl), 2000),
     lyricsText: normalizeHomeMusicStorageText(safe.lyricsText || '', 18000),
     duration: normalizeHomeMusicDurationSeconds(safe.duration),
     mimeType: normalizeHomeMusicStorageText(safe.mimeType || '', 80),
@@ -7557,9 +7613,9 @@ function getHomeMusicProvider(){
             name: normalizedPair.name,
             artist: normalizedPair.artist,
             cover: item.cover || item.pic || item.coverUrl || '',
-            remoteUrl: item.url || item.streamUrl || item.playUrl || '',
+            remoteUrl: normalizeHomeMusicPlayableUrl(item.url || item.streamUrl || item.playUrl || ''),
             lyricsText: item.lyrics || item.lrc || '',
-            duration: Math.max(0, Number(item.duration || item.interval || item.time || 0) || 0)
+            duration: normalizeHomeMusicDurationSeconds(item.duration || item.interval || 0)
           };
         });
       }
@@ -7695,12 +7751,12 @@ function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
     ).trim();
     var name = String(
       getHomeMusicFirstTruthy(item, [
-        ['name'], ['title'], ['songname'], ['songName']
+        ['name'], ['title'], ['song'], ['songname'], ['songName']
       ]) || '未命名歌曲'
     ).trim();
     var artist = joinHomeMusicArtists(
       getHomeMusicFirstTruthy(item, [
-        ['artist'], ['artists'], ['author'], ['singer'], ['singers'], ['singername']
+        ['artist'], ['artists'], ['author'], ['singer'], ['singers'], ['singername'], ['singer_list']
       ])
     ) || '未知歌手';
     var cover = String(
@@ -7714,7 +7770,9 @@ function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
         ['data', 'url'], ['data', 'playUrl'], ['data', 'streamUrl'], ['data', 'src'], ['data', 'music_url'], ['data', 'musicUrl']
       ]) || ''
     ).trim();
+    if(remoteUrl && !isHomeMusicPlayableAudioUrl(remoteUrl)) remoteUrl = '';
     if(!remoteUrl) remoteUrl = String(findHomeMusicDeepAudioUrl(item) || '').trim();
+    remoteUrl = normalizeHomeMusicPlayableUrl(remoteUrl);
     var normalizedPair = splitHomeMusicNameAndArtist(name, artist);
     if(isHomeMusicUnknownName(normalizedPair.name)){
       normalizedPair.name = fallbackBase || ('歌曲 ' + String(idx + 1));
@@ -7729,7 +7787,7 @@ function normalizeHomeMusicThirdPartySearchPayload(payload, queryHint){
       remoteUrl: remoteUrl,
       lyricsText: '',
       duration: (function(){
-        var direct = normalizeHomeMusicDurationSeconds(getHomeMusicFirstTruthy(item, [['duration'], ['interval'], ['dt'], ['time'], ['songTime'], ['duration_ms']]) || 0);
+        var direct = normalizeHomeMusicDurationSeconds(getHomeMusicFirstTruthy(item, [['duration'], ['interval'], ['durationText'], ['dt'], ['songTime'], ['duration_ms']]) || 0);
         return direct > 0 ? direct : findHomeMusicDeepDuration(item);
       })()
     };
@@ -7761,7 +7819,7 @@ function findHomeMusicDeepAudioUrl(payload){
     if(!node) continue;
     if(typeof node === 'string'){
       var text = String(node || '').trim();
-      if(/^https?:\/\//i.test(text) && /(?:audio|music|song|play|stream|m4a|mp3|aac|flac|wav|ogg)/i.test(text)){
+      if(isHomeMusicPlayableAudioUrl(text)){
         return text;
       }
       continue;
@@ -7776,7 +7834,7 @@ function findHomeMusicDeepAudioUrl(payload){
       var value = node[key];
       if(typeof value === 'string'){
         var text = String(value || '').trim();
-        if(/^https?:\/\//i.test(text) && /(?:audio|music|song|play|stream|m4a|mp3|aac|flac|wav|ogg)/i.test(text)){
+        if(isHomeMusicPlayableAudioUrl(text)){
           queue.unshift(text);
           return;
         }
@@ -7790,14 +7848,10 @@ function findHomeMusicDeepAudioUrl(payload){
 function findHomeMusicDeepDuration(payload){
   var queue = [payload];
   var visited = new Set();
+  var found = 0;
   while(queue.length){
     var node = queue.shift();
     if(node === null || node === undefined) continue;
-    if(typeof node === 'number'){
-      var numeric = normalizeHomeMusicDurationSeconds(node);
-      if(numeric > 0) return numeric;
-      continue;
-    }
     if(typeof node !== 'object' || visited.has(node)) continue;
     visited.add(node);
     if(Array.isArray(node)){
@@ -7806,15 +7860,16 @@ function findHomeMusicDeepDuration(payload){
     }
     Object.keys(node).forEach(function(key){
       var value = node[key];
-      if(/duration|interval|songtime|duration_ms|time|dt/i.test(String(key || ''))){
+      if(/duration|interval|songtime|duration_ms|dt/i.test(String(key || ''))){
         var numeric = normalizeHomeMusicDurationSeconds(value);
         if(numeric > 0){
-          queue.unshift(numeric);
+          found = numeric;
           return;
         }
       }
       queue.push(value);
     });
+    if(found > 0) return found;
   }
   return 0;
 }
@@ -7841,8 +7896,8 @@ function extractHomeMusicAudioUrl(payload){
     ['data', 'link'],
     ['data', 'src']
   ]) || '').trim();
-  if(direct) return direct;
-  return String(findHomeMusicDeepAudioUrl(payload) || '').trim();
+  if(direct && isHomeMusicPlayableAudioUrl(direct)) return normalizeHomeMusicPlayableUrl(direct);
+  return normalizeHomeMusicPlayableUrl(findHomeMusicDeepAudioUrl(payload));
 }
 
 function extractHomeMusicCoverUrl(payload){
