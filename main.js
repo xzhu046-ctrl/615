@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T14:05:00Z';
+const APP_BUILD_ID = '2026-05-01T14:30:00Z';
 const APP_UPDATE_NOTES = [
-  '白条底部修正',
-  '邀约完成态按ID',
-  'USER标题搬到标题区'
+  '键盘输入框修正',
+  '暂时离开不结束邀约',
+  '心声一起生成修正'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -770,7 +770,8 @@ function getFallbackChatKeyboardShift(){
 }
 
 function syncChatKeyboardShift(){
-  setChatKeyboardShift(0);
+  var shift = chatInputFocusActive ? Math.max(chatReportedKeyboardShift, getCurrentShellKeyboardInset(), getFallbackChatKeyboardShift()) : 0;
+  setChatKeyboardShift(shift);
 }
 
 function resetShellViewportAfterChatInput(){
@@ -1142,6 +1143,29 @@ function postShellMetadataDirtyToCurrentApp(topic){
 
 let stableShellAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
 
+function getCurrentShellKeyboardInset(){
+  const vv = window.visualViewport;
+  const currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+  const visualHeight = Math.round(vv && vv.height ? vv.height : 0) || 0;
+  const rawBottomOffset = Math.round(vv ? Math.max(0, currentHeight - (vv.height + (vv.offsetTop || 0))) : 0);
+  const androidViewportGap = isAndroidShell() && visualHeight ? Math.max(0, currentHeight - visualHeight) : 0;
+  const inset = Math.max(rawBottomOffset, androidViewportGap);
+  return inset > 120 ? Math.min(520, inset) : 0;
+}
+
+function postKeyboardInsetToCurrentApp(value){
+  const inset = Math.max(0, Math.min(520, Number(value) || 0));
+  try{
+    const frame = document.getElementById('app-iframe');
+    if(frame && frame.contentWindow){
+      frame.contentWindow.postMessage({ type:'PARENT_APP_KEYBOARD_INSET', payload:{ inset:inset, app:currentApp || '' } }, '*');
+      if(currentApp === 'chat'){
+        frame.contentWindow.postMessage({ type:'PARENT_CHAT_COMPOSER_SHIFT', payload:{ shift:inset } }, '*');
+      }
+    }
+  }catch(err){}
+}
+
 function syncAppHeight(){
   const vv = window.visualViewport;
   const isStandalone = isStandaloneMode();
@@ -1155,6 +1179,7 @@ function syncAppHeight(){
   const currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
   const androidViewportGap = isAndroid && visualHeight ? Math.max(0, currentHeight - visualHeight) : 0;
   const keyboardLikelyOpen = rawBottomOffset > 120 || androidViewportGap > 180;
+  postKeyboardInsetToCurrentApp(keyboardLikelyOpen ? Math.max(rawBottomOffset, androidViewportGap) : 0);
   if(keyboardLikelyOpen && document.documentElement.classList.contains('home-widget-text-editing')){
     return;
   }
@@ -9578,11 +9603,13 @@ function setChatShellBackground(src){
 function setChatKeyboardShift(value){
   var container = document.getElementById('app-container');
   if(!container) return;
-  container.style.removeProperty('--chat-keyboard-shift');
+  var shift = Math.max(0, Math.min(520, Number(value) || 0));
+  container.style.setProperty('--chat-keyboard-shift', shift + 'px');
   try{
     var frame = document.getElementById('app-iframe');
     if(frame && frame.contentWindow){
-      frame.contentWindow.postMessage({ type:'PARENT_CHAT_COMPOSER_SHIFT', payload: 0 }, '*');
+      frame.contentWindow.postMessage({ type:'PARENT_CHAT_COMPOSER_SHIFT', payload:{ shift:shift } }, '*');
+      frame.contentWindow.postMessage({ type:'PARENT_APP_KEYBOARD_INSET', payload:{ inset:shift, app:currentApp || '' } }, '*');
     }
   }catch(err){}
 }

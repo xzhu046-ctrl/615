@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-05-01T14:05:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-01T14:05:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T14:05:00Z"></script>
-<script src="../promptManager.js?v=2026-05-01T14:05:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T14:05:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-01T14:05:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-01T14:05:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-01T14:05:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T14:30:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T14:30:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T14:30:00Z"></script>
+<script src="../promptManager.js?v=2026-05-01T14:30:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T14:30:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-01T14:30:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-01T14:30:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-01T14:30:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -6959,12 +6959,14 @@ function syncOfflineComposerMetrics(){
   document.documentElement.style.setProperty('--offline-composer-height', (nextHeight > 0 ? nextHeight : 64) + 'px');
 }
 var stableOfflineAppHeight = 0;
+var parentOfflineKeyboardInset = 0;
 function syncOfflineViewport(){
   var vv = window.visualViewport;
   var activeEl = document.activeElement;
   var inputFocused = !!(activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT'));
   var rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
-  var keyboardInset = inputFocused && rawBottomOffset > 80 ? rawBottomOffset : 0;
+  var parentInset = inputFocused ? Math.max(0, Math.min(520, Number(parentOfflineKeyboardInset || 0) || 0)) : 0;
+  var keyboardInset = inputFocused ? Math.max(rawBottomOffset > 80 ? rawBottomOffset : 0, parentInset) : 0;
   var keyboardLikelyOpen = rawBottomOffset > 80;
   var fullHeight = Math.round(vv ? (vv.height + rawBottomOffset + (vv.offsetTop || 0)) : window.innerHeight);
   if(!keyboardLikelyOpen || !stableOfflineAppHeight){
@@ -13350,9 +13352,11 @@ function writeOfflineExitCompleteIntentPayload(payload){
   try{ localStorage.setItem(offlineExitCompleteIntentKey(), JSON.stringify(item)); }catch(e){}
   try{ localStorage.setItem('offline_invite_exit_complete_intent_v1', JSON.stringify(item)); }catch(e2){}
 }
-function openOfflineDateApp(recordId){
+function openOfflineDateApp(recordId, options){
+  var opts = options && typeof options === 'object' ? options : {};
   var focusId = String(recordId || offlineGoodbyeCompletedInviteIds[0] || currentOfflineInviteFocusId() || '').trim();
   var completedIds = (Array.isArray(offlineGoodbyeCompletedInviteIds) ? offlineGoodbyeCompletedInviteIds.slice() : []).filter(function(id){ return String(id || '').trim(); });
+  var hasExplicitCompletedIds = completedIds.length > 0;
   pushUniqueOfflineInviteId(completedIds, lockedOfflineInviteRecordId);
   pushUniqueOfflineInviteId(completedIds, activeOfflineInviteRecordId);
   pushUniqueOfflineInviteId(completedIds, currentOfflineInviteRecordId());
@@ -13370,24 +13374,28 @@ function openOfflineDateApp(recordId){
   }
   focusId = String(focusId || completedIds[0] || activeOfflineInviteRecordId || currentOfflineInviteRecordId() || getFocusedOfflineInviteRecordId() || '').trim();
   focusOfflineInviteInDateApp(focusId);
-  if(completedIds.length) markOfflineInviteIdsCompleted(completedIds);
-  writeOfflineInviteForceCompletePayload(completedIds, offlineGoodbyePhotoSnapshot || session, 'open_date_app');
-  writeOfflineInviteEndRequest(completedIds, offlineGoodbyePhotoSnapshot || session, 'open_date_app');
   var forcePayload = Object.assign(getOfflineEndLifecyclePayload(offlineGoodbyePhotoSnapshot || session), { ids:completedIds, inviteId:focusId, recordId:focusId, charId:charId, charName:charName, reason:'goodbye_finish' });
-  var shouldForceCompleteReturn = offlineCloseIntent === 'ended'
+  var shouldForceCompleteReturn = opts.forceComplete === true
+    || offlineCloseIntent === 'ended'
     || !!offlineReadOnlyMode
     || !!(document.body && document.body.classList && document.body.classList.contains('offline-readonly'))
     || String(session && session.invite && session.invite.status || '').trim() === 'completed'
     || String(session && session.invite && session.invite.meetState || '').trim() === 'complete'
-    || !!focusId
-    || completedIds.length > 0;
-  if(shouldForceCompleteReturn) writeOfflineExitCompleteIntentPayload(forcePayload);
-  try{ window.parent.postMessage({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:forcePayload }, '*'); }catch(e){}
+    || hasExplicitCompletedIds;
+  if(shouldForceCompleteReturn){
+    if(completedIds.length) markOfflineInviteIdsCompleted(completedIds);
+    writeOfflineInviteForceCompletePayload(completedIds, offlineGoodbyePhotoSnapshot || session, 'open_date_app');
+    writeOfflineInviteEndRequest(completedIds, offlineGoodbyePhotoSnapshot || session, 'open_date_app');
+    writeOfflineExitCompleteIntentPayload(forcePayload);
+    try{ window.parent.postMessage({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:forcePayload }, '*'); }catch(e){}
+  }else{
+    forcePayload.ids = [];
+  }
   try{
     if(window.parent && window.parent !== window){
       window.parent.postMessage({ type:'OFFLINE_EXITED', payload:Object.assign({}, forcePayload, { forceComplete:shouldForceCompleteReturn }) }, '*');
       try{
-        if(typeof window.parent.forceCompleteOfflineInviteRecordsFromPayload === 'function'){
+        if(shouldForceCompleteReturn && typeof window.parent.forceCompleteOfflineInviteRecordsFromPayload === 'function'){
           var parentIds = window.parent.forceCompleteOfflineInviteRecordsFromPayload(forcePayload, 'readonly_direct_open');
           if(Array.isArray(parentIds) && parentIds.length){
             completedIds = parentIds.slice();
@@ -13399,14 +13407,18 @@ function openOfflineDateApp(recordId){
         if(typeof window.parent.forceOpenApp === 'function'){
           window.parent.forceOpenApp('offline');
           setTimeout(function(){
-            try{ window.parent.postMessage({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:forcePayload }, '*'); }catch(repostErr){}
+            if(shouldForceCompleteReturn){
+              try{ window.parent.postMessage({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:forcePayload }, '*'); }catch(repostErr){}
+            }
           }, 80);
           return;
         }
       }catch(directOpenErr){}
-      window.parent.postMessage({ type:'OPEN_APP_WITH', payload:{ app:'offline', forceOpen:true, replace:true, inviteId:focusId, charId:charId, charName:charName, completedInviteIds:completedIds, forceComplete:true } }, '*');
+      window.parent.postMessage({ type:'OPEN_APP_WITH', payload:{ app:'offline', forceOpen:true, replace:true, inviteId:focusId, charId:charId, charName:charName, completedInviteIds:shouldForceCompleteReturn ? completedIds : [], forceComplete:shouldForceCompleteReturn } }, '*');
       setTimeout(function(){
-        try{ window.parent.postMessage({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:forcePayload }, '*'); }catch(repostErr){}
+        if(shouldForceCompleteReturn){
+          try{ window.parent.postMessage({ type:'OFFLINE_INVITE_FORCE_COMPLETE', payload:forcePayload }, '*'); }catch(repostErr){}
+        }
       }, 80);
       return;
     }
@@ -13414,7 +13426,7 @@ function openOfflineDateApp(recordId){
   try{ window.parent.postMessage({ type:'OFFLINE_EXITED', payload:Object.assign({}, forcePayload, { forceComplete:shouldForceCompleteReturn }) }, '*'); }catch(e){}
   try{
     if(window.parent && window.parent !== window){
-      window.parent.postMessage({ type:'OPEN_APP_WITH', payload:{ app:'offline', forceOpen:true, replace:true, inviteId:focusId, charId:charId, charName:charName, completedInviteIds:completedIds, forceComplete:true } }, '*');
+      window.parent.postMessage({ type:'OPEN_APP_WITH', payload:{ app:'offline', forceOpen:true, replace:true, inviteId:focusId, charId:charId, charName:charName, completedInviteIds:shouldForceCompleteReturn ? completedIds : [], forceComplete:shouldForceCompleteReturn } }, '*');
       return;
     }
   }catch(e){}
@@ -13911,7 +13923,7 @@ function minimizeOfflineMeet(){
     pushOfflineBackendLog('error', 'archive.minimize.fast_exit', '暂时退出快速保存失败，仍继续退出', e);
     try{ if(character && character.id) persistOfflineResumeSnapshot(character.id, snapshot || snapshotOfflineSessionState(session)); }catch(ignore){}
   }
-  openOfflineDateApp();
+  openOfflineDateApp('', { forceComplete:false });
 }
 function restoreOfflineMeet(){
   offlineCloseIntent = '';
@@ -14147,7 +14159,11 @@ async function init(){
     (launchSeed && launchSeed.freshStart) ||
     (launchSeed && launchSeed.payload && launchSeed.payload.freshStart)
   );
-  offlineReadOnlyMode = getOfflineLaunchReadOnlyFlag(tokenLaunch || parentLaunch || launchSeed || null);
+  var primaryLaunchState = launchSeed || parentLaunch || tokenLaunch || null;
+  offlineReadOnlyMode = getOfflineLaunchReadOnlyFlag(primaryLaunchState);
+  if((resolvedLaunchMode === 'invite' || launchFreshStart) && !getOfflineLaunchReadOnlyFlag(launchSeed && launchSeed.payload ? launchSeed.payload : launchSeed)){
+    offlineReadOnlyMode = false;
+  }
   var recordScopedSession = (!offlineEntryHome && launchInviteRecordId) ? await loadSessionByInviteRecordId(launchInviteRecordId) : null;
   var existingSession = (!offlineEntryHome && desiredOfflineCharId) ? await loadSessionByCharId(desiredOfflineCharId) : null;
   var resumeSession = (!offlineEntryHome && tokenLaunch && tokenLaunch.session) ? tokenLaunch.session : ((!offlineEntryHome && desiredOfflineCharId) ? await consumePendingOfflineResume(desiredOfflineCharId) : null);
@@ -14459,6 +14475,12 @@ window.addEventListener('message', function(e){
   var data = e.data || {};
   if(data.type === 'APP_CLOSING'){
     autoArchiveOfflineMeetIfNeeded('app_closing');
+  }
+  if(data.type === 'PARENT_APP_KEYBOARD_INSET'){
+    var rawInset = data.payload && typeof data.payload === 'object' ? data.payload.inset : data.payload;
+    parentOfflineKeyboardInset = Math.max(0, Math.min(520, Number(rawInset) || 0));
+    syncOfflineViewport();
+    if(parentOfflineKeyboardInset) keepOfflineComposerVisible();
   }
 });
 window.addEventListener('pagehide', function(){
