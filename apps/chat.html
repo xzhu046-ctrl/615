@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-01T08:45:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-01T08:45:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T08:45:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T08:45:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T08:45:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-01T08:45:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-01T08:45:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-01T08:45:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-01T08:45:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-01T08:45:00Z"></script>
+<script src="../promptManager.js?v=2026-05-01T09:12:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T09:12:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T09:12:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T09:12:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T09:12:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-01T09:12:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-01T09:12:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-01T09:12:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-01T09:12:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-01T09:12:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -20814,7 +20814,7 @@ function detectNarratorOnlyReply(rawReply){
   var parsed = maybeParseReplyJson(rawReply);
   if(!parsed || (typeof parsed !== 'object' && !Array.isArray(parsed))){
     var hasNarratorSignal = /"type"\s*:\s*"narrator"|"narrator_message"\s*:/i.test(raw);
-    var hasNonNarratorSignal = /"type"\s*:\s*"(text|voice_message|image_message|image|voice|meme|money_packet|moneypacket|rich_html|richhtml|offline_invite|offlineinvite|recall_notice|recallnotice|narrator)"/i.test(raw)
+    var hasNonNarratorSignal = /"type"\s*:\s*"(text|voice_message|image_message|image|voice|meme|money_packet|moneypacket|rich_html|richhtml|offline_invite|offlineinvite|recall_notice|recallnotice)"/i.test(raw)
       || /"rich_html"\s*:|"html_card"\s*:/i.test(raw);
     return { narratorOnly: !!hasNarratorSignal && !hasNonNarratorSignal };
   }
@@ -20828,6 +20828,27 @@ function detectNarratorOnlyReply(rawReply){
 }
 
 async function maybeRepairNarratorReply(reply, provider, key, model, temperature, sys, msgs){
+  if(!narratorSettingEnabled()) return String(reply || '');
+  var issue = detectNarratorOnlyReply(reply);
+  if(!issue.narratorOnly) return String(reply || '');
+  var repairSys = [
+    sys,
+    '【轻量补写】上一条 assistant 回复只有 narrator。',
+    '旁白可以保留；如果这轮对话还在继续，请只补 1-2 条角色真正会打出来的 text。',
+    '不要重写成大段解释，不要把旁白改成对白，不要为了补话强行改变角色态度。'
+  ].join('\n\n');
+  var repairMsgs = msgs.concat([
+    { role:'assistant', content:String(reply || '') },
+    { role:'user', content:'上一条只有旁白。请在保留原意的基础上，轻轻补上角色会真正发出来的一两条消息；如果不合适补，就保持克制。' }
+  ]);
+  try{
+    var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
+    if(repaired && !detectNarratorOnlyReply(repaired).narratorOnly){
+      return String(repaired || '');
+    }
+  }catch(err){
+    console.warn('repair narrator-only reply failed', err);
+  }
   return String(reply || '');
 }
 
@@ -20948,6 +20969,9 @@ async function callAI(provider, key) {
   var reply = await callAIChat(provider, key, model, temperature, sys, msgs);
   if(/"type"\s*:\s*"rich_html"|"rich_html"\s*:|"html"\s*:/i.test(String(reply || ''))){
     reply = await maybeRepairBrokenRichHtmlReply(reply, provider, key, model, temperature, sys, msgs);
+  }
+  if(narratorSettingEnabled() && /"type"\s*:\s*"narrator"|narrator_message/i.test(String(reply || ''))){
+    reply = await maybeRepairNarratorReply(reply, provider, key, model, temperature, sys, msgs);
   }
   if(narratorSettingEnabled() === false && /"type"\s*:\s*"narrator"|narrator_message/i.test(String(reply || ''))){
     reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, sys, msgs);

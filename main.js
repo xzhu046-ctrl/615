@@ -50,9 +50,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T08:45:00Z';
+const APP_BUILD_ID = '2026-05-01T09:12:00Z';
 const APP_UPDATE_NOTES = [
-  '提示词修正'
+  '旁白与音乐修正',
+  '激活码离线保留'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -379,17 +380,40 @@ async function inviteGateDeviceHashes(extraHash){
 async function inviteGateRequest(path, payload){
   var base = inviteGateApiBase();
   if(!base) throw new Error('邀请码服务还没有连接 Cloudflare Worker');
-  var res = await fetch(base + path, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload || {})
-  });
+  var res = null;
+  try{
+    res = await fetch(base + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    });
+  }catch(fetchErr){
+    var networkErr = new Error('暂时连不上邀请码服务，已保留本机通行状态。');
+    networkErr.inviteGateTransient = true;
+    networkErr.cause = fetchErr;
+    throw networkErr;
+  }
   var data = null;
   try{ data = await res.json(); }catch(e){ data = null; }
   if(!res.ok || !data || data.ok === false){
-    throw new Error(String((data && data.message) || '邀请码验证失败'));
+    var err = new Error(String((data && data.message) || '邀请码验证失败'));
+    err.status = res.status;
+    err.inviteGateInvalid = res.status === 401 || res.status === 403 || res.status === 404 || res.status === 410;
+    throw err;
   }
   return data;
+}
+
+function isInviteGateTransientError(err){
+  return !!(err && err.inviteGateTransient);
+}
+
+function keepInviteGateSessionAfterTransientError(session){
+  if(!session || !session.token) return;
+  saveInviteGateSession(Object.assign({}, session, {
+    checkedAt: Date.now(),
+    offlineCheckedAt: Date.now()
+  }));
 }
 
 async function verifyInviteGateCode(code){
@@ -476,7 +500,12 @@ function initInviteGate(){
   var session = readInviteGateSession();
   if(session && session.token && (Date.now() - Number(session.checkedAt || 0) < INVITE_GATE_CONFIG.cacheMs)){
     setInviteGateVisible(false);
-    validateInviteGateSession(session).catch(function(){
+    validateInviteGateSession(session).catch(function(err){
+      if(isInviteGateTransientError(err)){
+        keepInviteGateSessionAfterTransientError(session);
+        setInviteGateVisible(false);
+        return;
+      }
       clearInviteGateSession();
       setInviteGateVisible(true);
       setInviteGateStatus('邀请码状态已失效，请重新输入。', 'error');
@@ -489,6 +518,11 @@ function initInviteGate(){
     validateInviteGateSession(session).then(function(){
       setInviteGateVisible(false);
     }).catch(function(err){
+      if(isInviteGateTransientError(err)){
+        keepInviteGateSessionAfterTransientError(session);
+        setInviteGateVisible(false);
+        return;
+      }
       clearInviteGateSession();
       setInviteGateStatus(err && err.message ? err.message : '请重新输入邀请码。', 'error');
     });
@@ -7356,6 +7390,8 @@ var homeMusicBubbleClickTimer = 0;
 var homeMusicBubbleLastTapAt = 0;
 var homeMusicRenameIndex = -1;
 var homeMusicSearchBusy = false;
+var homeMusicPendingAutoplay = false;
+var homeMusicAutoplayToastTimer = 0;
 
 function normalizeHomeMusicStorageText(value, limit){
   var text = String(value == null ? '' : value).trim();
@@ -8647,22 +8683,76 @@ async function resolveHomeMusicTrackUrl(track){
   return homeMusicState.objectUrl;
 }
 
+function describeHomeMusicAudioError(audio){
+  var code = audio && audio.error ? Number(audio.error.code) || 0 : 0;
+  if(code === 1) return '播放被取消';
+  if(code === 2) return '网络断开，歌曲没加载起来';
+  if(code === 3) return '歌曲文件暂时无法解码';
+  if(code === 4) return '这首歌地址暂时不能播放';
+  return '歌曲播放失败';
+}
+
+function normalizeHomeMusicAudioSrc(src){
+  try{ return new URL(String(src || ''), window.location.href).href; }catch(err){ return String(src || ''); }
+}
+
+async function attemptHomeMusicPlay(audio){
+  if(!audio) return false;
+  try{
+    await audio.play();
+    homeMusicPendingAutoplay = false;
+    if(homeMusicAutoplayToastTimer){
+      clearTimeout(homeMusicAutoplayToastTimer);
+      homeMusicAutoplayToastTimer = 0;
+    }
+    return true;
+  }catch(err){
+    console.error('[home-music] play failed', err);
+    homeMusicState.isPlaying = false;
+    renderHomeMusicPlaybackUi();
+    if(err && (err.name === 'NotAllowedError' || err.name === 'AbortError')){
+      if(!homeMusicAutoplayToastTimer){
+        homeMusicAutoplayToastTimer = setTimeout(function(){
+          homeMusicAutoplayToastTimer = 0;
+          if(homeMusicPendingAutoplay && audio.paused){
+            showHomeToast('再点一次播放就可以啦');
+          }
+        }, 220);
+      }
+      return false;
+    }
+    homeMusicPendingAutoplay = false;
+    showHomeToast(describeHomeMusicAudioError(audio));
+    return false;
+  }
+}
+
 async function ensureHomeMusicTrackLoaded(track, autoplay){
   var audio = getHomeMusicAudio();
   if(!audio || !track) return;
   try{
     var src = await resolveHomeMusicTrackUrl(track);
-    if(audio.src !== src) audio.src = src;
+    if(!src) throw new Error('歌曲地址获取失败');
+    audio.preload = 'auto';
+    audio.setAttribute('playsinline', '');
+    audio.setAttribute('webkit-playsinline', '');
+    var normalizedSrc = normalizeHomeMusicAudioSrc(src);
+    var srcChanged = normalizeHomeMusicAudioSrc(audio.currentSrc || audio.src || '') !== normalizedSrc;
+    if(srcChanged) audio.src = src;
     homeMusicState.parsedLyrics = parseHomeMusicLrc(track.lyricsText || '');
-    audio.load();
+    if(srcChanged || audio.readyState === 0) audio.load();
     if(homeMusicState.currentTime > 0){
       try{ audio.currentTime = homeMusicState.currentTime; }catch(err){}
     }
     if(autoplay){
-      await audio.play();
+      homeMusicPendingAutoplay = true;
+      await attemptHomeMusicPlay(audio);
     }
   }catch(err){
     console.error('[home-music] load failed', err);
+    homeMusicPendingAutoplay = false;
+    homeMusicState.isPlaying = false;
+    renderHomeMusicPlaybackUi();
     showHomeToast(err && err.message ? err.message : '歌曲加载失败');
   }
 }
@@ -8735,8 +8825,10 @@ async function toggleHomeMusicPlayback(){
   }
   try{
     if(audio.paused){
-      await audio.play();
+      homeMusicPendingAutoplay = true;
+      await attemptHomeMusicPlay(audio);
     }else{
+      homeMusicPendingAutoplay = false;
       audio.pause();
     }
   }catch(err){
@@ -8930,11 +9022,23 @@ function bindHomeMusicSystem(){
       }catch(err){}
       renderHomeMusic();
     });
+    audio.addEventListener('canplay', function(){
+      if(homeMusicPendingAutoplay && audio.paused){
+        attemptHomeMusicPlay(audio);
+      }
+    });
+    audio.addEventListener('error', function(){
+      homeMusicPendingAutoplay = false;
+      homeMusicState.isPlaying = false;
+      renderHomeMusicPlaybackUi();
+      showHomeToast(describeHomeMusicAudioError(audio));
+    });
     audio.addEventListener('timeupdate', function(){
       homeMusicState.currentTime = Number(audio.currentTime) || 0;
       renderHomeMusicPlaybackUi();
     });
     audio.addEventListener('play', function(){
+      homeMusicPendingAutoplay = false;
       homeMusicState.isPlaying = true;
       renderHomeMusicPlaybackUi();
     });
