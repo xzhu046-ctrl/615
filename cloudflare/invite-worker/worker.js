@@ -518,6 +518,40 @@ async function getStablePublicName(env, deviceHash){
   return saved && saved.publicName ? saved.publicName : publicName;
 }
 
+async function getStablePublicNameForHashes(env, hashes){
+  const safeHashes = Array.from(new Set((hashes || []).map(normalizeDeviceHash).filter(Boolean))).slice(0, 8);
+  const primaryHash = safeHashes[0] || '';
+  if(!primaryHash) return randomPublicName(env);
+  for(const hash of safeHashes){
+    const existing = await env.DB.prepare(
+      'SELECT device_hash AS deviceHash, public_name AS publicName FROM invite_public_names WHERE device_hash = ?'
+    ).bind(hash).first();
+    if(existing && existing.publicName){
+      if(hash !== primaryHash){
+        const target = await env.DB.prepare(
+          'SELECT public_name AS publicName FROM invite_public_names WHERE device_hash = ?'
+        ).bind(primaryHash).first();
+        if(!target){
+          await env.DB.prepare(
+            'UPDATE invite_public_names SET device_hash = ?, last_seen = ? WHERE device_hash = ?'
+          ).bind(primaryHash, nowMs(), hash).run();
+        }else{
+          await env.DB.prepare(
+            'UPDATE invite_public_names SET last_seen = ? WHERE device_hash = ?'
+          ).bind(nowMs(), primaryHash).run();
+          return target.publicName;
+        }
+      }else{
+        await env.DB.prepare(
+          'UPDATE invite_public_names SET last_seen = ? WHERE device_hash = ?'
+        ).bind(nowMs(), primaryHash).run();
+      }
+      return existing.publicName;
+    }
+  }
+  return getStablePublicName(env, primaryHash);
+}
+
 async function sha256Hex(value){
   const bytes = new TextEncoder().encode(String(value || ''));
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -616,7 +650,7 @@ async function handleAdminList(request, env){
 async function handlePublicName(request, env){
   const body = await readJson(request);
   await ensureAdminSchema(env);
-  const publicName = await getStablePublicName(env, body.deviceHash);
+  const publicName = await getStablePublicNameForHashes(env, normalizeDeviceHashes(body));
   return json({ ok:true, publicName }, 200, env);
 }
 

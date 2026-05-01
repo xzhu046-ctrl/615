@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T06:08:00Z';
+const APP_BUILD_ID = '2026-05-01T06:34:00Z';
 const APP_UPDATE_NOTES = [
-  '补上安卓浏览器和安卓桌面 PWA 的可见高度适配。',
-  '安卓底栏跟随真实 viewport，不再被浏览器外壳吃掉。',
-  'iOS 布局分支保持不动。'
+  '邀请码设备身份改为 PhoneStorage 稳定安装 ID。',
+  '旧硬件指纹只做迁移别名，不再当主身份。',
+  '安卓动态补 interactive-widget 适配，iOS 不动。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -62,6 +62,8 @@ const INVITE_GATE_CONFIG = {
   maxDevices: 2,
   sessionKey: 'invite_gate_session_v1',
   deviceKey: 'invite_gate_device_v1',
+  installKey: 'invite_gate_install_id_v2',
+  installKvId: 'invite_gate_install_id_v2',
   publicNameKey: 'invite_gate_public_name_v1',
   cacheMs: 12 * 60 * 60 * 1000
 };
@@ -174,7 +176,7 @@ async function loadInviteGatePublicName(){
     var res = await fetch(base + '/public-name', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceHash: deviceHash })
+      body: JSON.stringify({ deviceHash: deviceHash, deviceHashes: await inviteGateDeviceHashes(deviceHash) })
     });
     var data = await res.json().catch(function(){ return null; });
     if(!cachedName && res.ok && data && data.ok && data.publicName){
@@ -222,6 +224,72 @@ function normalizeInviteGateDevicePart(value){
 
 function getInviteGateLegacyRandomDeviceId(){
   try{ return String(localStorage.getItem(INVITE_GATE_CONFIG.deviceKey) || '').trim(); }catch(e){ return ''; }
+}
+
+function randomInviteGateInstallId(){
+  try{
+    if(window.crypto && typeof window.crypto.randomUUID === 'function'){
+      return 'install-' + window.crypto.randomUUID();
+    }
+  }catch(e){}
+  try{
+    if(window.crypto && typeof window.crypto.getRandomValues === 'function'){
+      var bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      return 'install-' + Array.from(bytes).map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+    }
+  }catch(e2){}
+  return 'install-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+}
+
+async function readInviteGateInstallIdFromPhoneStorage(){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.get === 'function')) return '';
+  try{
+    var record = await window.PhoneStorage.get('kv', INVITE_GATE_CONFIG.installKvId);
+    var value = record && (Object.prototype.hasOwnProperty.call(record, 'value') ? record.value : record.data);
+    return String(value || '').trim();
+  }catch(e){
+    return '';
+  }
+}
+
+async function writeInviteGateInstallId(value){
+  var safe = String(value || '').trim();
+  if(!safe) return;
+  try{ localStorage.setItem(INVITE_GATE_CONFIG.installKey, safe); }catch(e){}
+  try{ localStorage.setItem(INVITE_GATE_CONFIG.deviceKey, safe); }catch(e2){}
+  if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+    try{
+      await window.PhoneStorage.put('kv', {
+        id: INVITE_GATE_CONFIG.installKvId,
+        value: safe,
+        updatedAt: Date.now()
+      });
+    }catch(e3){}
+  }
+}
+
+async function getInviteGateInstallId(){
+  var fromDb = await readInviteGateInstallIdFromPhoneStorage();
+  if(fromDb){
+    try{ localStorage.setItem(INVITE_GATE_CONFIG.installKey, fromDb); }catch(e){}
+    return fromDb;
+  }
+  var fromLocal = '';
+  try{
+    fromLocal = String(localStorage.getItem(INVITE_GATE_CONFIG.installKey) || localStorage.getItem(INVITE_GATE_CONFIG.deviceKey) || '').trim();
+  }catch(e2){}
+  if(fromLocal){
+    await writeInviteGateInstallId(fromLocal);
+    return fromLocal;
+  }
+  var next = randomInviteGateInstallId();
+  await writeInviteGateInstallId(next);
+  return next;
+}
+
+async function getInviteGateDeviceSeedV4(){
+  return ['device-v4', await getInviteGateInstallId()].map(normalizeInviteGateDevicePart).join('|');
 }
 
 function getInviteGateDeviceSeedV3(){
@@ -296,11 +364,11 @@ async function sha256Hex(value){
 }
 
 async function inviteGateDeviceHash(){
-  return sha256Hex(getInviteGateDeviceSeedV3());
+  return sha256Hex(await getInviteGateDeviceSeedV4());
 }
 
 async function inviteGateDeviceHashes(extraHash){
-  var seeds = [getInviteGateDeviceSeedV3(), getInviteGateDeviceSeedV2(), getInviteGateDeviceSeedV1()].filter(Boolean);
+  var seeds = [await getInviteGateDeviceSeedV4(), getInviteGateDeviceSeedV3(), getInviteGateDeviceSeedV2(), getInviteGateDeviceSeedV1()].filter(Boolean);
   var out = [];
   if(extraHash) out.push(String(extraHash || '').trim());
   for(var i = 0; i < seeds.length; i += 1){
@@ -950,6 +1018,17 @@ function isStandaloneMode(){
   return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
 }
 
+function ensureAndroidViewportMeta(){
+  if(!isAndroidShell()) return;
+  try{
+    var meta = document.querySelector('meta[name="viewport"]');
+    if(!meta) return;
+    var content = String(meta.getAttribute('content') || '');
+    if(/\binteractive-widget\s*=/.test(content)) return;
+    meta.setAttribute('content', content.replace(/\s*,\s*$/, '') + ', interactive-widget=resizes-content');
+  }catch(e){}
+}
+
 function isAndroidShell(){
   try{
     return /Android/i.test(String((window.navigator && window.navigator.userAgent) || ''));
@@ -970,6 +1049,7 @@ function syncShellPlatformClasses(){
   var android = isAndroidShell();
   var ios = isIOSShell() && !android;
   var standalone = isStandaloneMode();
+  if(android) ensureAndroidViewportMeta();
   [document.documentElement, document.body].forEach(function(el){
     if(!el || !el.classList) return;
     el.classList.toggle('android-device', android);
