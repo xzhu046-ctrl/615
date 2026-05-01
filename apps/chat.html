@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-01T16:35:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-01T16:35:00Z"></script>
+<script src="../promptManager.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-01T17:25:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-01T17:25:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -7391,6 +7391,29 @@ function getTimePeriodLabel(hour24){
   return '深夜';
 }
 
+const WEATHER_CITY_OVERRIDES = {
+  '新乡': { name:'新乡', admin1:'河南省', country:'中国', latitude:35.3032, longitude:113.9268, timezone:'Asia/Shanghai' },
+  '新乡市': { name:'新乡', admin1:'河南省', country:'中国', latitude:35.3032, longitude:113.9268, timezone:'Asia/Shanghai' }
+};
+
+function normalizeWeatherCityName(value){
+  return String(value || '').trim().replace(/\s+/g, '').replace(/市$/,'');
+}
+
+function scoreWeatherCityResult(result, query){
+  var q = normalizeWeatherCityName(query);
+  var name = normalizeWeatherCityName(result && result.name);
+  var admin = normalizeWeatherCityName(result && result.admin1);
+  var country = normalizeWeatherCityName(result && result.country);
+  var score = 0;
+  if(name && q && name === q) score += 100;
+  else if(name && q && (name.indexOf(q) >= 0 || q.indexOf(name) >= 0)) score += 40;
+  if(country === '中国' || /china/i.test(String(result && result.country || ''))) score += 20;
+  if(q === '新乡' && /河南/.test(admin)) score += 200;
+  if(q === '新乡' && /福建/.test(admin)) score -= 120;
+  return score;
+}
+
 async function fetchRealCityWeatherSnapshot(target){
   if(!target || !isFinite(Number(target.latitude)) || !isFinite(Number(target.longitude))){
     throw new Error('missing coords');
@@ -7420,16 +7443,36 @@ async function fetchRealCityWeatherSnapshot(target){
 async function searchRealWeatherCity(query){
   var q = String(query || '').trim();
   if(!q) throw new Error('empty query');
+  var override = WEATHER_CITY_OVERRIDES[q] || WEATHER_CITY_OVERRIDES[normalizeWeatherCityName(q)];
+  if(override){
+    var fixedSnapshot = await fetchRealCityWeatherSnapshot(override);
+    return {
+      resolvedName: [override.name, override.admin1, override.country].filter(Boolean).join(' · '),
+      realName: override.name || q,
+      latitude: Number(override.latitude),
+      longitude: Number(override.longitude),
+      timezone: String(override.timezone || '').trim(),
+      country: String(override.country || '').trim(),
+      admin1: String(override.admin1 || '').trim(),
+      weatherIcon: fixedSnapshot.weatherIcon,
+      weatherLabel: fixedSnapshot.weatherLabel,
+      temperatureC: fixedSnapshot.temperatureC,
+      updatedAt: fixedSnapshot.updatedAt
+    };
+  }
   var params = new URLSearchParams({
     name: q,
-    count: '1',
+    count: '10',
     language: 'zh',
     format: 'json'
   });
   var res = await fetch('https://geocoding-api.open-meteo.com/v1/search?' + params.toString());
   if(!res.ok) throw new Error('geo fetch failed');
   var data = await res.json();
-  var result = data && Array.isArray(data.results) ? data.results[0] : null;
+  var results = data && Array.isArray(data.results) ? data.results : [];
+  var result = results.sort(function(a, b){
+    return scoreWeatherCityResult(b, q) - scoreWeatherCityResult(a, q);
+  })[0] || null;
   if(!result) throw new Error('no city');
   var snapshot = await fetchRealCityWeatherSnapshot(result);
   return {
@@ -25376,6 +25419,18 @@ function closeImageViewer(){
 var stableChatAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
 var parentComposerShift = 0;
 var chatTextFieldFocusActive = false;
+var lastChatKeyboardInset = 0;
+var lastChatKeyboardInsetAt = 0;
+function isChatTextInputActive(){
+  var active = document.activeElement;
+  return !!(active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.id === 'msg-input' || active.isContentEditable));
+}
+function isCompactTouchChatViewport(){
+  var width = Math.round((window.visualViewport && window.visualViewport.width) || window.innerWidth || document.documentElement.clientWidth || 0);
+  var coarse = false;
+  try{ coarse = !!(window.matchMedia && window.matchMedia('(hover: none), (pointer: coarse)').matches); }catch(err){}
+  return coarse || width <= 820;
+}
 function getChatViewportMetrics(){
   var vv = window.visualViewport;
   var vvTopOffset = Math.round(vv ? Math.max(0, vv.offsetTop || 0) : 0);
@@ -25401,13 +25456,17 @@ function syncChatViewport(){
   var inferredInset = Math.max(0, stableChatAppHeight - metrics.visibleHeight);
   var keyboardInset = Math.max(metrics.rawBottomOffset, inferredInset);
   if(keyboardInset < 120) keyboardInset = 0;
-  if(chatTextFieldFocusActive && keyboardInset < 120){
-    try{
-      var isTouch = window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-      if(isTouch){
-        keyboardInset = Math.round(Math.min(460, Math.max(300, (stableChatAppHeight || metrics.currentHeight || 760) * 0.44)));
-      }
-    }catch(err){}
+  var textInputActive = chatTextFieldFocusActive || isChatTextInputActive();
+  if(keyboardInset > 0){
+    lastChatKeyboardInset = keyboardInset;
+    lastChatKeyboardInsetAt = Date.now();
+  }
+  if(textInputActive && keyboardInset < 120 && isCompactTouchChatViewport()){
+    if(lastChatKeyboardInset > 120 && Date.now() - lastChatKeyboardInsetAt < 2400){
+      keyboardInset = lastChatKeyboardInset;
+    }else{
+      keyboardInset = Math.round(Math.min(500, Math.max(300, (stableChatAppHeight || metrics.currentHeight || 760) * 0.44)));
+    }
   }
   var vh = stableChatAppHeight || metrics.currentHeight;
   document.documentElement.style.setProperty('--chat-app-height', vh + 'px');
@@ -25421,6 +25480,8 @@ function syncChatViewport(){
 
 function resetChatViewportAfterTextInput(){
   chatTextFieldFocusActive = false;
+  lastChatKeyboardInset = 0;
+  lastChatKeyboardInsetAt = 0;
   document.documentElement.style.setProperty('--vv-top-offset', '0px');
   document.documentElement.style.setProperty('--vv-bottom-offset', '0px');
   document.documentElement.style.setProperty('--keyboard-inset', '0px');
@@ -25446,6 +25507,9 @@ function applyComposerPlacement(metrics, keyboardInset){
   if(!composer) return;
   var shift = Math.max(0, Number(keyboardInset || 0), Number(parentComposerShift || 0));
   shift = Math.min(520, shift);
+  if((chatTextFieldFocusActive || isChatTextInputActive()) && isCompactTouchChatViewport() && shift < 180){
+    shift = Math.round(Math.min(500, Math.max(300, (stableChatAppHeight || (metrics && metrics.currentHeight) || 760) * 0.44)));
+  }
   document.documentElement.style.setProperty('--composer-shift', shift + 'px');
   composer.style.top = '';
   composer.style.bottom = 'var(--composer-bottom)';
@@ -32821,6 +32885,8 @@ setInterval(function(){
 }, 60000);
 window.addEventListener('input', function(e){
   if(e.target && e.target.id === 'msg-input'){
+    chatTextFieldFocusActive = true;
+    scheduleComposerPlacementSync();
     keepComposerVisible();
     syncComposerMetrics();
     refreshMemeSuggestionsForInput();

@@ -517,6 +517,9 @@ function randomPublicNameCandidate(){
 
 async function ensureAdminSchema(env){
   await env.DB.prepare(
+    'CREATE TABLE IF NOT EXISTS invite_meta (meta_key TEXT PRIMARY KEY, meta_value TEXT NOT NULL, updated_at INTEGER NOT NULL)'
+  ).run();
+  await env.DB.prepare(
     'CREATE TABLE IF NOT EXISTS invite_deleted_codes (code TEXT PRIMARY KEY, deleted_at INTEGER NOT NULL)'
   ).run();
   await env.DB.prepare(
@@ -531,6 +534,46 @@ async function ensureAdminSchema(env){
   try{
     await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_invite_codes_kind_label ON invite_codes (code_kind, label, created_at)').run();
   }catch(err2){}
+}
+
+function inviteRevokedAtKey(kind){
+  return 'revoked_all_' + normalizeInviteKind(kind) + '_at';
+}
+
+async function readInviteMetaNumber(env, key){
+  try{
+    const row = await env.DB.prepare(
+      'SELECT meta_value AS value FROM invite_meta WHERE meta_key = ?'
+    ).bind(String(key || '')).first();
+    return Number(row && row.value || 0) || 0;
+  }catch(err){
+    return 0;
+  }
+}
+
+async function writeInviteMetaNumber(env, key, value){
+  const stamp = nowMs();
+  await env.DB.prepare(
+    'INSERT OR REPLACE INTO invite_meta (meta_key, meta_value, updated_at) VALUES (?, ?, ?)'
+  ).bind(String(key || ''), String(Number(value || stamp) || stamp), stamp).run();
+}
+
+async function getInviteKindRevokedAt(env, kind){
+  await ensureAdminSchema(env);
+  return readInviteMetaNumber(env, inviteRevokedAtKey(kind));
+}
+
+async function markInviteKindRevoked(env, kind, stamp){
+  await ensureAdminSchema(env);
+  await writeInviteMetaNumber(env, inviteRevokedAtKey(kind), stamp || nowMs());
+}
+
+function inviteDeviceFirstSeen(device){
+  return Number(device && (device.first_seen || device.firstSeen) || 0) || 0;
+}
+
+function inviteDeviceSurvivesRevocation(device, revokedAt){
+  return !(Number(revokedAt || 0) && inviteDeviceFirstSeen(device) && inviteDeviceFirstSeen(device) <= Number(revokedAt || 0));
 }
 
 async function deletedCodeExists(env, code){
@@ -773,16 +816,23 @@ async function handleAdminResetAllDevices(request, env){
   const error = assertAdmin(request, env, body);
   if(error) return json({ ok:false, message:error }, 403, env);
   await ensureAdminSchema(env);
-  const kind = normalizeInviteKind(body.kind);
-  const rows = await env.DB.prepare(
-    "SELECT code FROM invite_codes WHERE COALESCE(code_kind, 'login') = ?"
-  ).bind(kind).all();
-  const codes = (rows.results || []).map((row)=>row.code).filter(Boolean);
-  for(const code of codes){
-    await env.DB.prepare('DELETE FROM invite_devices WHERE code = ?').bind(code).run();
+  const requestedKind = normalizeInviteKind(body.kind);
+  const kinds = requestedKind === 'login' ? ['login', 'tavern'] : [requestedKind];
+  const stamp = nowMs();
+  let total = 0;
+  for(const kind of kinds){
+    const rows = await env.DB.prepare(
+      "SELECT code FROM invite_codes WHERE COALESCE(code_kind, 'login') = ?"
+    ).bind(kind).all();
+    const codes = (rows.results || []).map((row)=>row.code).filter(Boolean);
+    total += codes.length;
+    for(const code of codes){
+      await env.DB.prepare('DELETE FROM invite_devices WHERE code = ?').bind(code).run();
+    }
+    await env.DB.prepare("UPDATE invite_codes SET updated_at = ? WHERE COALESCE(code_kind, 'login') = ?").bind(stamp, kind).run();
+    await markInviteKindRevoked(env, kind, stamp);
   }
-  await env.DB.prepare("UPDATE invite_codes SET updated_at = ? WHERE COALESCE(code_kind, 'login') = ?").bind(nowMs(), kind).run();
-  return json({ ok:true, kind, count:codes.length }, 200, env);
+  return json({ ok:true, kind:requestedKind, kinds, count:total, revokedAt:stamp }, 200, env);
 }
 
 async function handleAdminDelete(request, env){
@@ -825,9 +875,15 @@ async function handleVerify(request, env){
   if(Number(invite.revoked || 0)) return reject(env, meta, code, deviceHash, 'verify', '邀请码已停用', 403);
   if(invite.expires_at && Number(invite.expires_at) < nowMs()) return reject(env, meta, code, deviceHash, 'verify', '邀请码已过期', 403);
 
-  const existing = await findInviteDeviceByHashes(env, code, deviceHashes);
+  const revokedAt = await getInviteKindRevokedAt(env, kind);
+  let existing = await findInviteDeviceByHashes(env, code, deviceHashes);
+  if(existing && !inviteDeviceSurvivesRevocation(existing, revokedAt)){
+    await env.DB.prepare('DELETE FROM invite_devices WHERE code = ? AND device_hash = ?').bind(code, existing.device_hash).run();
+    existing = null;
+  }
 
   const token = randomToken();
+  const issuedAt = nowMs();
   if(existing){
     await touchOrMigrateInviteDevice(env, existing, deviceHash, meta, token);
     await cleanupInviteDeviceDuplicatesForHashes(env, code, deviceHash, deviceHashes);
@@ -836,7 +892,7 @@ async function handleVerify(request, env){
     ).bind(code).first();
     const count = Number(countRow && countRow.count || 0);
     await logAccess(env, { code, deviceHash, action:'verify', ok:true, reason:'existing_device', ipHash:meta.ipHash, uaHash:meta.uaHash });
-    return json({ ok:true, code, kind, token, deviceCount:count, maxDevices:Number(invite.max_devices || 2) || 2 }, 200, env);
+    return json({ ok:true, code, kind, token, issuedAt, revokedAt, deviceCount:count, maxDevices:Number(invite.max_devices || 2) || 2 }, 200, env);
   }
 
   const countRow = await env.DB.prepare(
@@ -850,10 +906,10 @@ async function handleVerify(request, env){
 
   await env.DB.prepare(
     'INSERT INTO invite_devices (code, device_hash, session_token, first_seen, last_seen, last_ip_hash, last_ua_hash, revoked) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
-  ).bind(code, deviceHash, token, nowMs(), nowMs(), meta.ipHash, meta.uaHash).run();
+  ).bind(code, deviceHash, token, issuedAt, issuedAt, meta.ipHash, meta.uaHash).run();
   await env.DB.prepare('UPDATE invite_codes SET updated_at = ? WHERE code = ?').bind(nowMs(), code).run();
   await logAccess(env, { code, deviceHash, action:'verify', ok:true, reason:'new_device', ipHash:meta.ipHash, uaHash:meta.uaHash });
-  return json({ ok:true, code, kind, token, deviceCount:count + 1, maxDevices }, 200, env);
+  return json({ ok:true, code, kind, token, issuedAt, revokedAt, deviceCount:count + 1, maxDevices }, 200, env);
 }
 
 async function handleSession(request, env){
@@ -872,6 +928,7 @@ async function handleSession(request, env){
   if(!invite || Number(invite.revoked || 0)) return reject(env, meta, code, deviceHash, 'session', '邀请码已失效，请联系作者。', 403);
   const inviteKind = normalizeInviteKind(invite.code_kind || invite.codeKind || 'login');
   if(inviteKind !== kind) return reject(env, meta, code, deviceHash, 'session', inviteKindLabel(kind) + '权限已失效，请重新验证。', 403);
+  const revokedAt = await getInviteKindRevokedAt(env, kind);
 
   let device = await findInviteDeviceByToken(env, code, token);
   if(!device){
@@ -879,6 +936,10 @@ async function handleSession(request, env){
     if(device && String(device.session_token || '') !== token) device = null;
   }
   if(!device) return reject(env, meta, code, deviceHash, 'session', '这台设备没有通行权，请重新验证邀请码。', 401);
+  if(!inviteDeviceSurvivesRevocation(device, revokedAt)){
+    await env.DB.prepare('DELETE FROM invite_devices WHERE code = ? AND device_hash = ?').bind(code, device.device_hash).run();
+    return reject(env, meta, code, deviceHash, 'session', inviteKindLabel(kind) + '权限已被清空，请重新验证。', 403);
+  }
 
   await touchOrMigrateInviteDevice(env, device, deviceHash, meta, token);
   await cleanupInviteDeviceDuplicatesForHashes(env, code, deviceHash, deviceHashes);
@@ -890,6 +951,7 @@ async function handleSession(request, env){
     ok:true,
     code,
     kind,
+    revokedAt,
     deviceCount:Number(countRow && countRow.count || 0),
     maxDevices:Number(invite.max_devices || 2) || 2
   }, 200, env);

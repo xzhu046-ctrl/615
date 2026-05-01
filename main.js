@@ -50,11 +50,14 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T16:35:00Z';
+const APP_BUILD_ID = '2026-05-01T17:25:00Z';
 const APP_UPDATE_NOTES = [
-  '角色卡导入入口加锁',
-  '酒馆权限记忆修正',
-  '登录状态持久化修正'
+  '键盘输入框修正',
+  '音乐备用音源',
+  '朋友圈动态显示修正',
+  '天气搜索修正',
+  '酒馆权限实时校验',
+  '邀请状态实时失效'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -66,7 +69,8 @@ const INVITE_GATE_CONFIG = {
   installKey: 'invite_gate_install_id_v2',
   installKvId: 'invite_gate_install_id_v2',
   publicNameKey: 'invite_gate_public_name_v1',
-  cacheMs: 12 * 60 * 60 * 1000
+  cacheMs: 12 * 60 * 60 * 1000,
+  sessionWatchMs: 10 * 1000
 };
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
@@ -96,6 +100,11 @@ const HOME_MUSIC_FLOATING_ICON_KEY = 'home_music_floating_icon_v1';
 const HOME_MUSIC_FLOATING_SIZE_KEY = 'home_music_floating_size_v1';
 const HOME_MUSIC_THIRD_PARTY_BASE = 'https://api.vkeys.cn/v2/music/tencent';
 const HOME_MUSIC_NETEASE_BASE = 'https://api.vkeys.cn/v2/music/netease';
+const HOME_MUSIC_METING_BASES = [
+  'https://api.injahow.cn/meting/',
+  'https://metingapi.mo-app.cn/',
+  'https://api.moeyao.cn/meting/'
+];
 const API_SETTINGS_KV_ID = 'api_settings_v1';
 let persistentStorageRequestStarted = false;
 var widgetPreviewCache = {};
@@ -122,6 +131,9 @@ let chatReportedKeyboardShift = 0;
 var shellActiveCharacterCache = {};
 var shellActiveChatIdCache = {};
 var persistedShellActiveCharacter = null;
+var inviteGateSessionWatchTimer = 0;
+var inviteGateSessionWatchBound = false;
+var inviteGateSessionValidationInFlight = false;
 
 function inviteGatePreviewEnabled(){
   try{ return new URLSearchParams(window.location.search).get('invitePreview') === '1'; }catch(e){ return false; }
@@ -459,6 +471,12 @@ function keepInviteGateSessionAfterTransientError(session){
   }));
 }
 
+function invalidateInviteGateSession(message){
+  clearInviteGateSession();
+  setInviteGateVisible(true);
+  setInviteGateStatus(message || '邀请码状态已失效，请重新输入。', 'error');
+}
+
 async function verifyInviteGateCode(code){
   var safeCode = String(code || '').trim();
   if(!safeCode) throw new Error('先输入邀请码哦');
@@ -508,6 +526,49 @@ async function validateInviteGateSession(session){
   return true;
 }
 
+async function checkInviteGateSessionNow(options){
+  if(!inviteGateEnabled() || inviteGateSessionValidationInFlight) return false;
+  var quiet = !!(options && options.quiet);
+  var session = await readInviteGateSessionAsync();
+  if(!session || !session.token){
+    if(!quiet) setInviteGateVisible(true);
+    return false;
+  }
+  inviteGateSessionValidationInFlight = true;
+  try{
+    await validateInviteGateSession(session);
+    setInviteGateVisible(false);
+    return true;
+  }catch(err){
+    if(isInviteGateTransientError(err)){
+      keepInviteGateSessionAfterTransientError(session);
+      return true;
+    }
+    invalidateInviteGateSession(err && err.message ? err.message : '邀请码状态已失效，请重新输入。');
+    return false;
+  }finally{
+    inviteGateSessionValidationInFlight = false;
+  }
+}
+
+function startInviteGateSessionWatch(){
+  if(!inviteGateEnabled()) return;
+  if(!inviteGateSessionWatchTimer){
+    inviteGateSessionWatchTimer = window.setInterval(function(){
+      checkInviteGateSessionNow({ quiet:true });
+    }, Number(INVITE_GATE_CONFIG.sessionWatchMs || 10000) || 10000);
+  }
+  if(!inviteGateSessionWatchBound){
+    inviteGateSessionWatchBound = true;
+    window.addEventListener('focus', function(){
+      checkInviteGateSessionNow({ quiet:true });
+    });
+    document.addEventListener('visibilitychange', function(){
+      if(!document.hidden) checkInviteGateSessionNow({ quiet:true });
+    });
+  }
+}
+
 function bindInviteGateForm(){
   var form = document.getElementById('invite-gate-form');
   if(!form || form.dataset.bound === '1') return;
@@ -530,6 +591,7 @@ function bindInviteGateForm(){
       var count = Number(session.deviceCount || 0) || 1;
       var max = Number(session.maxDevices || INVITE_GATE_CONFIG.maxDevices) || INVITE_GATE_CONFIG.maxDevices;
       setInviteGateStatus('验证成功。已绑定 ' + count + ' / ' + max + ' 台设备。', 'ok');
+      startInviteGateSessionWatch();
       setTimeout(function(){ setInviteGateVisible(false); }, 360);
     }).catch(function(err){
       setInviteGateStatus(err && err.message ? err.message : '邀请码验证失败', 'error');
@@ -542,6 +604,7 @@ function bindInviteGateForm(){
 async function initInviteGate(){
   if(!inviteGateEnabled()) return;
   bindInviteGateForm();
+  startInviteGateSessionWatch();
   var session = await readInviteGateSessionAsync();
   if(session && session.token && (Date.now() - Number(session.checkedAt || 0) < INVITE_GATE_CONFIG.cacheMs)){
     setInviteGateVisible(false);
@@ -8115,24 +8178,82 @@ function extractHomeMusicDuration(payload){
   return findHomeMusicDeepDuration(payload);
 }
 
+function extractHomeMusicMetingUrlPayload(text){
+  var raw = String(text || '').trim();
+  if(!raw) return '';
+  if(isHomeMusicPlayableAudioUrl(raw)) return normalizeHomeMusicPlayableUrl(raw);
+  try{
+    var parsed = JSON.parse(raw);
+    var list = Array.isArray(parsed) ? parsed : [parsed];
+    for(var i = 0; i < list.length; i += 1){
+      var url = extractHomeMusicAudioUrl(list[i]);
+      if(url) return url;
+    }
+  }catch(err){}
+  return '';
+}
+
+async function fetchHomeMusicMetingText(base, provider, type, id){
+  var url = String(base || '').trim();
+  if(!url) throw new Error('missing meting base');
+  var params = new URLSearchParams({
+    server: String(provider || 'netease').trim() || 'netease',
+    type: String(type || 'url').trim() || 'url',
+    id: String(id || '').trim()
+  });
+  var sep = url.indexOf('?') >= 0 ? '&' : '?';
+  var res = await fetch(url + sep + params.toString(), {
+    method: 'GET',
+    mode: 'cors',
+    credentials: 'omit',
+    cache: 'no-store'
+  });
+  if(!res.ok) throw new Error('meting failed: ' + res.status);
+  return res.text();
+}
+
+async function hydrateHomeMusicMetingTrack(track){
+  if(!track || !track.remoteId) return track;
+  var provider = String(track.remoteProvider || 'netease').trim().toLowerCase() === 'tencent' ? 'tencent' : 'netease';
+  var bases = HOME_MUSIC_METING_BASES.slice();
+  for(var i = 0; i < bases.length; i += 1){
+    try{
+      var text = await fetchHomeMusicMetingText(bases[i], provider, 'url', track.remoteId);
+      var url = extractHomeMusicMetingUrlPayload(text);
+      if(url){
+        track.remoteUrl = url;
+        track.source = 'search';
+        track.remoteProvider = provider;
+        return track;
+      }
+    }catch(err){}
+  }
+  return track;
+}
+
 async function hydrateHomeMusicThirdPartyTrack(track){
   if(!track || !track.remoteId) return track;
   if(!track.remoteUrl){
     var provider = String(track.remoteProvider || 'tencent').trim().toLowerCase() === 'netease' ? 'netease' : 'tencent';
     var base = provider === 'netease' ? HOME_MUSIC_NETEASE_BASE : (HOME_MUSIC_THIRD_PARTY_BASE + '/geturl');
-    var detailRes = await fetch(base + '?id=' + encodeURIComponent(track.remoteId) + '&quality=0', {
-      method: 'GET',
-      mode: 'cors',
-      credentials: 'omit',
-      cache: 'no-store'
-    });
-    if(!detailRes.ok) throw new Error('试听失败：' + detailRes.status);
-    var detailPayload = await detailRes.json();
-    track.remoteUrl = extractHomeMusicAudioUrl(detailPayload) || track.remoteUrl || '';
-    track.cover = extractHomeMusicCoverUrl(detailPayload) || track.cover || '';
-    track.lyricsText = extractHomeMusicLyricText(detailPayload) || track.lyricsText || '';
-    track.artist = String(track.artist || getHomeMusicFirstTruthy(detailPayload, [['artist'], ['data', 'artist']]) || '未知歌手');
-    track.duration = extractHomeMusicDuration(detailPayload) || track.duration || 0;
+    try{
+      var detailRes = await fetch(base + '?id=' + encodeURIComponent(track.remoteId) + '&quality=0', {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+        cache: 'no-store'
+      });
+      if(!detailRes.ok) throw new Error('试听失败：' + detailRes.status);
+      var detailPayload = await detailRes.json();
+      track.remoteUrl = extractHomeMusicAudioUrl(detailPayload) || track.remoteUrl || '';
+      track.cover = extractHomeMusicCoverUrl(detailPayload) || track.cover || '';
+      track.lyricsText = extractHomeMusicLyricText(detailPayload) || track.lyricsText || '';
+      track.artist = String(track.artist || getHomeMusicFirstTruthy(detailPayload, [['artist'], ['data', 'artist']]) || '未知歌手');
+      track.duration = extractHomeMusicDuration(detailPayload) || track.duration || 0;
+    }catch(primaryErr){
+      await hydrateHomeMusicMetingTrack(track);
+    }
+    if(!track.remoteUrl) await hydrateHomeMusicMetingTrack(track);
   }
   if(!track.lyricsText){
     try{
@@ -8213,6 +8334,26 @@ async function tryHomeMusicProviderFallback(track, autoplay){
     return false;
   }finally{
     homeMusicPlaybackFallbackBusy = false;
+  }
+}
+
+async function tryHomeMusicAlternateUrlFallback(track, autoplay){
+  if(!track || track.source !== 'search' || !track.remoteId || track._alternateUrlTried) return false;
+  track._alternateUrlTried = true;
+  try{
+    var previousUrl = String(track.remoteUrl || '').trim();
+    track.remoteUrl = '';
+    await hydrateHomeMusicMetingTrack(track);
+    if(!track.remoteUrl || String(track.remoteUrl || '').trim() === previousUrl) return false;
+    homeMusicState.currentTime = 0;
+    await persistHomeMusicStateAsync();
+    renderHomeMusic();
+    showHomeToast('已切到备用播放地址');
+    await ensureHomeMusicTrackLoaded(track, autoplay !== false);
+    return true;
+  }catch(err){
+    console.warn('[home-music] alternate url fallback failed', err);
+    return false;
   }
 }
 
@@ -8938,6 +9079,9 @@ async function attemptHomeMusicPlay(audio){
     if(await tryHomeMusicProviderFallback(playTrack, true)){
       return true;
     }
+    if(await tryHomeMusicAlternateUrlFallback(playTrack, true)){
+      return true;
+    }
     homeMusicPendingAutoplay = false;
     showHomeToast(describeHomeMusicAudioError(audio));
     return false;
@@ -8968,6 +9112,9 @@ async function ensureHomeMusicTrackLoaded(track, autoplay){
   }catch(err){
     console.error('[home-music] load failed', err);
     if(await tryHomeMusicProviderFallback(track, autoplay)){
+      return;
+    }
+    if(await tryHomeMusicAlternateUrlFallback(track, autoplay)){
       return;
     }
     homeMusicPendingAutoplay = false;
@@ -9253,6 +9400,9 @@ function bindHomeMusicSystem(){
       renderHomeMusicPlaybackUi();
       var failedTrack = getCurrentHomeMusicTrack();
       tryHomeMusicProviderFallback(failedTrack, true).then(function(recovered){
+        if(recovered) return true;
+        return tryHomeMusicAlternateUrlFallback(failedTrack, true);
+      }).then(function(recovered){
         if(!recovered) showHomeToast(describeHomeMusicAudioError(audio));
       });
     });

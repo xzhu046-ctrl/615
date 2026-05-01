@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>QQ</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Cormorant+Garamond:wght@600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T16:35:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-01T16:35:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T17:25:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-01T17:25:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1334,8 +1334,10 @@ body{
 .contacts-tavern-form label{font-family:var(--fontcute);font-size:11px;font-weight:900;letter-spacing:.14em;color:#555}
 .contacts-tavern-input-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
 .contacts-tavern-input-row input{width:100%;border:2px solid #0a0a0a;border-radius:0;background:#fff;color:#0a0a0a;padding:12px;font-family:var(--fontcute);font-size:15px;font-weight:900;outline:none;text-transform:uppercase;-webkit-text-fill-color:currentColor}
-.contacts-tavern-input-row button,.contacts-tavern-close{border:2px solid #0a0a0a;border-radius:0;background:#0a0a0a;color:#fff;padding:12px 16px;font-family:var(--fontcute);font-size:13px;font-weight:900;box-shadow:3px 3px 0 rgba(0,0,0,.25)}
+.contacts-tavern-input-row button,.contacts-tavern-close,.contacts-tavern-pick{border:2px solid #0a0a0a;border-radius:0;background:#0a0a0a;color:#fff;padding:12px 16px;font-family:var(--fontcute);font-size:13px;font-weight:900;box-shadow:3px 3px 0 rgba(0,0,0,.25)}
 .contacts-tavern-close{position:relative;width:100%;margin-top:10px;background:#fff;color:#0a0a0a}
+.contacts-tavern-pick{position:relative;display:none;width:100%;margin-top:10px}
+.contacts-tavern-mask.verified .contacts-tavern-pick{display:block}
 .contacts-tavern-status{position:relative;min-height:18px;font-size:12px;font-weight:900;color:#555;line-height:1.5}
 .contacts-tavern-status.error{color:#9b1111}
 .contacts-tavern-status.ok{color:#111}
@@ -1463,16 +1465,17 @@ body{
         <div class="contacts-tavern-input-row">
           <input id="contactsTavernInput" type="text" autocomplete="one-time-code" inputmode="text" placeholder="输入酒馆邀请码" maxlength="40">
           <button id="contactsTavernSubmit" type="submit">进入</button>
-        </div>
-        <div class="contacts-tavern-status" id="contactsTavernStatus"></div>
-      </form>
-      <button class="contacts-tavern-close" type="button" onclick="closeContactsTavernGate()">取消</button>
+	        </div>
+	        <div class="contacts-tavern-status" id="contactsTavernStatus"></div>
+	      </form>
+	      <button class="contacts-tavern-pick" id="contactsTavernPick" type="button" onclick="clickContactsImportAfterVerified()">导入角色卡</button>
+	      <button class="contacts-tavern-close" type="button" onclick="closeContactsTavernGate()">取消</button>
     </div>
   </div>
   <input id="contactsImportInput" type="file" accept=".png,.json,application/json,image/png" multiple style="display:none" onchange="handleContactsImportFiles(this.files)">
   <input id="contactsCreateAvatarInput" type="file" accept="image/*" style="display:none" onchange="handleContactsCreateAvatarFile(this.files[0])">
   <input id="qqHeroPhotoInput" type="file" accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg" style="display:none" onchange="handleQqHeroPhotoFile(this.files[0])">
-  <iframe id="contactsHelperFrame" class="contacts-helper-frame" src="characters.html?helper=1&__appBuild=2026-05-01T16:35:00Z" tabindex="-1" aria-hidden="true"></iframe>
+  <iframe id="contactsHelperFrame" class="contacts-helper-frame" src="characters.html?helper=1&__appBuild=2026-05-01T17:25:00Z" tabindex="-1" aria-hidden="true"></iframe>
   <div class="toast" id="toast"></div>
 
 <script>
@@ -1490,7 +1493,8 @@ var avatarAssetCache = {};
 var contactsTavernPendingImportFiles = null;
 var CONTACTS_TAVERN_SESSION_KEY = 'invite_gate_tavern_session_v1';
 var CONTACTS_TAVERN_SESSION_KV_ID = 'invite_gate_tavern_session_v1';
-var CONTACTS_TAVERN_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
+var CONTACTS_TAVERN_CACHE_MS = 60 * 1000;
+var contactsTavernVerifiedAt = 0;
 var MOMENTS_POSTS_KEY = 'qq_moments_posts';
 var MOMENTS_POSTS_ALT_KEY = 'moments_posts';
 var MOMENTS_LAST_SEEN_KEY = 'qq_moments_last_seen';
@@ -3389,7 +3393,7 @@ function buildContactsHelperSrc(cacheBust){
   var build = getQqPageBuildId();
   var url = new URL('characters.html', window.location.href);
   url.searchParams.set('helper', '1');
-  url.searchParams.set('__appBuild', build || '2026-05-01T16:35:00Z');
+  url.searchParams.set('__appBuild', build || '2026-05-01T17:25:00Z');
   if(cacheBust) url.searchParams.set('__ts', String(Date.now()));
   return url.toString();
 }
@@ -3474,6 +3478,13 @@ function readContactsTavernSessionLocal(){
 function isContactsTavernSessionFresh(session){
   return !!(session && session.token && Date.now() - Number(session.checkedAt || 0) < CONTACTS_TAVERN_CACHE_MS);
 }
+function clickContactsImportInput(){
+  var input = document.getElementById('contactsImportInput');
+  if(!input) return false;
+  input.value = '';
+  input.click();
+  return true;
+}
 async function readContactsTavernSessionStored(){
   var storage = getContactsPhoneStorage();
   if(!(storage && typeof storage.get === 'function')) return null;
@@ -3487,7 +3498,7 @@ async function readContactsTavernSessionStored(){
   return null;
 }
 function saveContactsTavernSession(session){
-  var safe = session && typeof session === 'object' ? Object.assign({}, session, { kind:'tavern', checkedAt:Date.now() }) : null;
+  var safe = session && typeof session === 'object' ? Object.assign({}, session, { kind:'tavern', checkedAt:Date.now(), serverConfirmedAt:Date.now() }) : null;
   if(!safe || !safe.token) return;
   try{ localStorage.setItem(CONTACTS_TAVERN_SESSION_KEY, JSON.stringify(safe)); }catch(err){}
   var storage = getContactsPhoneStorage();
@@ -3497,6 +3508,14 @@ function saveContactsTavernSession(session){
     }catch(err2){}
   }
 }
+function clearContactsTavernSession(){
+  contactsTavernVerifiedAt = 0;
+  try{ localStorage.removeItem(CONTACTS_TAVERN_SESSION_KEY); }catch(err){}
+  var storage = getContactsPhoneStorage();
+  if(storage && typeof storage.remove === 'function'){
+    try{ storage.remove('kv', CONTACTS_TAVERN_SESSION_KV_ID).catch(function(){}); }catch(err2){}
+  }
+}
 function setContactsTavernGateStatus(message, kind){
   var el = document.getElementById('contactsTavernStatus');
   if(!el) return;
@@ -3504,20 +3523,33 @@ function setContactsTavernGateStatus(message, kind){
   el.classList.toggle('error', kind === 'error');
   el.classList.toggle('ok', kind === 'ok');
 }
-function openContactsTavernGate(files){
+function openContactsTavernGate(files, options){
   contactsTavernPendingImportFiles = files ? Array.from(files) : null;
+  var verified = !!(options && options.verified);
+  contactsTavernVerifiedAt = verified ? Date.now() : 0;
   var mask = document.getElementById('contactsTavernMask');
-  if(mask) mask.classList.add('open');
-  setContactsTavernGateStatus('', '');
+  if(mask){
+    mask.classList.add('open');
+    mask.classList.toggle('verified', verified);
+  }
+  setContactsTavernGateStatus(verified ? '权限已确认，请点下面按钮导入。' : '', verified ? 'ok' : '');
+  var submit = document.getElementById('contactsTavernSubmit');
+  if(submit) submit.disabled = verified;
   setTimeout(function(){
     var input = document.getElementById('contactsTavernInput');
-    if(input) input.focus();
+    if(input && !verified) input.focus();
   }, 60);
 }
 function closeContactsTavernGate(){
   contactsTavernPendingImportFiles = null;
+  contactsTavernVerifiedAt = 0;
   var mask = document.getElementById('contactsTavernMask');
-  if(mask) mask.classList.remove('open');
+  if(mask){
+    mask.classList.remove('open');
+    mask.classList.remove('verified');
+  }
+  var submit = document.getElementById('contactsTavernSubmit');
+  if(submit) submit.disabled = false;
 }
 function handleContactsTavernOverlay(evt){
   if(evt.target === evt.currentTarget) closeContactsTavernGate();
@@ -3531,23 +3563,48 @@ function contactsTavernHelperReady(){
 }
 async function hasContactsTavernPermission(){
   var localSession = readContactsTavernSessionLocal();
-  if(isContactsTavernSessionFresh(localSession)) return true;
   var storedSession = await readContactsTavernSessionStored();
-  if(isContactsTavernSessionFresh(storedSession)){
-    saveContactsTavernSession(storedSession);
-    return true;
-  }
   try{
     var cw = await contactsTavernHelperReady();
+    if(localSession && typeof cw.saveTavernGateSession === 'function'){
+      try{ cw.saveTavernGateSession(localSession); }catch(seedErr){}
+    }else if(storedSession && typeof cw.saveTavernGateSession === 'function'){
+      try{ cw.saveTavernGateSession(storedSession); }catch(seedErr2){}
+    }
     if(typeof cw.hasTavernImportPermission === 'function'){
       var ok = !!(await cw.hasTavernImportPermission());
       if(ok && typeof cw.readTavernGateSession === 'function'){
         try{ saveContactsTavernSession(cw.readTavernGateSession()); }catch(mirrorErr){}
       }
+      if(ok) contactsTavernVerifiedAt = Date.now();
+      if(!ok) clearContactsTavernSession();
       return ok;
     }
   }catch(err){}
+  clearContactsTavernSession();
   return false;
+}
+function clickContactsImportAfterVerified(){
+  if(Date.now() - Number(contactsTavernVerifiedAt || 0) < 9000){
+    closeContactsTavernGate();
+    clickContactsImportInput();
+    return;
+  }
+  setContactsTavernGateStatus('正在重新确认酒馆权限...', '');
+  hasContactsTavernPermission().then(function(ok){
+    if(!ok){
+      clearContactsTavernSession();
+      openContactsTavernGate(null);
+      setContactsTavernGateStatus('酒馆权限已失效，请重新输入邀请码。', 'error');
+      return;
+    }
+    openContactsTavernGate(null, { verified:true });
+    setContactsTavernGateStatus('权限仍有效，请再点一次导入。', 'ok');
+  }).catch(function(){
+    clearContactsTavernSession();
+    openContactsTavernGate(null);
+    setContactsTavernGateStatus('酒馆权限已失效，请重新输入邀请码。', 'error');
+  });
 }
 function continueContactsImportAfterTavern(){
   var pending = contactsTavernPendingImportFiles ? contactsTavernPendingImportFiles.slice() : null;
@@ -3556,11 +3613,7 @@ function continueContactsImportAfterTavern(){
     handleContactsImportFiles(pending, { skipTavernGate:true });
     return;
   }
-  var input = document.getElementById('contactsImportInput');
-  if(input){
-    input.value = '';
-    input.click();
-  }
+  clickContactsImportInput();
 }
 var _contactsTavernForm = document.getElementById('contactsTavernForm');
 if(_contactsTavernForm){
@@ -3578,8 +3631,18 @@ if(_contactsTavernForm){
       return cw.verifyTavernGateCode(code).then(function(session){
         cw.saveTavernGateSession(session);
         saveContactsTavernSession(session);
-        setContactsTavernGateStatus('验证成功。', 'ok');
-        setTimeout(continueContactsImportAfterTavern, 120);
+        setContactsTavernGateStatus('验证成功，请点下面按钮导入。', 'ok');
+        var pending = contactsTavernPendingImportFiles ? contactsTavernPendingImportFiles.slice() : null;
+        if(pending && pending.length){
+          setTimeout(function(){
+            handleContactsImportFiles(pending, { skipTavernGate:true });
+            closeContactsTavernGate();
+          }, 80);
+          return;
+        }
+        var mask = document.getElementById('contactsTavernMask');
+        if(mask) mask.classList.add('verified');
+        contactsTavernVerifiedAt = Date.now();
       });
     }).catch(function(err){
       setContactsTavernGateStatus(err && err.message ? err.message : '酒馆邀请码验证失败', 'error');
@@ -3601,23 +3664,19 @@ function openContactsCreate(){
   });
   document.getElementById('contactsCreateMask')?.classList.add('open');
 }
-	function openContactsImport(){
-	  closeContactsDrawer();
-	  syncContactsHelperFrame(false);
-	  hasContactsTavernPermission().then(function(ok){
-	    if(!ok){
-	      openContactsTavernGate(null);
-	      return;
-	    }
-	    var input = document.getElementById('contactsImportInput');
-	    if(input){
-	      input.value = '';
-	      input.click();
-	    }
-	  }).catch(function(){
-	    openContactsTavernGate(null);
-	  });
-	}
+function openContactsImport(){
+  closeContactsDrawer();
+  syncContactsHelperFrame(false);
+  hasContactsTavernPermission().then(function(ok){
+    if(!ok){
+      openContactsTavernGate(null);
+      return;
+    }
+    openContactsTavernGate(null, { verified:true });
+  }).catch(function(){
+    openContactsTavernGate(null);
+  });
+}
 function openCharacterContact(charId){
   var targetId = String(charId || '').trim();
   if(!targetId) return;
