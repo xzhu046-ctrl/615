@@ -50,11 +50,9 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T08:20:00Z';
+const APP_BUILD_ID = '2026-05-01T08:45:00Z';
 const APP_UPDATE_NOTES = [
-  '安卓主页底栏改为可视底部固定，不再被缩放框挤出屏幕。',
-  '同一安卓设备换浏览器优先用物理指纹合并设备数。',
-  '邀请码旧浏览器安装 ID 会作为别名迁移，不再轻易占满两台。'
+  '提示词修正'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -5563,6 +5561,11 @@ function showHomeToast(text){
   setTimeout(()=>t.classList.remove('show'), 1800);
 }
 
+function isLockedWorkbenchApp(id){
+  var appId = String(id || '').trim();
+  return appId === 'map6' || appId === 'couple';
+}
+
 let appNotifyTimer = 0;
 let appNotifyPayload = null;
 let appNotifyQueue = [];
@@ -6515,11 +6518,11 @@ function openPlaceholderMiniApp(idx){
     return;
   }
   if(Number(idx) === 6){
-    openApp('map6');
+    showHomeToast('蕾蕾在赶工^^');
     return;
   }
   if(Number(idx) === 7){
-    openApp('couple');
+    showHomeToast('蕾蕾在赶工^^');
     return;
   }
   showHomeToast(Number(idx) === 1 ? 'CHAR 暂未设置' : (Number(idx) === 2 ? 'USER 暂未设置' : ('占位' + idx + ' 暂未设置')));
@@ -9332,6 +9335,10 @@ function applyIframeSafeAreaOverrides(){
 
 function openApp(id) {
   if(!APP_MAP[id]) return Promise.resolve();
+  if(isLockedWorkbenchApp(id)){
+    showHomeToast('蕾蕾在赶工^^');
+    return Promise.resolve();
+  }
   return runAppTransition(async function(){
     if(id === 'worldbook'){
       var activeForWorldbook = currentApp === 'chat' ? getCurrentForegroundCharacter() : getActiveCharacterData();
@@ -9356,6 +9363,10 @@ function openApp(id) {
 
 function forceOpenApp(id){
   if(!APP_MAP[id]) return;
+  if(isLockedWorkbenchApp(id)){
+    showHomeToast('蕾蕾在赶工^^');
+    return;
+  }
   if(appStack[appStack.length - 1] !== id) appStack.push(id);
   renderApp(id);
   markShellAppSeen(id);
@@ -9379,6 +9390,10 @@ window.forceOpenOfflineMode = forceOpenOfflineMode;
 
 function replaceApp(id){
   if(!APP_MAP[id]) return Promise.resolve();
+  if(isLockedWorkbenchApp(id)){
+    showHomeToast('蕾蕾在赶工^^');
+    return Promise.resolve();
+  }
   return runAppTransition(async function(){
     if(id === 'worldbook'){
       var activeForWorldbook = currentApp === 'chat' ? getCurrentForegroundCharacter() : getActiveCharacterData();
