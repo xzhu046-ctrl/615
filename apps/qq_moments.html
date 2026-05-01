@@ -1179,7 +1179,9 @@ function getPosts(){
     ].concat(storageKeyCandidates(STORAGE_POSTS)).concat(storageKeyCandidates(STORAGE_POSTS_ALT));
     for(const key of Array.from(new Set(orderedCandidates.filter(Boolean)))){
       try{
-        const posts = JSON.parse(localStorage.getItem(key) || '[]');
+        const raw = localStorage.getItem(key);
+        if(!raw) continue;
+        const posts = JSON.parse(raw);
         if(Array.isArray(posts)){
           hydratedPostsCache = posts.slice();
           return posts.slice();
@@ -1206,7 +1208,7 @@ function writePostsToAllLocalStores(payload){
     scopedKey(STORAGE_POSTS),
     scopedKey(STORAGE_POSTS_ALT),
     scopedKey(STORAGE_POSTS_BRIDGE)
-  ].concat(storageKeyCandidates(STORAGE_POSTS)).concat(storageKeyCandidates(STORAGE_POSTS_ALT));
+  ].concat(storageKeyCandidates(STORAGE_POSTS)).concat(storageKeyCandidates(STORAGE_POSTS_ALT)).concat(storageKeyCandidates(STORAGE_POSTS_BRIDGE));
   Array.from(new Set(keys.filter(Boolean))).forEach((key)=>{
     writePostsToStorageKey(key, payload);
   });
@@ -1308,11 +1310,13 @@ async function hydratePostsFromLargeStore(){
   if(!(window.PhoneStorage && typeof window.PhoneStorage.getJson === 'function')) return;
   try{
     const preferredCandidates = [
+      scopedKey(STORAGE_POSTS_BRIDGE),
       scopedKey(STORAGE_POSTS),
       scopedKey(STORAGE_POSTS_ALT),
+      STORAGE_POSTS_BRIDGE,
       STORAGE_POSTS,
       STORAGE_POSTS_ALT
-    ].concat(storageKeyCandidates(STORAGE_POSTS)).concat(storageKeyCandidates(STORAGE_POSTS_ALT));
+    ].concat(storageKeyCandidates(STORAGE_POSTS)).concat(storageKeyCandidates(STORAGE_POSTS_ALT)).concat(storageKeyCandidates(STORAGE_POSTS_BRIDGE));
     for(const key of Array.from(new Set(preferredCandidates.filter(Boolean)))){
       let stored = null;
       try{
@@ -1322,13 +1326,10 @@ async function hydratePostsFromLargeStore(){
         const current = Array.isArray(hydratedPostsCache) ? hydratedPostsCache.slice() : getPosts();
         const postRecords = await loadMomentPostRecordsFromPhoneStorage();
         const mergedStored = mergeMomentPostLists(stored, postRecords);
-        if(shouldKeepCurrentPostsOverHydrated(current, mergedStored)){
-          savePosts(current);
-          return;
-        }
-        const safeStored = mergedStored.map(sanitizeMomentPostForStorage);
+        const safeStored = mergeMomentPostLists(current, mergedStored).map(sanitizeMomentPostForStorage);
         hydratedPostsCache = safeStored.slice();
         writePostsToAllLocalStores(JSON.stringify(safeStored));
+        savePosts(safeStored);
         return;
       }
     }
@@ -1353,13 +1354,10 @@ async function hydratePostsFromLargeStore(){
           if((Array.isArray(matched) && matched.length) || (Array.isArray(postRecords) && postRecords.length)){
             const current = Array.isArray(hydratedPostsCache) ? hydratedPostsCache.slice() : getPosts();
             const mergedIncoming = mergeMomentPostLists(matched, postRecords);
-            if(shouldKeepCurrentPostsOverHydrated(current, mergedIncoming)){
-              savePosts(current);
-              return;
-            }
-            const safeMatched = mergedIncoming.map(sanitizeMomentPostForStorage);
+            const safeMatched = mergeMomentPostLists(current, mergedIncoming).map(sanitizeMomentPostForStorage);
             hydratedPostsCache = safeMatched.slice();
             writePostsToAllLocalStores(JSON.stringify(safeMatched));
+            savePosts(safeMatched);
           }
         }
       }catch(ignoreListErr){}
@@ -1369,23 +1367,32 @@ async function hydratePostsFromLargeStore(){
 
 function hydratePostsFromBridge(){
   try{
-    const scopedRaw = localStorage.getItem(scopedKey(STORAGE_POSTS_BRIDGE)) || '';
-    const plainRaw = localStorage.getItem(STORAGE_POSTS_BRIDGE) || '';
-    const raw = scopedRaw || plainRaw;
+    const bridgeKeys = [
+      scopedKey(STORAGE_POSTS_BRIDGE),
+      STORAGE_POSTS_BRIDGE
+    ].concat(storageKeyCandidates(STORAGE_POSTS_BRIDGE));
+    let raw = '';
+    for(const key of Array.from(new Set(bridgeKeys.filter(Boolean)))){
+      raw = localStorage.getItem(key) || '';
+      if(raw) break;
+    }
     if(!raw) return false;
     const posts = JSON.parse(raw);
     if(!Array.isArray(posts)) return false;
-    hydratedPostsCache = posts.slice();
-    writePostsToAllLocalStores(JSON.stringify(posts));
+    const mergedPosts = mergeMomentPostLists(getPosts(), posts);
+    hydratedPostsCache = mergedPosts.slice();
+    writePostsToAllLocalStores(JSON.stringify(mergedPosts));
     if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
       [
+        scopedKey(STORAGE_POSTS_BRIDGE),
         scopedKey(STORAGE_POSTS),
         scopedKey(STORAGE_POSTS_ALT),
+        STORAGE_POSTS_BRIDGE,
         STORAGE_POSTS,
         STORAGE_POSTS_ALT
       ].forEach((key)=>{
         try{
-          window.PhoneStorage.putJson(key, posts).catch(()=>{});
+          window.PhoneStorage.putJson(key, mergedPosts).catch(()=>{});
         }catch(ignorePhoneErr){}
       });
     }

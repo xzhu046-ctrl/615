@@ -962,7 +962,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .err-notice::after{content:'轻点一下关闭';display:block;margin-top:6px;font-size:10px;font-weight:800;opacity:.72}
 
 /* ── Input area ── */
-.chat-input-area{background:transparent;border:none;padding:0;display:flex;gap:8px;align-items:flex-end;flex-shrink:0;z-index:35;position:fixed;left:14px;right:14px;bottom:var(--composer-bottom);transform:translateY(calc(-1 * var(--composer-shift)))}
+.chat-input-area{background:transparent;border:none;padding:0;display:flex;gap:8px;align-items:flex-end;flex-shrink:0;z-index:35;position:fixed;left:14px;right:14px;bottom:calc(var(--composer-bottom) + var(--keyboard-inset));transform:none}
 .input-wrap{flex:1;position:relative;overflow:visible;background:rgba(255,255,255,.95);border:var(--bd);border-radius:16px;padding:7px 12px;display:flex;flex-direction:column;align-items:stretch;gap:6px;transition:none;box-shadow:var(--sh)}
 .input-wrap.has-reply{border-radius:16px !important}
 .input-wrap.narrator-mode{padding-top:7px;border-radius:16px}
@@ -25533,15 +25533,17 @@ function getChatViewportMetrics(){
 function syncChatViewport(){
   var metrics = getChatViewportMetrics();
   var vvTopOffset = metrics.vvTopOffset;
-  if(!stableChatAppHeight){
-    stableChatAppHeight = metrics.currentHeight || 0;
+  var textInputActive = chatTextFieldFocusActive || isChatTextInputActive();
+  var rawBottomOffset = Math.max(0, Number(metrics.rawBottomOffset || 0) || 0);
+  var parentInset = textInputActive ? Math.max(0, Math.min(520, Number(parentComposerShift || 0) || 0)) : 0;
+  var keyboardInset = textInputActive ? Math.max(rawBottomOffset > 80 ? rawBottomOffset : 0, parentInset) : 0;
+  var keyboardLikelyOpen = rawBottomOffset > 80 || parentInset > 80;
+  var fullHeight = Math.round((window.visualViewport && window.visualViewport.height)
+    ? (window.visualViewport.height + rawBottomOffset + (window.visualViewport.offsetTop || 0))
+    : metrics.currentHeight);
+  if(!keyboardLikelyOpen || !stableChatAppHeight){
+    stableChatAppHeight = Math.max(stableChatAppHeight || 0, metrics.currentHeight || 0, fullHeight || 0);
   }
-  if(metrics.currentHeight > stableChatAppHeight){
-    stableChatAppHeight = metrics.currentHeight;
-  }
-  var inferredInset = Math.max(0, stableChatAppHeight - metrics.visibleHeight);
-  var keyboardInset = Math.max(metrics.rawBottomOffset, inferredInset);
-  if(keyboardInset < 120) keyboardInset = 0;
   if(keyboardInset > 0){
     lastChatKeyboardInset = keyboardInset;
     lastChatKeyboardInsetAt = Date.now();
@@ -25550,7 +25552,7 @@ function syncChatViewport(){
   document.documentElement.style.setProperty('--chat-app-height', vh + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', '0px');
-  document.documentElement.style.setProperty('--keyboard-inset', '0px');
+  document.documentElement.style.setProperty('--keyboard-inset', keyboardInset + 'px');
   document.documentElement.style.setProperty('--composer-bottom', '12px');
   syncComposerMetrics();
   applyComposerPlacement(metrics, keyboardInset);
@@ -25583,28 +25585,9 @@ function syncComposerMetrics(){
 function applyComposerPlacement(metrics, keyboardInset){
   var composer = document.querySelector('.chat-input-area');
   if(!composer) return;
-  var ownInset = Math.max(0, Number(keyboardInset || 0));
-  var parentInset = Math.max(0, Number(parentComposerShift || 0));
-  var vv = window.visualViewport;
-  var hintedInset = Math.max(ownInset, parentInset);
-  var visualBottom = metrics && metrics.currentHeight ? metrics.currentHeight : Math.round(window.innerHeight || document.documentElement.clientHeight || 0);
-  if(vv && vv.height){
-    visualBottom = Math.round((vv.height || 0) + (vv.offsetTop || 0));
-  }else if(hintedInset > 120){
-    visualBottom = Math.max(0, visualBottom - hintedInset);
-  }
   document.documentElement.style.setProperty('--composer-shift', '0px');
-  var rect = composer.getBoundingClientRect();
-  var shift = 0;
-  if(hintedInset > 120 || isChatTextInputActive()){
-    var overlap = Math.round((rect.bottom || 0) - (visualBottom - 10));
-    shift = overlap > 0 ? overlap : 0;
-    if(!shift && !vv && hintedInset > 120) shift = hintedInset;
-  }
-  shift = Math.min(520, Math.max(0, shift));
-  document.documentElement.style.setProperty('--composer-shift', shift + 'px');
   composer.style.top = '';
-  composer.style.bottom = 'var(--composer-bottom)';
+  composer.style.bottom = '';
 }
 
 function scheduleComposerPlacementSync(){
