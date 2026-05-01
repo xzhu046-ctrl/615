@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T13:45:00Z';
+const APP_BUILD_ID = '2026-05-01T14:05:00Z';
 const APP_UPDATE_NOTES = [
-  '线下头像修正',
-  '键盘白条修正',
-  'USER 标题 quote 自定义'
+  '白条底部修正',
+  '邀约完成态按ID',
+  'USER标题搬到标题区'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1169,11 +1169,11 @@ function syncAppHeight(){
     stableShellAppHeight = currentHeight;
   }
   if(isAndroid && !keyboardLikelyOpen && visualHeight > 0){
-    stableShellAppHeight = visualHeight;
+    stableShellAppHeight = Math.max(stableShellAppHeight, visualHeight);
   }else if(isStandalone && !keyboardLikelyOpen && currentHeight > 0){
-    stableShellAppHeight = currentHeight;
+    stableShellAppHeight = Math.max(stableShellAppHeight, currentHeight);
   }
-  if(!isAndroid && !keyboardLikelyOpen && currentHeight > stableShellAppHeight){
+  if(!keyboardLikelyOpen && currentHeight > stableShellAppHeight){
     stableShellAppHeight = currentHeight;
   }
   const viewportHeight = isAndroid && !keyboardLikelyOpen ? (visualHeight || currentHeight || stableShellAppHeight) : (stableShellAppHeight || currentHeight);
@@ -9598,7 +9598,8 @@ function applyIframeSafeAreaOverrides(){
       style.id = 'codex-safearea-reset';
       var resetRules = [
         ':root{--vv-top-offset:0px !important;--vv-bottom-offset:0px !important;--keyboard-inset:0px !important;}',
-        'html,body{margin-bottom:0 !important;scroll-padding-bottom:0 !important;}'
+        'html,body{margin-bottom:0 !important;scroll-padding-bottom:0 !important;min-height:100vh !important;min-height:100dvh !important;}',
+        'body::before{bottom:-180px !important;}'
       ];
       if(currentApp === 'chat'){
         resetRules.push(':root{--safe-bottom:0px !important;}');
