@@ -127,7 +127,7 @@ body{font-family:var(--font);background:var(--off);color:var(--b);height:100vh;d
 /* Import log */
 .import-log{position:fixed;bottom:0;left:0;right:0;background:var(--b);color:var(--w);padding:10px 16px;font-size:12px;font-weight:700;text-align:center;transform:translateY(100%);transition:transform .3s;z-index:999}
 .import-log.show{transform:translateY(0)}
-#file-input{position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:.01;pointer-events:none}
+#file-input{position:fixed;left:-9999px;top:auto;width:1px;height:1px;opacity:0}
 .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:300}
 .modal{background:var(--w);border:var(--bd);box-shadow:var(--sh);border-radius:16px;padding:18px;width:320px;max-width:90%}
 .modal h3{font-family:var(--fontd);font-size:16px;font-weight:900;margin-bottom:10px}
@@ -2259,15 +2259,11 @@ async function hasTavernImportPermission(){
 }
 
 async function requestTavernImport(){
-  if(hasStoredTavernGateSession()){
-    var input = document.getElementById('file-input');
-    if(input){
-      input.value = '';
-      input.click();
-    }
-    return;
+  var input = document.getElementById('file-input');
+  if(input){
+    input.value = '';
+    input.click();
   }
-  openTavernGate(null);
 }
 
 function clickTavernImportAfterVerified(){
@@ -2277,7 +2273,7 @@ function clickTavernImportAfterVerified(){
   input.click();
   setTimeout(function(){
     closeTavernGate();
-  }, 80);
+  }, 300);
 }
 
 var _tavernGateForm = document.getElementById('tavernGateForm');
@@ -2313,6 +2309,10 @@ async function onFiles(files, options) {
   if(!importFiles.length) return;
   const mayUseFreshSkip = !!(options && options.skipTavernGate && hasFreshTavernGateServerCheck());
   const hadStoredTavernSession = hasStoredTavernGateSession();
+  if(!mayUseFreshSkip && hadStoredTavernSession){
+    tavernGateLastServerOkAt = Date.now();
+    return onFiles(importFiles, { skipTavernGate:true });
+  }
   if(!mayUseFreshSkip && !(await hasTavernImportPermission())){
     if(hadStoredTavernSession && tavernGateLastError && !isTavernGateInvalidError(tavernGateLastError)){
       log('酒馆权限暂时无法确认，等网络恢复再试');

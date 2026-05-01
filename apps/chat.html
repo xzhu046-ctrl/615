@@ -10962,6 +10962,7 @@ async function applyThemePreset(mode, id){
     applyBubbleCharmSettings(settings);
     renderBubbleCharmPresetList();
   }else{
+    if(input) input.value = hit.css || '';
     applyGlobalChatThemeCss(hit.css || '');
     renderGlobalThemePresetList();
   }
@@ -10993,6 +10994,7 @@ function bindThemeDraftInputs(){
   if(globalInput && globalInput.dataset.bound !== '1'){
     globalInput.dataset.bound = '1';
     globalInput.addEventListener('input', function(){
+      applyGlobalChatThemeCss(String(globalInput.value || ''));
       renderGlobalThemePresetList();
     });
   }
@@ -11004,6 +11006,13 @@ function bindThemeDraftInputs(){
       ensureBubbleChatThemeStyleNode().textContent = composeChatThemePartCss();
       applyChatBubblePreviewCss(String(bubbleInput.value || ''));
       renderBubbleThemePresetList();
+    });
+  }
+  var innerVoiceInput = document.getElementById('csInnerVoiceCss');
+  if(innerVoiceInput && innerVoiceInput.dataset.bound !== '1'){
+    innerVoiceInput.dataset.bound = '1';
+    innerVoiceInput.addEventListener('input', function(){
+      applyInnerVoiceCustomCss(String(innerVoiceInput.value || ''));
     });
   }
 }
@@ -20132,11 +20141,19 @@ function buildChatExtendedFormatPrompt(){
     lines.push('如果是 rich_html，translation 必须翻译整张卡片里所有可见文字，不要偷懒只写一句“这是一张什么卡片”的概括。');
   }
   if(getInnerVoiceGenerationMode() === 'together'){
+    var inlineInnerVoiceCustomPrompt = getCustomInnerVoicePromptForAi();
     lines.push('【心声同轮输出铁律】');
     lines.push('当前心声模式是“和聊天一起生成”：本轮回复必须是可解析 JSON 数组，或包含 messages/replies 的 JSON 对象；除了聊天动作外，必须额外带一条独立对象 {"type":"inner_voice","headline":"...","body":"...","strike":"..."}。');
     lines.push('数组或 messages/replies 里至少要有一条可显示聊天动作，也至少要有一条 inner_voice；inner_voice 可放最后，不占聊天气泡数量。');
     lines.push('inner_voice 是隐藏系统动作，不是角色台词；不要写进 text/narrator/rich_html，不要解释“我生成了心声”，不要省略 type。');
-    lines.push('headline/body/strike 必须基于本轮已经决定发出的角色回复和当前上下文；headline 8-18 字，body 不可为空，strike 没有就空字符串。');
+    lines.push('headline/body/strike 必须基于本轮已经决定发出的角色回复、最近聊天、记忆、世界书和当前关系；不能敷衍，不能只写一句泛泛总结。');
+    lines.push('headline 8-18 字，短、狠、抓人；body 必须写 2-4 句像报道内文又像脑内独白的内容，每句都要贴本轮回复和上下文；strike 是差点说出口又划掉的话，没有才空字符串。');
+    lines.push('同轮 inner_voice 必须服从聊天设置里的心声提示词；如果用户写了自定义心声提示词，它的优先级高于默认报纸头条版式。');
+    if(inlineInnerVoiceCustomPrompt){
+      lines.push('【用户自定义心声提示词】\n' + String(inlineInnerVoiceCustomPrompt || '').slice(0, 900));
+    }else{
+      lines.push('【默认心声提示词】这次请生成黑白报纸头条风格的角色心声：headline 是短、狠、抓人的头条；body 是像报道内文又像脑内独白的正文；strike 是可选的划掉句。');
+    }
     lines.push('如果本轮输出 rich_html/offline_invite/narrator/rename_profile/change_avatar 等特殊动作，也仍然必须另外带 inner_voice 对象。');
   }
   var richReplyLang = getCharacterReplyLanguage();
@@ -25453,8 +25470,7 @@ function syncChatViewport(){
   if(metrics.currentHeight > stableChatAppHeight){
     stableChatAppHeight = metrics.currentHeight;
   }
-  var inferredInset = Math.max(0, stableChatAppHeight - metrics.visibleHeight);
-  var keyboardInset = Math.max(metrics.rawBottomOffset, inferredInset);
+  var keyboardInset = metrics.rawBottomOffset > 120 ? metrics.rawBottomOffset : 0;
   if(keyboardInset < 120) keyboardInset = 0;
   var textInputActive = chatTextFieldFocusActive || isChatTextInputActive();
   if(keyboardInset > 0){
@@ -25464,8 +25480,6 @@ function syncChatViewport(){
   if(textInputActive && keyboardInset < 120 && isCompactTouchChatViewport()){
     if(lastChatKeyboardInset > 120 && Date.now() - lastChatKeyboardInsetAt < 2400){
       keyboardInset = lastChatKeyboardInset;
-    }else{
-      keyboardInset = Math.round(Math.min(500, Math.max(300, (stableChatAppHeight || metrics.currentHeight || 760) * 0.44)));
     }
   }
   var vh = stableChatAppHeight || metrics.currentHeight;
@@ -25505,11 +25519,11 @@ function syncComposerMetrics(){
 function applyComposerPlacement(metrics, keyboardInset){
   var composer = document.querySelector('.chat-input-area');
   if(!composer) return;
-  var shift = Math.max(0, Number(keyboardInset || 0), Number(parentComposerShift || 0));
-  shift = Math.min(520, shift);
-  if((chatTextFieldFocusActive || isChatTextInputActive()) && isCompactTouchChatViewport() && shift < 180){
-    shift = Math.round(Math.min(500, Math.max(300, (stableChatAppHeight || (metrics && metrics.currentHeight) || 760) * 0.44)));
-  }
+  var ownInset = Math.max(0, Number(keyboardInset || 0));
+  var parentInset = Math.max(0, Number(parentComposerShift || 0));
+  var shift = ownInset > 120 ? ownInset : parentInset;
+  if(ownInset > 120 && parentInset > ownInset + 80) shift = ownInset;
+  shift = Math.min(360, shift);
   document.documentElement.style.setProperty('--composer-shift', shift + 'px');
   composer.style.top = '';
   composer.style.bottom = 'var(--composer-bottom)';
