@@ -50,7 +50,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T13:10:00Z';
+const APP_BUILD_ID = '2026-05-01T13:20:00Z';
 const APP_UPDATE_NOTES = [
   '键盘白条修正',
   '线下邀约去重',
@@ -9579,16 +9579,17 @@ function applyIframeSafeAreaOverrides(){
     if(doc.getElementById('codex-safearea-reset')) return;
     var style = doc.createElement('style');
     style.id = 'codex-safearea-reset';
-    style.textContent = [
+    var resetRules = [
       ':root{--vv-top-offset:0px !important;--vv-bottom-offset:0px !important;--keyboard-inset:0px !important;}',
-      'html,body{margin-bottom:0 !important;scroll-padding-bottom:0 !important;}',
-      '#chatBottomUnderlay,.chat-bottom-underlay{display:none !important;visibility:hidden !important;opacity:0 !important;pointer-events:none !important;}'
-    ].join('');
+      'html,body{margin-bottom:0 !important;scroll-padding-bottom:0 !important;}'
+    ];
+    if(currentApp === 'chat'){
+      resetRules.push(':root{--safe-bottom:0px !important;}');
+      resetRules.push('html,body{background:#f7f7f7 !important;}');
+      resetRules.push('.chat-bg-layer{top:-2px !important;bottom:-280px !important;min-height:calc(100vh + 280px) !important;}');
+    }
+    style.textContent = resetRules.join('');
     (doc.head || doc.documentElement).appendChild(style);
-    var staleUnderlays = doc.querySelectorAll('#chatBottomUnderlay, .chat-bottom-underlay');
-    staleUnderlays.forEach(function(node){
-      try{ node.remove(); }catch(err){}
-    });
     if(currentApp === 'offline_archive'){
       var archiveCopy = '每次约会收进这里。说完再见就存好，没说完就先待续。';
       var heroSub = doc.querySelector('.hero-sub');
