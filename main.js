@@ -50,12 +50,20 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-04-30T19:08:00Z';
+const APP_BUILD_ID = '2026-04-30T19:34:00Z';
 const APP_UPDATE_NOTES = [
-  '朋友圈帖子头像会在渲染后异步补齐真实 user/char 头像。',
-  '带 charId 的朋友圈不再停留在黑色头像底色。',
-  '本次不改评论保存逻辑。'
+  '新增邀请码门禁前端，支持黑白音符风预览界面。',
+  '新增 Cloudflare Worker + D1 邀请码后端骨架。',
+  '邀请码设计为最多绑定两台设备，同设备可无限使用。'
 ];
+const INVITE_GATE_CONFIG = {
+  enabled: false,
+  apiBase: '',
+  maxDevices: 2,
+  sessionKey: 'invite_gate_session_v1',
+  deviceKey: 'invite_gate_device_v1',
+  cacheMs: 12 * 60 * 60 * 1000
+};
 const HOME_WIDGET_MINI_ORB_KEY = 'home_widget_mini_orb_image';
 const HOME_CLOCK_WIDGET_ART_KEY = 'home_clock_widget_art';
 const REFRESH_RECALC_FLAG_KEY = 'refresh_recalc_needed_v1';
@@ -108,6 +116,204 @@ let chatReportedKeyboardShift = 0;
 var shellActiveCharacterCache = {};
 var shellActiveChatIdCache = {};
 var persistedShellActiveCharacter = null;
+
+function inviteGatePreviewEnabled(){
+  try{ return new URLSearchParams(window.location.search).get('invitePreview') === '1'; }catch(e){ return false; }
+}
+
+function inviteGateEnabled(){
+  return !!(INVITE_GATE_CONFIG.enabled || inviteGatePreviewEnabled());
+}
+
+function inviteGateApiBase(){
+  return String(INVITE_GATE_CONFIG.apiBase || '').replace(/\/+$/, '');
+}
+
+function setInviteGateStatus(message, kind){
+  var el = document.getElementById('invite-gate-status');
+  if(!el) return;
+  el.textContent = String(message || '');
+  el.classList.toggle('error', kind === 'error');
+  el.classList.toggle('ok', kind === 'ok');
+}
+
+function setInviteGateVisible(visible){
+  var shell = document.getElementById('invite-gate-shell');
+  if(!shell) return;
+  shell.hidden = !visible;
+  if(visible){
+    setTimeout(function(){
+      var input = document.getElementById('invite-gate-input');
+      if(input) input.focus();
+    }, 60);
+  }
+}
+
+function readInviteGateSession(){
+  try{ return JSON.parse(localStorage.getItem(INVITE_GATE_CONFIG.sessionKey) || 'null') || null; }catch(e){ return null; }
+}
+
+function saveInviteGateSession(session){
+  try{ localStorage.setItem(INVITE_GATE_CONFIG.sessionKey, JSON.stringify(session || {})); }catch(e){}
+}
+
+function clearInviteGateSession(){
+  try{ localStorage.removeItem(INVITE_GATE_CONFIG.sessionKey); }catch(e){}
+}
+
+function getInviteGateDeviceId(){
+  try{
+    var existing = localStorage.getItem(INVITE_GATE_CONFIG.deviceKey);
+    if(existing) return existing;
+    var next = (window.crypto && typeof window.crypto.randomUUID === 'function')
+      ? window.crypto.randomUUID()
+      : ('dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2));
+    localStorage.setItem(INVITE_GATE_CONFIG.deviceKey, next);
+    return next;
+  }catch(e){
+    return 'volatile_' + Math.random().toString(36).slice(2);
+  }
+}
+
+async function sha256Hex(value){
+  var text = String(value || '');
+  if(window.crypto && window.crypto.subtle && window.TextEncoder){
+    var bytes = new TextEncoder().encode(text);
+    var digest = await window.crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest)).map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+  }
+  var hash = 2166136261;
+  for(var i = 0; i < text.length; i += 1){
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+async function inviteGateDeviceHash(){
+  var seed = [
+    getInviteGateDeviceId(),
+    navigator.userAgent || '',
+    navigator.language || '',
+    screen && screen.width ? String(screen.width) : '',
+    screen && screen.height ? String(screen.height) : ''
+  ].join('|');
+  return sha256Hex(seed);
+}
+
+async function inviteGateRequest(path, payload){
+  var base = inviteGateApiBase();
+  if(!base) throw new Error('邀请码服务还没有连接 Cloudflare Worker');
+  var res = await fetch(base + path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload || {})
+  });
+  var data = null;
+  try{ data = await res.json(); }catch(e){ data = null; }
+  if(!res.ok || !data || data.ok === false){
+    throw new Error(String((data && data.message) || '邀请码验证失败'));
+  }
+  return data;
+}
+
+async function verifyInviteGateCode(code){
+  var safeCode = String(code || '').trim();
+  if(!safeCode) throw new Error('先输入邀请码哦');
+  var deviceHash = await inviteGateDeviceHash();
+  if(inviteGatePreviewEnabled() && !inviteGateApiBase()){
+    if(!/^0615$/i.test(safeCode)) throw new Error('预览模式的邀请码是 0615');
+    return {
+      ok: true,
+      code: 'PREVIEW',
+      token: 'preview-token',
+      deviceHash: deviceHash,
+      checkedAt: Date.now(),
+      deviceCount: 1,
+      maxDevices: INVITE_GATE_CONFIG.maxDevices
+    };
+  }
+  var data = await inviteGateRequest('/verify', {
+    code: safeCode,
+    deviceHash: deviceHash,
+    appBuild: APP_BUILD_ID
+  });
+  return Object.assign({}, data, {
+    code: data.code || safeCode,
+    deviceHash: deviceHash,
+    checkedAt: Date.now()
+  });
+}
+
+async function validateInviteGateSession(session){
+  if(!session || !session.token) return false;
+  if(inviteGatePreviewEnabled() && String(session.token || '') === 'preview-token') return true;
+  var deviceHash = await inviteGateDeviceHash();
+  var data = await inviteGateRequest('/session', {
+    token: session.token,
+    code: session.code || '',
+    deviceHash: deviceHash,
+    appBuild: APP_BUILD_ID
+  });
+  saveInviteGateSession(Object.assign({}, session, data, {
+    deviceHash: deviceHash,
+    checkedAt: Date.now()
+  }));
+  return true;
+}
+
+function bindInviteGateForm(){
+  var form = document.getElementById('invite-gate-form');
+  if(!form || form.dataset.bound === '1') return;
+  form.dataset.bound = '1';
+  form.addEventListener('submit', function(evt){
+    evt.preventDefault();
+    var input = document.getElementById('invite-gate-input');
+    var button = document.getElementById('invite-gate-submit');
+    var code = input ? input.value : '';
+    if(button) button.disabled = true;
+    setInviteGateStatus('正在验证邀请码...', '');
+    verifyInviteGateCode(code).then(function(session){
+      saveInviteGateSession(session);
+      var count = Number(session.deviceCount || 0) || 1;
+      var max = Number(session.maxDevices || INVITE_GATE_CONFIG.maxDevices) || INVITE_GATE_CONFIG.maxDevices;
+      setInviteGateStatus('验证成功。已绑定 ' + count + ' / ' + max + ' 台设备。', 'ok');
+      setTimeout(function(){ setInviteGateVisible(false); }, 360);
+    }).catch(function(err){
+      setInviteGateStatus(err && err.message ? err.message : '邀请码验证失败', 'error');
+    }).finally(function(){
+      if(button) button.disabled = false;
+    });
+  });
+}
+
+function initInviteGate(){
+  if(!inviteGateEnabled()) return;
+  bindInviteGateForm();
+  var session = readInviteGateSession();
+  if(session && session.token && (Date.now() - Number(session.checkedAt || 0) < INVITE_GATE_CONFIG.cacheMs)){
+    setInviteGateVisible(false);
+    validateInviteGateSession(session).catch(function(){
+      clearInviteGateSession();
+      setInviteGateVisible(true);
+      setInviteGateStatus('邀请码状态已失效，请重新输入。', 'error');
+    });
+    return;
+  }
+  if(session && session.token){
+    setInviteGateVisible(true);
+    setInviteGateStatus('正在确认这台设备的通行权...', '');
+    validateInviteGateSession(session).then(function(){
+      setInviteGateVisible(false);
+    }).catch(function(err){
+      clearInviteGateSession();
+      setInviteGateStatus(err && err.message ? err.message : '请重新输入邀请码。', 'error');
+    });
+    return;
+  }
+  setInviteGateVisible(true);
+  setInviteGateStatus(inviteGatePreviewEnabled() ? '预览模式输入 0615。' : '请输入邀请码。', '');
+}
 var backendLogBroadcastQueued = false;
 var shellConsoleBridgeInstalled = false;
 var shellApiSettingsCache = null;
@@ -10850,6 +11056,7 @@ if(window.visualViewport){
 }
 
 restoreState();
+initInviteGate();
 
 window.addEventListener('focus', ()=>{
   hydrateShellActiveCharacterState().finally(function(){
