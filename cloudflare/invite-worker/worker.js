@@ -59,7 +59,7 @@ const ADMIN_HTML = `<!doctype html>
     <div class="grid">
       <div>
         <label for="adminToken">管理员口令</label>
-        <input id="adminToken" type="password" autocomplete="current-password" placeholder="输入管理员口令">
+        <input id="adminToken" type="text" autocomplete="current-password" placeholder="输入管理员口令">
       </div>
       <div>
         <label for="label">备注</label>
@@ -77,6 +77,7 @@ const ADMIN_HTML = `<!doctype html>
     <div class="toolbar">
       <button id="createBtn">生成邀请码</button>
       <button class="secondary" id="refreshBtn">刷新记录</button>
+      <button class="danger" id="resetAllBtn">清空所有登录设备</button>
     </div>
     <div class="result" id="result">
       <div class="code" id="newCode"></div>
@@ -98,8 +99,6 @@ const listEl = document.getElementById('list');
 const resultEl = document.getElementById('result');
 const newCodeEl = document.getElementById('newCode');
 const toastEl = document.getElementById('toast');
-const saved = localStorage.getItem('0615_admin_token') || '';
-if(saved) tokenEl.value = saved;
 
 function toast(text){
   toastEl.textContent = text;
@@ -109,16 +108,15 @@ function toast(text){
 }
 
 function token(){
-  const value = tokenEl.value.trim();
-  if(value) localStorage.setItem('0615_admin_token', value);
-  return value;
+  return tokenEl.value.trim();
 }
 
 async function api(path, body){
+  const payload = Object.assign({}, body || {}, { adminToken: token() });
   const res = await fetch(path, {
     method:'POST',
-    headers:{ 'content-type':'application/json', 'x-admin-token': token() },
-    body: JSON.stringify(body || {})
+    headers:{ 'content-type':'application/json' },
+    body: JSON.stringify(payload)
   });
   const data = await res.json().catch(()=>({ ok:false, message:'返回格式错误' }));
   if(!res.ok || !data.ok) throw new Error(data.message || '请求失败');
@@ -162,6 +160,7 @@ function render(rows){
         <button class="secondary" data-copy="\${row.code}">复制</button>
         <button class="danger" data-reset="\${row.code}">清空设备</button>
         <button class="danger" data-toggle="\${row.code}" data-revoked="\${Number(row.revoked || 0)}">\${Number(row.revoked || 0) ? '启用' : '停用'}</button>
+        <button class="danger" data-delete="\${row.code}">删除</button>
       </div>
     </article>
   \`).join('');
@@ -191,10 +190,23 @@ document.getElementById('createBtn').addEventListener('click', async ()=>{
 });
 
 document.getElementById('refreshBtn').addEventListener('click', refresh);
+document.getElementById('resetAllBtn').addEventListener('click', async ()=>{
+  try{
+    if(!confirm('确认清空所有邀请码已经绑定的登录设备吗？\\n\\n邀请码会保留，所有用户需要重新输入邀请码登录。')) return;
+    await api('/admin/reset-all-devices');
+    toast('所有登录设备已清空');
+    return refresh();
+  }catch(err){
+    toast(err.message);
+  }
+});
 listEl.addEventListener('click', async (event)=>{
-  const copy = event.target.getAttribute('data-copy');
-  const reset = event.target.getAttribute('data-reset');
-  const toggle = event.target.getAttribute('data-toggle');
+  const actionEl = event.target.closest('button[data-copy],button[data-reset],button[data-toggle],button[data-delete]');
+  if(!actionEl) return;
+  const copy = actionEl.getAttribute('data-copy');
+  const reset = actionEl.getAttribute('data-reset');
+  const toggle = actionEl.getAttribute('data-toggle');
+  const remove = actionEl.getAttribute('data-delete');
   try{
     if(copy) return copyText(copy);
     if(reset){
@@ -204,9 +216,15 @@ listEl.addEventListener('click', async (event)=>{
       return refresh();
     }
     if(toggle){
-      const revoked = event.target.getAttribute('data-revoked') === '1';
+      const revoked = actionEl.getAttribute('data-revoked') === '1';
       await api('/admin/revoke', { code: toggle, revoked: revoked ? 0 : 1 });
       toast(revoked ? '已启用' : '已停用');
+      return refresh();
+    }
+    if(remove){
+      if(!confirm('确认永久删除这个邀请码吗？\\n\\n邀请码、绑定设备和使用记录都会一起删除。')) return;
+      await api('/admin/delete', { code: remove });
+      toast('已删除');
       return refresh();
     }
   }catch(err){
@@ -263,14 +281,13 @@ function randomToken(){
 
 function randomInviteCode(){
   const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const bytes = new Uint8Array(16);
+  const bytes = new Uint8Array(12);
   crypto.getRandomValues(bytes);
   const chars = Array.from(bytes).map((byte)=>alphabet[byte % alphabet.length]);
   return '0615-' + [
     chars.slice(0, 4).join(''),
     chars.slice(4, 8).join(''),
-    chars.slice(8, 12).join(''),
-    chars.slice(12, 16).join('')
+    chars.slice(8, 12).join('')
   ].join('-');
 }
 
@@ -403,9 +420,36 @@ async function handleAdminResetDevices(request, env){
   if(error) return json({ ok:false, message:error }, 403, env);
   const code = normalizeCode(body.code);
   if(!code) return json({ ok:false, message:'邀请码不能为空' }, 400, env);
-  await env.DB.prepare('UPDATE invite_devices SET revoked = 1 WHERE code = ?').bind(code).run();
+  await env.DB.prepare('DELETE FROM invite_devices WHERE code = ?').bind(code).run();
   await env.DB.prepare('UPDATE invite_codes SET updated_at = ? WHERE code = ?').bind(nowMs(), code).run();
   return json({ ok:true, code }, 200, env);
+}
+
+async function handleAdminResetAllDevices(request, env){
+  const body = await readJson(request);
+  const error = assertAdmin(request, env, body);
+  if(error) return json({ ok:false, message:error }, 403, env);
+  await env.DB.prepare('DELETE FROM invite_devices').run();
+  await env.DB.prepare('UPDATE invite_codes SET updated_at = ?').bind(nowMs()).run();
+  return json({ ok:true }, 200, env);
+}
+
+async function handleAdminDelete(request, env){
+  const body = await readJson(request);
+  const error = assertAdmin(request, env, body);
+  if(error) return json({ ok:false, message:error }, 403, env);
+  const code = normalizeCode(body.code);
+  if(!code) return json({ ok:false, message:'邀请码不能为空' }, 400, env);
+  const existing = await env.DB.prepare('SELECT code FROM invite_codes WHERE code = ?').bind(code).first();
+  if(!existing) return json({ ok:true, code, deleted:0 }, 200, env);
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM invite_devices WHERE code = ?').bind(code),
+    env.DB.prepare('DELETE FROM invite_access_logs WHERE code = ?').bind(code),
+    env.DB.prepare('DELETE FROM invite_codes WHERE code = ?').bind(code)
+  ]);
+  const stillExists = await env.DB.prepare('SELECT code FROM invite_codes WHERE code = ?').bind(code).first();
+  if(stillExists) return json({ ok:false, message:'删除失败，请刷新后重试' }, 500, env);
+  return json({ ok:true, code, deleted:1 }, 200, env);
 }
 
 async function handleVerify(request, env){
@@ -507,6 +551,8 @@ export default {
     if(url.pathname === '/admin/create') return handleAdminCreate(request, env);
     if(url.pathname === '/admin/revoke') return handleAdminRevoke(request, env);
     if(url.pathname === '/admin/reset-devices') return handleAdminResetDevices(request, env);
+    if(url.pathname === '/admin/reset-all-devices') return handleAdminResetAllDevices(request, env);
+    if(url.pathname === '/admin/delete') return handleAdminDelete(request, env);
     return json({ ok:false, message:'Not found' }, 404, env);
   }
 };
