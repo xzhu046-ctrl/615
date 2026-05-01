@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T13:20:00Z';
+const APP_BUILD_ID = '2026-05-01T13:45:00Z';
 const APP_UPDATE_NOTES = [
+  '线下头像修正',
   '键盘白条修正',
-  '线下邀约去重',
-  '心声生成模式'
+  'USER 标题 quote 自定义'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -785,6 +785,23 @@ function resetShellViewportAfterChatInput(){
   syncAppHeight();
   var container = document.getElementById('app-container');
   if(container) container.style.removeProperty('--chat-keyboard-shift');
+}
+
+function scheduleShellViewportResetAfterTextInput(){
+  [0, 60, 160, 320, 620, 1000].forEach(function(delay){
+    setTimeout(resetShellViewportAfterChatInput, delay);
+  });
+}
+
+function isShellTextInputElement(el){
+  if(!el) return false;
+  var tag = String(el.tagName || '').toLowerCase();
+  if(tag === 'textarea') return true;
+  if(tag === 'input'){
+    var type = String(el.type || 'text').toLowerCase();
+    return !/^(button|checkbox|color|file|hidden|image|radio|range|reset|submit)$/i.test(type);
+  }
+  return !!(el.isContentEditable || (el.closest && el.closest('[contenteditable="true"]')));
 }
 
 function offlineMinimizedStorageKey(){
@@ -9576,20 +9593,31 @@ function applyIframeSafeAreaOverrides(){
     if(!frame) return;
     var doc = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
     if(!doc || !doc.documentElement || !doc.body) return;
-    if(doc.getElementById('codex-safearea-reset')) return;
-    var style = doc.createElement('style');
-    style.id = 'codex-safearea-reset';
-    var resetRules = [
-      ':root{--vv-top-offset:0px !important;--vv-bottom-offset:0px !important;--keyboard-inset:0px !important;}',
-      'html,body{margin-bottom:0 !important;scroll-padding-bottom:0 !important;}'
-    ];
-    if(currentApp === 'chat'){
-      resetRules.push(':root{--safe-bottom:0px !important;}');
-      resetRules.push('html,body{background:#f7f7f7 !important;}');
-      resetRules.push('.chat-bg-layer{top:-2px !important;bottom:-280px !important;min-height:calc(100vh + 280px) !important;}');
+    if(!doc.getElementById('codex-safearea-reset')){
+      var style = doc.createElement('style');
+      style.id = 'codex-safearea-reset';
+      var resetRules = [
+        ':root{--vv-top-offset:0px !important;--vv-bottom-offset:0px !important;--keyboard-inset:0px !important;}',
+        'html,body{margin-bottom:0 !important;scroll-padding-bottom:0 !important;}'
+      ];
+      if(currentApp === 'chat'){
+        resetRules.push(':root{--safe-bottom:0px !important;}');
+        resetRules.push('html,body{background:#f7f7f7 !important;}');
+        resetRules.push('.chat-bg-layer{top:-2px !important;bottom:-280px !important;min-height:calc(100vh + 280px) !important;}');
+      }
+      style.textContent = resetRules.join('');
+      (doc.head || doc.documentElement).appendChild(style);
     }
-    style.textContent = resetRules.join('');
-    (doc.head || doc.documentElement).appendChild(style);
+    if(!doc.__shellTextInputResetBound){
+      doc.__shellTextInputResetBound = true;
+      doc.addEventListener('focusout', function(evt){
+        try{
+          if(isShellTextInputElement(evt && evt.target)){
+            setTimeout(scheduleShellViewportResetAfterTextInput, 40);
+          }
+        }catch(inputErr){}
+      }, true);
+    }
     if(currentApp === 'offline_archive'){
       var archiveCopy = '每次约会收进这里。说完再见就存好，没说完就先待续。';
       var heroSub = doc.querySelector('.hero-sub');
@@ -10054,9 +10082,10 @@ window.addEventListener('message',(e)=>{
     });
   }
   if(type==='CHAT_INPUT_BLUR'){
-    [0, 60, 160, 320, 620].forEach(function(delay){
-      setTimeout(resetShellViewportAfterChatInput, delay);
-    });
+    scheduleShellViewportResetAfterTextInput();
+  }
+  if(type==='APP_TEXT_INPUT_BLUR'){
+    scheduleShellViewportResetAfterTextInput();
   }
   if(type==='SET_APP_ICON'){
     const app = payload && payload.app;
@@ -11769,6 +11798,12 @@ window.addEventListener('orientationchange', ()=>{
     renderHomePages(true);
   }, 120);
 });
+
+document.addEventListener('focusout', function(evt){
+  if(isShellTextInputElement(evt && evt.target)){
+    scheduleShellViewportResetAfterTextInput();
+  }
+}, true);
 
 if(window.visualViewport){
   window.visualViewport.addEventListener('resize', ()=>{

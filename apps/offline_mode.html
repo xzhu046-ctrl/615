@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-05-01T13:20:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-01T13:20:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T13:20:00Z"></script>
-<script src="../promptManager.js?v=2026-05-01T13:20:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T13:20:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-01T13:20:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-01T13:20:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-01T13:20:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T13:45:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T13:45:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T13:45:00Z"></script>
+<script src="../promptManager.js?v=2026-05-01T13:45:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T13:45:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-01T13:45:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-01T13:45:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-01T13:45:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -483,6 +483,7 @@ position:absolute;left:50%;transform:translateX(-50%);width:min(100%,320px);bord
 .story-card.user .offline-story-avatar{margin-left:-24px;transform:rotate(5deg)}
 .offline-story-avatar::before,.offline-story-avatar::after{display:none}
 .offline-story-avatar img{width:100%;height:100%;object-fit:cover}
+.offline-story-avatar-fallback{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-family:var(--fontd);font-size:18px;font-weight:900;color:#111}
 .offline-story-avatar-label{position:absolute;left:7px;right:7px;bottom:6px;display:flex;align-items:center;justify-content:center;font-family:var(--fontd);font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .offline-story-stats{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:0;min-width:0;width:100%}
 .offline-story-stat-slot{min-width:0;display:flex;align-items:center}
@@ -762,6 +763,12 @@ box-shadow:0 0 0 2px rgba(255,255,255,.97),6px 6px 0 rgba(17,17,17,.94);padding:
             </div>
             <label class="offline-setting-label" for="offlineDrawerStyle">文风补充</label>
             <textarea class="offline-setting-textarea offline-line-textarea" id="offlineDrawerStyle" placeholder="比如：克制一点、动作感重一点、像旧电影里的慢镜头。"></textarea>
+            <div class="offline-setting-row">
+              <span class="offline-setting-label">USER 标题</span>
+              <input class="offline-setting-input offline-underline-input" id="offlineDrawerUserTitle" type="text" maxlength="32" placeholder="因为爱与希望是永恒存在的">
+            </div>
+            <label class="offline-setting-label" for="offlineDrawerUserQuote">USER quote</label>
+            <textarea class="offline-setting-textarea offline-line-textarea" id="offlineDrawerUserQuote" maxlength="80" placeholder="在时间的尽头我们终将重逢。"></textarea>
           </div>
         </section>
         <section class="offline-setting-card">
@@ -1144,9 +1151,63 @@ function activeAccountId(){
   }catch(e){}
   return '';
 }
+function defaultAccountId(){
+  try{
+    if(window.AccountManager && typeof window.AccountManager.getDefaultId === 'function'){
+      var localId = window.AccountManager.getDefaultId();
+      if(localId) return String(localId);
+    }
+  }catch(e){}
+  try{
+    if(window.parent && window.parent !== window && window.parent.AccountManager && typeof window.parent.AccountManager.getDefaultId === 'function'){
+      var parentId = window.parent.AccountManager.getDefaultId();
+      if(parentId) return String(parentId);
+    }
+  }catch(e2){}
+  return '';
+}
+function accountScopedKeyFor(base, accountId){
+  var safeBase = String(base || '').trim();
+  var safeAccount = String(accountId || '').trim();
+  if(!safeBase) return '';
+  return safeAccount ? (safeBase + '__acct_' + safeAccount) : safeBase;
+}
 function scopedKey(base){
   var accountId = activeAccountId();
   return accountId ? (base + '__acct_' + accountId) : base;
+}
+function accountIdCandidates(){
+  var ids = [];
+  function add(id){
+    id = String(id || '').trim();
+    if(id && ids.indexOf(id) === -1) ids.push(id);
+  }
+  add(activeAccountId());
+  add(defaultAccountId());
+  try{
+    var localAccounts = window.AccountManager && typeof window.AccountManager.loadAccounts === 'function' ? window.AccountManager.loadAccounts() : [];
+    (localAccounts || []).forEach(function(acct){ add(acct && acct.id); });
+  }catch(e){}
+  try{
+    var parentAccounts = window.parent && window.parent !== window && window.parent.AccountManager && typeof window.parent.AccountManager.loadAccounts === 'function' ? window.parent.AccountManager.loadAccounts() : [];
+    (parentAccounts || []).forEach(function(acct){ add(acct && acct.id); });
+  }catch(e2){}
+  return ids;
+}
+function accountScopedCandidates(base){
+  var safeBase = String(base || '').trim();
+  if(!safeBase) return [];
+  var keys = [];
+  function add(key){
+    key = String(key || '').trim();
+    if(key && keys.indexOf(key) === -1) keys.push(key);
+  }
+  add(scopedKey(safeBase));
+  accountIdCandidates().forEach(function(accountId){
+    add(accountScopedKeyFor(safeBase, accountId));
+  });
+  add(safeBase);
+  return keys;
 }
 function getStoredActiveOfflineCharacterId(){
   try{
@@ -2655,6 +2716,10 @@ function normalizeOfflineAssetSrc(src){
 function isRenderableOfflineAvatarSrc(src){
   var value = normalizeOfflineAssetSrc(src);
   return !!(value && value !== '__asset__' && /^(data:|https?:|blob:|\/|\.\.?\/|assets\/|apps\/assets\/)/i.test(value));
+}
+function isStableOfflineAvatarSrc(src){
+  var value = normalizeOfflineAssetSrc(src);
+  return !!(value && value !== '__asset__' && /^(data:|https?:|\/|\.\.?\/|assets\/|apps\/assets\/)/i.test(value));
 }
 function getOfflineCharAvatarAssetKeys(charId){
   var safeId = String(charId || '').trim();
@@ -4620,6 +4685,67 @@ function getOfflineUserAvatarAssetKeys(charId){
   add('user_avatar');
   return keys;
 }
+function offlineChatSettingsBundleKeys(charId){
+  var safeCharId = String(charId || '').trim();
+  return safeCharId ? accountScopedCandidates('chat_settings_bundle_' + safeCharId) : [];
+}
+function offlineAvatarLibraryKeys(charId){
+  var safeCharId = String(charId || '').trim();
+  return safeCharId ? accountScopedCandidates('avatar_library_' + safeCharId) : [];
+}
+function normalizeOfflineChatSettingsBundle(raw){
+  var src = raw && typeof raw === 'object' ? raw : {};
+  return {
+    updatedAt: Number(src.updatedAt || 0) || 0,
+    charAvatar: normalizeOfflineAssetSrc(src.charAvatar || ''),
+    userAvatar: normalizeOfflineAssetSrc(src.userAvatar || ''),
+    selectedCharAvatarItemId: String(src.selectedCharAvatarItemId || '').trim(),
+    selectedUserAvatarItemId: String(src.selectedUserAvatarItemId || '').trim()
+  };
+}
+function loadBestOfflineJson(keys){
+  var safeKeys = (keys || []).map(function(key){ return String(key || '').trim(); }).filter(Boolean);
+  if(!safeKeys.length) return Promise.resolve(null);
+  return Promise.all(safeKeys.map(function(key){
+    return loadArchiveJsonFromStorage(key).catch(function(){ return null; });
+  })).then(function(items){
+    var best = null;
+    (items || []).forEach(function(item){
+      if(!item || typeof item !== 'object') return;
+      if(!best || Number(item.updatedAt || 0) >= Number(best.updatedAt || 0)) best = item;
+    });
+    return best;
+  });
+}
+function loadOfflineChatSettingsBundle(charId){
+  return loadBestOfflineJson(offlineChatSettingsBundleKeys(charId)).then(function(bundle){
+    return bundle ? normalizeOfflineChatSettingsBundle(bundle) : null;
+  });
+}
+function loadOfflineAvatarLibrary(charId){
+  return loadBestOfflineJson(offlineAvatarLibraryKeys(charId));
+}
+function resolveOfflineAvatarLibraryItemSrc(item){
+  if(!item || typeof item !== 'object') return Promise.resolve('');
+  var preview = normalizeOfflineAssetSrc(item.previewData || item.src || item.url || '');
+  if(isStableOfflineAvatarSrc(preview)) return Promise.resolve(preview);
+  var assetKey = String(item.assetKey || '').trim();
+  if(!assetKey) return Promise.resolve('');
+  return loadStoredAsset(assetKey).then(function(src){
+    var stored = normalizeOfflineAssetSrc(src || '');
+    return isStableOfflineAvatarSrc(stored) ? stored : '';
+  }).catch(function(){ return ''; });
+}
+function resolveOfflineSelectedAvatarFromBundle(charId, role, bundle){
+  var safeRole = role === 'char' ? 'char' : 'user';
+  var selectedId = String(safeRole === 'char' ? (bundle && bundle.selectedCharAvatarItemId) : (bundle && bundle.selectedUserAvatarItemId)).trim();
+  if(!selectedId) return Promise.resolve('');
+  return loadOfflineAvatarLibrary(charId).then(function(store){
+    var list = store && Array.isArray(store[safeRole]) ? store[safeRole] : [];
+    var item = list.find(function(entry){ return String(entry && entry.id || '') === selectedId; });
+    return resolveOfflineAvatarLibraryItemSrc(item);
+  }).catch(function(){ return ''; });
+}
 function resolveUserAvatar(){
   var charId = character && character.id ? String(character.id) : '';
   if(isRenderableOfflineAvatarSrc(runtimeUserAvatar)) return runtimeUserAvatar;
@@ -4627,7 +4753,7 @@ function resolveUserAvatar(){
   for(var i = 0; i < keys.length; i += 1){
     try{
       var raw = normalizeOfflineAssetSrc(localStorage.getItem(keys[i]) || '');
-      if(isRenderableOfflineAvatarSrc(raw)) return raw;
+      if(isStableOfflineAvatarSrc(raw)) return raw;
     }catch(e){}
   }
   return '';
@@ -4641,10 +4767,27 @@ function refreshOfflineAvatarAssets(){
   }
   Promise.all([
     Promise.all(charKeys.map(function(key){ return loadStoredAsset(key).catch(function(){ return ''; }); })),
-    Promise.all(userKeys.map(function(key){ return loadStoredAsset(key).catch(function(){ return ''; }); }))
+    Promise.all(userKeys.map(function(key){ return loadStoredAsset(key).catch(function(){ return ''; }); })),
+    loadOfflineChatSettingsBundle(charId).catch(function(){ return null; })
   ]).then(function(results){
-    var nextChar = (results[0] || []).map(normalizeOfflineAssetSrc).find(isRenderableOfflineAvatarSrc) || '';
-    var nextUser = (results[1] || []).map(normalizeOfflineAssetSrc).find(isRenderableOfflineAvatarSrc) || '';
+    var nextChar = (results[0] || []).map(normalizeOfflineAssetSrc).find(isStableOfflineAvatarSrc) || '';
+    var nextUser = (results[1] || []).map(normalizeOfflineAssetSrc).find(isStableOfflineAvatarSrc) || '';
+    var bundle = results[2] || null;
+    return Promise.all([
+      nextChar ? Promise.resolve(nextChar) : resolveOfflineSelectedAvatarFromBundle(charId, 'char', bundle),
+      resolveOfflineSelectedAvatarFromBundle(charId, 'user', bundle)
+    ]).then(function(selected){
+      var selectedChar = normalizeOfflineAssetSrc(selected[0] || '');
+      var selectedUser = normalizeOfflineAssetSrc(selected[1] || '');
+      if(isStableOfflineAvatarSrc(selectedChar)) nextChar = selectedChar;
+      if(isStableOfflineAvatarSrc(selectedUser)) nextUser = selectedUser;
+      if(!nextChar && bundle && isStableOfflineAvatarSrc(bundle.charAvatar)) nextChar = bundle.charAvatar;
+      if(!nextUser && bundle && isStableOfflineAvatarSrc(bundle.userAvatar)) nextUser = bundle.userAvatar;
+      return { nextChar: nextChar, nextUser: nextUser };
+    });
+  }).then(function(resolved){
+    var nextChar = resolved && resolved.nextChar || '';
+    var nextUser = resolved && resolved.nextUser || '';
     var changed = false;
     if(nextChar && nextChar !== runtimeCharAvatar){
       runtimeCharAvatar = nextChar;
@@ -4750,6 +4893,8 @@ function buildOfflineDrawerDraft(){
     sideStoryType: ui.sideStoryType,
     thoughtPrompt: String(character && character.offlineThoughtPrompt || '').trim(),
     titlePrompt: String(character && character.offlineTitlePrompt || '').trim(),
+    userTitle: String(character && character.offlineUserTitle || '').trim(),
+    userQuote: String(character && character.offlineUserQuote || '').trim(),
     backgroundUrl: String(character && character.offlineBackgroundUrl || '').trim(),
     cardBackgroundUrl: String(character && character.offlineCardBackgroundUrl || '').trim()
   };
@@ -4789,6 +4934,8 @@ function applyOfflineDrawerDraftToCharacter(){
   character.offlineSideStoryType = String(draft.sideStoryType || 'future');
   character.offlineThoughtPrompt = String(draft.thoughtPrompt || '').trim();
   character.offlineTitlePrompt = String(draft.titlePrompt || '').trim();
+  character.offlineUserTitle = String(draft.userTitle || '').trim();
+  character.offlineUserQuote = String(draft.userQuote || '').trim();
   character.offlineBackgroundUrl = String(draft.backgroundUrl || '').trim();
   character.offlineCardBackgroundUrl = String(draft.cardBackgroundUrl || '').trim();
 }
@@ -5216,6 +5363,26 @@ function getOfflineTitleDefaultPrompt(){
     'title 与 quote 必须都是简体中文。'
   ].join('\n');
 }
+function getOfflineUserCustomTitle(){
+  var fromDraft = offlineDrawerDraft && Object.prototype.hasOwnProperty.call(offlineDrawerDraft, 'userTitle')
+    ? String(offlineDrawerDraft.userTitle || '').trim()
+    : '';
+  var fromCharacter = String(character && character.offlineUserTitle || '').trim();
+  return (fromDraft || fromCharacter || '').slice(0, 32);
+}
+function getOfflineUserCustomQuote(){
+  var fromDraft = offlineDrawerDraft && Object.prototype.hasOwnProperty.call(offlineDrawerDraft, 'userQuote')
+    ? String(offlineDrawerDraft.userQuote || '').trim()
+    : '';
+  var fromCharacter = String(character && character.offlineUserQuote || '').trim();
+  return (fromDraft || fromCharacter || '').slice(0, 80);
+}
+function getOfflineUserDisplayTitle(){
+  return getOfflineUserCustomTitle() || '因为爱与希望是永恒存在的';
+}
+function getOfflineUserDisplayQuote(){
+  return getOfflineUserCustomQuote() || '在时间的尽头我们终将重逢。';
+}
 function getOfflineTitleCustomPrompt(){
   if(offlineDrawerDraft && Object.prototype.hasOwnProperty.call(offlineDrawerDraft, 'titlePrompt')){
     return String(offlineDrawerDraft.titlePrompt || '').trim();
@@ -5443,6 +5610,14 @@ function getOfflineWeatherDisplay(){
     hint: /雨|storm|雷/i.test(text) ? '靠近一点更暖' : (/雪|冰/i.test(text) ? '适合把手揣进口袋' : '适合慢慢靠近')
   };
 }
+function renderOfflineAvatarImageHtml(src, fallbackText){
+  var safeSrc = normalizeOfflineAssetSrc(src || '');
+  var fallback = esc(String(fallbackText || 'U').slice(0, 2) || 'U');
+  if(!isRenderableOfflineAvatarSrc(safeSrc)){
+    return '<span class="offline-story-avatar-fallback">' + fallback + '</span>';
+  }
+  return '<img src="' + esc(safeSrc) + '" alt="" onerror="this.style.display=&quot;none&quot;;var n=this.nextElementSibling;if(n)n.style.display=&quot;flex&quot;;"><span class="offline-story-avatar-fallback" style="display:none">' + fallback + '</span>';
+}
 function countOfflineAssistantScenes(){
   var list = Array.isArray(session && session.entries) ? session.entries : [];
   return list.reduce(function(sum, entry){
@@ -5456,7 +5631,7 @@ function renderOfflineDrawerPolaroid(role){
   var isChar = role === 'char';
   var avatar = isChar ? resolveCharAvatar() : resolveUserAvatar();
   var label = isChar ? getCharDisplayName() : resolveUserName();
-  return (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : ('<div class="offline-stage-drawer-polaroid-fallback">' + esc((label || (isChar ? 'C' : 'U')).slice(0, 2)) + '</div>')) +
+  return (avatar ? ('<img src="' + esc(avatar) + '" alt="" onerror="this.style.display=&quot;none&quot;;var n=this.nextElementSibling;if(n)n.style.display=&quot;flex&quot;;"><div class="offline-stage-drawer-polaroid-fallback" style="display:none">' + esc((label || (isChar ? 'C' : 'U')).slice(0, 2)) + '</div>') : ('<div class="offline-stage-drawer-polaroid-fallback">' + esc((label || (isChar ? 'C' : 'U')).slice(0, 2)) + '</div>')) +
     '<div class="offline-stage-drawer-polaroid-label"><span>' + (isChar ? 'char' : 'user') + '</span><span>' + esc(label.slice(0, 6)) + '</span></div>';
 }
 function renderOfflineStageHeader(){
@@ -5556,6 +5731,8 @@ function syncOfflineDrawerControls(){
   var translationModeGrid = document.getElementById('offlineDrawerTranslationModeGrid');
   var sideStoryTrigger = document.getElementById('offlineDrawerSideStoryTrigger');
   var sideStoryDropdown = document.getElementById('offlineDrawerSideStoryDropdown');
+  var userTitle = document.getElementById('offlineDrawerUserTitle');
+  var userQuote = document.getElementById('offlineDrawerUserQuote');
   var range = document.getElementById('offlineDrawerCurrentRange');
   if(bodyMinChars && document.activeElement !== bodyMinChars) bodyMinChars.value = String(draft.bodyMinChars);
   if(bodyMaxChars && document.activeElement !== bodyMaxChars) bodyMaxChars.value = String(draft.bodyMaxChars);
@@ -5576,6 +5753,8 @@ function syncOfflineDrawerControls(){
     });
   }
   if(style && document.activeElement !== style) style.value = draft.style;
+  if(userTitle && document.activeElement !== userTitle) userTitle.value = String(draft.userTitle || '');
+  if(userQuote && document.activeElement !== userQuote) userQuote.value = String(draft.userQuote || '');
   if(presetMeta) presetMeta.textContent = describeOfflinePresetMeta(draft);
   if(summaryEvery && document.activeElement !== summaryEvery) summaryEvery.value = String(draft.summaryEvery);
   if(memoryReadCount && document.activeElement !== memoryReadCount) memoryReadCount.value = String(draft.memoryReadCount);
@@ -5638,6 +5817,8 @@ function bindOfflineDrawerControls(){
   var translationModeGrid = document.getElementById('offlineDrawerTranslationModeGrid');
   var sideStoryDropdown = document.getElementById('offlineDrawerSideStoryDropdown');
   var sideStoryTrigger = document.getElementById('offlineDrawerSideStoryTrigger');
+  var userTitle = document.getElementById('offlineDrawerUserTitle');
+  var userQuote = document.getElementById('offlineDrawerUserQuote');
   var pageBgUploadBtn = document.getElementById('offlineDrawerPageBgUploadBtn');
   var pageBgFile = document.getElementById('offlineDrawerPageBgFile');
   var pageBgUrl = document.getElementById('offlineDrawerPageBgUrl');
@@ -5761,6 +5942,16 @@ function bindOfflineDrawerControls(){
   if(style){
     style.addEventListener('input', function(){
       getOfflineDrawerDraft().style = String(style.value || '').trim();
+    });
+  }
+  if(userTitle){
+    userTitle.addEventListener('input', function(){
+      getOfflineDrawerDraft().userTitle = String(userTitle.value || '').trim().slice(0, 32);
+    });
+  }
+  if(userQuote){
+    userQuote.addEventListener('input', function(){
+      getOfflineDrawerDraft().userQuote = String(userQuote.value || '').trim().slice(0, 80);
     });
   }
   if(memoryMode){
@@ -6447,7 +6638,7 @@ function renderPaperStoryCard(entry, idx, isChar){
   var statusChip = isChar ? renderOfflineStatusChip(entry, idx) : '';
   var toolsRow = isChar ? ('<div class="offline-story-tools"><div class="offline-story-tools-left">' + thoughtToggle + '</div><button class="offline-story-editbtn" type="button" onclick="editOfflineEntryText(' + idx + ')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></button></div>') : '';
   var userEdit = isChar ? '' : ('<div class="offline-story-actions-left"><button class="offline-story-editbtn" type="button" onclick="editOfflineEntryText(' + idx + ')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></button></div>');
-  var avatarHtml = '<div class="offline-story-avatar' + (isChar ? ' is-char' : '') + '"' + (isChar ? ' onclick="openOfflineStatusModal(' + idx + ', false)"' : '') + '>' + (avatar ? ('<img src="' + esc(avatar) + '" alt="">') : esc(displayName.slice(0, 2) || (isChar ? 'C' : 'U'))) + '<div class="offline-story-avatar-label">' + esc(displayName || (isChar ? 'char' : 'user')) + '</div></div>';
+  var avatarHtml = '<div class="offline-story-avatar' + (isChar ? ' is-char' : '') + '"' + (isChar ? ' onclick="openOfflineStatusModal(' + idx + ', false)"' : '') + '>' + renderOfflineAvatarImageHtml(avatar, displayName.slice(0, 2) || (isChar ? 'C' : 'U')) + '<div class="offline-story-avatar-label">' + esc(displayName || (isChar ? 'char' : 'user')) + '</div></div>';
   var stripShellHtml = '<div class="offline-story-strip-shell">' +
         '<div class="offline-story-stats">' +
           '<div class="offline-story-stat-slot is-left"><span class="offline-story-stat"><span class="offline-story-stat-icon">☀︎</span><span>' + esc(floorLabel) + '</span></span></div>' +
@@ -6837,8 +7028,8 @@ function buildOfflineEntryMeta(entry, role, labels, extra){
     fullLabel: String(source.fullLabel || (labels && labels.fullLabel) || '').trim(),
     generationMs: Math.max(0, Number(opts.generationMs != null ? opts.generationMs : source.generationMs) || 0),
     tokenCount: Math.max(1, Number(opts.tokenCount != null ? opts.tokenCount : source.tokenCount) || estimateOfflineTokens(body)),
-    title: String(source.title || '').trim() || (role === 'user' ? '因为爱与希望是永恒存在的' : ''),
-    quote: String(source.quote || '').trim() || (role === 'user' ? '在时间的尽头我们终将重逢。' : '')
+    title: role === 'user' ? (getOfflineUserCustomTitle() || String(source.title || '').trim() || getOfflineUserDisplayTitle()) : String(source.title || '').trim(),
+    quote: role === 'user' ? (getOfflineUserCustomQuote() || String(source.quote || '').trim() || getOfflineUserDisplayQuote()) : String(source.quote || '').trim()
   };
 }
 function hasValidOfflineAssistantPayload(parsed){
