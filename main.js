@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T04:03:03Z';
+const APP_BUILD_ID = '2026-05-01T04:13:04Z';
 const APP_UPDATE_NOTES = [
-  '小手机验证码弹窗新增更紧凑的只读旁白名框和复制按钮。',
-  '邀请码后台改为先验证口令再进入管理面板。',
-  '后台生成结果把旁白名固定放在邀请码上方。'
+  '验证码弹窗把用户名标签改为大写 USERNAME。',
+  'USERNAME 下方新增请小心保留此 USERNAME提醒。',
+  '移除邀请码输入框下方默认提示文本。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -148,10 +148,10 @@ async function copyInviteGatePublicName(){
   try{
     if(navigator.clipboard && navigator.clipboard.writeText){
       await navigator.clipboard.writeText(value);
-      setInviteGateStatus('旁白名已复制。', 'ok');
+      setInviteGateStatus('USERNAME 已复制。', 'ok');
     }
   }catch(err){
-    setInviteGateStatus('复制失败，请长按旁白名手动复制。', 'error');
+    setInviteGateStatus('复制失败，请长按 USERNAME 手动复制。', 'error');
   }
 }
 
@@ -362,7 +362,7 @@ function initInviteGate(){
     return;
   }
   setInviteGateVisible(true);
-  setInviteGateStatus(inviteGatePreviewEnabled() ? '预览模式输入 0615。' : '请输入邀请码。', '');
+  setInviteGateStatus(inviteGatePreviewEnabled() ? '预览模式输入 0615。' : '', '');
 }
 var backendLogBroadcastQueued = false;
 var shellConsoleBridgeInstalled = false;

@@ -113,22 +113,22 @@ const ADMIN_HTML = `<!doctype html>
     <div class="result" id="result">
       <div class="name-box">
         <div>
-          <label for="newName">旁白名</label>
+          <label for="newName">USERNAME</label>
           <input class="public-name" id="newName" type="text" readonly value="">
         </div>
         <button class="secondary small-copy" id="copyNameBtn" type="button">复制</button>
       </div>
       <div class="code" id="newCode"></div>
       <div class="meta">邀请码已复制到剪贴板。把这个码发给用户即可。</div>
-      <div class="keep-tip">小提醒：请玩家记得保留旁白名，之后找码会更快。</div>
+      <div class="keep-tip">小提醒：请玩家记得保留 USERNAME，之后找码会更快。</div>
     </div>
   </section>
 
   <section class="panel">
     <div class="kicker">records</div>
     <div class="search-row">
-      <label for="searchBox">搜索备注 / 旁白名 / 邀请码</label>
-      <input id="searchBox" placeholder="输入备注、旁白名或邀请码">
+      <label for="searchBox">搜索备注 / USERNAME / 邀请码</label>
+      <input id="searchBox" placeholder="输入备注、USERNAME 或邀请码">
     </div>
     <div id="list" class="list"><div class="empty">输入管理员口令后点击刷新记录</div></div>
   </section>
@@ -230,7 +230,7 @@ function renderRows(rows){
         </div>
       </div>
       <div class="actions">
-        <button class="secondary" data-copy-name="\${escapeHtml(row.publicName || '')}">复制旁白名</button>
+        <button class="secondary" data-copy-name="\${escapeHtml(row.publicName || '')}">复制 USERNAME</button>
         <button class="secondary" data-copy="\${escapeHtml(row.code)}">复制邀请码</button>
         <button class="danger" data-reset="\${escapeHtml(row.code)}">清空设备</button>
         <button class="danger" data-toggle="\${escapeHtml(row.code)}" data-revoked="\${Number(row.revoked || 0)}">\${Number(row.revoked || 0) ? '启用' : '停用'}</button>
