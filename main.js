@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T05:48:00Z';
+const APP_BUILD_ID = '2026-05-01T06:08:00Z';
 const APP_UPDATE_NOTES = [
-  '修复第二页被主页分页轨道裁掉的问题。',
-  '远端版本更新未真正完成时会继续提示刷新。',
-  '继续保护邀请码验证和设备迁移。'
+  '补上安卓浏览器和安卓桌面 PWA 的可见高度适配。',
+  '安卓底栏跟随真实 viewport，不再被浏览器外壳吃掉。',
+  'iOS 布局分支保持不动。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -950,6 +950,34 @@ function isStandaloneMode(){
   return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
 }
 
+function isAndroidShell(){
+  try{
+    return /Android/i.test(String((window.navigator && window.navigator.userAgent) || ''));
+  }catch(e){
+    return false;
+  }
+}
+
+function isIOSShell(){
+  try{
+    return /iPad|iPhone|iPod/i.test(String((window.navigator && window.navigator.userAgent) || '')) || window.navigator.standalone === true;
+  }catch(e){
+    return false;
+  }
+}
+
+function syncShellPlatformClasses(){
+  var android = isAndroidShell();
+  var ios = isIOSShell() && !android;
+  var standalone = isStandaloneMode();
+  [document.documentElement, document.body].forEach(function(el){
+    if(!el || !el.classList) return;
+    el.classList.toggle('android-device', android);
+    el.classList.toggle('ios-device', ios);
+    el.classList.toggle('android-standalone', android && standalone);
+  });
+}
+
 function requestAppPersistentStorage(){
   try{
     if(window.PhoneStorage && typeof window.PhoneStorage.requestPersistentStorage === 'function'){
@@ -976,22 +1004,29 @@ let stableShellAppHeight = Math.round(window.innerHeight || document.documentEle
 function syncAppHeight(){
   const vv = window.visualViewport;
   const isStandalone = isStandaloneMode();
-  const viewportWidth = Math.round(isStandalone ? window.innerWidth : (vv ? vv.width : window.innerWidth));
+  const isAndroid = isAndroidShell();
+  syncShellPlatformClasses();
+  const visualWidth = Math.round(vv && vv.width ? vv.width : window.innerWidth);
+  const viewportWidth = Math.round(isAndroid ? Math.min(window.innerWidth || visualWidth, visualWidth || window.innerWidth) : (isStandalone ? window.innerWidth : (vv ? vv.width : window.innerWidth)));
   const vvTopOffset = Math.round(vv ? Math.max(0, vv.offsetTop || 0) : 0);
   const rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
-  const keyboardLikelyOpen = rawBottomOffset > 120;
-  const vvBottomOffset = keyboardLikelyOpen ? 0 : rawBottomOffset;
+  const visualHeight = Math.round(vv && vv.height ? vv.height : 0) || 0;
   const currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+  const androidViewportGap = isAndroid && visualHeight ? Math.max(0, currentHeight - visualHeight) : 0;
+  const keyboardLikelyOpen = rawBottomOffset > 120 || androidViewportGap > 180;
+  const vvBottomOffset = keyboardLikelyOpen ? 0 : rawBottomOffset;
   if(!stableShellAppHeight){
     stableShellAppHeight = currentHeight;
   }
-  if(isStandalone && !keyboardLikelyOpen && currentHeight > 0){
+  if(isAndroid && !keyboardLikelyOpen && visualHeight > 0){
+    stableShellAppHeight = visualHeight;
+  }else if(isStandalone && !keyboardLikelyOpen && currentHeight > 0){
     stableShellAppHeight = currentHeight;
   }
-  if(!keyboardLikelyOpen && currentHeight > stableShellAppHeight){
+  if(!isAndroid && !keyboardLikelyOpen && currentHeight > stableShellAppHeight){
     stableShellAppHeight = currentHeight;
   }
-  const viewportHeight = stableShellAppHeight || currentHeight;
+  const viewportHeight = isAndroid && !keyboardLikelyOpen ? (visualHeight || currentHeight || stableShellAppHeight) : (stableShellAppHeight || currentHeight);
   document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', vvBottomOffset + 'px');
