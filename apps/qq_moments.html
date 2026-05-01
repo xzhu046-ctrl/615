@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-04-30T18:34:00Z"></script>
-<script src="../assetStore.js?v=2026-04-30T18:34:00Z"></script>
-<script src="../accountManager.js?v=2026-04-30T18:34:00Z"></script>
-<script src="../metadataStore.js?v=2026-04-30T18:34:00Z"></script>
+<script src="../chatStorage.js?v=2026-04-30T18:52:00Z"></script>
+<script src="../assetStore.js?v=2026-04-30T18:52:00Z"></script>
+<script src="../accountManager.js?v=2026-04-30T18:52:00Z"></script>
+<script src="../metadataStore.js?v=2026-04-30T18:52:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -472,6 +472,7 @@ let currentImageViewerImageIndex = 0;
 let currentProfileCharId = '';
 let currentHeaderTextTarget = 'left';
 let pendingSharePostId = '';
+let momentsAccountReadyPromise = null;
 
 const REPLY_LANGUAGE_OPTIONS = {
   zh:{ value:'zh', label:'中文', nativeLabel:'简体中文' },
@@ -518,6 +519,32 @@ function storageKeyCandidates(base){
   if(raw) keys.unshift(scopedKey(raw));
   return Array.from(new Set(keys.filter(Boolean)));
 }
+function avatarStorageBases(){
+  return [
+    STORAGE_AVATAR_ASSET,
+    STORAGE_AVATAR,
+    'qq_profile_avatar_asset',
+    'user_avatar'
+  ];
+}
+function avatarStorageKeyCandidates(){
+  const keys = [];
+  avatarStorageBases().forEach((base)=>{
+    storageKeyCandidates(base).forEach((key)=>keys.push(key));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+function readExactStorageString(key){
+  try{ return String(localStorage.getItem(key) || '').trim(); }catch(e){ return ''; }
+}
+function getSyncAvatarFromStorageCandidates(){
+  const keys = avatarStorageKeyCandidates();
+  for(const key of keys){
+    const value = readExactStorageString(key);
+    if(isStableAvatarSource(value)) return value;
+  }
+  return '';
+}
 function lsGet(base){
   return localStorage.getItem(scopedKey(base));
 }
@@ -533,6 +560,15 @@ function activeProfile(){
     return window.AccountManager.getActive();
   }
   return { name: DEFAULT_BUBBLE_NAME, avatar: '' };
+}
+function ensureMomentsAccountReady(){
+  if(momentsAccountReadyPromise) return momentsAccountReadyPromise;
+  if(window.AccountManager && typeof window.AccountManager.hydrateFromStorage === 'function'){
+    momentsAccountReadyPromise = window.AccountManager.hydrateFromStorage().catch(()=>false);
+  }else{
+    momentsAccountReadyPromise = Promise.resolve(false);
+  }
+  return momentsAccountReadyPromise;
 }
 
 function esc(s){
@@ -560,7 +596,8 @@ function getProfileAvatarForStorage(){
   const profileAvatar = String((activeProfile() && activeProfile().avatar) || '').trim();
   if(isStableAvatarSource(profileAvatar)) return profileAvatar;
   const legacy = String(lsGet(STORAGE_AVATAR) || '').trim();
-  return isStableAvatarSource(legacy) ? legacy : '';
+  if(isStableAvatarSource(legacy)) return legacy;
+  return getSyncAvatarFromStorageCandidates();
 }
 function getCurrentMomentAvatarForRender(){
   const current = String(currentHeroAvatarSrc || '').trim();
@@ -2342,6 +2379,30 @@ function loadStoredAsset(key){
   try{ return Promise.resolve(localStorage.getItem(scoped) || ''); }catch(e){ return Promise.resolve(''); }
 }
 
+async function loadStoredAssetExact(key){
+  const exact = String(key || '').trim();
+  if(!exact) return '';
+  if(window.assetStore && typeof window.assetStore.load === 'function'){
+    try{
+      const stored = await window.assetStore.load(exact);
+      if(stored) return stored;
+    }catch(e){}
+  }
+  return readExactStorageString(exact);
+}
+
+async function resolveAvatarFromStorageCandidates(){
+  const keys = avatarStorageKeyCandidates();
+  for(const key of keys){
+    try{
+      const value = await loadStoredAssetExact(key);
+      if(value instanceof Blob) return URL.createObjectURL(value);
+      if(typeof value === 'string' && isRenderableAssetSource(value)) return value;
+    }catch(e){}
+  }
+  return '';
+}
+
 function saveStoredAsset(key, data){
   const scoped = scopedKey(key);
   if(window.assetStore) return window.assetStore.saveOrFallback(scoped, data);
@@ -2441,12 +2502,30 @@ function hasMomentRealImage(post){
 async function resolveHeroSource(legacyKey, assetKey){
   const cacheKey = scopedKey(assetKey);
   if(transientAssets[cacheKey]) return transientAssets[cacheKey];
-  const assetVal = await loadStoredAsset(assetKey);
-  if(assetVal instanceof Blob){
-    return URL.createObjectURL(assetVal);
+  const candidateKeys = Array.from(new Set([
+    ...storageKeyCandidates(assetKey),
+    ...storageKeyCandidates(legacyKey)
+  ].filter(Boolean)));
+  for(const key of candidateKeys){
+    const assetVal = await loadStoredAssetExact(key);
+    if(assetVal instanceof Blob){
+      return URL.createObjectURL(assetVal);
+    }
+    if(typeof assetVal === 'string' && isRenderableAssetSource(assetVal)) return assetVal;
   }
-  if(typeof assetVal === 'string' && assetVal) return assetVal;
-  return lsGet(legacyKey) || '';
+  return '';
+}
+
+async function resolveMomentsUserAvatarSource(storedHeroAvatar, profile){
+  await ensureMomentsAccountReady();
+  const savedHero = String(storedHeroAvatar || '').trim();
+  if(isRenderableAssetSource(savedHero)) return savedHero;
+  const hydratedProfile = profile || activeProfile();
+  const profileAvatar = String((hydratedProfile && hydratedProfile.avatar) || '').trim();
+  if(isRenderableAssetSource(profileAvatar)) return profileAvatar;
+  const storedAvatar = await resolveAvatarFromStorageCandidates();
+  if(isRenderableAssetSource(storedAvatar)) return storedAvatar;
+  return getSyncAvatarFromStorageCandidates();
 }
 
 async function persistHeroUpload(legacyKey, assetKey, file, src){
@@ -2472,9 +2551,10 @@ async function persistHeroUpload(legacyKey, assetKey, file, src){
 }
 
 async function renderHero(){
+  await ensureMomentsAccountReady();
   const profile = activeProfile();
   const storedHeroAvatar = await resolveHeroSource(STORAGE_AVATAR, STORAGE_AVATAR_ASSET);
-  const avSrc = storedHeroAvatar || profile.avatar || '';
+  const avSrc = await resolveMomentsUserAvatarSource(storedHeroAvatar, profile);
   if(heroAvatarObjectUrl && heroAvatarObjectUrl !== avSrc){
     URL.revokeObjectURL(heroAvatarObjectUrl);
     heroAvatarObjectUrl = '';
@@ -2779,16 +2859,19 @@ notifyMomentsSeen();
 window.addEventListener('beforeunload', restoreParentTopbar);
 window.addEventListener('pagehide', restoreParentTopbar);
 hydratePostsFromBridge();
-renderHero();
-hydratePostsFromLargeStore().then(function(){
-  notifyMomentsSeen();
-  renderFeed();
-  let queryProfileChar = '';
-  try{ queryProfileChar = String(new URLSearchParams(location.search).get('char') || '').trim(); }catch(e){}
-  const storedProfileChar = queryProfileChar || String(localStorage.getItem(scopedKey(STORAGE_PROFILE_CHAR)) || localStorage.getItem(STORAGE_PROFILE_CHAR) || '').trim();
-  if(storedProfileChar) openCharProfile(storedProfileChar);
-}).catch(function(){
-  renderFeed();
+ensureMomentsAccountReady().then(function(){
+  return renderHero();
+}).finally(function(){
+  hydratePostsFromLargeStore().then(function(){
+    notifyMomentsSeen();
+    renderFeed();
+    let queryProfileChar = '';
+    try{ queryProfileChar = String(new URLSearchParams(location.search).get('char') || '').trim(); }catch(e){}
+    const storedProfileChar = queryProfileChar || String(localStorage.getItem(scopedKey(STORAGE_PROFILE_CHAR)) || localStorage.getItem(STORAGE_PROFILE_CHAR) || '').trim();
+    if(storedProfileChar) openCharProfile(storedProfileChar);
+  }).catch(function(){
+    renderFeed();
+  });
 });
 if(window.MetadataStore && typeof window.MetadataStore.init === 'function'){
   window.MetadataStore.init().then(function(){
