@@ -37,6 +37,8 @@ const AI_BG_ENABLED_KEY = 'ai_bg_activity_enabled';
 const AI_BG_INTERVAL_KEY = 'ai_bg_activity_interval_min';
 const AI_BG_LAST_AT_KEY = 'ai_bg_activity_last_at';
 const MOMENTS_POSTS_KEY = 'qq_moments_posts';
+const MOMENTS_POSTS_BRIDGE_KEY = 'qq_moments_bridge_posts';
+const MOMENTS_POST_RECORD_PREFIX = 'qq_moments_post_record_';
 const WIDGET_TEXT_OVERRIDE_CHAR_KEY = 'widget_text_override_char';
 const WIDGET_TEXT_OVERRIDE_USER_KEY = 'widget_text_override_user';
 const WIDGET_LAST_CHAT_CHAR_KEY = 'widget_last_chat_char';
@@ -50,7 +52,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T21:25:00Z';
+const APP_BUILD_ID = '2026-05-01T22:20:00Z';
 const APP_UPDATE_NOTES = [
   '酒馆导入按钮修正'
 ];
@@ -2969,13 +2971,37 @@ async function readBackgroundMoments(accountId){
 }
 
 async function writeBackgroundMoments(accountId, posts){
-  var key = scopedKeyForAccount(MOMENTS_POSTS_KEY, accountId);
+  var safePosts = Array.isArray(posts) ? posts : [];
+  var keys = Array.from(new Set([
+    scopedKeyForAccount(MOMENTS_POSTS_KEY, accountId),
+    scopedKeyForAccount(MOMENTS_POSTS_ALT_KEY, accountId),
+    scopedKeyForAccount(MOMENTS_POSTS_BRIDGE_KEY, accountId),
+    MOMENTS_POSTS_KEY,
+    MOMENTS_POSTS_ALT_KEY,
+    MOMENTS_POSTS_BRIDGE_KEY
+  ].filter(Boolean)));
   if(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function'){
-    await saveLargeState(key, Array.isArray(posts) ? posts : []);
-    try{ localStorage.setItem(key, JSON.stringify(Array.isArray(posts) ? posts : [])); }catch(ignoreErr){}
+    await Promise.all(keys.map(function(key){
+      return saveLargeState(key, safePosts).catch(function(){ return null; });
+    }));
+    await Promise.all(safePosts.map(function(post){
+      if(!(post && post.id)) return null;
+      var id = String(post.id || '').trim();
+      return Promise.all([
+        saveLargeState(scopedKeyForAccount(MOMENTS_POST_RECORD_PREFIX + id, accountId), post).catch(function(){ return null; }),
+        saveLargeState(MOMENTS_POST_RECORD_PREFIX + id, post).catch(function(){ return null; })
+      ]);
+    }));
+    try{
+      var serialized = JSON.stringify(safePosts);
+      keys.forEach(function(key){ localStorage.setItem(key, serialized); });
+    }catch(ignoreErr){}
     return;
   }
-  try{ localStorage.setItem(key, JSON.stringify(Array.isArray(posts) ? posts : [])); }catch(e){}
+  try{
+    var payload = JSON.stringify(safePosts);
+    keys.forEach(function(key){ localStorage.setItem(key, payload); });
+  }catch(e){}
 }
 
 async function readBackgroundBlockState(charId, accountId){

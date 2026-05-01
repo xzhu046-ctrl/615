@@ -3651,6 +3651,8 @@ var bubbleThemeCssDraft = '';
 var chatThemePartDrafts = {};
 var activeChatThemePart = 'bubble';
 var MOMENTS_POSTS_KEY = 'qq_moments_posts';
+var MOMENTS_POSTS_BRIDGE_KEY = 'qq_moments_bridge_posts';
+var MOMENTS_POST_RECORD_PREFIX = 'qq_moments_post_record_';
 var MOMENTS_BUBBLE_NAME_KEY = 'qq_moments_bubble_name';
 var MOMENTS_DEFAULT_USER_NAME = '我哥天下第一好';
 var momentsIntentFromUser = null;
@@ -6498,6 +6500,14 @@ function voiceCallSessionStorageId(charId){
 }
 function momentsPostsStorageId(){
   return accountScopedKey('moments_posts');
+}
+function momentPostRecordStorageIds(postId){
+  var id = String(postId || '').trim();
+  if(!id) return [];
+  return Array.from(new Set([
+    momentStorageKey(MOMENTS_POST_RECORD_PREFIX + id),
+    MOMENTS_POST_RECORD_PREFIX + id
+  ].filter(Boolean)));
 }
 function momentsSocialStorageId(charId){
   return accountScopedKey('moments_social_state_' + String(charId || ''));
@@ -10922,6 +10932,7 @@ async function deleteThemePreset(mode, id){
 function applyDraftGlobalTheme(){
   var css = String((document.getElementById('csGlobalCss') || {}).value || '');
   applyGlobalChatThemeCss(css);
+  queueChatThemeDraftAutosave();
   toast('全局样式已预览应用');
 }
 
@@ -10929,6 +10940,7 @@ function applyDraftBubbleTheme(){
   syncActiveChatThemePartDraftFromInput();
   ensureBubbleChatThemeStyleNode().textContent = composeChatThemePartCss();
   applyChatBubblePreviewCss(getActiveChatThemePartCss());
+  queueChatThemeDraftAutosave();
   toast(getChatThemePartMeta(activeChatThemePart).label + '样式已预览应用');
 }
 
@@ -10966,6 +10978,7 @@ async function applyThemePreset(mode, id){
     applyGlobalChatThemeCss(hit.css || '');
     renderGlobalThemePresetList();
   }
+  queueChatThemeDraftAutosave();
   toast('已切换到预设：' + hit.name);
 }
 
@@ -10975,6 +10988,7 @@ function resetGlobalThemeDraft(){
   if(input) input.value = css;
   applyGlobalChatThemeCss(css);
   renderGlobalThemePresetList();
+  queueChatThemeDraftAutosave();
   toast('已恢复默认全局 CSS');
 }
 
@@ -10986,7 +11000,31 @@ function resetBubbleThemeDraft(){
   ensureBubbleChatThemeStyleNode().textContent = composeChatThemePartCss();
   applyChatBubblePreviewCss(css);
   renderBubbleThemePresetList();
+  queueChatThemeDraftAutosave();
   toast('已恢复默认' + getChatThemePartMeta(activeChatThemePart).label + ' CSS');
+}
+
+var chatThemeDraftAutosaveTimer = 0;
+function queueChatThemeDraftAutosave(){
+  if(!character || !character.id) return;
+  clearTimeout(chatThemeDraftAutosaveTimer);
+  chatThemeDraftAutosaveTimer = setTimeout(function(){
+    var globalInput = document.getElementById('csGlobalCss');
+    var globalCss = String(globalInput && globalInput.value || globalThemeCssDraft || '');
+    syncActiveChatThemePartDraftFromInput();
+    saveChatSettingsBundle(character.id, {
+      globalCss: globalCss,
+      themeParts: cloneJsonSafe(chatThemePartDrafts || {}, {})
+    }).catch(function(err){
+      console.warn('chat theme autosave bundle failed', err);
+    });
+    saveGlobalChatThemeCss(character.id, globalCss).catch(function(err){
+      console.warn('global chat css autosave failed', err);
+    });
+    saveAllChatThemePartCss(character.id).catch(function(err){
+      console.warn('chat theme part autosave failed', err);
+    });
+  }, 520);
 }
 
 function bindThemeDraftInputs(){
@@ -10996,6 +11034,7 @@ function bindThemeDraftInputs(){
     globalInput.addEventListener('input', function(){
       applyGlobalChatThemeCss(String(globalInput.value || ''));
       renderGlobalThemePresetList();
+      queueChatThemeDraftAutosave();
     });
   }
   var bubbleInput = document.getElementById('csBubbleCss');
@@ -11006,6 +11045,7 @@ function bindThemeDraftInputs(){
       ensureBubbleChatThemeStyleNode().textContent = composeChatThemePartCss();
       applyChatBubblePreviewCss(String(bubbleInput.value || ''));
       renderBubbleThemePresetList();
+      queueChatThemeDraftAutosave();
     });
   }
   var innerVoiceInput = document.getElementById('csInnerVoiceCss');
@@ -12946,12 +12986,22 @@ function writeMomentsPosts(posts){
   momentsPostsCache = Array.isArray(posts) ? posts.slice() : [];
   saveJsonToLargeStore(momentsPostsStorageId(), momentsPostsCache);
   saveJsonToLargeStore(momentStorageKey(MOMENTS_POSTS_KEY), momentsPostsCache);
+  saveJsonToLargeStore(MOMENTS_POSTS_KEY, momentsPostsCache);
+  saveJsonToLargeStore(momentStorageKey('moments_posts'), momentsPostsCache);
+  momentsPostsCache.forEach(function(post){
+    if(!(post && post.id)) return;
+    momentPostRecordStorageIds(post.id).forEach(function(key){
+      saveJsonToLargeStore(key, post);
+    });
+  });
   try{
     var serialized = JSON.stringify(momentsPostsCache);
     localStorage.setItem(momentStorageKey(MOMENTS_POSTS_KEY), serialized);
     localStorage.setItem(momentStorageKey('moments_posts'), serialized);
+    localStorage.setItem(momentStorageKey(MOMENTS_POSTS_BRIDGE_KEY), serialized);
     localStorage.setItem(MOMENTS_POSTS_KEY, serialized);
     localStorage.setItem('moments_posts', serialized);
+    localStorage.setItem(MOMENTS_POSTS_BRIDGE_KEY, serialized);
   }catch(e){}
 }
 
@@ -25470,17 +25520,12 @@ function syncChatViewport(){
   if(metrics.currentHeight > stableChatAppHeight){
     stableChatAppHeight = metrics.currentHeight;
   }
-  var keyboardInset = metrics.rawBottomOffset > 120 ? metrics.rawBottomOffset : 0;
+  var inferredInset = Math.max(0, stableChatAppHeight - metrics.visibleHeight);
+  var keyboardInset = Math.max(metrics.rawBottomOffset, inferredInset);
   if(keyboardInset < 120) keyboardInset = 0;
-  var textInputActive = chatTextFieldFocusActive || isChatTextInputActive();
   if(keyboardInset > 0){
     lastChatKeyboardInset = keyboardInset;
     lastChatKeyboardInsetAt = Date.now();
-  }
-  if(textInputActive && keyboardInset < 120 && isCompactTouchChatViewport()){
-    if(lastChatKeyboardInset > 120 && Date.now() - lastChatKeyboardInsetAt < 2400){
-      keyboardInset = lastChatKeyboardInset;
-    }
   }
   var vh = stableChatAppHeight || metrics.currentHeight;
   document.documentElement.style.setProperty('--chat-app-height', vh + 'px');
@@ -25521,9 +25566,23 @@ function applyComposerPlacement(metrics, keyboardInset){
   if(!composer) return;
   var ownInset = Math.max(0, Number(keyboardInset || 0));
   var parentInset = Math.max(0, Number(parentComposerShift || 0));
-  var shift = ownInset > 120 ? ownInset : parentInset;
-  if(ownInset > 120 && parentInset > ownInset + 80) shift = ownInset;
-  shift = Math.min(360, shift);
+  var vv = window.visualViewport;
+  var hintedInset = Math.max(ownInset, parentInset);
+  var visualBottom = metrics && metrics.currentHeight ? metrics.currentHeight : Math.round(window.innerHeight || document.documentElement.clientHeight || 0);
+  if(vv && vv.height){
+    visualBottom = Math.round((vv.height || 0) + (vv.offsetTop || 0));
+  }else if(hintedInset > 120){
+    visualBottom = Math.max(0, visualBottom - hintedInset);
+  }
+  document.documentElement.style.setProperty('--composer-shift', '0px');
+  var rect = composer.getBoundingClientRect();
+  var shift = 0;
+  if(hintedInset > 120 || isChatTextInputActive()){
+    var overlap = Math.round((rect.bottom || 0) - (visualBottom - 10));
+    shift = overlap > 0 ? overlap : 0;
+    if(!shift && !vv && hintedInset > 120) shift = hintedInset;
+  }
+  shift = Math.min(520, Math.max(0, shift));
   document.documentElement.style.setProperty('--composer-shift', shift + 'px');
   composer.style.top = '';
   composer.style.bottom = 'var(--composer-bottom)';
