@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T03:29:05Z';
+const APP_BUILD_ID = '2026-05-01T03:43:37Z';
 const APP_UPDATE_NOTES = [
-  '邀请码验证弹窗标题拆成欢迎游玩和0615小手机两行。',
-  '验证页背景改为花瓣掉落动图整屏背景。',
-  '更新缓存版本，手机端刷新后会拉取新的验证页样式。'
+  '验证码弹窗背景改为高清竖屏图，手机端不再拉糊。',
+  '欢迎标题和顶部线谱拉开距离。',
+  '邀请码后台新增随机旁白名、必填备注、搜索和删除防复现逻辑。'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,

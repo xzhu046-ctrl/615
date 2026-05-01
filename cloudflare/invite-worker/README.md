@@ -8,6 +8,8 @@
 - 已绑定设备可以无限打开。
 - 第 3 台设备会被拒绝。
 - 邀请码可以撤销。
+- 管理页生成邀请码时必须填写备注，并会生成一个不重复的“xxx的xx”旁白名，方便玩家和管理员核对。
+- 删除邀请码会写入隐藏记录，刷新或同备注重新生成时不会把已删除的邀请码带回来。
 
 ## Cloudflare 准备
 
@@ -34,4 +36,3 @@ wrangler deploy --config cloudflare/invite-worker/wrangler.toml
 ```
 
 部署完成后，把 Worker URL 填到 `main.js` 的 `INVITE_GATE_CONFIG.apiBase`，并把 `enabled` 改成 `true`。
-
