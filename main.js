@@ -50,11 +50,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T14:30:00Z';
+const APP_BUILD_ID = '2026-05-01T14:45:00Z';
 const APP_UPDATE_NOTES = [
-  '键盘输入框修正',
-  '暂时离开不结束邀约',
-  '心声一起生成修正'
+  '心声同轮提示词修正',
+  '聊天输出协议收紧',
+  '心声不再二次兜底'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,

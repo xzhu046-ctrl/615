@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-01T14:30:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-01T14:30:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T14:30:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T14:30:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T14:30:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-01T14:30:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-01T14:30:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-01T14:30:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-01T14:30:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-01T14:30:00Z"></script>
+<script src="../promptManager.js?v=2026-05-01T14:45:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T14:45:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T14:45:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T14:45:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T14:45:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-01T14:45:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-01T14:45:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-01T14:45:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-01T14:45:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-01T14:45:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -20089,8 +20089,12 @@ function buildChatExtendedFormatPrompt(){
     lines.push('如果是 rich_html，translation 必须翻译整张卡片里所有可见文字，不要偷懒只写一句“这是一张什么卡片”的概括。');
   }
   if(getInnerVoiceGenerationMode() === 'together'){
-    lines.push('当前心声模式是“和聊天一起生成”：同一次 JSON 回复里必须额外带一条 {"type":"inner_voice","headline":"...","body":"...","strike":"..."}。');
-    lines.push('inner_voice 只用于系统保存心声，不会显示成聊天气泡；headline、body、strike 必须贴合本轮刚发出的角色回复和当前上下文。');
+    lines.push('【心声同轮输出铁律】');
+    lines.push('当前心声模式是“和聊天一起生成”：本轮回复必须是可解析 JSON 数组，或包含 messages/replies 的 JSON 对象；除了聊天动作外，必须额外带一条独立对象 {"type":"inner_voice","headline":"...","body":"...","strike":"..."}。');
+    lines.push('数组或 messages/replies 里至少要有一条可显示聊天动作，也至少要有一条 inner_voice；inner_voice 可放最后，不占聊天气泡数量。');
+    lines.push('inner_voice 是隐藏系统动作，不是角色台词；不要写进 text/narrator/rich_html，不要解释“我生成了心声”，不要省略 type。');
+    lines.push('headline/body/strike 必须基于本轮已经决定发出的角色回复和当前上下文；headline 8-18 字，body 不可为空，strike 没有就空字符串。');
+    lines.push('如果本轮输出 rich_html/offline_invite/narrator/rename_profile/change_avatar 等特殊动作，也仍然必须另外带 inner_voice 对象。');
   }
   var richReplyLang = getCharacterReplyLanguage();
   var richReplyLangOption = getReplyLanguageOption(richReplyLang);
@@ -31765,6 +31769,9 @@ async function deliverAiReply(text, limitOverride, options){
   };
   var appendRawPartsFromEnvelope = function(obj){
     if(!obj || typeof obj !== 'object') return false;
+    var beforeCount = rawParts.length;
+    if(obj.inner_voice && typeof obj.inner_voice === 'object') appendRawPart({ type: 'inner_voice', inner_voice: obj.inner_voice });
+    if(obj.innerVoice && typeof obj.innerVoice === 'object') appendRawPart({ type: 'inner_voice', innerVoice: obj.innerVoice });
     var list = null;
     if(Array.isArray(obj)) list = obj;
     else if(Array.isArray(obj.messages)) list = obj.messages;
@@ -31772,9 +31779,9 @@ async function deliverAiReply(text, limitOverride, options){
     else if(Array.isArray(obj.reply)) list = obj.reply;
     else if(Array.isArray(obj.response)) list = obj.response;
     else if(Array.isArray(obj.history)) list = obj.history;
-    if(!Array.isArray(list) || !list.length) return false;
+    if(!Array.isArray(list) || !list.length) return rawParts.length > beforeCount;
     list.forEach(appendRawPart);
-    return rawParts.length > 0;
+    return rawParts.length > beforeCount;
   };
   var normalizeJsonishReplyText = function(raw){
     var s = String(raw || '');
@@ -32455,10 +32462,7 @@ async function deliverAiReply(text, limitOverride, options){
   }
   if(sentTexts.length){
     if(getInnerVoiceGenerationMode() === 'together'){
-      var savedInlineInnerVoice = saveInlineInnerVoiceCandidate(inlineInnerVoiceCandidates[inlineInnerVoiceCandidates.length - 1] || null);
-      if(!savedInlineInnerVoice){
-        refreshInnerVoiceFromAi(sentTexts[sentTexts.length - 1]);
-      }
+      saveInlineInnerVoiceCandidate(inlineInnerVoiceCandidates[inlineInnerVoiceCandidates.length - 1] || null);
     }else{
       refreshInnerVoiceFromAi(sentTexts[sentTexts.length - 1]);
     }
