@@ -50,11 +50,9 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T07:18:00Z';
+const APP_BUILD_ID = '2026-05-01T07:32:00Z';
 const APP_UPDATE_NOTES = [
-  '安卓主页底栏改为可视底部固定，不再被缩放框挤出屏幕。',
-  '同一安卓设备换浏览器优先用物理指纹合并设备数。',
-  '邀请码旧浏览器安装 ID 会作为别名迁移，不再轻易占满两台。'
+  '更新布局'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1399,36 +1397,15 @@ function updateHostedUpdateMeta(remoteFingerprint){
   var notes = document.getElementById('update-toast-notes');
   if(!meta && !notes) return;
   var remote = String(remoteFingerprint || pendingRemoteAppFingerprint || getLastSeenHostedRemoteBuild() || '').trim();
-  var lines;
-  if(installedUpdateNoticeActive){
-    lines = [
-      '当前版本：' + APP_BUILD_ID,
-      '更新状态：本机已安装这一版'
-    ];
-  }else{
-    lines = [
-      '当前版本：' + APP_BUILD_ID,
-      '远端版本：' + (remote || '未读到')
-    ];
-    if(lastHostedUpdateCheckStatus){
-      lines.push('检查状态：' + lastHostedUpdateCheckStatus);
-    }
-  }
   if(meta){
-    meta.innerHTML = lines.map(function(line){
-      return line.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    }).join('<br>');
+    meta.textContent = '';
   }
   if(notes){
     var noteLines = getHostedUpdateNotes(remote);
-    var noteIcons = ['❶︎','❷︎','❸︎','❹︎','❺︎','❻︎','❼︎','❽︎','❾︎','❿︎'];
-    notes.innerHTML = [
-      '<div class="update-toast-notes-label">更新日志</div>',
-      noteLines.map(function(line, idx){
-        var safe = String(line || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
-        return '<div class="update-toast-note-line"><span class="update-toast-note-icon" aria-hidden="true">' + (noteIcons[idx] || String(idx + 1)) + '</span><span class="update-toast-note-text">' + safe + '</span></div>';
-      }).join('')
-    ].join('');
+    notes.innerHTML = noteLines.map(function(line){
+      var safe = String(line || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      return '<div class="update-toast-note-line"><span class="update-toast-note-text">' + safe + '</span></div>';
+    }).join('');
   }
 }
 
@@ -1520,19 +1497,21 @@ function setUpdateToastCopy(mode){
   var subtitle = document.getElementById('update-toast-subtitle');
   var btn = document.getElementById('update-toast-btn');
   if(mode === 'installed'){
-    if(heading) heading.textContent = '已经更新好啦';
-    if(subtitle) subtitle.textContent = '先看一眼这版到底改了什么。';
+    if(heading) heading.textContent = '';
+    if(subtitle) subtitle.textContent = '';
     if(btn){
       btn.disabled = false;
-      btn.textContent = '我知道了';
+      btn.textContent = '✓';
+      btn.setAttribute('aria-label', '确认');
       btn.onclick = acknowledgeInstalledUpdateNotice;
     }
   }else{
-    if(heading) heading.textContent = '更新了哦';
-    if(subtitle) subtitle.textContent = '请点击刷新切到最新版本。';
+    if(heading) heading.textContent = '';
+    if(subtitle) subtitle.textContent = '';
     if(btn){
       btn.disabled = false;
-      btn.textContent = '刷新';
+      btn.textContent = '↻';
+      btn.setAttribute('aria-label', '刷新');
       btn.onclick = refreshInstalledApp;
     }
   }
