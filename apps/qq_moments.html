@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-01T11:28:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T11:28:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T11:28:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T11:28:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-01T12:02:00Z"></script>
+<script src="../assetStore.js?v=2026-05-01T12:02:00Z"></script>
+<script src="../accountManager.js?v=2026-05-01T12:02:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-01T12:02:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -428,6 +428,7 @@ const STORAGE_HEADER_TILE_4 = 'qq_moments_header_tile_4';
 const STORAGE_HEADER_TILE_5 = 'qq_moments_header_tile_5';
 const STORAGE_HEADER_TILE_6 = 'qq_moments_header_tile_6';
 const STORAGE_BUBBLE_NAME = 'qq_moments_bubble_name';
+const STORAGE_POST_RECORD_PREFIX = 'qq_moments_post_record_';
 const DEFAULT_BUBBLE_NAME = '我哥天下第一好';
 const STORAGE_BG_ASSET = 'qq_moments_hero_bg_asset';
 const STORAGE_AVATAR_ASSET = 'qq_moments_hero_avatar_asset';
@@ -477,6 +478,7 @@ let currentProfileCharId = '';
 let currentHeaderTextTarget = 'left';
 let pendingSharePostId = '';
 let momentsAccountReadyPromise = null;
+let pendingPostsSavePromise = Promise.resolve();
 
 const REPLY_LANGUAGE_OPTIONS = {
   zh:{ value:'zh', label:'中文', nativeLabel:'简体中文' },
@@ -1232,7 +1234,76 @@ function savePosts(posts){
       }catch(ignorePhoneErr){}
     });
   }
-  return Promise.all(writes).then(()=>safePosts).catch(()=>safePosts);
+  safePosts.forEach((post)=>{
+    writes.push(saveMomentPostRecord(post).catch(()=>null));
+  });
+  pendingPostsSavePromise = Promise.all(writes).then(()=>safePosts).catch(()=>safePosts);
+  return pendingPostsSavePromise;
+}
+
+function momentPostRecordKeys(postId){
+  const id = String(postId || '').trim();
+  if(!id) return [];
+  return Array.from(new Set([
+    scopedKey(STORAGE_POST_RECORD_PREFIX + id),
+    STORAGE_POST_RECORD_PREFIX + id
+  ].filter(Boolean)));
+}
+
+function saveMomentPostRecord(post){
+  if(!(post && post.id) || !(window.PhoneStorage && typeof window.PhoneStorage.putJson === 'function')){
+    return Promise.resolve(null);
+  }
+  const safePost = sanitizeMomentPostForStorage(post);
+  return Promise.all(momentPostRecordKeys(safePost.id).map((key)=>{
+    return window.PhoneStorage.putJson(key, safePost).catch(()=>null);
+  })).then(()=>safePost);
+}
+
+function removeMomentPostRecords(postIds){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.removeJson === 'function')){
+    return Promise.resolve(null);
+  }
+  const ids = Array.from(new Set((Array.isArray(postIds) ? postIds : []).map((id)=>String(id || '').trim()).filter(Boolean)));
+  const tasks = [];
+  ids.forEach((id)=>{
+    momentPostRecordKeys(id).forEach((key)=>{
+      tasks.push(window.PhoneStorage.removeJson(key).catch(()=>null));
+    });
+  });
+  return Promise.all(tasks).then(()=>null).catch(()=>null);
+}
+
+function mergeMomentPostLists(base, incoming){
+  const map = new Map();
+  (Array.isArray(base) ? base : []).forEach((post)=>{
+    if(post && post.id) map.set(String(post.id), sanitizeMomentPostForStorage(post));
+  });
+  (Array.isArray(incoming) ? incoming : []).forEach((post)=>{
+    if(!(post && post.id)) return;
+    const id = String(post.id);
+    const current = map.get(id);
+    const next = sanitizeMomentPostForStorage(post);
+    if(!current || getPostActivityStamp(next) >= getPostActivityStamp(current)){
+      map.set(id, next);
+    }
+  });
+  return Array.from(map.values()).sort((a,b)=> (Number(b.createdAt || 0) || 0) - (Number(a.createdAt || 0) || 0));
+}
+
+async function loadMomentPostRecordsFromPhoneStorage(){
+  if(!(window.PhoneStorage && typeof window.PhoneStorage.list === 'function')) return [];
+  try{
+    const records = await window.PhoneStorage.list('kv');
+    if(!Array.isArray(records)) return [];
+    return records.map((record)=>{
+      const id = String(record && record.id || '');
+      const data = record && Object.prototype.hasOwnProperty.call(record, 'data') ? record.data : null;
+      return id.indexOf(STORAGE_POST_RECORD_PREFIX) !== -1 && data && data.id ? data : null;
+    }).filter(Boolean);
+  }catch(e){
+    return [];
+  }
 }
 
 async function hydratePostsFromLargeStore(){
@@ -1251,11 +1322,13 @@ async function hydratePostsFromLargeStore(){
       }catch(ignoreErr){}
       if(Array.isArray(stored)){
         const current = Array.isArray(hydratedPostsCache) ? hydratedPostsCache.slice() : getPosts();
-        if(shouldKeepCurrentPostsOverHydrated(current, stored)){
+        const postRecords = await loadMomentPostRecordsFromPhoneStorage();
+        const mergedStored = mergeMomentPostLists(stored, postRecords);
+        if(shouldKeepCurrentPostsOverHydrated(current, mergedStored)){
           savePosts(current);
           return;
         }
-        const safeStored = stored.map(sanitizeMomentPostForStorage);
+        const safeStored = mergedStored.map(sanitizeMomentPostForStorage);
         hydratedPostsCache = safeStored.slice();
         writePostsToAllLocalStores(JSON.stringify(safeStored));
         return;
@@ -1266,21 +1339,27 @@ async function hydratePostsFromLargeStore(){
         const records = await window.PhoneStorage.list('kv');
         if(Array.isArray(records)){
           let matched = [];
+          let postRecords = [];
           records.forEach((record)=>{
             const id = String(record && record.id || '');
             const data = record && Object.prototype.hasOwnProperty.call(record, 'data') ? record.data : null;
+            if(id.indexOf(STORAGE_POST_RECORD_PREFIX) !== -1 && data && data.id){
+              postRecords.push(data);
+              return;
+            }
             if(!/moments_posts/i.test(id)) return;
             if(Array.isArray(data) && !matched.length){
               matched = data;
             }
           });
-          if(Array.isArray(matched) && matched.length){
+          if((Array.isArray(matched) && matched.length) || (Array.isArray(postRecords) && postRecords.length)){
             const current = Array.isArray(hydratedPostsCache) ? hydratedPostsCache.slice() : getPosts();
-            if(shouldKeepCurrentPostsOverHydrated(current, matched)){
+            const mergedIncoming = mergeMomentPostLists(matched, postRecords);
+            if(shouldKeepCurrentPostsOverHydrated(current, mergedIncoming)){
               savePosts(current);
               return;
             }
-            const safeMatched = matched.map(sanitizeMomentPostForStorage);
+            const safeMatched = mergedIncoming.map(sanitizeMomentPostForStorage);
             hydratedPostsCache = safeMatched.slice();
             writePostsToAllLocalStores(JSON.stringify(safeMatched));
           }
@@ -1829,6 +1908,7 @@ function confirmDeletePosts(){
   });
   const next = getPosts().filter((post)=>!selected.has(String(post && post.id || '')));
   savePosts(next);
+  removeMomentPostRecords(Array.from(selected));
   const btn = document.getElementById('deleteFab');
   if(btn) btn.classList.remove('delete-active');
   const overlay = document.getElementById('deleteConfirmOverlay');
@@ -2867,6 +2947,9 @@ function restoreParentTopbar(){
 bindInputs();
 bindCaptchaCarousel();
 hideParentTopbar();
+window.persistAppBeforeLeave = function(){
+  return pendingPostsSavePromise || Promise.resolve();
+};
 function getMaxMomentsPostCreatedAt(){
   try{
     return getPosts().reduce((max, post)=>Math.max(max, Number(post && post.createdAt || 0) || 0), 0);

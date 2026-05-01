@@ -50,10 +50,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-01T11:28:00Z';
+const APP_BUILD_ID = '2026-05-01T12:02:00Z';
 const APP_UPDATE_NOTES = [
-  '朋友圈保存修正',
-  '键盘布局修正'
+  '朋友圈保存加固',
+  '键盘与卡片修正'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -769,15 +769,7 @@ function getFallbackChatKeyboardShift(){
 }
 
 function syncChatKeyboardShift(){
-  if(currentApp !== 'chat'){
-    setChatKeyboardShift(0);
-    return;
-  }
-  var viewportShift = chatInputFocusActive ? getTopLevelChatKeyboardShift() : 0;
-  var reportedShift = Number(chatReportedKeyboardShift) || 0;
-  var fallbackShift = chatInputFocusActive ? getFallbackChatKeyboardShift() : 0;
-  var next = Math.max(viewportShift, reportedShift, fallbackShift);
-  setChatKeyboardShift(next);
+  setChatKeyboardShift(0);
 }
 
 function offlineMinimizedStorageKey(){
@@ -1131,6 +1123,9 @@ function syncAppHeight(){
   const currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
   const androidViewportGap = isAndroid && visualHeight ? Math.max(0, currentHeight - visualHeight) : 0;
   const keyboardLikelyOpen = rawBottomOffset > 120 || androidViewportGap > 180;
+  if(keyboardLikelyOpen && document.documentElement.classList.contains('home-widget-text-editing')){
+    return;
+  }
   if(keyboardLikelyOpen && currentApp && currentApp !== 'chat'){
     return;
   }
@@ -9301,6 +9296,12 @@ async function flushCurrentAppState(){
       }
     }catch(err){}
     try{
+      if(typeof f.contentWindow.persistAppBeforeLeave === 'function'){
+        var appPersistResult = f.contentWindow.persistAppBeforeLeave();
+        if(appPersistResult && typeof appPersistResult.then === 'function') await appPersistResult;
+      }
+    }catch(err){}
+    try{
       if(typeof f.contentWindow.saveChat === 'function'){
         await f.contentWindow.saveChat(true);
       }else if(typeof f.contentWindow.persistChatBeforeLeave === 'function'){
@@ -9545,16 +9546,11 @@ function setChatShellBackground(src){
 function setChatKeyboardShift(value){
   var container = document.getElementById('app-container');
   if(!container) return;
-  var shift = Math.max(0, Math.min(420, Number(value) || 0));
-  if(shift){
-    container.style.setProperty('--chat-keyboard-shift', shift + 'px');
-  }else{
-    container.style.removeProperty('--chat-keyboard-shift');
-  }
+  container.style.removeProperty('--chat-keyboard-shift');
   try{
     var frame = document.getElementById('app-iframe');
     if(frame && frame.contentWindow){
-      frame.contentWindow.postMessage({ type:'PARENT_CHAT_COMPOSER_SHIFT', payload: shift }, '*');
+      frame.contentWindow.postMessage({ type:'PARENT_CHAT_COMPOSER_SHIFT', payload: 0 }, '*');
     }
   }catch(err){}
 }
@@ -10718,9 +10714,101 @@ function finishWidgetBubbleEdit(role, opts){
   }
 }
 
+function ensureWidgetTextEditorOverlay(){
+  var existing = document.getElementById('widget-text-editor-overlay');
+  if(existing) return existing;
+  var overlay = document.createElement('div');
+  overlay.id = 'widget-text-editor-overlay';
+  overlay.className = 'widget-text-editor-overlay';
+  overlay.innerHTML = [
+    '<div class="widget-text-editor-card">',
+      '<div class="widget-text-editor-title" id="widget-text-editor-title">修改文案</div>',
+      '<input class="widget-text-editor-input" id="widget-text-editor-input" type="text" maxlength="80" autocomplete="off">',
+      '<div class="widget-text-editor-actions">',
+        '<button class="widget-text-editor-btn" id="widget-text-editor-cancel" type="button">取消</button>',
+        '<button class="widget-text-editor-btn primary" id="widget-text-editor-done" type="button">完成</button>',
+      '</div>',
+    '</div>'
+  ].join('');
+  document.body.appendChild(overlay);
+  overlay.addEventListener('pointerdown', function(evt){
+    if(evt.target === overlay) closeWidgetTextEditorOverlay(false);
+  });
+  document.getElementById('widget-text-editor-cancel').addEventListener('click', function(){
+    closeWidgetTextEditorOverlay(false);
+  });
+  document.getElementById('widget-text-editor-done').addEventListener('click', function(){
+    closeWidgetTextEditorOverlay(true);
+  });
+  var input = document.getElementById('widget-text-editor-input');
+  input.addEventListener('input', function(){
+    var role = String(overlay.dataset.role || 'char');
+    setWidgetTextOverride(role, input.value);
+    var target = getWidgetBubbleTextElement(role);
+    if(target) target.textContent = formatWidgetConversationLine(input.value, getDefaultWidgetCharacterQuote(role));
+  });
+  input.addEventListener('keydown', function(evt){
+    if(evt.key === 'Enter'){
+      evt.preventDefault();
+      closeWidgetTextEditorOverlay(true);
+    }else if(evt.key === 'Escape'){
+      evt.preventDefault();
+      closeWidgetTextEditorOverlay(false);
+    }
+  });
+  return overlay;
+}
+
+function closeWidgetTextEditorOverlay(save){
+  var overlay = document.getElementById('widget-text-editor-overlay');
+  if(!overlay) return;
+  var role = String(overlay.dataset.role || 'char');
+  var original = String(overlay.dataset.original || '');
+  var input = document.getElementById('widget-text-editor-input');
+  if(!save){
+    setWidgetTextOverride(role, original);
+  }else if(input){
+    setWidgetTextOverride(role, input.value);
+  }
+  overlay.classList.remove('open');
+  overlay.dataset.role = '';
+  overlay.dataset.original = '';
+  document.documentElement.classList.remove('home-widget-text-editing');
+  document.body.classList.remove('home-widget-text-editing');
+  var active = getActiveCharacterData();
+  if(active){
+    setWidgetCharacter(active);
+  }else{
+    setWidgetCharacter({ name:'No companion yet' });
+  }
+}
+
+function openWidgetTextEditorOverlay(role){
+  var overlay = ensureWidgetTextEditorOverlay();
+  var safeRole = String(role || '') === 'user' ? 'user' : 'char';
+  var input = document.getElementById('widget-text-editor-input');
+  var title = document.getElementById('widget-text-editor-title');
+  var current = getWidgetTextOverride(safeRole) || getDefaultWidgetCharacterQuote(safeRole);
+  overlay.dataset.role = safeRole;
+  overlay.dataset.original = getWidgetTextOverride(safeRole);
+  if(title) title.textContent = safeRole === 'user' ? '修改 USER 文案' : '修改 CHAR 文案';
+  if(input) input.value = current;
+  document.documentElement.classList.add('home-widget-text-editing');
+  document.body.classList.add('home-widget-text-editing');
+  overlay.classList.add('open');
+  setTimeout(function(){
+    if(!input) return;
+    input.focus({ preventScroll: true });
+    try{ input.setSelectionRange(input.value.length, input.value.length); }catch(e){}
+    try{ window.scrollTo(0, 0); }catch(e2){}
+  }, 30);
+}
+
 function beginWidgetBubbleEdit(e, role){
   if(e && e.stopPropagation) e.stopPropagation();
   if(e && e.preventDefault) e.preventDefault();
+  openWidgetTextEditorOverlay(role);
+  return;
   var target = getWidgetBubbleTextElement(role);
   if(!target) return;
   if(target.getAttribute('data-editing') === 'true') return;
