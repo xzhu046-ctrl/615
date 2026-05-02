@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-02T08:14:08Z"></script>
-<script src="../accountManager.js?v=2026-05-02T08:14:08Z"></script>
-<script src="../assetStore.js?v=2026-05-02T08:14:08Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T08:14:08Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T08:14:08Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T08:14:08Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T08:34:14Z"></script>
+<script src="../accountManager.js?v=2026-05-02T08:34:14Z"></script>
+<script src="../assetStore.js?v=2026-05-02T08:34:14Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T08:34:14Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T08:34:14Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T08:34:14Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -151,6 +151,7 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-progress-clock{font-size:11px;font-weight:900;color:#64748b;white-space:nowrap}
 .schedule-stepper-box{display:flex;flex-direction:column;gap:0}
 .schedule-stepper-step{display:flex;position:relative;padding-bottom:20px}
+.schedule-stepper-step.is-secret-locked .schedule-stepper-content{cursor:pointer}
 .schedule-stepper-step:last-child{padding-bottom:0}
 .schedule-stepper-line{position:absolute;left:19px;top:40px;bottom:0;width:2px;background:#e2e8f0;z-index:1}
 .schedule-stepper-step:last-child .schedule-stepper-line{display:none}
@@ -167,6 +168,16 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-stepper-pending .schedule-stepper-status{background:#f1f5f9;color:#64748b}
 .schedule-stepper-time{margin-top:5px;font-size:11px;color:#94a3b8;font-weight:800;line-height:1.4}
 .schedule-stepper-note{margin-top:5px;font-size:11px;color:#64748b;font-weight:800;line-height:1.5;word-break:break-word}
+.schedule-stepper-actions{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.schedule-secret-unlock-btn{display:inline-flex;align-items:center;justify-content:center;width:45px;height:45px;padding:0;border:0;background:transparent;cursor:pointer}
+.schedule-secret-unlock-btn:active{transform:scale(.92)}
+.schedule-secret-unlock-btn .schedule-lock-label{width:45px;height:45px;display:flex;align-items:center;justify-content:center;background:#505050;border-radius:15px;transition:all .3s}
+.schedule-secret-unlock-btn .schedule-lock-wrapper{width:fit-content;height:fit-content;display:flex;flex-direction:column;align-items:center;justify-content:center;transform:rotate(-10deg)}
+.schedule-secret-unlock-btn .schedule-shackle{background:transparent;height:9px;width:14px;border-top-right-radius:10px;border-top-left-radius:10px;border-top:3px solid #fff;border-left:3px solid #fff;border-right:3px solid #fff;transition:all .3s}
+.schedule-secret-unlock-btn .schedule-lock-body{width:15px;display:block}
+.schedule-secret-unlock-btn.is-unlocked .schedule-lock-label{background:#a747f5}
+.schedule-secret-unlock-btn.is-unlocked .schedule-shackle{transform:rotateY(150deg) translateX(3px);transform-origin:right}
+.schedule-secret-lock-text{display:inline-flex;align-items:center;min-height:22px;padding:2px 8px;border-radius:999px;background:#f1f5f9;color:#64748b;font-size:10px;font-weight:900}
 .schedule-live-timeline{position:relative;padding-left:26px;display:flex;flex-direction:column;gap:12px}
 .schedule-live-timeline::before{
   content:'';position:absolute;left:8px;top:4px;bottom:6px;width:2px;border-radius:999px;background:linear-gradient(180deg,rgba(17,17,17,0) 0%,rgba(17,17,17,.94) 8%,rgba(17,17,17,.94) 92%,rgba(17,17,17,0) 100%);
@@ -669,6 +680,9 @@ var stickyToastToken = 0;
 function esc(text){
   return String(text || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+function escJs(text){
+  return String(text || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n').replace(/\r/g,'');
+}
 
 function loadStoredAsset(key){
   var shell = getParentShell();
@@ -955,6 +969,7 @@ function buildScheduleGeoTimeContext(char){
   }catch(err){}
   var user = snapshot && snapshot.user ? snapshot.user : null;
   var charPresence = snapshot && snapshot.char ? snapshot.char : null;
+  var charWeather = char && char.id ? buildScheduleWeatherSnapshot('char', char.id) : null;
   var userOffset = 0;
   var userTimezoneName = '';
   try{
@@ -968,7 +983,7 @@ function buildScheduleGeoTimeContext(char){
     }
   }catch(err){}
   var charOffset = Number(charPresence && charPresence.timezoneOffset || userOffset || 0) || 0;
-  var charTimezoneName = String(charPresence && charPresence.timezoneName || '').trim();
+  var charTimezoneName = String((charWeather && charWeather.timezone) || (charPresence && charPresence.timezoneName) || '').trim();
   var userLocal = getLocalClockParts(safeNow, userTimezoneName, userOffset);
   var charLocal = getLocalClockParts(safeNow, charTimezoneName, charOffset);
   return {
@@ -1751,6 +1766,17 @@ function getCharProgressStatus(item, index, clock){
   return 'completed';
 }
 
+function buildScheduleLockButtonHtml(kind, itemId, unlocked){
+  var safeKind = escJs(kind || 'timeline');
+  var safeId = escJs(itemId || '');
+  return '<button class="schedule-secret-unlock-btn' + (unlocked ? ' is-unlocked' : '') + '" type="button" aria-label="' + (unlocked ? '已解锁秘密行程' : '解锁秘密行程') + '" onclick="event.stopPropagation();openSecretModal(\'' + safeKind + '\',\'' + safeId + '\')">'
+    + '<span class="schedule-lock-label">'
+    + '<span class="schedule-lock-wrapper">'
+    + '<span class="schedule-shackle"></span>'
+    + '<svg class="schedule-lock-body" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M0 5C0 2.23858 2.23858 0 5 0H23C25.7614 0 28 2.23858 28 5V23C28 25.7614 25.7614 28 23 28H5C2.23858 28 0 25.7614 0 23V5ZM16 13.2361C16.6137 12.6868 17 11.8885 17 11C17 9.34315 15.6569 8 14 8C12.3431 8 11 9.34315 11 11C11 11.8885 11.3863 12.6868 12 13.2361V18C12 19.1046 12.8954 20 14 20C15.1046 20 16 19.1046 16 18V13.2361Z" fill="white"></path></svg>'
+    + '</span></span></button>';
+}
+
 function renderCharProgressStepper(ctx){
   var host = document.getElementById('charProgressStepper');
   if(!host) return;
@@ -1768,18 +1794,26 @@ function renderCharProgressStepper(ctx){
     var status = getCharProgressStatus(item, index, clock);
     var label = status === 'completed' ? 'Completed' : (status === 'active' ? 'In Progress' : 'Pending');
     var cls = status === 'completed' ? 'schedule-stepper-completed' : (status === 'active' ? 'schedule-stepper-active' : 'schedule-stepper-pending');
+    var secretLocked = !!item.secret && !isTimelineSecretUnlocked('timeline', item.id);
+    var secretUnlocked = !!item.secret && !secretLocked;
     var icon = status === 'completed'
       ? '<svg viewBox="0 0 16 16" fill="currentColor" height="16" width="16" aria-hidden="true"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425z"></path></svg>'
       : String(index + 1);
-    var note = [renderScheduleDisplayLocation('char', item.location), renderScheduleDisplayText('char', item.note)].filter(Boolean).join(' · ');
-    return '<div class="schedule-stepper-step ' + cls + '">'
+    var title = secretLocked ? getRenderedCharTimelineTitle(item) : String(item.title || item.note || '未命名安排').trim();
+    var note = secretLocked
+      ? getRenderedCharTimelineNote(item)
+      : [renderScheduleDisplayLocation('char', item.location), renderScheduleDisplayText('char', item.note)].filter(Boolean).join(' · ');
+    var safeItemId = escJs(item.id || '');
+    var contentClick = secretLocked ? (' onclick="openSecretModal(\'timeline\',\'' + safeItemId + '\')"') : (' onclick="handleTimelinePrimaryClick(event,\'timeline\',\'' + safeItemId + '\')"');
+    return '<div class="schedule-stepper-step ' + cls + (secretLocked ? ' is-secret-locked' : '') + '">'
       + '<div class="schedule-stepper-circle">' + icon + '</div>'
       + '<div class="schedule-stepper-line"></div>'
-      + '<div class="schedule-stepper-content">'
-      + '<div class="schedule-stepper-title">' + esc(String(item.title || item.note || '未命名安排').trim()) + '</div>'
+      + '<div class="schedule-stepper-content"' + contentClick + '>'
+      + '<div class="schedule-stepper-title">' + esc(title) + '</div>'
       + '<div class="schedule-stepper-status">' + esc(label) + '</div>'
       + '<div class="schedule-stepper-time">' + esc(getTimeRangeText(item)) + '</div>'
       + (note ? '<div class="schedule-stepper-note">' + esc(note) + '</div>' : '')
+      + (item.secret ? '<div class="schedule-stepper-actions">' + buildScheduleLockButtonHtml('timeline', item.id, secretUnlocked) + '<span class="schedule-secret-lock-text">' + (secretUnlocked ? '已解锁' : '秘密行程') + '</span></div>' : '')
       + '</div></div>';
   }).join('');
   host.innerHTML = '<section class="schedule-progress-card">'
@@ -1898,7 +1932,8 @@ function renderDetails(){
   var ctx = getSelectedDayContext();
   renderBadges(ctx);
   renderCharProgressStepper(ctx);
-  renderTimeline(ctx);
+  var oldTimelineHost = document.getElementById('timelineList');
+  if(oldTimelineHost) oldTimelineHost.innerHTML = '';
   renderTodos(ctx);
 }
 
