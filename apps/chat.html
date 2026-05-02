@@ -2,19 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T01:05:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T01:05:00Z"></script>
-<script src="../assetStore.js?v=2026-05-02T01:05:00Z"></script>
-<script src="../accountManager.js?v=2026-05-02T01:05:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T01:05:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T01:05:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T01:05:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T01:05:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T01:05:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T01:05:00Z"></script>
+<script src="../promptManager.js?v=2026-05-02T01:32:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T01:32:00Z"></script>
+<script src="../assetStore.js?v=2026-05-02T01:32:00Z"></script>
+<script src="../accountManager.js?v=2026-05-02T01:32:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T01:32:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T01:32:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T01:32:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T01:32:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T01:32:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-02T01:32:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -962,7 +962,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .err-notice::after{content:'轻点一下关闭';display:block;margin-top:6px;font-size:10px;font-weight:800;opacity:.72}
 
 /* ── Input area ── */
-.chat-input-area{background:transparent;border:none;padding:0;display:flex;gap:8px;align-items:flex-end;flex-shrink:0;z-index:35;position:fixed;left:14px;right:14px;bottom:var(--composer-bottom);transform:translateY(calc(-1 * var(--composer-shift)))}
+.chat-input-area{background:transparent;border:none;padding:0;display:flex;gap:8px;align-items:flex-end;flex-shrink:0;z-index:35;position:fixed;left:14px;right:14px;bottom:calc(var(--composer-bottom) + var(--keyboard-inset));transform:none}
 .input-wrap{flex:1;position:relative;overflow:visible;background:rgba(255,255,255,.95);border:var(--bd);border-radius:16px;padding:7px 12px;display:flex;flex-direction:column;align-items:stretch;gap:6px;transition:none;box-shadow:var(--sh)}
 .input-wrap.has-reply{border-radius:16px !important}
 .input-wrap.narrator-mode{padding-top:7px;border-radius:16px}
@@ -25523,15 +25523,15 @@ var stableChatAppHeight = Math.round(window.innerHeight || document.documentElem
 var parentComposerShift = 0;
 function getChatViewportMetrics(){
   var vv = window.visualViewport;
+  var innerHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+  var viewportHeight = Math.round(vv && vv.height ? vv.height : innerHeight) || innerHeight;
   var vvTopOffset = Math.round(vv ? Math.max(0, vv.offsetTop || 0) : 0);
-  var currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
-  var visibleHeight = Math.round(vv ? Math.max(0, (vv.height || 0) + vvTopOffset) : currentHeight) || currentHeight;
-  var rawBottomOffset = Math.round(vv ? Math.max(0, currentHeight - (vv.height + (vv.offsetTop || 0))) : 0);
+  var obscuredHeight = Math.max(0, innerHeight - viewportHeight - vvTopOffset);
   return {
     vvTopOffset: vvTopOffset,
-    currentHeight: currentHeight,
-    visibleHeight: visibleHeight,
-    rawBottomOffset: rawBottomOffset
+    currentHeight: innerHeight,
+    viewportHeight: viewportHeight,
+    obscuredHeight: obscuredHeight
   };
 }
 function syncChatViewport(){
@@ -25540,13 +25540,15 @@ function syncChatViewport(){
   if(!stableChatAppHeight){
     stableChatAppHeight = metrics.currentHeight || 0;
   }
-  if(metrics.currentHeight > stableChatAppHeight){
+  var active = document.activeElement;
+  var textInputFocused = !!(active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.id === 'msg-input'));
+  var resizedInset = textInputFocused ? Math.max(0, stableChatAppHeight - metrics.currentHeight) : 0;
+  var keyboardRaw = Math.max(metrics.obscuredHeight, resizedInset);
+  var keyboardInset = keyboardRaw > 120 ? Math.min(520, keyboardRaw) : 0;
+  if(!keyboardInset && metrics.currentHeight > stableChatAppHeight){
     stableChatAppHeight = metrics.currentHeight;
   }
-  var inferredInset = Math.max(0, stableChatAppHeight - metrics.visibleHeight);
-  var keyboardInset = Math.max(metrics.rawBottomOffset, inferredInset);
-  if(keyboardInset < 120) keyboardInset = 0;
-  var vh = stableChatAppHeight || metrics.currentHeight;
+  var vh = Math.max(stableChatAppHeight || 0, metrics.viewportHeight + vvTopOffset, metrics.currentHeight || 0) || metrics.currentHeight;
   document.documentElement.style.setProperty('--chat-app-height', vh + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', '0px');
@@ -25554,9 +25556,6 @@ function syncChatViewport(){
   document.documentElement.style.setProperty('--composer-bottom', '12px');
   syncComposerMetrics();
   applyComposerPlacement(metrics, keyboardInset);
-  try{
-    if(window.parent) window.parent.postMessage({ type:'SET_CHAT_KEYBOARD_SHIFT', payload: keyboardInset }, '*');
-  }catch(err){}
 }
 
 function syncComposerMetrics(){
@@ -25569,35 +25568,9 @@ function syncComposerMetrics(){
 function applyComposerPlacement(metrics, keyboardInset){
   var composer = document.querySelector('.chat-input-area');
   if(!composer) return;
-  var parentShift = Math.max(0, Number(parentComposerShift) || 0);
-  if(parentShift > 0){
-    var settledParentShift = Math.max(44, Math.min(96, parentShift - 156));
-    document.documentElement.style.setProperty('--composer-shift', settledParentShift + 'px');
-    composer.style.top = '';
-    composer.style.bottom = 'var(--composer-bottom)';
-    return;
-  }
-  var vv = window.visualViewport;
-  var inset = Math.max(0, Number(keyboardInset) || 0);
-  if(vv && inset > 0){
-    var touchAccessoryLift = 0;
-    var composerHeight = Math.round(composer.getBoundingClientRect().height || 0) || 72;
-    try{
-      if(window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches){
-        touchAccessoryLift = Math.max(
-          composerHeight + 56,
-          Math.max(108, Math.min(156, Math.round(inset * 0.62)))
-        );
-      }
-    }catch(err){}
-    document.documentElement.style.setProperty('--composer-shift', (inset + touchAccessoryLift) + 'px');
-    composer.style.top = '';
-    composer.style.bottom = 'var(--composer-bottom)';
-    return;
-  }
   document.documentElement.style.setProperty('--composer-shift', '0px');
   composer.style.top = '';
-  composer.style.bottom = 'var(--composer-bottom)';
+  composer.style.bottom = '';
 }
 
 function scheduleComposerPlacementSync(){
@@ -25614,6 +25587,12 @@ function keepComposerVisible(){
   if(list){
     requestAnimationFrame(function(){
       list.scrollTop = list.scrollHeight;
+    });
+  }
+  var input = document.getElementById('msg-input');
+  if(input && document.activeElement === input){
+    requestAnimationFrame(function(){
+      try{ input.scrollIntoView({ block:'nearest', inline:'nearest' }); }catch(err){}
     });
   }
   syncComposerMetrics();

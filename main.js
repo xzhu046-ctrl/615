@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T01:05:00Z';
+const APP_BUILD_ID = '2026-05-02T01:32:00Z';
 const APP_UPDATE_NOTES = [
-  '聊天输入框回退修正',
-  '键盘定位恢复 05:24 逻辑',
-  '线下总结修正'
+  '聊天输入框定位修正',
+  '线下记忆总结同步修正',
+  '版本缓存刷新'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -870,8 +870,7 @@ function getFallbackChatKeyboardShift(){
 }
 
 function syncChatKeyboardShift(){
-  var shift = chatInputFocusActive ? Math.max(chatReportedKeyboardShift, getCurrentShellKeyboardInset(), getFallbackChatKeyboardShift()) : 0;
-  setChatKeyboardShift(shift);
+  setChatKeyboardShift(0);
 }
 
 function resetShellViewportAfterChatInput(){
@@ -9989,15 +9988,7 @@ function setChatShellBackground(src){
 function setChatKeyboardShift(value){
   var container = document.getElementById('app-container');
   if(!container) return;
-  var shift = Math.max(0, Math.min(520, Number(value) || 0));
-  container.style.setProperty('--chat-keyboard-shift', shift + 'px');
-  try{
-    var frame = document.getElementById('app-iframe');
-    if(frame && frame.contentWindow){
-      frame.contentWindow.postMessage({ type:'PARENT_CHAT_COMPOSER_SHIFT', payload:{ shift:shift } }, '*');
-      frame.contentWindow.postMessage({ type:'PARENT_APP_KEYBOARD_INSET', payload:{ inset:shift, app:currentApp || '' } }, '*');
-    }
-  }catch(err){}
+  container.style.setProperty('--chat-keyboard-shift', '0px');
 }
 
 function applyIframeSafeAreaOverrides(){
