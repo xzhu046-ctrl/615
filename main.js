@@ -52,11 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T11:07:33Z';
+const APP_BUILD_ID = '2026-05-02T19:50:00Z';
 const APP_UPDATE_NOTES = [
-  '你的行程按聊天地点时间判断',
-  '日程进度时间来源更一致',
-  '继续区分你和TA的行程'
+  '更新弹窗显示本版日志',
+  '手机 CSS 保存更稳',
+  '朋友圈分享和头像更可靠',
+  '线下聊天按设置自动总结'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,

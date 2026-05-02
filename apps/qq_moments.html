@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-02T08:56:33Z"></script>
-<script src="../assetStore.js?v=2026-05-02T08:56:33Z"></script>
-<script src="../accountManager.js?v=2026-05-02T08:56:33Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T08:56:33Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../assetStore.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../accountManager.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T19:50:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -641,6 +641,14 @@ async function getMomentsShareCharacters(){
   if((!Array.isArray(chars) || !chars.length) && window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
     try{ chars = await window.MetadataStore.loadCharacters(true); }catch(e){ chars = []; }
   }
+  if((!Array.isArray(chars) || !chars.length)){
+    try{
+      const shell = getParentShell();
+      if(shell && shell.MetadataStore && typeof shell.MetadataStore.loadCharacters === 'function'){
+        chars = await shell.MetadataStore.loadCharacters(true);
+      }
+    }catch(e){}
+  }
   const activeAccountId = getActiveAccountId();
   return (Array.isArray(chars) ? chars : []).filter((char)=>{
     if(!char || !char.id) return false;
@@ -713,10 +721,11 @@ async function appendMomentCardToChat(post, targetChar){
   if(!post || !targetChar || !targetChar.id) throw new Error('missing post or target');
   const key = momentChatStorageKey(targetChar.id);
   const entry = makeMomentCardChatEntry(post, targetChar);
+  const storage = (window.PhoneStorage && typeof window.PhoneStorage.get === 'function') ? window.PhoneStorage : ((getParentShell().PhoneStorage && typeof getParentShell().PhoneStorage.get === 'function') ? getParentShell().PhoneStorage : null);
   let history = [];
-  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+  if(storage && typeof storage.get === 'function'){
     try{
-      const rec = await window.PhoneStorage.get('chats', key);
+      const rec = await storage.get('chats', key);
       history = normalizeMomentChatHistoryRecord(rec);
     }catch(e){}
   }
@@ -727,15 +736,20 @@ async function appendMomentCardToChat(post, targetChar){
     }catch(e){}
   }
   history.push(entry);
-  if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
-    await window.PhoneStorage.put('chats', {
-      id: key,
-      charId: String(targetChar.id || ''),
-      updatedAt: Date.now(),
-      history: history
-    });
-    try{ localStorage.removeItem(key); }catch(e){}
-  }else{
+  let savedToPhoneStorage = false;
+  if(storage && typeof storage.put === 'function'){
+    try{
+      await storage.put('chats', {
+        id: key,
+        charId: String(targetChar.id || ''),
+        updatedAt: Date.now(),
+        history: history
+      });
+      savedToPhoneStorage = true;
+      try{ localStorage.removeItem(key); }catch(e){}
+    }catch(e){}
+  }
+  if(!savedToPhoneStorage){
     localStorage.setItem(key, JSON.stringify({ history: history }));
   }
   try{
@@ -762,6 +776,70 @@ function accountScopedRawKey(base){
   return accountId ? (String(base || '') + '__acct_' + accountId) : String(base || '');
 }
 
+function getParentShell(){
+  try{ return window.parent && window.parent !== window ? window.parent : window; }catch(e){}
+  return window;
+}
+
+function getShellResolvedCharacter(charId){
+  const shell = getParentShell();
+  const safeId = String(charId || '').trim();
+  if(!safeId) return null;
+  try{
+    if(shell && typeof shell.resolveShellCharacterById === 'function'){
+      const fallback = shell && typeof shell.getActiveCharacterData === 'function' ? shell.getActiveCharacterData() : null;
+      const resolved = shell.resolveShellCharacterById(safeId, fallback);
+      if(resolved && resolved.id) return resolved;
+    }
+  }catch(e){}
+  try{
+    if(shell && typeof shell.getActiveCharacterData === 'function'){
+      const active = shell.getActiveCharacterData();
+      if(active && String(active.id || '') === safeId) return active;
+    }
+  }catch(e){}
+  try{
+    if(shell && typeof shell.getCurrentForegroundCharacter === 'function'){
+      const live = shell.getCurrentForegroundCharacter();
+      if(live && String(live.id || '') === safeId) return live;
+    }
+  }catch(e){}
+  return null;
+}
+
+function getLiveChatAvatarSrcFromShell(charId){
+  const shell = getParentShell();
+  const safeId = String(charId || '').trim();
+  try{
+    const frame = shell && shell.document ? shell.document.getElementById('app-iframe') : null;
+    const win = frame && frame.contentWindow ? frame.contentWindow : null;
+    if(!win || !win.document) return '';
+    const liveChar = win.character;
+    if(safeId && liveChar && String(liveChar.id || '') && String(liveChar.id || '') !== safeId) return '';
+    const selectors = ['#hdrAvatar img', '#csCharAvatar img', '#idcAvatar img', '#chatExportIdcAvatar img'];
+    for(let i = 0; i < selectors.length; i += 1){
+      const node = win.document.querySelector(selectors[i]);
+      const src = String((node && node.getAttribute && node.getAttribute('src')) || (node && node.src) || '').trim();
+      if(isRenderableAssetSource(src)) return src;
+    }
+  }catch(e){}
+  return '';
+}
+
+function getShellAvatarSrc(charId){
+  const shell = getParentShell();
+  const safeId = String(charId || '').trim();
+  if(!safeId) return '';
+  try{
+    if(shell && typeof shell.getCharacterAvatarForBg === 'function'){
+      const resolved = getShellResolvedCharacter(safeId);
+      const src = String(shell.getCharacterAvatarForBg(resolved || { id:safeId }) || '').trim();
+      if(isRenderableAssetSource(src)) return src;
+    }
+  }catch(e){}
+  return '';
+}
+
 function getCharacterById(charId){
   const id = String(charId || '').trim();
   if(!id) return null;
@@ -771,7 +849,7 @@ function getCharacterById(charId){
     if(!item || String(item.id || '').trim() !== id) return false;
     const owner = String(item.ownerAccountId || '').trim();
     return !activeAccountId || !owner || owner === activeAccountId;
-  }) || roster.find((item)=>item && String(item.id || '').trim() === id) || null;
+  }) || roster.find((item)=>item && String(item.id || '').trim() === id) || getShellResolvedCharacter(id) || null;
 }
 
 function getActiveChatCharacter(){
@@ -808,9 +886,16 @@ function getCharacterAvatarSource(char){
 }
 
 async function resolveCharacterAvatarSource(char){
+  const id = String((char && char.id) || '').trim();
+  const shellResolved = id ? getShellResolvedCharacter(id) : null;
+  const shellDirect = getCharacterAvatarSource(shellResolved);
+  if(isRenderableAssetSource(shellDirect)) return shellDirect;
+  const liveSrc = id ? getLiveChatAvatarSrcFromShell(id) : '';
+  if(isRenderableAssetSource(liveSrc)) return liveSrc;
+  const shellSrc = id ? getShellAvatarSrc(id) : '';
+  if(isRenderableAssetSource(shellSrc)) return shellSrc;
   const direct = getCharacterAvatarSource(char);
   if(isRenderableAssetSource(direct)) return direct;
-  const id = String((char && char.id) || '').trim();
   const keys = [];
   if(id){
     keys.push('char_avatar_' + id);

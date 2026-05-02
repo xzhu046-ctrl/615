@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../assetStore.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../accountManager.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T11:07:33Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T11:07:33Z"></script>
+<script src="../promptManager.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../assetStore.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../accountManager.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T19:50:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-02T19:50:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -9431,6 +9431,8 @@ function buildChatSettingsPatchFromCharacter(c){
     manualSummarySize: Math.max(6, Math.min(120, Number(c.manualSummarySize) || DEFAULT_MANUAL_SUMMARY_SIZE)),
     memoryMergeThreshold: Math.max(2, Math.min(50, Number(c.memoryMergeThreshold) || DEFAULT_MEMORY_MERGE_THRESHOLD)),
     chatHeaderCss: String(c.chatHeaderCss || '').slice(0, 12000),
+    chatGlobalCss: String(c.chatGlobalCss || '').slice(0, 120000),
+    chatThemeParts: cloneJsonSafe(c.chatThemeParts || {}, {}),
     bubbleCharmEnabled: c.bubbleCharmEnabled != null ? !!c.bubbleCharmEnabled : true,
     bubbleCharmUrl: String(c.bubbleCharmUrl || '').slice(0, 120000),
     bubbleCharmUserScale: String(c.bubbleCharmUserScale || c.bubbleCharmScale || '').slice(0, 12),
@@ -9493,6 +9495,8 @@ function applyChatSettingsPatch(target, patch){
     'manualSummarySize',
     'memoryMergeThreshold',
     'chatHeaderCss',
+    'chatGlobalCss',
+    'chatThemeParts',
     'bubbleCharmEnabled',
     'bubbleCharmUrl',
     'bubbleCharmUserScale',
@@ -10813,9 +10817,11 @@ async function loadGlobalChatThemeCss(charId){
   var bundle = await loadChatSettingsBundle(charId);
   var storedCss = extractStoredThemeCss(stored);
   var bundleCss = bundle && typeof bundle.globalCss === 'string' ? bundle.globalCss : '';
+  var patchCss = character && String(character.id || '') === String(charId || '') ? String(character.chatGlobalCss || '') : '';
   return chooseStoredChatThemeCss('global', [
-    { css: storedCss, updatedAt: stored && stored.updatedAt, priority: 2 },
-    { css: bundleCss, updatedAt: bundle && bundle.updatedAt, priority: 1 }
+    { css: storedCss, updatedAt: stored && stored.updatedAt, priority: 3 },
+    { css: bundleCss, updatedAt: bundle && bundle.updatedAt, priority: 2 },
+    { css: patchCss, updatedAt: character && character.updatedAt, priority: 1 }
   ]);
 }
 
@@ -10834,10 +10840,12 @@ async function loadBubbleChatThemeCss(charId){
   var storedCss = extractStoredThemeCss(stored);
   var legacyCss = extractStoredThemeCss(legacy);
   var bundleCss = bundle && bundle.themeParts && typeof bundle.themeParts.bubble === 'string' ? bundle.themeParts.bubble : '';
+  var patchCss = character && String(character.id || '') === String(charId || '') && character.chatThemeParts && typeof character.chatThemeParts.bubble === 'string' ? character.chatThemeParts.bubble : '';
   return chooseStoredChatThemeCss('bubble', [
-    { css: storedCss, updatedAt: stored && stored.updatedAt, priority: 3 },
-    { css: legacyCss, updatedAt: legacy && legacy.updatedAt, priority: 2 },
-    { css: bundleCss, updatedAt: bundle && bundle.updatedAt, priority: 1 }
+    { css: storedCss, updatedAt: stored && stored.updatedAt, priority: 4 },
+    { css: legacyCss, updatedAt: legacy && legacy.updatedAt, priority: 3 },
+    { css: bundleCss, updatedAt: bundle && bundle.updatedAt, priority: 2 },
+    { css: patchCss, updatedAt: character && character.updatedAt, priority: 1 }
   ]);
 }
 
@@ -10856,9 +10864,11 @@ async function loadChatThemePartCss(charId, partId){
   var bundle = await loadChatSettingsBundle(charId);
   var storedCss = extractStoredThemeCss(stored);
   var bundleCss = bundle && bundle.themeParts && typeof bundle.themeParts[safePart] === 'string' ? bundle.themeParts[safePart] : '';
+  var patchCss = character && String(character.id || '') === String(charId || '') && character.chatThemeParts && typeof character.chatThemeParts[safePart] === 'string' ? character.chatThemeParts[safePart] : '';
   return chooseStoredChatThemeCss(safePart, [
-    { css: storedCss, updatedAt: stored && stored.updatedAt, priority: 2 },
-    { css: bundleCss, updatedAt: bundle && bundle.updatedAt, priority: 1 }
+    { css: storedCss, updatedAt: stored && stored.updatedAt, priority: 3 },
+    { css: bundleCss, updatedAt: bundle && bundle.updatedAt, priority: 2 },
+    { css: patchCss, updatedAt: character && character.updatedAt, priority: 1 }
   ]);
 }
 
@@ -11211,6 +11221,8 @@ function queueChatThemeDraftAutosave(){
     var globalInput = document.getElementById('csGlobalCss');
     var globalCss = String(globalInput && globalInput.value || globalThemeCssDraft || '');
     syncChatCssEditorsToLivePage();
+    character.chatGlobalCss = globalCss;
+    character.chatThemeParts = cloneJsonSafe(chatThemePartDrafts || {}, {});
     saveChatSettingsBundle(character.id, {
       globalCss: globalCss,
       themeParts: cloneJsonSafe(chatThemePartDrafts || {}, {})
@@ -31970,6 +31982,8 @@ async function saveChatSettings() {
     character.manualSummarySize = manualSize;
     character.memoryMergeThreshold = mergeThreshold;
     character.chatHeaderCss = headerCustomCss.trim() || getDefaultHeaderThemeCss();
+    character.chatGlobalCss = String(globalCss || '');
+    character.chatThemeParts = cloneJsonSafe(chatThemePartDrafts || {}, {});
     character.bubbleCharmEnabled = bubbleCharmSettings.enabled !== false;
     character.bubbleCharmUrl = bubbleCharmSettings.url || DEFAULT_BUBBLE_CHARM_URL;
     character.bubbleCharmUserScale = bubbleCharmSettings.userScale;

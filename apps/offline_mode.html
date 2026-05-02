@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../promptManager.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../accountManager.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T11:07:33Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T11:07:33Z"></script>
+<script src="../assetStore.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../promptManager.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../accountManager.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T19:50:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1121,6 +1121,7 @@ var offlineMemorySnippetCache = '';
 var offlineEditingIndex = -1;
 var offlineSummaryQueue = {};
 var offlineStageSummaryQueue = {};
+var offlineSharedMemorySummaryQueue = {};
 var offlineDrawerBound = false;
 var offlineDrawerDraft = null;
 var offlineDrawerPageBgPendingAsset = '';
@@ -4506,6 +4507,7 @@ function queueOfflineStageSummaryGeneration(retryCount){
   if(!ui.summaryAuto) return;
   var cadence = normalizeOfflineStageSummaryEvery(ui.summaryEvery);
   var floorCount = countOfflineStoryFloors();
+  queueOfflineSharedMemorySummaryGeneration();
   var covered = getOfflineStageSummaryCoveredCount();
   if(floorCount - covered < cadence) return;
   var targetFloor = Math.min(floorCount, covered + cadence);
@@ -4535,6 +4537,164 @@ function queueOfflineStageSummaryGeneration(retryCount){
     }
   });
 }
+
+function buildOfflineSharedMemoryEntryLines(entries, offset){
+  return (Array.isArray(entries) ? entries : []).map(function(entry, idx){
+    var role = entry && entry.role === 'user' ? getOfflineUserCanonicalName() : getOfflineCharCanonicalName();
+    var text = '';
+    if(entry && entry.role === 'user'){
+      text = String(entry.text || '').replace(/\s+/g, ' ').trim();
+    }else{
+      text = String((entry && entry.summaryText) || '').replace(/\s+/g, ' ').trim();
+      if(!text){
+        var title = String(entry && entry.title || '').trim();
+        var quote = String(entry && entry.quote || '').trim();
+        var body = String(entry && entry.text || '').replace(/\s+/g, ' ').trim();
+        text = [title ? ('标题：' + title) : '', quote ? ('语录：' + quote) : '', body ? ('正文摘要：' + clipOfflinePromptText(body, 220)) : ''].filter(Boolean).join('；');
+      }
+    }
+    return (offset + idx + 1) + '. [' + role + '] ' + text;
+  }).filter(Boolean).join('\n');
+}
+
+async function generateOfflineSharedDiaryMemory(slice, fromIndex){
+  var lines = buildOfflineSharedMemoryEntryLines(slice, fromIndex);
+  if(!lines) return '';
+  var systemPrompt = promptManager && typeof promptManager.memorySummarySystemPrompt === 'function'
+    ? promptManager.memorySummarySystemPrompt()
+    : '你是聊天记忆压缩器。只返回一段第三人称纯文本总结。';
+  var userPrompt = promptManager && typeof promptManager.memorySummaryUserPrompt === 'function'
+    ? promptManager.memorySummaryUserPrompt(lines)
+    : [
+      '请只返回一段纯文本总结，不要标题，不要编号，不要额外解释。',
+      '这段总结来自线下聊天。用户消息必须按全文理解，角色消息只按摘要理解。',
+      '总结范围：',
+      lines
+    ].join('\n\n');
+  var raw = await callAIWithTimeout(systemPrompt, userPrompt, Math.min(getOfflineReplyTimeoutMs(), 30000));
+  return String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+}
+
+function buildOfflineSharedStructuredPrompt(slice, fromIndex, store){
+  var safe = normalizeOnlineMemorySummaryStore(store || defaultOnlineMemorySummaryStore());
+  var categories = getOfflineStructuredMemoryCategories(safe);
+  var customCodes = Object.keys(categories).filter(function(code){
+    return ['F','E','D','P','R','M','A','H','X'].indexOf(code) < 0;
+  });
+  var categoryLine = '分类只能用 F/E/D/P/R/M/A/H/X' + (customCodes.length ? ('/' + customCodes.join('/')) : '') + '。';
+  var customLine = customCodes.length ? ('自定义分类：' + customCodes.map(function(code){
+    return code + '=' + String(categories[code] && categories[code].name || code);
+  }).join('，') + '。') : '';
+  return [
+    '你是"' + (getOfflineCharCanonicalName() || '角色') + '"。请阅读线下聊天，并把真正值得沉淀到你小脑瓜里的信息提取出来。',
+    '输出格式必须是每行一条：[YYMMDD]分类:内容',
+    categoryLine,
+    'F=人物底稿（稳定身份、事实、雷点，推荐 key=value），E=已经发生（重要事件），P=正在推进（还没结束、之后会继续影响互动的线），R/M=关系温度（关系变化与持续情绪），D=未来挂念（以后想做、迟早要回收的挂念），A=代办与约定（明确答应、约好、待完成），H=爱好习惯（喜欢/讨厌/习惯/偏好），X=下次改正（char 记错、做错、误会 user 后需要改进的点）。',
+    customLine,
+    '只提取真正会进入小脑瓜的信息；普通闲聊、一次性问答、没有后续影响的内容不要记。',
+    '不要重复已有记忆，不要输出解释。',
+    '现有小脑瓜记忆：\n' + buildOfflineStructuredMemoryPromptText(safe),
+    '线下聊天内容（用户按全文读，角色按摘要读）：\n' + buildOfflineSharedMemoryEntryLines(slice, fromIndex)
+  ].filter(Boolean).join('\n\n');
+}
+
+async function appendOfflineSharedMemorySummaries(){
+  if(!session || !character || !character.id) return null;
+  var ui = getOfflineUiPrefs();
+  if(!ui.summaryAuto) return null;
+  var cadence = normalizeOfflineStageSummaryEvery(ui.summaryEvery);
+  var entries = (Array.isArray(session.entries) ? session.entries : []).filter(function(entry){
+    return entry && (entry.role === 'user' || entry.role === 'assistant') && String(entry.text || '').trim();
+  });
+  if(!entries.length) return null;
+  var store = await loadOfflineMemoryStore().catch(function(){ return defaultOnlineMemorySummaryStore(); });
+  store = normalizeOnlineMemorySummaryStore(store || defaultOnlineMemorySummaryStore());
+  store.advancedMemory = normalizeOfflineAdvancedMemoryState(store.advancedMemory);
+  var mode = getOfflineMemoryModeFromStore(store) === 'structured' ? 'structured' : 'diary';
+  var covered = mode === 'structured'
+    ? Math.max(0, Math.min(Number(store.advancedMemory.structured.covered || 0) || 0, entries.length))
+    : Math.max(0, Math.min(Number(store.covered || 0) || 0, entries.length));
+  if(entries.length - covered < cadence) return null;
+  while(entries.length - covered >= cadence){
+    var from = covered;
+    var to = covered + cadence;
+    var slice = entries.slice(from, to);
+    var diaryText = await generateOfflineSharedDiaryMemory(slice, from);
+    if(!diaryText) throw new Error('线下总结没有返回内容');
+    var now = Date.now();
+    store.items = Array.isArray(store.items) ? store.items : [];
+    store.items.push({
+      id: 'offline_mem_' + now.toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+      from: from,
+      to: to,
+      text: diaryText,
+      tokens: approxOfflineTokenCount(diaryText),
+      createdAt: now,
+      updatedAt: now,
+      manual: false,
+      pinned: false,
+      label: '线下聊天',
+      sourceType: 'offline_chat'
+    });
+    if(mode === 'structured'){
+      var raw = await callAIWithTimeout(buildOfflineSharedStructuredPrompt(slice, from, store), '请沉淀小脑瓜记忆。', Math.min(getOfflineReplyTimeoutMs(), 30000));
+      var structuredEntries = parseOfflineStructuredMemoryEntries(String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,''), store);
+      if(structuredEntries.length){
+        var shortTerm = Array.isArray(store.advancedMemory.structured.shortTerm) ? store.advancedMemory.structured.shortTerm.slice() : [];
+        structuredEntries.forEach(function(entry, idx){
+          var text = offlineStructuredEntryTextForShortTerm(entry);
+          if(!text) return;
+          shortTerm.push({
+            id: 'offline_mem_st_' + now.toString(36) + '_' + idx.toString(36),
+            from: from,
+            to: to,
+            text: text,
+            tokens: approxOfflineTokenCount(text),
+            createdAt: now,
+            updatedAt: now,
+            manual: false,
+            pinned: true,
+            label: offlineStructuredMemoryLabelForCategory(entry && entry.category, store),
+            sourceType: 'offline_chat',
+            memoryCategory: offlineShortTermCategoryForStructuredCode(entry && entry.category)
+          });
+        });
+        store.advancedMemory.structured.shortTerm = normalizeOfflineLittleBrainShortTermItems(shortTerm);
+      }
+      store.advancedMemory.mode = 'structured';
+      store.advancedMemory.structured.covered = to;
+      store.advancedMemory.structured.lastUpdated = now;
+    }else{
+      store.advancedMemory.mode = 'diary';
+      store.covered = to;
+      store.progress = Math.max(Number(store.progress || 0) || 0, to);
+    }
+    covered = to;
+    await saveOfflineMemoryStore({ items: store.items, advancedMemory: store.advancedMemory, covered: store.covered, progress: store.progress });
+  }
+  refreshOfflineMemoryButton();
+  return store;
+}
+
+function queueOfflineSharedMemorySummaryGeneration(){
+  if(!session || !character || !character.id) return;
+  var key = String(character.id || '') + '::' + String(session.id || session.startedAt || '');
+  if(offlineSharedMemorySummaryQueue[key]) return;
+  offlineSharedMemorySummaryQueue[key] = true;
+  Promise.resolve().then(function(){
+    return appendOfflineSharedMemorySummaries();
+  }).catch(function(err){
+    if(session && typeof session === 'object'){
+      session.lastStageSummaryError = summarizeOfflineError(err);
+      session.lastStageSummaryErrorAt = Date.now();
+      try{ saveSession(); }catch(e){}
+    }
+    pushOfflineBackendLog('warn', 'offline.memory_summary.call', '线下自动总结失败', err);
+  }).finally(function(){
+    delete offlineSharedMemorySummaryQueue[key];
+  });
+}
+
 async function manualOfflineStageSummary(overrideCount){
   var btn = document.getElementById('offlineDrawerSummarizeBtn');
   if(btn) btn.disabled = true;
