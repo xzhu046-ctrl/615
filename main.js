@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T09:34:12Z';
+const APP_BUILD_ID = '2026-05-02T09:47:18Z';
 const APP_UPDATE_NOTES = [
-  '线下按设置幕数自动总结',
-  '线下回复结束后补排总结',
-  '阶段总结不再卡在旧进度'
+  '日程进度会按当前时间刷新',
+  '线下总结读取更轻',
+  '阶段总结继续按设置幕数推进'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
