@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T07:26:00Z';
+const APP_BUILD_ID = '2026-05-02T07:46:28Z';
 const APP_UPDATE_NOTES = [
-  '输入框键盘跟随修正',
-  '聊天气泡 CSS 读取修正',
-  '主题美化保存修正'
+  '输入框贴近键盘更稳定',
+  '聊天内容跟随输入框保持可见',
+  '减少键盘弹出时底部白条'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1294,9 +1294,6 @@ function postKeyboardInsetToCurrentApp(value, keyboardOpen){
     const frame = document.getElementById('app-iframe');
     if(frame && frame.contentWindow){
       frame.contentWindow.postMessage({ type:'PARENT_APP_KEYBOARD_INSET', payload:{ inset:safeInset, keyboardOpen:open, app:currentApp || '' } }, '*');
-      if(currentApp === 'chat'){
-        frame.contentWindow.postMessage({ type:'PARENT_CHAT_COMPOSER_SHIFT', payload:{ shift:safeInset, keyboardOpen:open } }, '*');
-      }
     }
   }catch(err){}
 }
@@ -10616,9 +10613,13 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='CHAT_INPUT_FOCUS'){
     chatInputFocusActive = true;
+    syncAppHeight();
     syncChatKeyboardShift();
-    [80, 180, 320, 480].forEach(function(delay){
-      setTimeout(syncChatKeyboardShift, delay);
+    [80, 180, 320, 480, 720].forEach(function(delay){
+      setTimeout(function(){
+        syncAppHeight();
+        syncChatKeyboardShift();
+      }, delay);
     });
   }
   if(type==='CHAT_INPUT_BLUR'){
@@ -12350,12 +12351,15 @@ if(window.visualViewport){
     var vv = window.visualViewport;
     var rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
     var keyboardLikelyOpen = rawBottomOffset > 120;
+    syncAppHeight();
     syncChatKeyboardShift();
     if(keyboardLikelyOpen) return;
-    syncAppHeight();
     renderHomePages(true);
   });
-  window.visualViewport.addEventListener('scroll', syncChatKeyboardShift);
+  window.visualViewport.addEventListener('scroll', function(){
+    syncAppHeight();
+    syncChatKeyboardShift();
+  });
 }
 
 restoreState();
