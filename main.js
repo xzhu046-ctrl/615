@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T10:02:31Z';
+const APP_BUILD_ID = '2026-05-02T10:08:14Z';
 const APP_UPDATE_NOTES = [
-  '日程进度显示你的行程',
-  '你和TA的行程一起排序',
-  '你的行程用浅灰色区分'
+  '你的行程按聊天地点时间判断',
+  '日程进度时间来源更一致',
+  '继续区分你和TA的行程'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
