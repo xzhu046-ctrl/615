@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-02T09:53:44Z"></script>
-<script src="../accountManager.js?v=2026-05-02T09:53:44Z"></script>
-<script src="../assetStore.js?v=2026-05-02T09:53:44Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T09:53:44Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T09:53:44Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T09:53:44Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T10:02:31Z"></script>
+<script src="../accountManager.js?v=2026-05-02T10:02:31Z"></script>
+<script src="../assetStore.js?v=2026-05-02T10:02:31Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T10:02:31Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T10:02:31Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T10:02:31Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -154,6 +154,13 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
 .schedule-stepper-step:not(:last-child)::after{content:'';position:absolute;left:54px;right:18px;bottom:0;border-bottom:1px dashed rgba(15,23,42,.22)}
 .schedule-stepper-step.is-secret-locked .schedule-stepper-content{cursor:pointer}
 .schedule-stepper-step:last-child{padding-bottom:0;margin-bottom:0}
+.schedule-stepper-owner-user .schedule-stepper-content{background:rgba(241,245,249,.72);border-radius:14px;padding:8px 22px 8px 10px}
+.schedule-stepper-owner-char .schedule-stepper-content{background:rgba(255,255,255,.82);border-radius:14px;padding:8px 22px 8px 10px}
+.schedule-stepper-owner-user .schedule-stepper-circle{background:#f1f5f9}
+.schedule-stepper-owner-user.schedule-stepper-completed .schedule-stepper-circle{background:#64748b;color:#fff}
+.schedule-stepper-owner-user.schedule-stepper-active .schedule-stepper-circle{border-color:#64748b;color:#334155}
+.schedule-stepper-owner-user.schedule-stepper-completed .schedule-stepper-line{background:linear-gradient(180deg,#64748b 0%,rgba(148,163,184,.72) 62%,rgba(226,232,240,.58) 100%)}
+.schedule-stepper-owner-user.schedule-stepper-active .schedule-stepper-line{background:linear-gradient(180deg,#64748b 0%,rgba(148,163,184,.7) 45%,rgba(226,232,240,.72) 100%)}
 .schedule-stepper-line{
   position:absolute;
   left:19px;
@@ -1783,15 +1790,22 @@ function compareDateKey(a, b){
   return String(a || '').localeCompare(String(b || ''));
 }
 
-function getCharProgressStatus(item, index, clock){
+function getScheduleProgressStatus(item, index, clock){
+  if(item && item.done) return 'completed';
+  var owner = getItemTimeOwner(item);
   var selected = String(selectedDateKey || '');
-  var charToday = String(clock && clock.char && clock.char.dateKey || '');
-  var nowMinutes = scheduleTimeToMinutes(clock && clock.char && clock.char.nowTime);
+  var liveDay = owner === 'user'
+    ? String(clock && clock.user && clock.user.dateKey || '')
+    : String(clock && clock.char && clock.char.dateKey || '');
+  var liveTime = owner === 'user'
+    ? String(clock && clock.user && clock.user.nowTime || '')
+    : String(clock && clock.char && clock.char.nowTime || '');
+  var nowMinutes = scheduleTimeToMinutes(liveTime);
   var start = scheduleTimeToMinutes(item && item.start);
   var end = scheduleTimeToMinutes(item && item.end);
   if(start >= 0 && end < 0) end = start + 59;
-  if(compareDateKey(selected, charToday) < 0) return 'completed';
-  if(compareDateKey(selected, charToday) > 0) return 'pending';
+  if(compareDateKey(selected, liveDay) < 0) return 'completed';
+  if(compareDateKey(selected, liveDay) > 0) return 'pending';
   if(start < 0) return index === 0 ? 'active' : 'pending';
   if(nowMinutes < start) return 'pending';
   if(end >= start && nowMinutes <= end) return 'active';
@@ -1813,46 +1827,45 @@ function buildScheduleLockButtonHtml(kind, itemId, unlocked){
 function renderCharProgressStepper(ctx){
   var host = document.getElementById('charProgressStepper');
   if(!host) return;
-  var timeline = ((ctx && ctx.charDay && Array.isArray(ctx.charDay.timeline)) ? ctx.charDay.timeline : [])
-    .filter(function(item){ return item && (item.start || item.title || item.note); })
-    .slice()
-    .sort(function(a, b){ return String(a.start || '99:99').localeCompare(String(b.start || '99:99')); });
+  var timeline = getRenderedTimelineItems(ctx).filter(function(item){
+    return item && (item.start || item.title || item.note || item.location);
+  });
   if(!timeline.length){
     host.innerHTML = '';
     return;
   }
   var clock = buildScheduleGeoTimeContext(getActiveChar());
-  var charName = getCharacterName(getActiveChar());
   var rows = timeline.map(function(item, index){
-    var status = getCharProgressStatus(item, index, clock);
+    var status = getScheduleProgressStatus(item, index, clock);
     var label = status === 'completed' ? 'Completed' : (status === 'active' ? 'In Progress' : 'Pending');
     var cls = status === 'completed' ? 'schedule-stepper-completed' : (status === 'active' ? 'schedule-stepper-active' : 'schedule-stepper-pending');
     var commentCount = getCommentCount(item);
-    var secretLocked = !!item.secret && !isTimelineSecretUnlocked('timeline', item.id);
-    var secretUnlocked = !!item.secret && !secretLocked;
+    var owner = getItemTimeOwner(item);
+    var secretLocked = !!item.secretLocked;
+    var secretUnlocked = !!(item.raw && item.raw.secret) && !secretLocked;
     var icon = status === 'completed'
       ? '<svg viewBox="0 0 16 16" fill="currentColor" height="16" width="16" aria-hidden="true"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425z"></path></svg>'
       : String(index + 1);
-    var title = secretLocked ? getRenderedCharTimelineTitle(item) : String(item.title || item.note || '未命名安排').trim();
-    var note = secretLocked
-      ? getRenderedCharTimelineNote(item)
-      : [renderScheduleDisplayLocation('char', item.location), renderScheduleDisplayText('char', item.note)].filter(Boolean).join(' · ');
+    var title = String(item.title || item.note || '未命名安排').trim();
+    var note = getTimelineSecondaryText(item);
     var safeItemId = escJs(item.id || '');
-    var contentClick = secretLocked ? (' onclick="openSecretModal(\'timeline\',\'' + safeItemId + '\')"') : (' onclick="handleTimelinePrimaryClick(event,\'timeline\',\'' + safeItemId + '\')"');
-    return '<div class="schedule-stepper-step ' + cls + (secretLocked ? ' is-secret-locked' : '') + '">'
+    var safeKind = escJs(item.kind || (owner === 'user' ? 'event' : 'timeline'));
+    var contentClick = secretLocked ? (' onclick="openSecretModal(\'timeline\',\'' + safeItemId + '\')"') : (' onclick="handleTimelinePrimaryClick(event,\'' + safeKind + '\',\'' + safeItemId + '\')"');
+    return '<div class="schedule-stepper-step ' + cls + ' schedule-stepper-owner-' + esc(owner) + (secretLocked ? ' is-secret-locked' : '') + '">'
       + '<div class="schedule-stepper-circle">' + icon + '</div>'
       + '<div class="schedule-stepper-line"></div>'
       + '<div class="schedule-stepper-content"' + contentClick + '>'
       + (commentCount ? '<span class="schedule-stepper-comment-badge" aria-label="' + esc(commentCount > 99 ? '99+' : String(commentCount)) + ' 条留言"></span>' : '')
+      + '<div class="schedule-timeline-kicker">' + esc(item.label || (owner === 'user' ? getActiveUserName() : getCharacterName(getActiveChar()))) + '</div>'
       + '<div class="schedule-stepper-title">' + esc(title) + '</div>'
       + '<div class="schedule-stepper-status">' + esc(label) + '</div>'
       + '<div class="schedule-stepper-time">' + esc(getTimeRangeText(item)) + '</div>'
       + (note ? '<div class="schedule-stepper-note">' + esc(note) + '</div>' : '')
-      + (item.secret ? '<div class="schedule-stepper-actions">' + buildScheduleLockButtonHtml('timeline', item.id, secretUnlocked) + '<span class="schedule-secret-lock-text">' + (secretUnlocked ? '已解锁' : '秘密行程') + '</span></div>' : '')
+      + (item.raw && item.raw.secret ? '<div class="schedule-stepper-actions">' + buildScheduleLockButtonHtml('timeline', item.id, secretUnlocked) + '<span class="schedule-secret-lock-text">' + (secretUnlocked ? '已解锁' : '秘密行程') + '</span></div>' : '')
       + '</div></div>';
   }).join('');
   host.innerHTML = '<section class="schedule-progress-card">'
-    + '<div class="schedule-progress-head"><div><div class="schedule-kicker">CHAR PROGRESS</div><div class="schedule-progress-title">' + esc(charName) + ' 的今日进度</div></div><div class="schedule-progress-clock">' + esc((clock.char && clock.char.nowTime) || '') + '</div></div>'
+    + '<div class="schedule-progress-head"><div><div class="schedule-kicker">DAY PROGRESS</div><div class="schedule-progress-title">今日进度</div></div><div class="schedule-progress-clock">' + esc((clock.user && clock.user.nowTime) || (clock.char && clock.char.nowTime) || '') + '</div></div>'
     + '<div class="schedule-stepper-box">' + rows + '</div>'
     + '</section>';
 }
