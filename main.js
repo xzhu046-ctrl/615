@@ -52,10 +52,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T09:13:44Z';
+const APP_BUILD_ID = '2026-05-02T09:14:28Z';
 const APP_UPDATE_NOTES = [
   '日程动作改由角色判断',
-  '每次执行三到四步',
+  '有一个有效动作就执行',
   '移除模板式动作'
 ];
 const INVITE_GATE_CONFIG = {
@@ -5610,7 +5610,7 @@ async function generateScheduleThoughtActions(payload){
     '你正在决定日程 app 里“TA怎么想的？”这次要发生的动作。',
     '只返回严格 JSON，不要 markdown，不要解释。',
     '格式：{"actions":[{"type":"reply_comment|add_comment|add_memo|delete_memo|add_timeline|delete_timeline","targetKind":"event|todo|timeline|chartodo","targetId":"已有 id","text":"留言或回复内容","memoText":"新增备忘录正文","memoNote":"新增备忘录备注","timeline":{"start":"HH:mm","end":"HH:mm","title":"...","note":"...","location":"..."},"reason":"一句内部原因"}]}',
-    'actions 必须正好 3 到 4 个，按角色心情、当前时间、上下文随机但合理地选择。',
+    'actions 尽量给 3 到 4 个；如果上下文只适合少量动作，至少给 1 个真实动作。按角色心情、当前时间、上下文随机但合理地选择。',
     '允许动作：留言、回复留言、添加备忘录、删除备忘录、添加行程、删除行程。',
     'reply_comment 只能用于“有用户新留言待回复”的已有目标，必须填 targetKind/targetId/text。',
     'add_comment 用于角色自己看到某条安排后的短想法，必须填 targetKind/targetId/text；不能写成“你给我留言了”。',
@@ -5634,7 +5634,7 @@ async function generateScheduleThoughtActions(payload){
     '可操作目标：\n- ' + (lines(payload.targets) || '无'),
     '可删除备忘录：\n- ' + (lines(payload.deletableMemos) || '无'),
     '可删除行程：\n- ' + (lines(payload.deletableTimelines) || '无'),
-    '请自己判断这次像他的心情会做哪 3-4 个动作。没有可删项就不要返回删除动作。'
+    '请自己判断这次像他的心情会做哪 3-4 个动作；如果确实只适合少量动作，也至少返回 1 个真实动作。没有可删项就不要返回删除动作。'
   ].filter(Boolean).join('\n\n');
   var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
   var txt = cleanBgJson(raw);
@@ -5643,7 +5643,7 @@ async function generateScheduleThoughtActions(payload){
   actions = actions.map(function(action){
     return action && typeof action === 'object' ? action : null;
   }).filter(Boolean).slice(0, 4);
-  if(actions.length < 3) throw new Error('动作不足');
+  if(actions.length < 1) throw new Error('动作不足');
   return { actions: actions };
 }
 
