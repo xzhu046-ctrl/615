@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T08:14:08Z';
+const APP_BUILD_ID = '2026-05-02T08:19:03Z';
 const APP_UPDATE_NOTES = [
-  '多选消息不再重排跳动',
-  '修正心声格式漏进聊天',
-  '日程增加角色进度视图'
+  '修复安卓朋友圈确认删除',
+  '气泡 CSS 优先保留自定义',
+  '同步朋友圈缓存版本'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,

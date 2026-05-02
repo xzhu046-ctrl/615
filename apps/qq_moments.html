@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-01T18:22:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T18:22:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T18:22:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T18:22:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T08:19:03Z"></script>
+<script src="../assetStore.js?v=2026-05-02T08:19:03Z"></script>
+<script src="../accountManager.js?v=2026-05-02T08:19:03Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T08:19:03Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -467,6 +467,7 @@ let publishState = {
 };
 let deleteMode = false;
 let deleteSelection = [];
+let deleteConfirmBusy = false;
 let replyTarget = {};
 let editingPostId = '';
 let pendingDeleteComment = { postId:'', commentId:'' };
@@ -1131,13 +1132,18 @@ function bindTap(element, handler){
 function handleDeletePostsConfirm(evt){
   if(evt && evt.preventDefault) evt.preventDefault();
   if(evt && evt.stopPropagation) evt.stopPropagation();
+  if(evt && evt.stopImmediatePropagation) evt.stopImmediatePropagation();
+  if(deleteConfirmBusy) return false;
+  deleteConfirmBusy = true;
   confirmDeletePosts();
+  setTimeout(()=>{ deleteConfirmBusy = false; }, 360);
   return false;
 }
 
 function handleDeleteConfirmCancel(evt){
   if(evt && evt.preventDefault) evt.preventDefault();
   if(evt && evt.stopPropagation) evt.stopPropagation();
+  if(evt && evt.stopImmediatePropagation) evt.stopImmediatePropagation();
   closeDeleteConfirm();
   return false;
 }
@@ -2016,12 +2022,14 @@ function openDeleteConfirm(){
   const overlay = document.getElementById('deleteConfirmOverlay');
   const text = document.getElementById('deleteConfirmText');
   if(text) text.textContent = '确定清除 ' + deleteSelection.length + ' 条朋友圈？';
+  deleteConfirmBusy = false;
   if(overlay) overlay.classList.add('open');
 }
 
 function closeDeleteConfirm(){
   const overlay = document.getElementById('deleteConfirmOverlay');
   if(overlay) overlay.classList.remove('open');
+  deleteConfirmBusy = false;
   deleteMode = false;
   deleteSelection = [];
   replyTarget = {};
@@ -2954,6 +2962,8 @@ function bindInputs(){
       }, { passive:false });
     });
   }
+  bindTap(document.getElementById('deleteConfirmOkBtn'), handleDeletePostsConfirm);
+  bindTap(document.getElementById('deleteConfirmCancelBtn'), handleDeleteConfirmCancel);
   const deleteCommentOverlay = document.getElementById('deleteCommentConfirmOverlay');
   if(deleteCommentOverlay){
     deleteCommentOverlay.addEventListener('click', (evt)=>{
