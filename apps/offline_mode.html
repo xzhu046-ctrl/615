@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-05-02T00:50:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T00:50:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T00:50:00Z"></script>
-<script src="../promptManager.js?v=2026-05-02T00:50:00Z"></script>
-<script src="../accountManager.js?v=2026-05-02T00:50:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T00:50:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T00:50:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T00:50:00Z"></script>
+<script src="../assetStore.js?v=2026-05-02T09:34:12Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T09:34:12Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T09:34:12Z"></script>
+<script src="../promptManager.js?v=2026-05-02T09:34:12Z"></script>
+<script src="../accountManager.js?v=2026-05-02T09:34:12Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T09:34:12Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T09:34:12Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T09:34:12Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -789,7 +789,7 @@ box-shadow:0 0 0 2px rgba(255,255,255,.97),6px 6px 0 rgba(17,17,17,.94);padding:
             <div class="offline-setting-meta-row">
               <div>
                 <label class="offline-setting-label" for="offlineDrawerSummaryEvery">自动总结</label>
-                <input class="offline-setting-input offline-underline-input offline-number-input" id="offlineDrawerSummaryEvery" type="number" min="2" max="99" step="1">
+                <input class="offline-setting-input offline-underline-input offline-number-input" id="offlineDrawerSummaryEvery" type="number" min="1" max="99" step="1">
               </div>
               <div>
                 <label class="offline-setting-label" for="offlineDrawerMemoryReadCount">读取条数</label>
@@ -797,7 +797,7 @@ box-shadow:0 0 0 2px rgba(255,255,255,.97),6px 6px 0 rgba(17,17,17,.94);padding:
               </div>
             </div>
             <div class="offline-setting-actions">
-              <input class="offline-setting-input offline-underline-input offline-number-input" id="offlineDrawerManualSummaryCount" type="number" min="2" max="99" step="1" placeholder="幕数">
+              <input class="offline-setting-input offline-underline-input offline-number-input" id="offlineDrawerManualSummaryCount" type="number" min="1" max="99" step="1" placeholder="幕数">
               <button class="offline-setting-btn primary" id="offlineDrawerSummarizeBtn" type="button">手动总结</button>
             </div>
             <div class="offline-stage-summary-list" id="offlineDrawerSummaryList" hidden></div>
@@ -4417,7 +4417,7 @@ function buildOfflineStageSummaryLines(startScene, endScene){
 async function generateOfflineStageSummary(force, overrideCount){
   if(!session) return null;
   var ui = getOfflineUiPrefs();
-  var cadence = Math.max(3, Number(overrideCount || ui.summaryEvery) || 5);
+  var cadence = normalizeOfflineStageSummaryEvery(overrideCount || ui.summaryEvery);
   var totalFloorCount = countOfflineStoryFloors();
   if(!totalFloorCount) return null;
   var requestedUptoCount = Math.max(0, Number(arguments[2]) || 0);
@@ -4481,27 +4481,25 @@ async function generateOfflineStageSummary(force, overrideCount){
   await syncOfflineStageSummariesToMemoryStore(nextList);
   return nextItem;
 }
-function queueOfflineStageSummaryGeneration(){
+function queueOfflineStageSummaryGeneration(retryCount){
   if(!session) return;
   if(sending || (session && (session.pendingOpening || session.pendingAnimation))){
-    setTimeout(queueOfflineStageSummaryGeneration, 700);
+    var nextRetryCount = Math.max(0, Number(retryCount) || 0) + 1;
+    setTimeout(function(){
+      queueOfflineStageSummaryGeneration(nextRetryCount);
+    }, 700);
     return;
   }
   var ui = offlineDrawerDraft || getOfflineUiPrefs();
   if(!ui.summaryAuto) return;
-  var cadence = Math.max(3, Number(ui.summaryEvery) || 5);
+  var cadence = normalizeOfflineStageSummaryEvery(ui.summaryEvery);
   var floorCount = countOfflineStoryFloors();
   var covered = getOfflineStageSummaryCoveredCount();
-  var targetFloor = 0;
-  for(var next = cadence; next <= floorCount; next += cadence){
-    if(next > covered && !getOfflineStageSummaries().some(function(item){
-      return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) === next;
-    })){
-      targetFloor = next;
-      break;
-    }
-  }
-  if(!targetFloor) return;
+  if(floorCount - covered < cadence) return;
+  var targetFloor = Math.min(floorCount, covered + cadence);
+  if(getOfflineStageSummaries().some(function(item){
+    return Number(item && (item.uptoFloorCount || item.uptoAssistantCount) || 0) === targetFloor;
+  })) return;
   var key = 'stage::' + String(targetFloor);
   if(offlineStageSummaryQueue[key]) return;
   offlineStageSummaryQueue[key] = true;
@@ -5069,8 +5067,15 @@ function getOfflineCharCanonicalName(){
 function getOfflineUserCanonicalName(){
   return String(resolveUserName() || 'User').trim() || 'User';
 }
+function normalizeOfflineStageSummaryEvery(value, fallback){
+  var numeric = Number(value);
+  if(!Number.isFinite(numeric) || numeric < 1){
+    return Math.max(1, Math.floor(Number(fallback) || 5));
+  }
+  return Math.max(1, Math.floor(numeric));
+}
 function getOfflineUiPrefs(){
-  var summaryEvery = Math.max(3, Number(character && character.offlineSummaryEvery) || 5);
+  var summaryEvery = normalizeOfflineStageSummaryEvery(character && character.offlineSummaryEvery);
   var summaryAuto = character && character.offlineSummaryAuto != null ? !!character.offlineSummaryAuto : true;
   var memoryReadCount = Math.max(1, Math.min(12, Number(character && character.offlineMemoryReadCount) || 5));
   var sideStoryType = String(character && character.offlineSideStoryType || 'future');
@@ -5179,7 +5184,7 @@ function applyOfflineDrawerDraftToCharacter(){
   character.translationEnabled = !!draft.translationEnabled;
   character.replyLanguage = normalizeReplyLanguage(draft.replyLanguage || 'zh');
   character.translationMode = normalizeTranslationMode(draft.translationMode || 'ondemand');
-  character.offlineSummaryEvery = Math.max(3, Number(draft.summaryEvery) || 5);
+  character.offlineSummaryEvery = normalizeOfflineStageSummaryEvery(draft.summaryEvery);
   character.offlineSummaryAuto = !!draft.summaryAuto;
   character.offlineMemoryReadCount = Math.max(1, Math.min(12, Number(draft.memoryReadCount) || 5));
   character.offlineSideStoryType = String(draft.sideStoryType || 'future');
@@ -6330,7 +6335,12 @@ function bindOfflineDrawerControls(){
   }
   if(summaryEvery){
     bindNumericCommit(summaryEvery, function(){
-      getOfflineDrawerDraft().summaryEvery = Math.max(3, Number(summaryEvery.value) || 5);
+      if(Number(summaryEvery.value) < 1){
+        toast('自动总结数字不能小于 1');
+        summaryEvery.value = String(getOfflineDrawerDraft().summaryEvery);
+        return;
+      }
+      getOfflineDrawerDraft().summaryEvery = normalizeOfflineStageSummaryEvery(summaryEvery.value);
       persistOfflineDrawerSettings({ silent:true });
       queueOfflineStageSummaryGeneration();
     });
@@ -13247,6 +13257,7 @@ async function requestOfflineReply(options){
   }finally{
     sending = false;
     setOfflineComposerBusy(false);
+    queueOfflineStageSummaryGeneration();
   }
 }
 async function rerollOfflineTurn(){
