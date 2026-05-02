@@ -428,7 +428,7 @@ position:absolute;left:50%;transform:translateX(-50%);width:min(100%,320px);bord
 .inner-voice-box.normal{background:#fff;color:var(--b)}
 .inner-voice-box.desire{background:#505050;color:#fff;border-color:#2f2f2f}
 .inner-voice-meta{font-size:11px;color:var(--g);font-weight:800}
-.composer{position:fixed;left:14px;right:14px;bottom:calc(var(--offline-keyboard-inset) - 8px);z-index:25;display:flex;gap:8px;align-items:center;padding-bottom:max(2px,var(--offline-safe-bottom))}
+.composer{position:fixed;left:14px;right:14px;bottom:calc(var(--offline-keyboard-inset) + max(12px,var(--offline-safe-bottom)));z-index:25;display:flex;gap:8px;align-items:center;padding-bottom:0}
 .composer-box{flex:1;min-height:34px;border:2px solid #111;border-radius:0;background:rgba(255,255,255,.97);box-shadow:0 0 0 2px rgba(255,255,255,.95),4px 4px 0 rgba(17,17,17,.94);padding:6px 10px;display:flex;align-items:center}
 .composer-box textarea{width:100%;border:none;outline:none;background:transparent;height:20px;min-height:20px;max-height:20px;resize:none;font-family:var(--font);font-size:13px;font-weight:600;line-height:20px;color:var(--b);overflow:hidden}
 .composer-actions{display:flex;gap:8px;align-items:center}
@@ -4325,6 +4325,43 @@ function buildOfflineStageSummarySystemPrompt(rangeLabel){
     rangeLabel ? ('这次要总结的范围：' + rangeLabel) : ''
   ].filter(Boolean).join('\n');
 }
+function normalizeOfflineMemorySummaryRaw(raw){
+  var text = String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
+  if(!text) return '';
+  var parsed = parseOfflineSummaryObject(text);
+  if(parsed && parsed.summary) return String(parsed.summary || '').trim();
+  try{
+    var obj = parseOfflineJsonObject(text);
+    if(obj && typeof obj === 'object'){
+      var fromObj = String(obj.summary || obj.text || obj.memory || obj.content || '').trim();
+      if(fromObj) return fromObj;
+    }
+  }catch(e){}
+  return text.replace(/^(阶段总结|总结|summary)\s*[:：]\s*/i, '').trim();
+}
+function buildOfflineStageMemorySummaryPrompt(lines, label){
+  var source = String(lines || '').trim();
+  var namedLines = source
+    .replace(/第(\d+)幕用户输入：/g, '第$1幕' + getOfflineUserCanonicalName() + '：')
+    .replace(/第(\d+)幕角色摘要：/g, '第$1幕' + getOfflineCharCanonicalName() + '：');
+  var base = promptManager && typeof promptManager.memorySummaryUserPrompt === 'function'
+    ? promptManager.memorySummaryUserPrompt(namedLines)
+    : ('请只返回一段纯文本总结，不要标题，不要编号，不要额外解释。\n\n总结范围是以下线下记录：\n\n' + namedLines);
+  return [
+    base,
+    label ? ('这是一段线下约会的阶段记忆，范围：' + label + '。') : '这是一段线下约会的阶段记忆。',
+    '请保留线下场景里已经发生的事实、双方关系变化、情绪推进、约定和仍未落地的悬念。',
+    '只返回一段纯文本总结。'
+  ].join('\n\n');
+}
+function buildOfflineStageSummaryFallback(lines){
+  var clean = String(lines || '').replace(/\s+/g, ' ').trim();
+  if(!clean) return '';
+  clean = clean
+    .replace(/第(\d+)幕用户输入：/g, '第$1幕' + getOfflineUserCanonicalName() + '表示：')
+    .replace(/第(\d+)幕角色摘要：/g, '第$1幕' + getOfflineCharCanonicalName() + '推进：');
+  return clipOfflinePromptText(clean, 180);
+}
 function collectOfflineStageSummarySource(floorLimit){
   var entries = (Array.isArray(session && session.entries) ? session.entries : []).filter(function(entry){
     return entry && String(entry.text || '').trim();
@@ -4380,9 +4417,17 @@ async function generateOfflineStageSummary(force, overrideCount){
   var summaryLines = buildOfflineStageSummaryLines(startFloor, uptoCount);
   if(!summaryLines.length) return null;
   var label = '第' + String(startFloor) + '-' + String(uptoCount) + '幕阶段总结';
-  var raw = await callAIWithTimeout(buildOfflineStageSummarySystemPrompt(label), summaryLines.join('\n'), Math.min(getOfflineReplyTimeoutMs(), 50000));
-  var parsed = parseOfflineSummaryObject(raw);
-  var text = normalizeOfflineSummaryText(parsed && parsed.summary || '', '');
+  var raw = '';
+  try{
+    var systemPrompt = promptManager && typeof promptManager.memorySummarySystemPrompt === 'function'
+      ? promptManager.memorySummarySystemPrompt()
+      : buildOfflineStageSummarySystemPrompt(label);
+    var userPrompt = buildOfflineStageMemorySummaryPrompt(summaryLines.join('\n'), label);
+    raw = await callAIWithTimeout(systemPrompt, userPrompt, Math.min(getOfflineReplyTimeoutMs(), 50000));
+  }catch(summaryErr){
+    pushOfflineBackendLog('warn', 'offline.stage_summary.call', '阶段总结调用失败，使用已有幕摘要兜底', summaryErr);
+  }
+  var text = normalizeOfflineSummaryText(normalizeOfflineMemorySummaryRaw(raw), buildOfflineStageSummaryFallback(summaryLines.join('\n')));
   if(!text) return null;
   var nextItem = {
     id: 'offline_stage_' + String(uptoCount),
@@ -7134,13 +7179,40 @@ function syncOfflineComposerMetrics(){
 }
 var stableOfflineAppHeight = 0;
 var parentOfflineKeyboardInset = 0;
+var lastKnownOfflineKeyboardInset = 0;
+var appliedOfflineKeyboardInset = 0;
+function estimateOfflineKeyboardInset(){
+  var h = Math.round(stableOfflineAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+  if(lastKnownOfflineKeyboardInset > 120) return lastKnownOfflineKeyboardInset;
+  return Math.max(230, Math.min(270, Math.round(h * 0.30)));
+}
+function clampOfflineKeyboardInset(value){
+  var raw = Math.max(0, Number(value) || 0);
+  if(raw <= 120) return 0;
+  var h = Math.round(stableOfflineAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+  var maxInset = Math.max(270, Math.min(380, Math.round(h * 0.42)));
+  return Math.max(230, Math.min(maxInset, raw));
+}
 function syncOfflineViewport(){
   var vv = window.visualViewport;
   var activeEl = document.activeElement;
   var inputFocused = !!(activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT'));
   var rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
-  var parentInset = inputFocused ? Math.max(0, Math.min(520, Number(parentOfflineKeyboardInset || 0) || 0)) : 0;
-  var keyboardInset = inputFocused ? Math.max(rawBottomOffset > 80 ? rawBottomOffset : 0, parentInset) : 0;
+  var parentInset = inputFocused ? clampOfflineKeyboardInset(parentOfflineKeyboardInset) : 0;
+  var measuredRaw = Math.max(rawBottomOffset > 80 ? rawBottomOffset : 0, parentInset);
+  if(inputFocused && measuredRaw <= 120){
+    measuredRaw = appliedOfflineKeyboardInset > 120 ? appliedOfflineKeyboardInset : estimateOfflineKeyboardInset();
+  }else if(inputFocused && lastKnownOfflineKeyboardInset > 120 && measuredRaw > 120 && measuredRaw < (lastKnownOfflineKeyboardInset - 50)){
+    measuredRaw = lastKnownOfflineKeyboardInset;
+  }
+  var keyboardInset = inputFocused ? clampOfflineKeyboardInset(measuredRaw) : 0;
+  if(inputFocused && appliedOfflineKeyboardInset > 120 && keyboardInset > 120){
+    var delta = keyboardInset - appliedOfflineKeyboardInset;
+    if(delta > 44) keyboardInset = appliedOfflineKeyboardInset + 44;
+    else if(delta < -44) keyboardInset = Math.max(230, appliedOfflineKeyboardInset - 44);
+  }
+  if(inputFocused && measuredRaw >= 220) lastKnownOfflineKeyboardInset = clampOfflineKeyboardInset(measuredRaw);
+  appliedOfflineKeyboardInset = keyboardInset;
   var keyboardLikelyOpen = rawBottomOffset > 80;
   var fullHeight = Math.round(vv ? (vv.height + rawBottomOffset + (vv.offsetTop || 0)) : window.innerHeight);
   if(!keyboardLikelyOpen || !stableOfflineAppHeight){
@@ -14723,7 +14795,25 @@ window.addEventListener('resize', syncOfflineViewport);
 window.addEventListener('orientationchange', syncOfflineViewport);
 window.addEventListener('focusin', function(e){
   if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')){
+    if(appliedOfflineKeyboardInset <= 120){
+      appliedOfflineKeyboardInset = clampOfflineKeyboardInset(estimateOfflineKeyboardInset());
+      document.documentElement.style.setProperty('--offline-keyboard-inset', appliedOfflineKeyboardInset + 'px');
+    }
     keepOfflineComposerVisible();
+    syncOfflineViewport();
+  }
+});
+window.addEventListener('focusout', function(e){
+  if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')){
+    setTimeout(function(){
+      var activeEl = document.activeElement;
+      var stillFocused = !!(activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT'));
+      if(stillFocused) return;
+      parentOfflineKeyboardInset = 0;
+      appliedOfflineKeyboardInset = 0;
+      document.documentElement.style.setProperty('--offline-keyboard-inset', '0px');
+      syncOfflineViewport();
+    }, 40);
   }
 });
 document.addEventListener('click', function(evt){
