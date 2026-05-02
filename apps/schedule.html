@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-02T10:08:14Z"></script>
-<script src="../accountManager.js?v=2026-05-02T10:08:14Z"></script>
-<script src="../assetStore.js?v=2026-05-02T10:08:14Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T10:08:14Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T10:08:14Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T10:08:14Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T10:37:42Z"></script>
+<script src="../accountManager.js?v=2026-05-02T10:37:42Z"></script>
+<script src="../assetStore.js?v=2026-05-02T10:37:42Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T10:37:42Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T10:37:42Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T10:37:42Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -417,7 +417,12 @@ button{appearance:none;-webkit-appearance:none;background:none;border:none}
   min-height:48px;font-size:18px;font-weight:900;cursor:pointer
 }
 .schedule-secret-key.wide{grid-column:span 2}
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(12px);background:#0a0a0a;color:#fff;padding:10px 16px;border-radius:999px;font-size:12px;font-weight:900;opacity:0;pointer-events:none;transition:opacity .22s ease,transform .22s ease;z-index:55}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(12px);background:#dbeafe;color:#1e3a8a;padding:9px 12px 9px 34px;border-left:4px solid #3b82f6;border-radius:10px;font-size:11px;font-weight:900;line-height:1.45;opacity:0;pointer-events:none;transition:opacity .22s ease,transform .22s ease;z-index:55;max-width:min(82vw,420px);box-shadow:0 12px 28px rgba(15,23,42,.16);text-align:left}
+.toast::before{content:'i';position:absolute;left:10px;top:50%;width:16px;height:16px;transform:translateY(-50%);border-radius:50%;display:flex;align-items:center;justify-content:center;background:currentColor;color:#fff;font-size:11px;font-weight:900}
+.toast.toast-success{background:#dcfce7;color:#166534;border-left-color:#22c55e}
+.toast.toast-info{background:#dbeafe;color:#1e3a8a;border-left-color:#3b82f6}
+.toast.toast-warning{background:#fef3c7;color:#92400e;border-left-color:#f59e0b}
+.toast.toast-error{background:#fee2e2;color:#991b1b;border-left-color:#ef4444}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media (max-width: 900px){
   .schedule-detail-grid,.schedule-settings-grid,.schedule-form-grid{grid-template-columns:1fr}
@@ -724,21 +729,35 @@ function loadStoredAsset(key){
   try{ return Promise.resolve(localStorage.getItem(key) || ''); }catch(e){ return Promise.resolve(''); }
 }
 
-function toast(text){
+function inferToastKind(text){
+  var raw = String(text || '');
+  if(/成功|已保存|已添加|已删除|已更新|送达|完成|解锁/.test(raw)) return 'success';
+  if(/失败|错误|不对|不能|没有|拦截|超时|限流|额度|权限|密钥|key|CORS|跨域|加载失败/.test(raw)) return 'error';
+  if(/稍等|需要|慢|重试|注意/.test(raw)) return 'warning';
+  return 'info';
+}
+function setScheduleToastKind(node, text, type){
+  if(!node) return;
+  node.classList.remove('toast-success','toast-info','toast-warning','toast-error');
+  node.classList.add('toast-' + (type || inferToastKind(text)));
+}
+function toast(text, type){
   var node = document.getElementById('toast');
   if(!node) return;
   node.textContent = String(text || '').trim();
+  setScheduleToastKind(node, text, type);
   node.classList.add('show');
   clearTimeout(toastTimer);
   stickyToastToken = 0;
-  toastTimer = setTimeout(function(){ node.classList.remove('show'); }, 1900);
+  toastTimer = setTimeout(function(){ node.classList.remove('show'); }, 4200);
 }
 
-function showStickyToast(text){
+function showStickyToast(text, type){
   var node = document.getElementById('toast');
   if(!node) return 0;
   stickyToastToken = Date.now();
   node.textContent = String(text || '').trim();
+  setScheduleToastKind(node, text, type);
   node.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = null;
@@ -1849,10 +1868,11 @@ function renderCharProgressStepper(ctx){
       : String(index + 1);
     var title = String(item.title || item.note || '未命名安排').trim();
     var note = getTimelineSecondaryText(item);
+    var actionKind = item.kind || (owner === 'user' ? 'event' : 'timeline');
     var safeItemId = escJs(item.id || '');
-    var safeKind = escJs(item.kind || (owner === 'user' ? 'event' : 'timeline'));
+    var safeKind = escJs(actionKind);
     var contentClick = secretLocked ? (' onclick="openSecretModal(\'timeline\',\'' + safeItemId + '\')"') : (' onclick="handleTimelinePrimaryClick(event,\'' + safeKind + '\',\'' + safeItemId + '\')"');
-    return '<div class="schedule-stepper-step ' + cls + ' schedule-stepper-owner-' + esc(owner) + (secretLocked ? ' is-secret-locked' : '') + '">'
+    return '<div class="schedule-stepper-step ' + cls + ' schedule-stepper-owner-' + esc(owner) + (secretLocked ? ' is-secret-locked' : '') + '" data-action-kind="' + esc(actionKind) + '" data-action-id="' + esc(item.id || '') + '">'
       + '<div class="schedule-stepper-circle">' + icon + '</div>'
       + '<div class="schedule-stepper-line"></div>'
       + '<div class="schedule-stepper-content"' + contentClick + '>'
@@ -1869,6 +1889,7 @@ function renderCharProgressStepper(ctx){
     + '<div class="schedule-progress-head"><div><div class="schedule-kicker">DAY PROGRESS</div><div class="schedule-progress-title">今日进度</div></div><div class="schedule-progress-clock">' + esc((clock.user && clock.user.nowTime) || (clock.char && clock.char.nowTime) || '') + '</div></div>'
     + '<div class="schedule-stepper-box">' + rows + '</div>'
     + '</section>';
+  bindLongPressDeletes();
 }
 
 function renderTimeline(ctx){
@@ -3036,24 +3057,11 @@ function attemptSecretPeek(){
       console.warn('schedule system notice failed', err);
     });
   }
-  if(shell.ScheduleShell && typeof shell.ScheduleShell.generateChatBurst === 'function' && noticeCharId){
-    shell.ScheduleShell.generateChatBurst({
-      charId: noticeCharId,
-      context: success
-        ? '用户刚刚成功偷看了你的一条秘密行程。你已经知道这件事了，现在请按人设发几条真聊天消息。'
-        : '用户刚刚试图偷看你的一条秘密行程，但是密码输错了。你已经知道这件事了，现在请按人设发几条真聊天消息。',
-      targets: '- ' + String((item && (item.title || item.publicMask)) || '这条秘密行程'),
-      secretNotice: getSecretAttemptNotice(success, item)
-    }).then(function(messages){
-      var charForBurst = getActiveChar() || getActiveCharacterFromShell() || { id: noticeCharId };
-      return appendScheduleChatBurst(charForBurst, shell, messages);
-    }).catch(function(){});
-  }
   if(success){
     rememberTimelineSecretUnlocked(secretTarget.kind, secretTarget.itemId);
     closeSecretModal();
     renderAll();
-    toast('偷看成功');
+    toast('已记录到聊天，点回复按钮再让TA回应');
     return;
   }
   document.getElementById('secretHintText').textContent = (item.secretHint ? ('提示：' + String(item.secretHint || '').trim() + '。') : '') + ' 四位密码不对，再试一次？';
@@ -3128,7 +3136,7 @@ function openTimelineActionModal(kind, itemId){
   document.getElementById('timelineActionTitle').textContent = String(item.title || item.text || '这条安排');
   document.getElementById('timelineActionSub').textContent = formatScheduleDateZh(selectedDateKey) + ' · ' + getTimeRangeText(item);
   document.getElementById('timelineActionEditBtn').style.display = kind === 'event' ? 'inline-flex' : 'none';
-  document.getElementById('timelineActionDeleteBtn').style.display = kind === 'event' ? 'inline-flex' : 'none';
+  document.getElementById('timelineActionDeleteBtn').style.display = (kind === 'event' || kind === 'timeline') ? 'inline-flex' : 'none';
   document.getElementById('timelineActionModal').classList.add('open');
 }
 
@@ -3143,9 +3151,10 @@ function handleTimelineActionMask(evt){
 
 function confirmTimelineActionDelete(){
   if(!timelineActionTarget) return;
+  var target = { kind:String(timelineActionTarget.kind || ''), itemId:String(timelineActionTarget.itemId || '') };
   closeTimelineActionModal();
-  var item = findEntryByKind(timelineActionTarget.kind, timelineActionTarget.itemId, getActiveCharState());
-  openDeleteModal(timelineActionTarget.kind, timelineActionTarget.itemId, String(item && (item.title || item.text) || '这条安排'));
+  var item = findEntryByKind(target.kind, target.itemId, getActiveCharState());
+  openDeleteModal(target.kind, target.itemId, String(item && (item.title || item.text) || '这条安排'));
 }
 
 function openTimelineActionEdit(){

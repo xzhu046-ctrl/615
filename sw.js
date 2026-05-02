@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-05-02T10:08:14Z';
+const CACHE_VERSION = '2026-05-02T10:37:42Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -51,6 +51,24 @@ const CORE_URLS = [
 function isSameOrigin(requestUrl){
   try{
     return new URL(requestUrl, self.location.href).origin === self.location.origin;
+  }catch(err){
+    return false;
+  }
+}
+
+function isApiRequestUrl(requestUrl){
+  try{
+    const url = new URL(requestUrl, self.location.href);
+    const href = url.href.toLowerCase();
+    const path = url.pathname.toLowerCase();
+    return href.indexOf('api.openai.com') !== -1
+      || href.indexOf('api.anthropic.com') !== -1
+      || href.indexOf('generativelanguage.googleapis.com') !== -1
+      || href.indexOf('openrouter.ai') !== -1
+      || href.indexOf(':generatecontent') !== -1
+      || /\/v1\/(?:chat\/completions|messages|embeddings)\b/.test(path)
+      || /\/(?:chat\/completions|messages|embeddings)\b/.test(path)
+      || /\/api\/(?:chat|ai|llm|proxy|generate|completions)\b/.test(path);
   }catch(err){
     return false;
   }
@@ -160,6 +178,7 @@ self.addEventListener('notificationclick', (event)=>{
 });
 
 self.addEventListener('fetch', (event)=>{
+  if(isApiRequestUrl(event.request.url)) return;
   if(event.request.method !== 'GET') return;
   if(!isSameOrigin(event.request.url)) return;
 

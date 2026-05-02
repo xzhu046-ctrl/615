@@ -52,7 +52,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T10:08:14Z';
+const APP_BUILD_ID = '2026-05-02T10:37:42Z';
 const APP_UPDATE_NOTES = [
   '你的行程按聊天地点时间判断',
   '日程进度时间来源更一致',
@@ -5076,8 +5076,73 @@ async function generateScheduleChatBurst(payload){
 }
 
 async function callAiForBackground(cfg, sysPrompt, userPrompt){
+  async function readShellAiJsonResponse(res){
+    var rawText = '';
+    try{ rawText = await res.text(); }catch(err){}
+    var data = {};
+    if(rawText){
+      try{ data = JSON.parse(rawText); }catch(err){ data = { rawText: rawText }; }
+    }
+    if(!res || !res.ok){
+      var status = res && res.status;
+      console.warn('[shell-ai-http]', { status: status, statusText: res && res.statusText, body: rawText });
+      throw new Error(humanizeShellApiError(status, data));
+    }
+    if(data && data.error){
+      throw new Error(humanizeShellApiMessage(data.error.message || data.error.status || JSON.stringify(data.error)));
+    }
+    return data;
+  }
+  function humanizeShellApiError(status, data){
+    var code = Number(status) || 0;
+    var detail = '';
+    if(data && data.error) detail = String(data.error.message || data.error.status || '').trim();
+    else if(data && data.rawText) detail = String(data.rawText || '').trim();
+    if(code === 400) return '这次请求格式不太对，服务器没看懂。检查一下模型名或自定义地址。';
+    if(code === 401) return '密钥不对或过期了，重新检查一下 API key。';
+    if(code === 402) return '额度或账单不够了，这次没有成功生成。';
+    if(code === 403) return '服务器拒绝了这次请求，可能是权限、模型或跨域限制。';
+    if(code === 404) return '没有找到这个接口或模型，检查一下地址和模型名。';
+    if(code === 408) return '服务器等太久了，这次请求超时了。';
+    if(code === 413) return '这次内容太长了，服务器装不下。';
+    if(code === 422) return '请求内容有一项不符合接口要求，检查一下模型或参数。';
+    if(code === 429) return '服务器需要休息一下，发送太频繁啦，触发了速率限制。稍等一会儿好不好？';
+    if(code === 500) return '服务器开小差啦，这次没有成功。等一下再试。';
+    if(code === 502) return '服务器网关没接稳，这次没有成功。稍等一下再试。';
+    if(code === 503) return '服务器现在有点忙，稍等一会儿再发。';
+    if(code === 504) return '服务器等回复等超时了，稍后再试一次。';
+    if(code >= 500) return '服务器开小差啦（' + code + '），稍等一下再试。';
+    return humanizeShellApiMessage(detail || ('请求失败了（' + code + '）。'));
+  }
+  function humanizeShellApiMessage(message){
+    var text = String(message || '').trim();
+    if(!text) return '请求失败了。';
+    if(/cors|cross-origin|failed to fetch|networkerror|load failed/i.test(text)) return '浏览器把请求拦住了，通常是接口没放开跨域。换支持跨域的地址，或给自定义接口开启 CORS。';
+    if(/429|rate limit|too many requests/i.test(text)) return '服务器需要休息一下，发送太频繁啦，触发了速率限制。稍等一会儿好不好？';
+    if(/insufficient_quota|quota|billing|余额|额度/i.test(text)) return '额度或账单不够了，这次没有成功生成。';
+    if(/invalid api key|incorrect api key|unauthorized|401|api key/i.test(text)) return '密钥不对或过期了，重新检查一下 API key。';
+    if(/forbidden|403|permission/i.test(text)) return '服务器拒绝了这次请求，可能是权限、模型或跨域限制。';
+    if(/model.*not found|does not exist|404/i.test(text)) return '没有找到这个模型，可能是模型名写错了。';
+    if(/context length|maximum context|too long|token/i.test(text)) return '这次内容太长了，服务器装不下。';
+    if(/timeout|timed out|超时/i.test(text)) return '这次请求超时了，稍后再试一次。';
+    if(text.length > 90) return text.slice(0, 90) + '...';
+    return text;
+  }
+  async function fetchShellAiJson(url, init){
+    try{
+      var res = await fetch(url, init);
+      return await readShellAiJsonResponse(res);
+    }catch(err){
+      var msg = String(err && err.message || err || '').trim();
+      if(/cors|cross-origin|failed to fetch|networkerror|load failed|timeout|timed out/i.test(msg)){
+        throw new Error(humanizeShellApiMessage(msg));
+      }
+      if(err && err.message) throw err;
+      throw new Error(humanizeShellApiMessage(err));
+    }
+  }
   if(cfg.provider === 'openai'){
-    var res = await fetch('https://api.openai.com/v1/chat/completions', {
+    var d = await fetchShellAiJson('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + cfg.key },
       body: JSON.stringify({
@@ -5086,12 +5151,10 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
         messages: [{ role:'system', content: sysPrompt }, { role:'user', content: userPrompt }]
       })
     });
-    var d = await res.json();
-    if(d.error) throw new Error(d.error.message || JSON.stringify(d.error));
     return d.choices && d.choices[0] && d.choices[0].message ? d.choices[0].message.content : '';
   }
   if(cfg.provider === 'claude'){
-    var resClaude = await fetch('https://api.anthropic.com/v1/messages', {
+    var dc = await fetchShellAiJson('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -5106,13 +5169,11 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
         messages: [{ role:'user', content: userPrompt }]
       })
     });
-    var dc = await resClaude.json();
-    if(dc.error) throw new Error(dc.error.message || JSON.stringify(dc.error));
     return dc.content && dc.content[0] ? dc.content[0].text : '';
   }
   if(cfg.provider === 'gemini'){
     var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + cfg.model + ':generateContent?key=' + cfg.key;
-    var resGemini = await fetch(url, {
+    var dg = await fetchShellAiJson(url, {
       method: 'POST',
       headers: { 'Content-Type':'application/json' },
       body: JSON.stringify({
@@ -5124,13 +5185,11 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
         generationConfig: { temperature: cfg.temperature }
       })
     });
-    var dg = await resGemini.json();
-    if(dg.error) throw new Error(dg.error.message || dg.error.status || JSON.stringify(dg.error));
     return dg.candidates && dg.candidates[0] && dg.candidates[0].content && dg.candidates[0].content.parts && dg.candidates[0].content.parts[0]
       ? dg.candidates[0].content.parts[0].text : '';
   }
   if(cfg.provider === 'openrouter'){
-    var resOr = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    var dor = await fetchShellAiJson('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type':'application/json',
@@ -5144,14 +5203,12 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
         messages: [{ role:'system', content: sysPrompt }, { role:'user', content: userPrompt }]
       })
     });
-    var dor = await resOr.json();
-    if(dor.error) throw new Error(dor.error.message || JSON.stringify(dor.error));
     return dor.choices && dor.choices[0] && dor.choices[0].message ? dor.choices[0].message.content : '';
   }
   if(cfg.provider === 'custom'){
     var headers = { 'Content-Type':'application/json' };
     if(cfg.key) headers['Authorization'] = 'Bearer ' + cfg.key;
-    var resCustom = await fetch(cfg.customUrl + '/chat/completions', {
+    var dcustom = await fetchShellAiJson(cfg.customUrl + '/chat/completions', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify({
@@ -5160,8 +5217,6 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
         messages: [{ role:'system', content: sysPrompt }, { role:'user', content: userPrompt }]
       })
     });
-    var dcustom = await resCustom.json();
-    if(dcustom.error) throw new Error(dcustom.error.message || JSON.stringify(dcustom.error));
     return dcustom.choices && dcustom.choices[0] && dcustom.choices[0].message ? dcustom.choices[0].message.content : '';
   }
   return '';
@@ -5988,12 +6043,22 @@ function setHomePagesOffset(pages, offsetPx){
   pages.style.marginLeft = snapped + 'px';
 }
 
-function showHomeToast(text){
+function inferHomeToastKind(text){
+  var raw = String(text || '');
+  if(/成功|已保存|已添加|已删除|已更新|更换成功|送达/.test(raw)) return 'success';
+  if(/失败|错误|不对|不能|没有|拦截|超时|限流|额度|权限|密钥|key|CORS|跨域|加载失败/.test(raw)) return 'error';
+  if(/稍等|慢|重试|注意|小心|需要/.test(raw)) return 'warning';
+  return 'info';
+}
+
+function showHomeToast(text, type){
   const t = document.getElementById('home-toast');
   if(!t) return;
   t.textContent = text || '更换成功';
+  t.classList.remove('toast-success','toast-info','toast-warning','toast-error');
+  t.classList.add('toast-' + (type || inferHomeToastKind(text)));
   t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 1800);
+  setTimeout(()=>t.classList.remove('show'), 4200);
 }
 
 function isLockedWorkbenchApp(id){
@@ -6265,6 +6330,13 @@ function showAppNotificationCard(payload){
   body.textContent = text;
   function renderNotificationAvatar(src){
     var safeSrc = normalizeShellAssetSrc(src || '');
+    var fallbackText = String(title || 'TA').trim().slice(0, 2) || 'TA';
+    if(avatarFallback){
+      avatarFallback.style.display = 'flex';
+      avatarFallback.textContent = fallbackText;
+    }else{
+      avatar.textContent = fallbackText;
+    }
     if(isRenderableShellAvatarSrc(safeSrc)){
       avatar.style.backgroundImage = '';
       if(avatarImg){
@@ -6277,17 +6349,13 @@ function showAppNotificationCard(payload){
           avatarImg.removeAttribute('src');
           if(avatarFallback){
             avatarFallback.style.display = 'flex';
-            avatarFallback.textContent = String(title || '角').slice(0, 1);
+            avatarFallback.textContent = fallbackText;
           }else{
-            avatar.textContent = String(title || '角').slice(0, 1);
+            avatar.textContent = fallbackText;
           }
         };
         avatarImg.classList.remove('show');
         avatarImg.src = safeSrc;
-      }
-      if(avatarFallback){
-        avatarFallback.style.display = 'flex';
-        avatarFallback.textContent = String(title || '角').slice(0, 1);
       }
       avatar.textContent = '';
       return true;
@@ -6298,9 +6366,9 @@ function showAppNotificationCard(payload){
     }
     if(avatarFallback){
       avatarFallback.style.display = 'flex';
-      avatarFallback.textContent = String(title || '角').slice(0, 1);
+      avatarFallback.textContent = fallbackText;
     }else{
-      avatar.textContent = String(title || '角').slice(0, 1);
+      avatar.textContent = fallbackText;
     }
     return false;
   }
