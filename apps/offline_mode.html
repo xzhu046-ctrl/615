@@ -3947,12 +3947,21 @@ function weatherSettingsStorageKey(role, charId){
 function getOfflineWeatherSnapshot(role){
   var charId = character && character.id ? String(character.id) : '';
   if(!charId) return null;
-  try{
-    var parsed = JSON.parse(localStorage.getItem(weatherSettingsStorageKey(role, charId)) || 'null');
-    return parsed && typeof parsed === 'object' ? parsed : null;
-  }catch(e){
-    return null;
+  var base = (role === 'char' ? 'real_weather_char_' : 'real_weather_user_') + charId;
+  var keys = [];
+  function addKey(key){
+    key = String(key || '').trim();
+    if(key && keys.indexOf(key) === -1) keys.push(key);
   }
+  addKey(weatherSettingsStorageKey(role, charId));
+  accountScopedCandidates(base).forEach(addKey);
+  for(var i = 0; i < keys.length; i += 1){
+    try{
+      var parsed = JSON.parse(localStorage.getItem(keys[i]) || 'null');
+      if(parsed && typeof parsed === 'object') return parsed;
+    }catch(e){}
+  }
+  return null;
 }
 function buildWeatherMoodPrompt(snapshot){
   if(!snapshot) return '';
@@ -9479,20 +9488,40 @@ function getOfflineHistorySnippetByBudget(limit, maxChars){
 function buildOfflinePresencePromptBlock(){
   if(!(window.PresenceShared && character && character.id && typeof window.PresenceShared.getPresenceSnapshot === 'function')) return '';
   try{
-    var snapshot = window.PresenceShared.getPresenceSnapshot(character, Date.now()) || {};
+    var nowMs = Date.now();
+    var snapshot = window.PresenceShared.getPresenceSnapshot(character, nowMs) || {};
     var user = snapshot.user || {};
     var charPresence = snapshot.char || {};
     var charCity = charPresence.city || {};
     var settings = charPresence.settings || {};
+    var userWeather = getOfflineWeatherSnapshot('user') || {};
+    var charWeather = getOfflineWeatherSnapshot('char') || {};
+    function displayPlace(setting, fallback){
+      if(!(setting && typeof setting === 'object')) return String(fallback || '').trim();
+      return String(setting.aliasName || '').trim() || String(setting.realName || '').trim() || String(setting.resolvedName || '').trim() || String(fallback || '').trim();
+    }
+    var userLabel = displayPlace(userWeather, String(user.label || user.weatherName || '').trim() || String(user.cityId || '').trim() || '未设置');
+    var charCityName = displayPlace(charWeather, String(charCity.name || settings.cityName || settings.cityId || '').trim() || '未设置');
+    var userOffset = 0;
+    try{
+      if(user.cityId && typeof window.PresenceShared.getCity === 'function'){
+        userOffset = Number((window.PresenceShared.getCity(user.cityId) || {}).tz || 0) || 0;
+      }
+    }catch(offsetErr){}
+    var userClock = getOfflineScheduleLocalClockParts(nowMs, String(userWeather.timezone || user.timezone || '').trim(), userOffset);
+    var charClock = getOfflineScheduleLocalClockParts(nowMs, String(charWeather.timezone || charPresence.timezoneName || '').trim(), charPresence.timezoneOffset);
     var lines = [
-      '聊天设置地点 / Presence（优先级高于世界书地点）：',
-      '用户当前显示地点：' + (String(user.label || user.weatherName || '').trim() || '未设置'),
-      '角色当前显示城市：' + (String(charCity.name || settings.cityName || settings.cityId || '').trim() || '未设置'),
+      '聊天设置地点/时间硬规则（优先级高于世界书、旧记忆、角色卡旧地点）：',
+      '用户显示地点：' + userLabel + '；用户当地日期时间：' + String(userClock.dateKey || '') + ' ' + String(userClock.nowTime || '未知'),
+      '角色显示城市：' + charCityName + '；角色当地日期时间：' + String(charClock.dateKey || '') + ' ' + String(charClock.nowTime || '未知'),
       '角色当前地点：' + (String(charPresence.placeLabel || '').trim() || '未设置'),
       '角色当前状态：' + (String(charPresence.activityLabel || '').trim() || '未设置'),
       '双方距离/交通：' + (String(snapshot.distanceLabel || '').trim() || '未知') + (snapshot.travel && snapshot.travel.text ? '，' + snapshot.travel.text : ''),
-      '写线下约会时，现实地理、碰面距离、从哪里来、去哪里、角色此刻在哪儿，必须优先使用这一段聊天设置地点；如果世界书、persona、旧设定里有冲突地点，只能当旧背景，不得覆盖这里。'
+      '正文里所有昼夜、早晚、上课/下班/睡觉、通勤、天气体感和地点名称，都必须按上面这组聊天设置地点与当地时间来写；冲突旧设定只能当旧背景，不得覆盖。'
     ];
+    if(userWeather.aliasName || charWeather.aliasName){
+      lines.push('如果真实天气城市和显示地点不同，正文只写显示地点，不要暴露真实天气城市名。');
+    }
     return lines.join('\n');
   }catch(err){
     return '';
@@ -9609,26 +9638,29 @@ function getOfflineScheduleLocalClockParts(nowMs, timezoneName, timezoneOffset){
 function buildOfflineScheduleLocalNowContext(character){
   var safeNow = Date.now();
   if(!(window.PresenceShared && character && character.id && typeof window.PresenceShared.getPresenceSnapshot === 'function')){
-    var now = new Date(safeNow);
-    var fallbackDateKey = window.ScheduleShared.toDateKey(now);
-    var fallbackTime = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    var fallbackUserWeather = getOfflineWeatherSnapshot('user') || {};
+    var fallbackCharWeather = getOfflineWeatherSnapshot('char') || {};
+    var fallbackUser = getOfflineScheduleLocalClockParts(safeNow, String(fallbackUserWeather.timezone || '').trim(), 0);
+    var fallbackChar = getOfflineScheduleLocalClockParts(safeNow, String(fallbackCharWeather.timezone || '').trim(), 0);
     return {
-      user: { dateKey: fallbackDateKey, nowTime: fallbackTime },
-      char: { dateKey: fallbackDateKey, nowTime: fallbackTime },
-      liveInput: { userDateKey: fallbackDateKey, userNowTime: fallbackTime, charDateKey: fallbackDateKey, charNowTime: fallbackTime }
+      user: fallbackUser,
+      char: fallbackChar,
+      liveInput: { userDateKey: fallbackUser.dateKey, userNowTime: fallbackUser.nowTime, charDateKey: fallbackChar.dateKey, charNowTime: fallbackChar.nowTime }
     };
   }
   var snapshot = window.PresenceShared.getPresenceSnapshot(character, safeNow);
   var user = snapshot && snapshot.user ? snapshot.user : {};
   var charPresence = snapshot && snapshot.char ? snapshot.char : {};
+  var userWeather = getOfflineWeatherSnapshot('user') || {};
+  var charWeather = getOfflineWeatherSnapshot('char') || {};
   var userOffset = 0;
   try{
     if(user.cityId && typeof window.PresenceShared.getCity === 'function'){
       userOffset = Number((window.PresenceShared.getCity(user.cityId) || {}).tz || 0) || 0;
     }
   }catch(err){}
-  var userLocal = getOfflineScheduleLocalClockParts(safeNow, user.timezone, userOffset);
-  var charLocal = getOfflineScheduleLocalClockParts(safeNow, charPresence.timezoneName, charPresence.timezoneOffset);
+  var userLocal = getOfflineScheduleLocalClockParts(safeNow, String(userWeather.timezone || user.timezone || '').trim(), userOffset);
+  var charLocal = getOfflineScheduleLocalClockParts(safeNow, String(charWeather.timezone || charPresence.timezoneName || '').trim(), charPresence.timezoneOffset);
   return {
     user: userLocal,
     char: charLocal,
