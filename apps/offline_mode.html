@@ -7181,17 +7181,17 @@ var stableOfflineAppHeight = 0;
 var parentOfflineKeyboardInset = 0;
 var lastKnownOfflineKeyboardInset = 0;
 var appliedOfflineKeyboardInset = 0;
+var offlineKeyboardFocusStartedAt = 0;
 function estimateOfflineKeyboardInset(){
   var h = Math.round(stableOfflineAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
-  if(lastKnownOfflineKeyboardInset > 120) return lastKnownOfflineKeyboardInset;
-  return Math.max(230, Math.min(270, Math.round(h * 0.30)));
+  return Math.max(150, Math.min(210, Math.round(h * 0.23)));
 }
 function clampOfflineKeyboardInset(value){
   var raw = Math.max(0, Number(value) || 0);
   if(raw <= 120) return 0;
   var h = Math.round(stableOfflineAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
-  var maxInset = Math.max(270, Math.min(380, Math.round(h * 0.42)));
-  return Math.max(230, Math.min(maxInset, raw));
+  var maxInset = Math.max(260, Math.min(430, Math.round(h * 0.48)));
+  return Math.min(maxInset, raw);
 }
 function syncOfflineViewport(){
   var vv = window.visualViewport;
@@ -7200,18 +7200,22 @@ function syncOfflineViewport(){
   var rawBottomOffset = Math.round(vv ? Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0))) : 0);
   var parentInset = inputFocused ? clampOfflineKeyboardInset(parentOfflineKeyboardInset) : 0;
   var measuredRaw = Math.max(rawBottomOffset > 80 ? rawBottomOffset : 0, parentInset);
-  if(inputFocused && measuredRaw <= 120){
+  var confirmedKeyboard = inputFocused && measuredRaw > 140;
+  var focusAge = offlineKeyboardFocusStartedAt ? (Date.now() - offlineKeyboardFocusStartedAt) : 9999;
+  if(inputFocused && !confirmedKeyboard && focusAge >= 0 && focusAge < 520){
     measuredRaw = appliedOfflineKeyboardInset > 120 ? appliedOfflineKeyboardInset : estimateOfflineKeyboardInset();
-  }else if(inputFocused && lastKnownOfflineKeyboardInset > 120 && measuredRaw > 120 && measuredRaw < (lastKnownOfflineKeyboardInset - 50)){
+  }else if(inputFocused && !confirmedKeyboard){
+    measuredRaw = 0;
+  }else if(inputFocused && confirmedKeyboard && lastKnownOfflineKeyboardInset > 120 && measuredRaw > 120 && measuredRaw < (lastKnownOfflineKeyboardInset - 64)){
     measuredRaw = lastKnownOfflineKeyboardInset;
   }
   var keyboardInset = inputFocused ? clampOfflineKeyboardInset(measuredRaw) : 0;
-  if(inputFocused && appliedOfflineKeyboardInset > 120 && keyboardInset > 120){
+  if(inputFocused && confirmedKeyboard && appliedOfflineKeyboardInset > 120 && keyboardInset > 120){
     var delta = keyboardInset - appliedOfflineKeyboardInset;
     if(delta > 44) keyboardInset = appliedOfflineKeyboardInset + 44;
-    else if(delta < -44) keyboardInset = Math.max(230, appliedOfflineKeyboardInset - 44);
+    else if(delta < -44) keyboardInset = Math.max(0, appliedOfflineKeyboardInset - 44);
   }
-  if(inputFocused && measuredRaw >= 220) lastKnownOfflineKeyboardInset = clampOfflineKeyboardInset(measuredRaw);
+  if(inputFocused && confirmedKeyboard && measuredRaw >= 180) lastKnownOfflineKeyboardInset = clampOfflineKeyboardInset(measuredRaw);
   appliedOfflineKeyboardInset = keyboardInset;
   var keyboardLikelyOpen = rawBottomOffset > 80;
   var fullHeight = Math.round(vv ? (vv.height + rawBottomOffset + (vv.offsetTop || 0)) : window.innerHeight);
@@ -14775,7 +14779,8 @@ window.addEventListener('message', function(e){
   }
   if(data.type === 'PARENT_APP_KEYBOARD_INSET'){
     var rawInset = data.payload && typeof data.payload === 'object' ? data.payload.inset : data.payload;
-    parentOfflineKeyboardInset = Math.max(0, Math.min(520, Number(rawInset) || 0));
+    var parentOpen = !(data.payload && typeof data.payload === 'object' && data.payload.keyboardOpen === false);
+    parentOfflineKeyboardInset = parentOpen ? Math.max(0, Math.min(520, Number(rawInset) || 0)) : 0;
     syncOfflineViewport();
     if(parentOfflineKeyboardInset) keepOfflineComposerVisible();
   }
@@ -14795,6 +14800,7 @@ window.addEventListener('resize', syncOfflineViewport);
 window.addEventListener('orientationchange', syncOfflineViewport);
 window.addEventListener('focusin', function(e){
   if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT')){
+    offlineKeyboardFocusStartedAt = Date.now();
     if(appliedOfflineKeyboardInset <= 120){
       appliedOfflineKeyboardInset = clampOfflineKeyboardInset(estimateOfflineKeyboardInset());
       document.documentElement.style.setProperty('--offline-keyboard-inset', appliedOfflineKeyboardInset + 'px');
@@ -14809,6 +14815,7 @@ window.addEventListener('focusout', function(e){
       var activeEl = document.activeElement;
       var stillFocused = !!(activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT'));
       if(stillFocused) return;
+      offlineKeyboardFocusStartedAt = 0;
       parentOfflineKeyboardInset = 0;
       appliedOfflineKeyboardInset = 0;
       document.documentElement.style.setProperty('--offline-keyboard-inset', '0px');

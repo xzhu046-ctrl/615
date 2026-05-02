@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T05:28:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T05:28:00Z"></script>
-<script src="../assetStore.js?v=2026-05-02T05:28:00Z"></script>
-<script src="../accountManager.js?v=2026-05-02T05:28:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T05:28:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T05:28:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T05:28:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T05:28:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T05:28:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T05:28:00Z"></script>
+<script src="../promptManager.js?v=2026-05-02T06:12:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T06:12:00Z"></script>
+<script src="../assetStore.js?v=2026-05-02T06:12:00Z"></script>
+<script src="../accountManager.js?v=2026-05-02T06:12:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T06:12:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T06:12:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T06:12:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T06:12:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T06:12:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-02T06:12:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -25936,6 +25936,7 @@ var parentComposerShift = 0;
 var lastKnownKeyboardInset = 0;
 var appliedKeyboardInset = 0;
 var chatInputFocusActive = false;
+var chatKeyboardFocusStartedAt = 0;
 function isChatTextInputActive(){
   var active = document.activeElement;
   if(!active) return false;
@@ -25945,15 +25946,20 @@ function isChatTextInputActive(){
 }
 function estimateChatKeyboardInset(){
   var h = Math.round(stableChatAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
-  if(lastKnownKeyboardInset > 120) return lastKnownKeyboardInset;
-  return Math.max(230, Math.min(270, Math.round(h * 0.30)));
+  return Math.max(150, Math.min(210, Math.round(h * 0.23)));
 }
 function clampChatKeyboardInset(value){
   var raw = Math.max(0, Number(value) || 0);
   if(raw <= 120) return 0;
   var h = Math.round(stableChatAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
-  var maxInset = Math.max(270, Math.min(380, Math.round(h * 0.42)));
-  return Math.max(230, Math.min(maxInset, raw));
+  var maxInset = Math.max(260, Math.min(430, Math.round(h * 0.48)));
+  return Math.min(maxInset, raw);
+}
+function clearChatKeyboardInset(){
+  parentComposerShift = 0;
+  appliedKeyboardInset = 0;
+  document.documentElement.style.setProperty('--keyboard-inset', '0px');
+  document.documentElement.style.setProperty('--composer-bottom', '12px');
 }
 function getChatViewportMetrics(){
   var vv = window.visualViewport;
@@ -25976,20 +25982,26 @@ function syncChatViewport(){
   }
   var textInputFocused = isChatTextInputActive();
   var resizedInset = textInputFocused ? Math.max(0, stableChatAppHeight - metrics.currentHeight) : 0;
-  var measuredKeyboardRaw = Math.max(metrics.obscuredHeight, resizedInset, parentComposerShift || 0);
-  var keyboardRaw = measuredKeyboardRaw;
-  if(textInputFocused && keyboardRaw <= 120){
+  var measuredKeyboardRaw = textInputFocused ? Math.max(metrics.obscuredHeight, resizedInset, parentComposerShift || 0) : 0;
+  var keyboardConfirmed = textInputFocused && measuredKeyboardRaw > 140;
+  var focusAge = chatKeyboardFocusStartedAt ? (Date.now() - chatKeyboardFocusStartedAt) : 9999;
+  var keyboardRaw = keyboardConfirmed ? measuredKeyboardRaw : 0;
+  if(textInputFocused && !keyboardConfirmed && focusAge >= 0 && focusAge < 520){
     keyboardRaw = appliedKeyboardInset > 120 ? appliedKeyboardInset : estimateChatKeyboardInset();
-  }else if(textInputFocused && lastKnownKeyboardInset > 120 && keyboardRaw > 120 && keyboardRaw < (lastKnownKeyboardInset - 50)){
+  }else if(textInputFocused && keyboardConfirmed && lastKnownKeyboardInset > 120 && keyboardRaw > 120 && keyboardRaw < (lastKnownKeyboardInset - 64)){
     keyboardRaw = lastKnownKeyboardInset;
   }
   var keyboardInset = clampChatKeyboardInset(keyboardRaw);
-  if(textInputFocused && appliedKeyboardInset > 120 && keyboardInset > 120){
+  if(textInputFocused && keyboardConfirmed && appliedKeyboardInset > 120 && keyboardInset > 120){
     var delta = keyboardInset - appliedKeyboardInset;
     if(delta > 44) keyboardInset = appliedKeyboardInset + 44;
-    else if(delta < -44) keyboardInset = Math.max(230, appliedKeyboardInset - 44);
+    else if(delta < -44) keyboardInset = Math.max(0, appliedKeyboardInset - 44);
   }
-  if(measuredKeyboardRaw >= 220) lastKnownKeyboardInset = clampChatKeyboardInset(measuredKeyboardRaw);
+  if(!textInputFocused){
+    parentComposerShift = 0;
+    keyboardInset = 0;
+  }
+  if(keyboardConfirmed && measuredKeyboardRaw >= 180) lastKnownKeyboardInset = clampChatKeyboardInset(measuredKeyboardRaw);
   appliedKeyboardInset = keyboardInset;
   chatInputFocusActive = textInputFocused;
   if(!keyboardInset && metrics.currentHeight > stableChatAppHeight){
@@ -26000,7 +26012,7 @@ function syncChatViewport(){
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', '0px');
   document.documentElement.style.setProperty('--keyboard-inset', keyboardInset + 'px');
-  document.documentElement.style.setProperty('--composer-bottom', '12px');
+  document.documentElement.style.setProperty('--composer-bottom', keyboardInset ? '20px' : '12px');
   syncComposerMetrics();
   applyComposerPlacement(metrics, keyboardInset);
 }
@@ -33178,16 +33190,20 @@ window.addEventListener('message', async function(e) {
     }
   }
   if(d.type === 'PARENT_CHAT_COMPOSER_SHIFT'){
-    var shift = d && d.payload ? Number(d.payload.shift || 0) || 0 : 0;
-    parentComposerShift = clampChatKeyboardInset(shift);
+    var shiftPayload = d && d.payload ? d.payload : {};
+    var shift = Number(shiftPayload.shift || 0) || 0;
+    var shiftOpen = shiftPayload.keyboardOpen !== false && shift > 120 && isChatTextInputActive();
+    parentComposerShift = shiftOpen ? clampChatKeyboardInset(shift) : 0;
     if(parentComposerShift > 120) lastKnownKeyboardInset = parentComposerShift;
     syncChatViewport();
     keepComposerVisible();
     return;
   }
   if(d.type === 'PARENT_APP_KEYBOARD_INSET'){
-    var inset = d && d.payload ? Number(d.payload.inset || 0) || 0 : 0;
-    parentComposerShift = clampChatKeyboardInset(inset);
+    var insetPayload = d && d.payload ? d.payload : {};
+    var inset = Number(insetPayload.inset || 0) || 0;
+    var insetOpen = insetPayload.keyboardOpen !== false && inset > 120 && isChatTextInputActive();
+    parentComposerShift = insetOpen ? clampChatKeyboardInset(inset) : 0;
     if(parentComposerShift > 120) lastKnownKeyboardInset = parentComposerShift;
     syncChatViewport();
     keepComposerVisible();
@@ -33379,6 +33395,7 @@ window.addEventListener('orientationchange', function(){
 window.addEventListener('focusin', function(e){
   if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.target.id === 'msg-input')){
     chatInputFocusActive = true;
+    chatKeyboardFocusStartedAt = Date.now();
     var currentInset = 0;
     try{
       currentInset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--keyboard-inset')) || 0;
@@ -33400,9 +33417,8 @@ window.addEventListener('focusout', function(e){
       var isTextField = !!(active && (active.tagName === 'TEXTAREA' || active.tagName === 'INPUT' || active.id === 'msg-input'));
       if(isTextField) return;
       chatInputFocusActive = false;
-      parentComposerShift = 0;
-      appliedKeyboardInset = 0;
-      document.documentElement.style.setProperty('--keyboard-inset', '0px');
+      chatKeyboardFocusStartedAt = 0;
+      clearChatKeyboardInset();
       try{
         if(window.parent) window.parent.postMessage({ type:'CHAT_INPUT_BLUR' }, '*');
       }catch(err){}

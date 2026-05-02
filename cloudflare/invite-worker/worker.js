@@ -361,7 +361,7 @@ listEl.addEventListener('click', async (event)=>{
 
 function corsHeaders(env){
   return {
-    'access-control-allow-origin': env.ALLOWED_ORIGIN || '*',
+    'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
     'access-control-allow-headers': 'content-type, x-admin-token',
     'access-control-max-age': '86400'
