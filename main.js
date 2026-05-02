@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T09:05:18Z';
+const APP_BUILD_ID = '2026-05-02T09:13:44Z';
 const APP_UPDATE_NOTES = [
-  '优化日程进度轴样式',
-  '加快日程想法留言',
-  '修正无留言误回复'
+  '日程动作改由角色判断',
+  '每次执行三到四步',
+  '移除模板式动作'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -5581,6 +5581,72 @@ async function generateScheduleChatSyncPlan(payload){
   }
 }
 
+async function generateScheduleThoughtActions(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var charId = String(payload.charId || '').trim();
+  if(!charId) throw new Error('缺少角色');
+  var chars = getStoredCharactersSnapshot();
+  var character = chars.find(function(item){ return item && String(item.id || '').trim() === charId; }) || null;
+  if(!character) throw new Error('找不到角色');
+  var cfg = getBackgroundProviderConfig();
+  if(!cfg) throw new Error('请先在设置里配置模型');
+  var localClock = buildScheduleLocalNowContextForCharacter(character, Date.now());
+  function lines(list){
+    return (Array.isArray(list) ? list : []).map(function(item){
+      item = item && typeof item === 'object' ? item : {};
+      return [
+        'id=' + String(item.id || ''),
+        'kind=' + String(item.kind || ''),
+        String(item.owner || ''),
+        String(item.time || ''),
+        String(item.title || item.text || ''),
+        String(item.note || ''),
+        Number(item.userCommentAt || 0) > Number(item.charCommentAt || 0) ? '有用户新留言待回复' : '',
+        item.secret ? '秘密行程' : ''
+      ].filter(Boolean).join(' | ');
+    }).filter(Boolean).join('\n- ');
+  }
+  var sysPrompt = [
+    '你正在决定日程 app 里“TA怎么想的？”这次要发生的动作。',
+    '只返回严格 JSON，不要 markdown，不要解释。',
+    '格式：{"actions":[{"type":"reply_comment|add_comment|add_memo|delete_memo|add_timeline|delete_timeline","targetKind":"event|todo|timeline|chartodo","targetId":"已有 id","text":"留言或回复内容","memoText":"新增备忘录正文","memoNote":"新增备忘录备注","timeline":{"start":"HH:mm","end":"HH:mm","title":"...","note":"...","location":"..."},"reason":"一句内部原因"}]}',
+    'actions 必须正好 3 到 4 个，按角色心情、当前时间、上下文随机但合理地选择。',
+    '允许动作：留言、回复留言、添加备忘录、删除备忘录、添加行程、删除行程。',
+    'reply_comment 只能用于“有用户新留言待回复”的已有目标，必须填 targetKind/targetId/text。',
+    'add_comment 用于角色自己看到某条安排后的短想法，必须填 targetKind/targetId/text；不能写成“你给我留言了”。',
+    'add_memo 必须填 memoText，可填 memoNote。',
+    'delete_memo 必须填 targetKind="chartodo" 和一个可删备忘录 targetId。',
+    'add_timeline 必须填 timeline，内容必须由角色人设和当下上下文决定。',
+    'delete_timeline 必须填 targetKind="timeline" 和一个可删普通行程 targetId；不能删除秘密行程。',
+    '不要用模板话，不要返回占位词，不要为了凑数写空内容。',
+    '所有新增内容必须是简体中文，短一点，有角色本人状态。'
+  ].join('\n');
+  var userPrompt = [
+    '角色名：' + String(character.nickname || character.name || '角色'),
+    '角色人设：' + String(character.personality || character.description || '').slice(0, 1800),
+    character.scenario ? ('角色情境：' + String(character.scenario || '').slice(0, 800)) : '',
+    String(getScheduleUserPersona(charId) || '').trim() ? ('用户设定：' + String(getScheduleUserPersona(charId) || '').trim().slice(0, 900)) : '',
+    buildSchedulePresenceContextForCharId(charId, character) ? ('现实地理位置 / 距离感：\n' + buildSchedulePresenceContextForCharId(charId, character)) : '',
+    localClock.user ? ('用户当地时间：' + String(localClock.user.dateKey || '') + ' ' + String(localClock.user.nowTime || '')) : '',
+    localClock.char ? ('角色当地时间：' + String(localClock.char.dateKey || '') + ' ' + String(localClock.char.nowTime || '')) : '',
+    '当前日程页日期：' + String(payload.dateKey || ''),
+    payload.primaryTarget ? ('当前用户点到的目标：' + JSON.stringify(payload.primaryTarget)) : '',
+    '可操作目标：\n- ' + (lines(payload.targets) || '无'),
+    '可删除备忘录：\n- ' + (lines(payload.deletableMemos) || '无'),
+    '可删除行程：\n- ' + (lines(payload.deletableTimelines) || '无'),
+    '请自己判断这次像他的心情会做哪 3-4 个动作。没有可删项就不要返回删除动作。'
+  ].filter(Boolean).join('\n\n');
+  var raw = await callAiForBackground(cfg, sysPrompt, userPrompt);
+  var txt = cleanBgJson(raw);
+  var parsed = JSON.parse(txt || '{}');
+  var actions = parsed && Array.isArray(parsed.actions) ? parsed.actions : [];
+  actions = actions.map(function(action){
+    return action && typeof action === 'object' ? action : null;
+  }).filter(Boolean).slice(0, 4);
+  if(actions.length < 3) throw new Error('动作不足');
+  return { actions: actions };
+}
+
 async function syncScheduleActivityFromChat(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
@@ -5865,6 +5931,7 @@ window.ScheduleShell = {
   generateChatBurst: generateScheduleChatBurst,
   appendChatMessage: appendScheduleChatMessage,
   generateInlineComment: generateScheduleInlineComment,
+  generateThoughtActions: generateScheduleThoughtActions,
   syncChatBackground: syncScheduleActivityFromChat
 };
 
