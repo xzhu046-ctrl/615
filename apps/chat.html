@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T08:26:07Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T08:26:07Z"></script>
-<script src="../assetStore.js?v=2026-05-02T08:26:07Z"></script>
-<script src="../accountManager.js?v=2026-05-02T08:26:07Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T08:26:07Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T08:26:07Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T08:26:07Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T08:26:07Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T08:26:07Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T08:26:07Z"></script>
+<script src="../promptManager.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../assetStore.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../accountManager.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T08:49:21Z"></script>
+<script src="offlineInvite.js?v=2026-05-02T08:49:21Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -26004,6 +26004,7 @@ function closeImageViewer(){
 var stableChatAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
 var parentComposerShift = 0;
 var parentKeyboardOpen = false;
+var parentKeyboardUpdatedAt = 0;
 var lastKnownKeyboardInset = 0;
 var appliedKeyboardInset = 0;
 var chatInputFocusActive = false;
@@ -26025,6 +26026,7 @@ function clampChatKeyboardInset(value){
 function clearChatKeyboardInset(){
   parentComposerShift = 0;
   parentKeyboardOpen = false;
+  parentKeyboardUpdatedAt = 0;
   appliedKeyboardInset = 0;
   document.documentElement.style.setProperty('--keyboard-inset', '0px');
   document.documentElement.style.setProperty('--composer-shift', '0px');
@@ -26055,7 +26057,8 @@ function syncChatViewport(){
   if(metrics.currentHeight > stableChatAppHeight && !textInputFocused){
     stableChatAppHeight = metrics.currentHeight;
   }
-  var parentInset = (textInputFocused && parentKeyboardOpen) ? Math.max(0, parentComposerShift || 0) : 0;
+  var parentFresh = parentKeyboardOpen && parentKeyboardUpdatedAt && Date.now() - parentKeyboardUpdatedAt < 1800;
+  var parentInset = (textInputFocused && parentFresh) ? Math.max(0, parentComposerShift || 0) : 0;
   var inferredInset = textInputFocused ? Math.max(0, stableChatAppHeight - metrics.visibleHeight) : 0;
   var measuredKeyboardRaw = textInputFocused ? Math.max(metrics.obscuredHeight, inferredInset, parentInset) : 0;
   var keyboardInset = clampChatKeyboardInset(measuredKeyboardRaw);
@@ -26063,6 +26066,7 @@ function syncChatViewport(){
     keyboardInset = 0;
     parentComposerShift = 0;
     parentKeyboardOpen = false;
+    parentKeyboardUpdatedAt = 0;
   }
   if(keyboardInset >= 180) lastKnownKeyboardInset = keyboardInset;
   appliedKeyboardInset = keyboardInset;
@@ -33377,10 +33381,12 @@ window.addEventListener('message', async function(e) {
     if(isChatTextInputActive() && isOpen){
       parentComposerShift = clampChatKeyboardInset(shiftValue);
       parentKeyboardOpen = parentComposerShift > 120;
+      parentKeyboardUpdatedAt = Date.now();
       syncChatViewport();
     }else{
       parentComposerShift = 0;
       parentKeyboardOpen = false;
+      parentKeyboardUpdatedAt = 0;
       syncChatViewport();
     }
     return;
@@ -33392,10 +33398,12 @@ window.addEventListener('message', async function(e) {
     if(isChatTextInputActive() && insetOpen){
       parentComposerShift = clampChatKeyboardInset(insetValue);
       parentKeyboardOpen = parentComposerShift > 120;
+      parentKeyboardUpdatedAt = Date.now();
       syncChatViewport();
     }else{
       parentComposerShift = 0;
       parentKeyboardOpen = false;
+      parentKeyboardUpdatedAt = 0;
       syncChatViewport();
     }
     return;

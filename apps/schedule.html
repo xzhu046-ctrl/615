@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>日程</title>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Quicksand:wght@400;500;600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-02T08:34:14Z"></script>
-<script src="../accountManager.js?v=2026-05-02T08:34:14Z"></script>
-<script src="../assetStore.js?v=2026-05-02T08:34:14Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T08:34:14Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T08:34:14Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T08:34:14Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../accountManager.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../assetStore.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T08:49:21Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T08:49:21Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -822,15 +822,33 @@ function getScheduleWeatherSetting(role, charId){
   if(!safeCharId) return null;
   var baseKey = (safeRole === 'char' ? 'real_weather_char_' : 'real_weather_user_') + safeCharId;
   var keys = [getScheduleScopedKey(baseKey), baseKey].filter(Boolean);
+  try{
+    var activeChar = getActiveChar();
+    var embedded = activeChar && safeRole === 'char' ? activeChar.weatherCharSetting : (activeChar && activeChar.weatherUserSetting);
+    if(embedded && typeof embedded === 'object' && String(embedded.timezone || '').trim()){
+      return embedded;
+    }
+  }catch(err){}
+  try{
+    for(var k = 0; k < localStorage.length; k++){
+      var key = localStorage.key(k);
+      if(key && (key === baseKey || key.indexOf(baseKey + '__acct_') === 0) && keys.indexOf(key) === -1){
+        keys.push(key);
+      }
+    }
+  }catch(scanErr){}
+  var best = null;
   for(var i = 0; i < keys.length; i++){
     try{
       var raw = localStorage.getItem(keys[i]);
       if(!raw) continue;
       var parsed = JSON.parse(raw);
-      if(parsed && typeof parsed === 'object') return parsed;
+      if(!(parsed && typeof parsed === 'object')) continue;
+      if(parsed.locked && String(parsed.timezone || '').trim()) return parsed;
+      if(!best || Number(parsed.updatedAt || 0) > Number(best.updatedAt || 0)) best = parsed;
     }catch(err){}
   }
-  return null;
+  return best;
 }
 
 function buildScheduleWeatherSnapshot(role, charId){

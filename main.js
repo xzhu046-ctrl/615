@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T08:34:14Z';
+const APP_BUILD_ID = '2026-05-02T08:49:21Z';
 const APP_UPDATE_NOTES = [
-  '日程只保留新进度轴',
-  '秘密行程可在进度轴解锁',
-  '修正日程进度时间判断'
+  '修正日程地点时间判断',
+  '修复聊天键盘回落',
+  '修复朋友圈删除确认'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -904,6 +904,7 @@ function getFallbackChatKeyboardShift(){
   if(!isAndroidShell() || currentApp !== 'chat' || !chatInputFocusActive) return 0;
   var focusedFor = Date.now() - (Number(chatInputFocusStartedAt) || 0);
   if(focusedFor < 70) return 0;
+  if(focusedFor > 1800 && getTopLevelChatKeyboardShift() <= 120 && chatReportedKeyboardShift <= 120) return 0;
   var h = Math.round(stableShellAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
   if(!h) return 0;
   return Math.max(260, Math.min(430, Math.round(h * 0.42)));
