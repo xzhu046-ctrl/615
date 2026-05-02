@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T19:50:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T19:50:00Z"></script>
-<script src="../assetStore.js?v=2026-05-02T19:50:00Z"></script>
-<script src="../accountManager.js?v=2026-05-02T19:50:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T19:50:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T19:50:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T19:50:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T19:50:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T19:50:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../promptManager.js?v=2026-05-02T20:07:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T20:07:00Z"></script>
+<script src="../assetStore.js?v=2026-05-02T20:07:00Z"></script>
+<script src="../accountManager.js?v=2026-05-02T20:07:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T20:07:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T20:07:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T20:07:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T20:07:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T20:07:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-02T20:07:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -10893,6 +10893,24 @@ async function loadAllChatThemePartCss(charId){
   bubbleThemeCssDraft = String(next.bubble || '');
   setLiveStyleText(ensureBubbleChatThemeStyleNode(), composeChatThemePartCss());
   return next;
+}
+
+function refreshChatThemeCssFromStorage(){
+  if(!character || !character.id) return;
+  loadGlobalChatThemeCss(character.id).then(function(savedCss){
+    var css = String(savedCss || '').trim() || getDefaultGlobalThemeCss();
+    globalThemeCssDraft = css;
+    applyGlobalChatThemeCss(css);
+    var globalInput = document.getElementById('csGlobalCss');
+    if(globalInput && document.activeElement !== globalInput) globalInput.value = css;
+  }).catch(function(){});
+  loadAllChatThemePartCss(character.id).then(function(parts){
+    var input = document.getElementById('csBubbleCss');
+    if(input && document.activeElement !== input){
+      input.value = String(parts && parts[activeChatThemePart || 'bubble'] || getDefaultChatThemePartCss(activeChatThemePart || 'bubble'));
+      applyChatBubblePreviewCss(input.value);
+    }
+  }).catch(function(){});
 }
 
 async function saveAllChatThemePartCss(charId){
@@ -26171,6 +26189,13 @@ function clampChatKeyboardInset(value){
   var maxInset = Math.max(260, Math.min(430, Math.round(h * 0.48)));
   return Math.min(maxInset, raw);
 }
+function isAndroidChatRuntime(){
+  return /Android/i.test(String(navigator && navigator.userAgent || ''));
+}
+function estimateChatKeyboardInset(){
+  var h = Math.round(stableChatAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+  return Math.max(260, Math.min(430, Math.round(h * 0.42)));
+}
 function clearChatKeyboardInset(){
   parentComposerShift = 0;
   parentKeyboardOpen = false;
@@ -26205,10 +26230,14 @@ function syncChatViewport(){
   if(metrics.currentHeight > stableChatAppHeight && !textInputFocused){
     stableChatAppHeight = metrics.currentHeight;
   }
-  var parentFresh = parentKeyboardOpen && parentKeyboardUpdatedAt && Date.now() - parentKeyboardUpdatedAt < 1800;
+  var parentFresh = parentKeyboardOpen && parentKeyboardUpdatedAt && Date.now() - parentKeyboardUpdatedAt < 8000;
   var parentInset = (textInputFocused && parentFresh) ? Math.max(0, parentComposerShift || 0) : 0;
   var inferredInset = textInputFocused ? Math.max(0, stableChatAppHeight - metrics.visibleHeight) : 0;
   var measuredKeyboardRaw = textInputFocused ? Math.max(metrics.obscuredHeight, inferredInset, parentInset) : 0;
+  var focusAge = chatKeyboardFocusStartedAt ? (Date.now() - chatKeyboardFocusStartedAt) : 9999;
+  if(textInputFocused && measuredKeyboardRaw <= 120 && isAndroidChatRuntime() && focusAge < 1800){
+    measuredKeyboardRaw = Math.max(measuredKeyboardRaw, appliedKeyboardInset, lastKnownKeyboardInset, estimateChatKeyboardInset());
+  }
   var keyboardInset = clampChatKeyboardInset(measuredKeyboardRaw);
   if(!textInputFocused || keyboardInset <= 120){
     keyboardInset = 0;
@@ -33737,6 +33766,7 @@ document.addEventListener('visibilitychange', function(){
     syncChatCssEditorsToLivePage();
     applyChatHeaderCss(getCurrentHeaderThemeCss());
     applyInnerVoiceCustomCss(getCurrentInnerVoiceCss());
+    refreshChatThemeCssFromStorage();
   }
 });
 
@@ -33791,6 +33821,7 @@ window.addEventListener('pageshow', function(){
   syncChatCssEditorsToLivePage();
   applyChatHeaderCss(getCurrentHeaderThemeCss());
   applyInnerVoiceCustomCss(getCurrentInnerVoiceCss());
+  refreshChatThemeCssFromStorage();
   updateModelLabel();
 });
 window.addEventListener('load', function(){

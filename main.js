@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T19:50:00Z';
+const APP_BUILD_ID = '2026-05-02T20:07:00Z';
 const APP_UPDATE_NOTES = [
-  '更新弹窗显示本版日志',
-  '手机 CSS 保存更稳',
-  '朋友圈分享和头像更可靠',
-  '线下聊天按设置自动总结'
+  '输入框弹起更稳定',
+  '页面切换减少白屏',
+  '朋友圈分享显示更多角色',
+  '手机 CSS 恢复更稳'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -905,7 +905,6 @@ function getFallbackChatKeyboardShift(){
   if(!isAndroidShell() || currentApp !== 'chat' || !chatInputFocusActive) return 0;
   var focusedFor = Date.now() - (Number(chatInputFocusStartedAt) || 0);
   if(focusedFor < 70) return 0;
-  if(focusedFor > 1800 && getTopLevelChatKeyboardShift() <= 120 && chatReportedKeyboardShift <= 120) return 0;
   var h = Math.round(stableShellAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
   if(!h) return 0;
   return Math.max(260, Math.min(430, Math.round(h * 0.42)));
@@ -12412,7 +12411,7 @@ window.addEventListener('load', ()=>{
         message: '页面已加载'
       });
       setTimeout(applyIframeSafeAreaOverrides, 120);
-      hideShellLoadingOverlay(currentApp === 'chat' ? 360 : (currentApp ? 260 : 2000));
+      hideShellLoadingOverlay(currentApp === 'chat' ? 160 : (currentApp ? 80 : 1200));
     });
     frame.addEventListener('error', function(){
       clearAppFrameLoadWatchdog();

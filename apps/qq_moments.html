@@ -6,10 +6,10 @@
 <title>朋友圈</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-02T19:50:00Z"></script>
-<script src="../assetStore.js?v=2026-05-02T19:50:00Z"></script>
-<script src="../accountManager.js?v=2026-05-02T19:50:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T19:50:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T20:07:00Z"></script>
+<script src="../assetStore.js?v=2026-05-02T20:07:00Z"></script>
+<script src="../accountManager.js?v=2026-05-02T20:07:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T20:07:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -637,20 +637,31 @@ function getStoredCharactersSnapshot(){
 }
 
 async function getMomentsShareCharacters(){
-  let chars = getStoredCharactersSnapshot();
-  if((!Array.isArray(chars) || !chars.length) && window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
-    try{ chars = await window.MetadataStore.loadCharacters(true); }catch(e){ chars = []; }
+  const merged = [];
+  const seen = Object.create(null);
+  const pushList = (list)=>{
+    (Array.isArray(list) ? list : []).forEach((char)=>{
+      if(!char || !char.id) return;
+      const id = String(char.id || '').trim();
+      if(!id || seen[id]) return;
+      seen[id] = true;
+      merged.push(char);
+    });
+  };
+  pushList(getStoredCharactersSnapshot());
+  if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
+    try{ pushList(await window.MetadataStore.loadCharacters(true)); }catch(e){}
   }
-  if((!Array.isArray(chars) || !chars.length)){
-    try{
-      const shell = getParentShell();
-      if(shell && shell.MetadataStore && typeof shell.MetadataStore.loadCharacters === 'function'){
-        chars = await shell.MetadataStore.loadCharacters(true);
-      }
-    }catch(e){}
-  }
+  try{
+    const shell = getParentShell();
+    if(shell && typeof shell.getStoredCharactersSnapshot === 'function') pushList(shell.getStoredCharactersSnapshot());
+    if(shell && shell.MetadataStore && typeof shell.MetadataStore.loadCharacters === 'function'){
+      pushList(await shell.MetadataStore.loadCharacters(true));
+    }
+    if(shell && typeof shell.getActiveCharacterData === 'function') pushList([shell.getActiveCharacterData()]);
+  }catch(e){}
   const activeAccountId = getActiveAccountId();
-  return (Array.isArray(chars) ? chars : []).filter((char)=>{
+  return merged.filter((char)=>{
     if(!char || !char.id) return false;
     const owner = String(char.ownerAccountId || '').trim();
     return !activeAccountId || !owner || owner === activeAccountId;
@@ -755,7 +766,7 @@ async function appendMomentCardToChat(post, targetChar){
   try{
     window.parent.postMessage({
       type: 'CHAT_UPDATED',
-      payload: { id: targetChar.id, data: targetChar, last: '【朋友圈】' + momentCardPreviewText(post).slice(0, 36), lastType: 'text' }
+      payload: { id: targetChar.id, data: targetChar, last: '【朋友圈】', lastType: 'text' }
     }, '*');
   }catch(e){}
 }
@@ -2740,6 +2751,12 @@ async function resetCaptchaImages(evt){
 function loadStoredAsset(key){
   const scoped = scopedKey(key);
   if(window.assetStore) return window.assetStore.load(scoped);
+  try{
+    const shell = getParentShell();
+    if(shell && shell !== window && typeof shell.loadStoredAsset === 'function'){
+      return shell.loadStoredAsset(key).then((src)=>src || '');
+    }
+  }catch(e){}
   try{ return Promise.resolve(localStorage.getItem(scoped) || ''); }catch(e){ return Promise.resolve(''); }
 }
 
