@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../assetStore.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../accountManager.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T10:37:42Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T10:37:42Z"></script>
+<script src="../promptManager.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../assetStore.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../accountManager.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T10:51:06Z"></script>
+<script src="offlineInvite.js?v=2026-05-02T10:51:06Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -10164,6 +10164,25 @@ function applyInnerVoiceCustomCss(cssText){
   ensureInnerVoiceThemeStyleNode().textContent = safe;
 }
 
+function syncChatCssEditorsToLivePage(){
+  var globalInput = document.getElementById('csGlobalCss');
+  var bubbleInput = document.getElementById('csBubbleCss');
+  var innerVoiceInput = document.getElementById('csInnerVoiceCss');
+  if(globalInput) applyGlobalChatThemeCss(String(globalInput.value || ''));
+  if(bubbleInput){
+    syncActiveChatThemePartDraftFromInput();
+    ensureBubbleChatThemeStyleNode().textContent = composeChatThemePartCss();
+    applyChatBubblePreviewCss(String(bubbleInput.value || ''));
+  }else{
+    ensureBubbleChatThemeStyleNode().textContent = composeChatThemePartCss();
+  }
+  if(innerVoiceInput){
+    var innerCss = normalizeInnerVoicePromptText(innerVoiceInput.value || '');
+    applyInnerVoiceCustomCss(innerCss);
+    if(character) character.innerVoiceCss = innerCss || getDefaultInnerVoiceCss();
+  }
+}
+
 function applyBubbleCharmSettings(source){
   var settings = getBubbleCharmSettings(source);
   bubbleCharmEnabled = settings.enabled !== false;
@@ -11180,7 +11199,7 @@ function queueChatThemeDraftAutosave(){
   chatThemeDraftAutosaveTimer = setTimeout(function(){
     var globalInput = document.getElementById('csGlobalCss');
     var globalCss = String(globalInput && globalInput.value || globalThemeCssDraft || '');
-    syncActiveChatThemePartDraftFromInput();
+    syncChatCssEditorsToLivePage();
     saveChatSettingsBundle(character.id, {
       globalCss: globalCss,
       themeParts: cloneJsonSafe(chatThemePartDrafts || {}, {})
@@ -11193,6 +11212,9 @@ function queueChatThemeDraftAutosave(){
     saveAllChatThemePartCss(character.id).catch(function(err){
       console.warn('chat theme part autosave failed', err);
     });
+    saveChatSettingsPatch(character.id, buildChatSettingsPatchFromCharacter(character)).catch(function(err){
+      console.warn('chat css patch autosave failed', err);
+    });
   }, 520);
 }
 
@@ -11201,7 +11223,7 @@ function bindThemeDraftInputs(){
   if(globalInput && globalInput.dataset.bound !== '1'){
     globalInput.dataset.bound = '1';
     globalInput.addEventListener('input', function(){
-      applyGlobalChatThemeCss(String(globalInput.value || ''));
+      syncChatCssEditorsToLivePage();
       renderGlobalThemePresetList();
       queueChatThemeDraftAutosave();
     });
@@ -11210,9 +11232,7 @@ function bindThemeDraftInputs(){
   if(bubbleInput && bubbleInput.dataset.bound !== '1'){
     bubbleInput.dataset.bound = '1';
     bubbleInput.addEventListener('input', function(){
-      syncActiveChatThemePartDraftFromInput();
-      ensureBubbleChatThemeStyleNode().textContent = composeChatThemePartCss();
-      applyChatBubblePreviewCss(String(bubbleInput.value || ''));
+      syncChatCssEditorsToLivePage();
       renderBubbleThemePresetList();
       queueChatThemeDraftAutosave();
     });
@@ -11221,7 +11241,8 @@ function bindThemeDraftInputs(){
   if(innerVoiceInput && innerVoiceInput.dataset.bound !== '1'){
     innerVoiceInput.dataset.bound = '1';
     innerVoiceInput.addEventListener('input', function(){
-      applyInnerVoiceCustomCss(String(innerVoiceInput.value || ''));
+      syncChatCssEditorsToLivePage();
+      queueChatThemeDraftAutosave();
     });
   }
 }

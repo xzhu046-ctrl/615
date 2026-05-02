@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../promptManager.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../accountManager.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T10:37:42Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T10:37:42Z"></script>
+<script src="../assetStore.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../promptManager.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../accountManager.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T10:51:06Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T10:51:06Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1134,6 +1134,7 @@ var offlineDrawerPageBgDirty = false;
 var offlineDrawerCardBgDirty = false;
 var offlineBeautyActivePart = 'avatar';
 var offlineBeautyDrafts = null;
+var offlineBeautyAutosaveTimer = 0;
 var offlineMemoryEditingId = '';
 var offlineMemoryEditingMeta = null;
 var offlineMemoryConfirmResolver = null;
@@ -5530,7 +5531,18 @@ function syncOfflineBeautyDraftFromInput(){
   getOfflineBeautyCssMap()[partId] = String(input.value || '');
   applyOfflineBeautyCss();
 }
+function queueOfflineBeautyAutosave(){
+  if(!character) return;
+  clearTimeout(offlineBeautyAutosaveTimer);
+  offlineBeautyAutosaveTimer = setTimeout(function(){
+    syncOfflineBeautyDraftFromInput();
+    character.offlineBeautyCss = normalizeOfflineBeautyCssMap(getOfflineBeautyCssMap());
+    applyOfflineBeautyCss();
+    persistOfflineCharacterSettings();
+  }, 520);
+}
 function persistOfflineBeautyCssMap(options){
+  clearTimeout(offlineBeautyAutosaveTimer);
   syncOfflineBeautyDraftFromInput();
   if(character){
     character.offlineBeautyCss = normalizeOfflineBeautyCssMap(getOfflineBeautyCssMap());
@@ -5564,6 +5576,7 @@ function renderOfflineBeautyControls(){
 }
 function selectOfflineBeautyPart(partId){
   syncOfflineBeautyDraftFromInput();
+  queueOfflineBeautyAutosave();
   offlineBeautyActivePart = getOfflineBeautyParts().some(function(part){ return part.id === partId; }) ? partId : 'avatar';
   renderOfflineBeautyControls();
 }
@@ -6429,6 +6442,7 @@ function bindOfflineDrawerControls(){
   if(beautyInput){
     beautyInput.addEventListener('input', function(){
       syncOfflineBeautyDraftFromInput();
+      queueOfflineBeautyAutosave();
     });
   }
   if(beautyApplyBtn){
