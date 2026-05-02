@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T01:32:00Z';
+const APP_BUILD_ID = '2026-05-02T01:48:00Z';
 const APP_UPDATE_NOTES = [
-  '聊天输入框定位修正',
-  '线下记忆总结同步修正',
-  '版本缓存刷新'
+  '强制更新流程修正',
+  '代码缓存刷新修正',
+  '版本文件拉取修正'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -90,6 +90,40 @@ const GITHUB_UPDATE_BRANCH = 'main';
 const BOND_FRAME_SHIFT_X = 1;
 const BOND_FRAME_SHIFT_Y = 4;
 const SERVICE_WORKER_PATH = 'sw.js';
+const FORCE_UPDATE_CORE_FILES = [
+  '',
+  'index.html',
+  'style.css',
+  'main.js',
+  'sw.js',
+  'manifest.webmanifest',
+  'version.json',
+  'accountManager.js',
+  'assetStore.js',
+  'avatar-frames.js',
+  'chatStorage.js',
+  'metadataStore.js',
+  'offlineInviteStore.js',
+  'presenceShared.js',
+  'promptManager.js',
+  'scheduleShared.js',
+  'sunnySupport.js',
+  'apps/backend.html',
+  'apps/characters.html',
+  'apps/chat.html',
+  'apps/customize.html',
+  'apps/map6.html',
+  'apps/offline.html',
+  'apps/offlineInvite.js',
+  'apps/offline_archive.html',
+  'apps/offline_mode.html',
+  'apps/qq.html',
+  'apps/qq_moments.html',
+  'apps/qq_profile.html',
+  'apps/schedule.html',
+  'apps/settings.html',
+  'apps/worldbook.html'
+];
 const HOME_MUSIC_STATE_KEY = 'home_music_state_v1';
 const HOME_MUSIC_TRACK_PREFIX = 'home_music_track_';
 const HOME_MUSIC_PROXY_BASE_KEY = 'home_music_proxy_base_v1';
@@ -2087,48 +2121,74 @@ function getServiceWorkerUrl(buildOverride){
 }
 
 async function primeLatestCoreFiles(buildOverride){
-  if(!/^https?:$/.test(window.location.protocol)) return;
+  return forceFetchLatestCoreFiles(buildOverride);
+}
+
+function setHostedRefreshProgress(text, done, total, targetBuild){
+  lastHostedUpdateCheckStatus = String(text || '正在刷新');
+  if(typeof done === 'number' && typeof total === 'number' && total > 0){
+    lastHostedUpdateCheckStatus += ' ' + Math.max(0, Math.min(done, total)) + '/' + total;
+  }
+  updateHostedUpdateMeta(targetBuild);
+  var btn = document.getElementById('update-toast-btn');
+  if(btn){
+    btn.disabled = true;
+    if(typeof done === 'number' && typeof total === 'number' && total > 0){
+      btn.textContent = '刷新中 ' + Math.max(0, Math.min(done, total)) + '/' + total;
+    }else{
+      btn.textContent = '刷新中...';
+    }
+  }
+}
+
+async function forceFetchLatestCoreFiles(buildOverride, onProgress){
+  if(!/^https?:$/.test(window.location.protocol)) return [];
   var stamp = Date.now();
   var refreshBuild = String(buildOverride || pendingRemoteAppFingerprint || shownHostedUpdateFingerprint || APP_BUILD_ID).trim() || APP_BUILD_ID;
-  var targets = [
-    '',
-    'index.html',
-    'style.css',
-    'main.js',
-    'assetStore.js',
-    'chatStorage.js',
-    'scheduleShared.js',
-    'promptManager.js',
-    'accountManager.js',
-    'presenceShared.js',
-    'sunnySupport.js',
-    'manifest.webmanifest',
-    'version.json',
-    'apps/qq.html',
-    'apps/qq_moments.html',
-    'apps/qq_profile.html',
-    'apps/chat.html',
-    'apps/characters.html',
-    'apps/customize.html',
-    'apps/settings.html',
-    'apps/offline.html',
-    'apps/offline_mode.html',
-    'apps/offline_archive.html',
-    'apps/schedule.html',
-    'apps/backend.html',
-    'apps/worldbook.html',
-    'apps/map6.html',
-    'offlineInviteStore.js',
-    'metadataStore.js',
-    'presenceShared.js',
-    'accountManager.js'
-  ];
-  await Promise.all(targets.map(function(path){
+  var targets = FORCE_UPDATE_CORE_FILES.slice();
+  var failed = [];
+  for(var i = 0; i < targets.length; i += 1){
+    var path = targets[i];
+    if(typeof onProgress === 'function'){
+      onProgress('正在更新 ' + (path || '首页'), i, targets.length);
+    }
     var url = new URL(path || './', window.location.href);
-    url.searchParams.set('refreshBuild', refreshBuild);
-    url.searchParams.set('__ts', String(stamp));
-    return fetch(url.toString(), { cache:'no-store' }).catch(function(){ return null; });
-  }));
+    url.searchParams.set('__force', String(stamp));
+    url.searchParams.set('__appBuild', refreshBuild);
+    url.searchParams.set('__ts', String(stamp + i));
+    try{
+      var response = await fetch(url.toString(), { cache:'no-store' });
+      if(!response || !response.ok){
+        throw new Error('fetch failed');
+      }
+      if(path === 'version.json'){
+        var versionPayload = await response.clone().json().catch(function(){ return null; });
+        var versionBuild = readBuildIdFromVersionPayload(versionPayload);
+        if(refreshBuild && versionBuild && compareHostedBuildIds(versionBuild, refreshBuild) < 0){
+          throw new Error('version not ready');
+        }
+      }else if(path === 'main.js'){
+        var mainText = await response.clone().text().catch(function(){ return ''; });
+        var mainBuild = readBuildIdFromMainJsText(mainText);
+        if(refreshBuild && mainBuild && compareHostedBuildIds(mainBuild, refreshBuild) < 0){
+          throw new Error('main not ready');
+        }
+      }else if(path === '' || path === 'index.html'){
+        var indexText = await response.clone().text().catch(function(){ return ''; });
+        var indexBuild = readBuildIdFromIndexHtmlText(indexText);
+        if(refreshBuild && indexBuild && compareHostedBuildIds(indexBuild, refreshBuild) < 0){
+          throw new Error('index not ready');
+        }
+      }
+    }catch(err){
+      failed.push(path || './');
+      console.warn('[update-check] core fetch failed', path || './', err);
+    }
+  }
+  if(typeof onProgress === 'function'){
+    onProgress('代码文件已重新拉取', targets.length, targets.length);
+  }
+  return failed;
 }
 
 async function unregisterHostedServiceWorkers(){
@@ -2328,6 +2388,11 @@ function bootHostedUpdateCheck(){
   });
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState === 'visible'){
+      if('serviceWorker' in navigator){
+        navigator.serviceWorker.ready
+          .then(function(reg){ return reg && typeof reg.update === 'function' ? reg.update() : null; })
+          .catch(function(){});
+      }
       scheduleHostedUpdateCheck(true);
     }
   });
@@ -2346,6 +2411,7 @@ function refreshInstalledApp(evt){
     refreshBtn.textContent = '刷新中...';
   }
   var targetBuild = String(pendingRemoteAppFingerprint || shownHostedUpdateFingerprint || getLastSeenHostedRemoteBuild() || APP_BUILD_ID).trim() || APP_BUILD_ID;
+  var totalRefreshFiles = FORCE_UPDATE_CORE_FILES.length;
   var finishReload = function(){
     swControllerRefreshPending = false;
     hostedRefreshInFlight = false;
@@ -2370,10 +2436,29 @@ function refreshInstalledApp(evt){
     window.location.reload();
   };
   Promise.resolve()
+    .then(function(){
+      setHostedRefreshProgress('正在保存当前数据', 0, totalRefreshFiles, targetBuild);
+    })
     .then(function(){ return flushCurrentAppState(); })
-    .then(function(){ return unregisterHostedServiceWorkers(); })
-    .then(function(){ return clearHostedUpdateCaches(); })
-    .then(function(){ return primeLatestCoreFiles(targetBuild); })
+    .then(function(){
+      setHostedRefreshProgress('正在注销旧更新壳', 0, totalRefreshFiles, targetBuild);
+      return unregisterHostedServiceWorkers();
+    })
+    .then(function(){
+      setHostedRefreshProgress('正在清除代码缓存', 0, totalRefreshFiles, targetBuild);
+      return clearHostedUpdateCaches();
+    })
+    .then(function(){
+      return forceFetchLatestCoreFiles(targetBuild, function(text, done, total){
+        setHostedRefreshProgress(text, done, total, targetBuild);
+      });
+    })
+    .then(function(failedFiles){
+      if(failedFiles && failedFiles.length){
+        console.warn('[update-check] refreshed with missing files', failedFiles);
+      }
+      setHostedRefreshProgress('准备重新打开', totalRefreshFiles, totalRefreshFiles, targetBuild);
+    })
     .then(function(){
       finishReload();
     })

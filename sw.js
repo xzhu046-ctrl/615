@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-05-02T01:32:00Z';
+const CACHE_VERSION = '2026-05-02T01:48:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -12,9 +12,14 @@ const CORE_URLS = [
   './metadataStore.js',
   './scheduleShared.js',
   './presenceShared.js',
+  './promptManager.js',
+  './accountManager.js',
+  './sunnySupport.js',
   './manifest.webmanifest',
   './version.json',
   './apps/qq.html',
+  './apps/qq_moments.html',
+  './apps/qq_profile.html',
   './apps/chat.html',
   './apps/offlineInvite.js',
   './apps/offline.html',
@@ -56,6 +61,7 @@ function shouldBypassDocumentCache(url){
     return url.searchParams.has('refreshBuild')
       || url.searchParams.has('swBuild')
       || url.searchParams.has('__appBuild')
+      || url.searchParams.has('__force')
       || url.searchParams.has('__ts');
   }catch(err){
     return false;
@@ -67,6 +73,7 @@ function shouldBypassShellAssetCache(url){
     return url.searchParams.has('refreshBuild')
       || url.searchParams.has('swBuild')
       || url.searchParams.has('__appBuild')
+      || url.searchParams.has('__force')
       || url.searchParams.has('__ts')
       || url.searchParams.has('updateCheck');
   }catch(err){
