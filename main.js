@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T08:19:03Z';
+const APP_BUILD_ID = '2026-05-02T08:26:07Z';
 const APP_UPDATE_NOTES = [
-  '修复安卓朋友圈确认删除',
-  '气泡 CSS 优先保留自定义',
-  '同步朋友圈缓存版本'
+  '修复安卓键盘输入栏位置',
+  '聊天聚焦时内容保持可见',
+  '同步聊天缓存版本'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -161,6 +161,7 @@ let hostedPagesReadyBuilds = {};
 let installedUpdateNoticeActive = false;
 let installedUpdateNoticeChecked = false;
 let chatInputFocusActive = false;
+let chatInputFocusStartedAt = 0;
 let chatReportedKeyboardShift = 0;
 var shellActiveCharacterCache = {};
 var shellActiveChatIdCache = {};
@@ -900,15 +901,25 @@ function getTopLevelChatKeyboardShift(){
 }
 
 function getFallbackChatKeyboardShift(){
-  return 0;
+  if(!isAndroidShell() || currentApp !== 'chat' || !chatInputFocusActive) return 0;
+  var focusedFor = Date.now() - (Number(chatInputFocusStartedAt) || 0);
+  if(focusedFor < 70) return 0;
+  var h = Math.round(stableShellAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+  if(!h) return 0;
+  return Math.max(260, Math.min(430, Math.round(h * 0.42)));
 }
 
 function syncChatKeyboardShift(){
+  var measured = getTopLevelChatKeyboardShift();
+  var fallback = getFallbackChatKeyboardShift();
+  var shift = Math.max(measured, fallback);
+  postKeyboardInsetToCurrentApp(shift, shift > 120);
   setChatKeyboardShift(0);
 }
 
 function resetShellViewportAfterChatInput(){
   chatInputFocusActive = false;
+  chatInputFocusStartedAt = 0;
   chatReportedKeyboardShift = 0;
   setChatKeyboardShift(0);
   try{ window.scrollTo(0, 0); }catch(err){}
@@ -1310,8 +1321,11 @@ function syncAppHeight(){
   const visualHeight = Math.round(vv && vv.height ? vv.height : 0) || 0;
   const currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
   const androidViewportGap = isAndroid && visualHeight ? Math.max(0, currentHeight - visualHeight) : 0;
-  const keyboardLikelyOpen = rawBottomOffset > 120 || (chatInputFocusActive && androidViewportGap > 220);
-  postKeyboardInsetToCurrentApp(keyboardLikelyOpen ? Math.max(rawBottomOffset, androidViewportGap) : 0, keyboardLikelyOpen);
+  const measuredKeyboardInset = Math.max(rawBottomOffset, androidViewportGap);
+  const fallbackKeyboardInset = isAndroid && currentApp === 'chat' && chatInputFocusActive ? getFallbackChatKeyboardShift() : 0;
+  const keyboardInset = Math.max(measuredKeyboardInset, fallbackKeyboardInset);
+  const keyboardLikelyOpen = rawBottomOffset > 120 || (chatInputFocusActive && androidViewportGap > 220) || fallbackKeyboardInset > 120;
+  postKeyboardInsetToCurrentApp(keyboardLikelyOpen ? keyboardInset : 0, keyboardLikelyOpen);
   if(keyboardLikelyOpen && document.documentElement.classList.contains('home-widget-text-editing')){
     return;
   }
@@ -10613,6 +10627,7 @@ window.addEventListener('message',(e)=>{
   }
   if(type==='CHAT_INPUT_FOCUS'){
     chatInputFocusActive = true;
+    chatInputFocusStartedAt = Date.now();
     syncAppHeight();
     syncChatKeyboardShift();
     [80, 180, 320, 480, 720].forEach(function(delay){
@@ -10623,6 +10638,8 @@ window.addEventListener('message',(e)=>{
     });
   }
   if(type==='CHAT_INPUT_BLUR'){
+    chatInputFocusActive = false;
+    chatInputFocusStartedAt = 0;
     scheduleShellViewportResetAfterTextInput();
   }
   if(type==='APP_TEXT_INPUT_BLUR'){
