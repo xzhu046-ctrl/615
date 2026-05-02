@@ -52,7 +52,7 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T10:51:06Z';
+const APP_BUILD_ID = '2026-05-02T11:07:33Z';
 const APP_UPDATE_NOTES = [
   '你的行程按聊天地点时间判断',
   '日程进度时间来源更一致',
@@ -6051,14 +6051,26 @@ function inferHomeToastKind(text){
   return 'info';
 }
 
+let homeToastTimer = 0;
 function showHomeToast(text, type){
   const t = document.getElementById('home-toast');
   if(!t) return;
+  if(homeToastTimer){
+    clearTimeout(homeToastTimer);
+    homeToastTimer = 0;
+  }
   t.textContent = text || '更换成功';
+  const kind = type || inferHomeToastKind(text);
   t.classList.remove('toast-success','toast-info','toast-warning','toast-error');
-  t.classList.add('toast-' + (type || inferHomeToastKind(text)));
+  t.classList.add('toast-' + kind);
+  t.onclick = kind === 'error' ? function(){
+    t.classList.remove('show');
+    t.onclick = null;
+  } : null;
   t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 4200);
+  if(kind !== 'error'){
+    homeToastTimer = setTimeout(()=>{ t.classList.remove('show'); homeToastTimer = 0; }, 4200);
+  }
 }
 
 function isLockedWorkbenchApp(id){
