@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T04:35:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T04:35:00Z"></script>
-<script src="../assetStore.js?v=2026-05-02T04:35:00Z"></script>
-<script src="../accountManager.js?v=2026-05-02T04:35:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T04:35:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T04:35:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T04:35:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T04:35:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T04:35:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T04:35:00Z"></script>
+<script src="../promptManager.js?v=2026-05-02T05:02:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T05:02:00Z"></script>
+<script src="../assetStore.js?v=2026-05-02T05:02:00Z"></script>
+<script src="../accountManager.js?v=2026-05-02T05:02:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T05:02:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T05:02:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T05:02:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T05:02:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T05:02:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-02T05:02:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -20597,6 +20597,10 @@ function buildChatExtendedFormatPrompt(){
     var inlineInnerVoiceActivePrompt = getActiveInnerVoicePromptForAi();
     var inlineInnerVoiceCustomPrompt = getCustomInnerVoicePromptForAi();
     var inlineInnerVoiceHasCustomPrompt = !!inlineInnerVoiceCustomPrompt;
+    var inlineInnerVoiceStyle = normalizeInnerVoiceStyle(character && character.innerVoiceStyle || 'newspaper');
+    var inlineInnerVoiceLanguagePrompt = '';
+    var inlineInnerVoiceLanguageOption = null;
+    var inlineInnerVoiceFullPrompt = '';
     var inlineInnerVoiceHistory = '';
     var inlineInnerVoiceMemory = '';
     var inlineInnerVoiceWorldbook = '';
@@ -20607,6 +20611,24 @@ function buildChatExtendedFormatPrompt(){
         return '- ' + String(entry && (entry.content || entry.text || entry.name) || '').trim();
       }).filter(Boolean).slice(0, 8).join('\n');
     }catch(err3){}
+    try{
+      inlineInnerVoiceLanguagePrompt = buildInnerVoiceLanguagePrompt();
+      inlineInnerVoiceLanguageOption = getReplyLanguageOption(getCharacterReplyLanguage());
+      if(promptManager && typeof promptManager.innerVoiceUserPrompt === 'function'){
+        inlineInnerVoiceFullPrompt = promptManager.innerVoiceUserPrompt({
+          name: character.nickname || character.name || '角色',
+          persona: character.personality || character.description || '',
+          worldBook: inlineInnerVoiceWorldbook,
+          memory: inlineInnerVoiceMemory,
+          history: inlineInnerVoiceHistory,
+          latestReply: '本轮即将输出的可见聊天内容。先完成聊天回复，再用这轮回复写隐藏心声。',
+          innerVoiceStyle: inlineInnerVoiceStyle,
+          customPrompt: inlineInnerVoiceCustomPrompt,
+          languageMode: inlineInnerVoiceLanguagePrompt && inlineInnerVoiceLanguageOption ? (inlineInnerVoiceLanguageOption.nativeLabel || inlineInnerVoiceLanguageOption.label || '') : '',
+          languageInstruction: inlineInnerVoiceLanguagePrompt && inlineInnerVoiceLanguageOption ? ('headline、body、strike 原文使用' + (inlineInnerVoiceLanguageOption.nativeLabel || inlineInnerVoiceLanguageOption.label || '目标语言') + '，不要额外附带中文解释。') : ''
+        });
+      }
+    }catch(err4){}
     lines.push('【心声同轮输出铁律】');
     lines.push('当前心声模式是“和聊天一起生成”：本轮回复必须是可解析 JSON 数组，或包含 messages/replies 的 JSON 对象；除了聊天动作外，必须额外带一条独立对象 {"type":"inner_voice","headline":"...","body":"...","strike":"..."}。');
     lines.push('数组或 messages/replies 里至少要有一条可显示聊天动作，也至少要有一条 inner_voice；inner_voice 可放最后，不占聊天气泡数量。');
@@ -20619,6 +20641,10 @@ function buildChatExtendedFormatPrompt(){
       lines.push('当前心声提示词是默认黑白报纸头条：headline 8-18 字，短、狠、抓人；body 必须写 2-4 句像报道内文又像脑内独白的内容，每句都要贴本轮回复和上下文；strike 是差点说出口又划掉的话，没有才空字符串。');
     }
     lines.push('【当前心声提示词，最高优先级】\n' + String(inlineInnerVoiceActivePrompt || getDefaultInnerVoicePrompt()).slice(0, 1800));
+    if(inlineInnerVoiceFullPrompt){
+      lines.push('【完整心声生成提示，必须逐条服从】\n' + inlineInnerVoiceFullPrompt.slice(0, 2600));
+    }
+    lines.push('如果当前心声提示词要求报纸、报刊、新闻或头条风格，body 必须明显像报道内文：至少两句，有事件感、关系脉络和角色藏起来的情绪；禁止只写“又生气了”“有点心动”这种短句。');
     lines.push('【心声可用上下文】');
     lines.push('角色：' + String(character && (character.name || character.charName) || 'CHAR'));
     lines.push('用户：' + String(getChatUserName(character && character.id) || resolveDisplayUserName() || 'USER'));
@@ -28042,12 +28068,41 @@ function parseInnerVoiceResult(raw){
   return null;
 }
 
+function countInnerVoiceTextUnits(text){
+  try{ return Array.from(String(text || '')).length; }catch(e){ return String(text || '').length; }
+}
+
+function countInnerVoiceBodySentences(text){
+  return String(text || '').split(/[。！？!?；;\n]+/).map(function(v){ return v.trim(); }).filter(Boolean).length;
+}
+
+function isInlineInnerVoiceCandidateUsable(candidate){
+  if(!candidate || typeof candidate !== 'object') return false;
+  var headline = String(candidate.headline || '').trim();
+  var body = String(candidate.body || '').trim();
+  if(!headline || !body) return false;
+  var customPrompt = getCustomInnerVoicePromptForAi();
+  var promptText = customPrompt || getActiveInnerVoicePromptForAi() || getDefaultInnerVoicePrompt();
+  var wantsNewspaper = !customPrompt && normalizeInnerVoiceStyle(character && character.innerVoiceStyle || 'newspaper') === 'newspaper';
+  wantsNewspaper = wantsNewspaper || /报纸|报刊|头条|新闻|报道/.test(String(promptText || ''));
+  var headlineLen = countInnerVoiceTextUnits(headline);
+  var bodyLen = countInnerVoiceTextUnits(body);
+  if(wantsNewspaper){
+    if(headlineLen < 6 || headlineLen > 30) return false;
+    if(bodyLen < 24) return false;
+    if(countInnerVoiceBodySentences(body) < 2) return false;
+  }else if(bodyLen < 16){
+    return false;
+  }
+  return true;
+}
+
 function saveInlineInnerVoiceCandidate(candidate){
   if(!character || !(candidate && typeof candidate === 'object')) return false;
   var headline = String(candidate.headline || '').trim();
   var body = String(candidate.body || '').trim();
   var strike = String(candidate.strike || '').trim();
-  if(!headline || !body) return false;
+  if(!isInlineInnerVoiceCandidateUsable({ headline: headline, body: body, strike: strike })) return false;
   var item = {
     id: 'iv_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
     headline: headline,
