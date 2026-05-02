@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T01:48:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T01:48:00Z"></script>
-<script src="../assetStore.js?v=2026-05-02T01:48:00Z"></script>
-<script src="../accountManager.js?v=2026-05-02T01:48:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T01:48:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T01:48:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T01:48:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T01:48:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T01:48:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T01:48:00Z"></script>
+<script src="../promptManager.js?v=2026-05-02T02:32:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T02:32:00Z"></script>
+<script src="../assetStore.js?v=2026-05-02T02:32:00Z"></script>
+<script src="../accountManager.js?v=2026-05-02T02:32:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T02:32:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T02:32:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T02:32:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T02:32:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T02:32:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-02T02:32:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -3755,6 +3755,7 @@ var storageHydrationPromise = Promise.resolve();
 var storagePersistRequested = false;
 var momentsPostsCache = [];
 var momentsSocialStateCacheMap = {};
+var momentsSelfMemoryCacheMap = {};
 var blockStateCacheMap = {};
 var memeLibraryCache = { items: [], categories: [] };
 var activeMemeCategory = 'all';
@@ -4922,6 +4923,11 @@ async function hydrateChatLargeStates(){
           });
         }
       }catch(e){}
+    }
+    var memoryKey = momentsSelfMemoryStorageId(character.id);
+    var storedMomentMemory = await loadJsonFromLargeStore(memoryKey);
+    if(storedMomentMemory && typeof storedMomentMemory === 'object'){
+      momentsSelfMemoryCacheMap[character.id] = normalizeMomentsSelfMemoryStore(storedMomentMemory);
     }
   }
 }
@@ -6511,6 +6517,9 @@ function momentPostRecordStorageIds(postId){
 }
 function momentsSocialStorageId(charId){
   return accountScopedKey('moments_social_state_' + String(charId || ''));
+}
+function momentsSelfMemoryStorageId(charId){
+  return accountScopedKey('moments_self_memory_' + String(charId || ''));
 }
 function blockStateStorageId(charId){
   return accountScopedKey('chat_block_state_' + String(charId || ''));
@@ -12988,7 +12997,44 @@ function looksLikeVisualDescription(text){
 }
 
 function readMomentsPosts(){
-  return Array.isArray(momentsPostsCache) ? momentsPostsCache.slice() : [];
+  var candidates = [
+    momentsPostsStorageId(),
+    momentStorageKey(MOMENTS_POSTS_KEY),
+    momentStorageKey('moments_posts'),
+    momentStorageKey(MOMENTS_POSTS_BRIDGE_KEY),
+    MOMENTS_POSTS_KEY,
+    'moments_posts',
+    MOMENTS_POSTS_BRIDGE_KEY
+  ];
+  var best = Array.isArray(momentsPostsCache) ? momentsPostsCache.slice() : [];
+  var bestStamp = getMomentsPostsCollectionStamp(best);
+  Array.from(new Set(candidates.filter(Boolean))).forEach(function(key){
+    try{
+      var raw = localStorage.getItem(key);
+      if(!raw) return;
+      var parsed = JSON.parse(raw);
+      if(!Array.isArray(parsed)) return;
+      var stamp = getMomentsPostsCollectionStamp(parsed);
+      if(stamp > bestStamp || (stamp === bestStamp && parsed.length > best.length)){
+        best = parsed.slice();
+        bestStamp = stamp;
+      }
+    }catch(e){}
+  });
+  momentsPostsCache = best.slice();
+  return best.slice();
+}
+
+function getMomentsPostsCollectionStamp(posts){
+  var stamp = 0;
+  (Array.isArray(posts) ? posts : []).forEach(function(post){
+    if(!post) return;
+    stamp = Math.max(stamp, Number(post.updatedAt || post.createdAt || 0) || 0);
+    (Array.isArray(post.comments) ? post.comments : []).forEach(function(comment){
+      stamp = Math.max(stamp, Number((comment && (comment.at || comment.createdAt)) || 0) || 0);
+    });
+  });
+  return stamp;
 }
 
 function writeMomentsPosts(posts){
@@ -13036,15 +13082,85 @@ function saveMomentsSocialState(state){
   try{ localStorage.removeItem(momentsSocialStateKey()); }catch(e){}
 }
 
+function normalizeMomentsSelfMemoryStore(raw){
+  raw = raw && typeof raw === 'object' ? raw : {};
+  var seenKeys = Array.isArray(raw.seenKeys) ? raw.seenKeys.map(String).filter(Boolean).slice(-500) : [];
+  var items = Array.isArray(raw.items) ? raw.items.map(function(item){
+    item = item && typeof item === 'object' ? item : {};
+    return {
+      key: String(item.key || '').trim(),
+      at: Number(item.at || 0) || 0,
+      kind: String(item.kind || '').trim(),
+      text: truncateMomentText(String(item.text || '').replace(/\s+/g, ' ').trim(), 120)
+    };
+  }).filter(function(item){ return !!(item.key && item.text); }) : [];
+  items.sort(function(a, b){ return (b.at || 0) - (a.at || 0); });
+  return { seenKeys: seenKeys, items: items.slice(0, 80) };
+}
+
+function loadMomentsSelfMemoryStore(){
+  if(!character || !character.id) return { seenKeys: [], items: [] };
+  return normalizeMomentsSelfMemoryStore(momentsSelfMemoryCacheMap[character.id] || {});
+}
+
+function saveMomentsSelfMemoryStore(store){
+  if(!character || !character.id) return;
+  var next = normalizeMomentsSelfMemoryStore(store);
+  momentsSelfMemoryCacheMap[character.id] = next;
+  saveJsonToLargeStore(momentsSelfMemoryStorageId(character.id), next);
+}
+
+function recordMomentsSelfMemory(kind, payload){
+  if(!character || !character.id) return;
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var externalStore = payload.store && typeof payload.store === 'object' ? payload.store : null;
+  var post = payload.post && typeof payload.post === 'object' ? payload.post : {};
+  var postId = String(payload.postId || post.id || '').trim();
+  var at = Number(payload.at || post.updatedAt || post.createdAt || Date.now()) || Date.now();
+  var key = String(payload.key || (kind + ':' + (postId || simpleHashForMomentsMemory(String(payload.text || '') + at)))).trim();
+  if(!key) return;
+  var text = String(payload.text || '').replace(/\s+/g, ' ').trim();
+  if(!text){
+    var brief = getMomentPostBrief(post);
+    if(kind === 'post') text = '你发了一条朋友圈：' + brief;
+    else if(kind === 'like') text = '你给 ' + String(payload.targetName || '别人').trim() + ' 的朋友圈点过赞：' + brief;
+    else if(kind === 'comment') text = '你在 ' + String(payload.targetName || '别人').trim() + ' 的朋友圈评论过：「' + truncateMomentText(payload.commentText || '', 58) + '」';
+    else if(kind === 'reply') text = '你在朋友圈回复了 ' + String(payload.replyToName || '别人').trim() + '：「' + truncateMomentText(payload.commentText || '', 58) + '」';
+    else if(kind === 'reaction-like') text = String(payload.actor || '有人').trim() + ' 给你的朋友圈点过赞：' + brief;
+    else if(kind === 'reaction-comment') text = String(payload.actor || '有人').trim() + ' 在你的朋友圈留言：「' + truncateMomentText(payload.commentText || '', 58) + '」';
+  }
+  text = truncateMomentText(text, 120);
+  if(!text) return;
+  var store = externalStore || loadMomentsSelfMemoryStore();
+  var seen = new Set(store.seenKeys || []);
+  if(seen.has(key)) return false;
+  seen.add(key);
+  var items = [{ key: key, at: at, kind: String(kind || ''), text: text }].concat(store.items || []);
+  store.seenKeys = Array.from(seen).slice(-500);
+  store.items = items;
+  if(!externalStore) saveMomentsSelfMemoryStore(store);
+  return true;
+}
+
+function simpleHashForMomentsMemory(text){
+  var hash = 2166136261;
+  var str = String(text || '');
+  for(var i = 0; i < str.length; i += 1){
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function getMomentsFreqProfile(){
   var level = loadCharMomentsFreq(character && character.id);
   if(level === 'low'){
-    return { level: level, cooldownMs: 20 * 60 * 1000, mentionPostChance: 0.2, moodPostChance: 0.2, idleLikeChance: 0.04 };
+    return { level: level, cooldownMs: 60 * 60 * 1000, mentionPostChance: 0.2, moodPostChance: 0.2, idleLikeChance: 0.02 };
   }
   if(level === 'high'){
-    return { level: level, cooldownMs: 9000, mentionPostChance: 0.78, moodPostChance: 0.82, idleLikeChance: 0.22 };
+    return { level: level, cooldownMs: 8 * 60 * 1000, mentionPostChance: 0.45, moodPostChance: 0.45, idleLikeChance: 0.08 };
   }
-  return { level: 'medium', cooldownMs: 18000, mentionPostChance: 0.62, moodPostChance: 0.68, idleLikeChance: 0.16 };
+  return { level: 'medium', cooldownMs: 20 * 60 * 1000, mentionPostChance: 0.28, moodPostChance: 0.28, idleLikeChance: 0.04 };
 }
 
 function isCharMomentsAutomationEnabled(){
@@ -13177,12 +13293,25 @@ function processMomentsInteractionsOnTrigger(){
   freshComments.forEach(function(item){
     seenComment.add(item.key);
     mentionCommentNames.push(item.actor);
+    recordMomentsSelfMemory('reaction-comment', {
+      key: 'reaction-' + item.key,
+      post: item.post,
+      actor: item.actor,
+      commentText: String((item.comment && (item.comment.text || item.comment.content)) || ''),
+      at: item.at || Date.now()
+    });
   });
 
   var mentionLikeNames = [];
   freshLikes.forEach(function(item){
     seenLike.add(item.key);
     mentionLikeNames.push(item.actor);
+    recordMomentsSelfMemory('reaction-like', {
+      key: 'reaction-' + item.key,
+      post: item.post,
+      actor: item.actor,
+      at: Number((item.post && (item.post.updatedAt || item.post.createdAt)) || Date.now()) || Date.now()
+    });
   });
 
   state.commentIds = Array.from(seenComment).slice(-300);
@@ -13242,6 +13371,170 @@ function getMomentsAiAvatar(){
     if(av.startsWith('data:') || av.startsWith('http') || av.startsWith('blob:') || av.startsWith('/')) return av;
   }
   return '';
+}
+
+function normalizeMomentActorName(value){
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function getMomentSelfNameSet(){
+  var names = [];
+  if(character){
+    names.push(character.name);
+    names.push(character.nickname);
+  }
+  names.push(getMomentsAiName());
+  return new Set(names.map(normalizeMomentActorName).filter(Boolean));
+}
+
+function isMomentPostByCurrentCharacter(post, names){
+  if(!post) return false;
+  var charId = String((character && character.id) || '').trim();
+  if(charId && String(post.charId || '').trim() === charId) return true;
+  var author = normalizeMomentActorName(post.authorName || post.author || post.name);
+  return !!(author && names && names.has(author));
+}
+
+function isMomentCommentByCurrentCharacter(comment, names){
+  var actor = normalizeMomentActorName((comment && (comment.name || comment.authorName || comment.author)) || '');
+  return !!(actor && names && names.has(actor));
+}
+
+function formatMomentAwarenessTime(ts){
+  var n = Number(ts || 0) || 0;
+  if(!n) return '时间不详';
+  try{
+    var d = new Date(n);
+    var pad = function(v){ return String(v).padStart(2, '0'); };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }catch(e){
+    return '时间不详';
+  }
+}
+
+function getMomentPostBrief(post){
+  post = post && typeof post === 'object' ? post : {};
+  var text = String(post.text || '').replace(/\s+/g, ' ').trim();
+  var imageText = String(post.imageText || '').replace(/\s+/g, ' ').trim();
+  if(!imageText && Array.isArray(post.images)){
+    imageText = post.images.map(function(item){
+      return String((item && (item.description || item.text || item.caption)) || '').replace(/\s+/g, ' ').trim();
+    }).filter(Boolean).slice(0, 2).join(' / ');
+  }
+  var parts = [];
+  if(text) parts.push('正文「' + truncateMomentText(text, 64) + '」');
+  if(imageText) parts.push('配图「' + truncateMomentText(imageText, 54) + '」');
+  return parts.join('，') || '无正文内容';
+}
+
+function syncMomentsSelfMemoryFromPosts(posts){
+  if(!character || !character.id) return;
+  posts = Array.isArray(posts) ? posts.slice() : [];
+  if(!posts.length) return;
+  var names = getMomentSelfNameSet();
+  var store = loadMomentsSelfMemoryStore();
+  var changed = false;
+  posts.sort(function(a, b){
+    return (Number((b && (b.updatedAt || b.createdAt)) || 0) || 0) - (Number((a && (a.updatedAt || a.createdAt)) || 0) || 0);
+  }).slice(0, 80).forEach(function(post){
+    if(!post) return;
+    var isOwnPost = isMomentPostByCurrentCharacter(post, names);
+    var postId = String(post.id || '').trim();
+    var postAuthor = normalizeMomentActorName(post.authorName || post.author || '某人');
+    var postAt = Number(post.createdAt || post.updatedAt || 0) || Date.now();
+    if(isOwnPost){
+      changed = recordMomentsSelfMemory('post', {
+        key: 'post:' + postId,
+        post: post,
+        at: postAt,
+        store: store
+      }) || changed;
+    }
+    (Array.isArray(post.likes) ? post.likes : []).forEach(function(name){
+      var actor = normalizeMomentActorName(name);
+      if(!actor) return;
+      if(names.has(actor) && !isOwnPost){
+        changed = recordMomentsSelfMemory('like', {
+          key: 'like:' + postId + ':' + actor,
+          post: post,
+          targetName: postAuthor,
+          at: Number(post.updatedAt || post.createdAt || Date.now()) || Date.now(),
+          store: store
+        }) || changed;
+      }else if(isOwnPost && !names.has(actor)){
+        changed = recordMomentsSelfMemory('reaction-like', {
+          key: 'reaction-like:' + postId + ':' + actor,
+          post: post,
+          actor: actor,
+          at: Number(post.updatedAt || post.createdAt || Date.now()) || Date.now(),
+          store: store
+        }) || changed;
+      }
+    });
+    (Array.isArray(post.comments) ? post.comments : []).forEach(function(comment, idx){
+      if(!comment) return;
+      var commentAt = Number(comment.at || comment.createdAt || post.updatedAt || post.createdAt || Date.now()) || Date.now();
+      var cid = String(comment.id || ('idx_' + idx + '_' + commentAt));
+      var replyTo = normalizeMomentActorName(comment.replyToName || comment.replyTo || '');
+      var commentText = String(comment.text || comment.content || '').replace(/\s+/g, ' ').trim();
+      if(isMomentCommentByCurrentCharacter(comment, names)){
+        changed = recordMomentsSelfMemory(replyTo ? 'reply' : 'comment', {
+          key: 'comment:' + postId + ':' + cid,
+          post: post,
+          targetName: postAuthor,
+          replyToName: replyTo,
+          commentText: commentText,
+          at: commentAt,
+          store: store
+        }) || changed;
+      }else if(isOwnPost){
+        changed = recordMomentsSelfMemory('reaction-comment', {
+          key: 'reaction-comment:' + postId + ':' + cid,
+          post: post,
+          actor: normalizeMomentActorName(comment.name || comment.authorName || comment.author || '某人'),
+          commentText: commentText,
+          at: commentAt,
+          store: store
+        }) || changed;
+      }
+    });
+  });
+  if(changed) saveMomentsSelfMemoryStore(store);
+}
+
+function isMomentsSelfAwarenessRelevant(){
+  var lastText = '';
+  try{
+    for(var i = chatLog.length - 1; i >= 0; i--){
+      var item = chatLog[i] || {};
+      if(item.hidden) continue;
+      if(String(item.role || '') === 'user'){
+        lastText = String(item.content || '');
+        break;
+      }
+    }
+  }catch(e){}
+  return /(朋友圈|动态|说说|点赞|评论|回复|你发过|你发了|你看见|你知道|发圈|moment|moments)/i.test(lastText);
+}
+
+function buildMomentsSelfAwarenessPrompt(){
+  if(!character || !character.id) return '';
+  syncMomentsSelfMemoryFromPosts(readMomentsPosts());
+  var store = loadMomentsSelfMemoryStore();
+  var items = Array.isArray(store.items) ? store.items.slice() : [];
+  if(!items.length) return '';
+  items.sort(function(a, b){ return (b.at || 0) - (a.at || 0); });
+  var relevant = isMomentsSelfAwarenessRelevant();
+  var limit = relevant ? 6 : 3;
+  var lines = items.slice(0, limit).map(function(item){
+    return '- ' + formatMomentAwarenessTime(item.at) + ' ' + item.text;
+  });
+  if(!lines.length) return '';
+  return [
+    '【朋友圈自我认知】',
+    '以下是你本人真实做过或收到的最近朋友圈社交事实。问起朋友圈时承认并自然接住，不要说不知道。',
+    lines.join('\n')
+  ].join('\n');
 }
 
 async function resolveMomentsAiAvatar(){
@@ -13823,6 +14116,11 @@ async function maybeRunAiMomentsFromChat(text, msgType){
       replyLanguage: normalizeReplyLanguage(character && (character.replyLanguage || character.language) || 'zh'),
       translationMode: normalizeTranslationMode(character && character.translationMode || 'ondemand')
     });
+    recordMomentsSelfMemory('post', {
+      key: 'post:' + String(posts[posts.length - 1].id || ''),
+      post: posts[posts.length - 1],
+      at: Number(posts[posts.length - 1].createdAt || Date.now()) || Date.now()
+    });
     changed = true;
     return true;
   }
@@ -13834,6 +14132,12 @@ async function maybeRunAiMomentsFromChat(text, msgType){
     if(likes.indexOf(aiName) === -1){
       likes.push(aiName);
       latest.likes = likes;
+      recordMomentsSelfMemory('like', {
+        key: 'like:' + String(latest.id || '') + ':' + aiName,
+        post: latest,
+        targetName: normalizeMomentActorName(latest.authorName || latest.author || '某人'),
+        at: Date.now()
+      });
       changed = true;
     }
   }
@@ -13854,15 +14158,24 @@ async function maybeRunAiMomentsFromChat(text, msgType){
     var commentText = await generateMomentCommentViaAi(latest, seed || aiLine, replyTarget);
     if(!commentText) return;
     aiAvatar = await resolveMomentsAiAvatar();
-    comments.push({
+    var commentRecord = {
       id: 'c_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
       name: aiName,
       avatar: aiAvatar,
       replyToName: replyTarget,
       text: commentText,
       at: Date.now()
-    });
+    };
+    comments.push(commentRecord);
     latest.comments = comments;
+    recordMomentsSelfMemory(replyTarget ? 'reply' : 'comment', {
+      key: 'comment:' + String(latest.id || '') + ':' + commentRecord.id,
+      post: latest,
+      targetName: normalizeMomentActorName(latest.authorName || latest.author || '某人'),
+      replyToName: replyTarget,
+      commentText: commentText,
+      at: commentRecord.at
+    });
     changed = true;
   }
 
@@ -19213,6 +19526,8 @@ function buildSystemPrompt() {
   if(pendingMomentsChatCue){
     parts.push(['【朋友圈新互动】', pendingMomentsChatCue].join('\n'));
   }
+  var momentsSelfAwarenessPrompt = buildMomentsSelfAwarenessPrompt();
+  if(momentsSelfAwarenessPrompt) parts.push(momentsSelfAwarenessPrompt);
   if(pendingFamilyFollowupCue){
     parts.push(pendingFamilyFollowupCue);
   }

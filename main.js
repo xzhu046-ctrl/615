@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T01:48:00Z';
+const APP_BUILD_ID = '2026-05-02T02:32:00Z';
 const APP_UPDATE_NOTES = [
-  '强制更新流程修正',
-  '代码缓存刷新修正',
-  '版本文件拉取修正'
+  '朋友圈上下文轻量化',
+  '朋友圈触发频率修正',
+  '通知头像显示修正'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -3647,8 +3647,12 @@ function blobToDataUrl(blob){
 async function materializeShellNotificationAvatar(src){
   var safeSrc = normalizeShellAssetSrc(src || '');
   if(!isRenderableShellAvatarSrc(safeSrc)) return '';
-  if(/^data:/i.test(safeSrc)) return safeSrc;
   if(shellNotificationAvatarMaterializeCache[safeSrc]){
+    return shellNotificationAvatarMaterializeCache[safeSrc];
+  }
+  if(/^data:/i.test(safeSrc)){
+    var compactData = await compactShellNotificationAvatarDataUrl(safeSrc).catch(function(){ return ''; });
+    shellNotificationAvatarMaterializeCache[safeSrc] = compactData || safeSrc;
     return shellNotificationAvatarMaterializeCache[safeSrc];
   }
   try{
@@ -3658,13 +3662,50 @@ async function materializeShellNotificationAvatar(src){
       if(blob){
         var dataUrl = await blobToDataUrl(blob);
         if(dataUrl){
-          shellNotificationAvatarMaterializeCache[safeSrc] = dataUrl;
-          return dataUrl;
+          var compact = await compactShellNotificationAvatarDataUrl(dataUrl).catch(function(){ return ''; });
+          shellNotificationAvatarMaterializeCache[safeSrc] = compact || dataUrl;
+          return shellNotificationAvatarMaterializeCache[safeSrc];
         }
       }
     }
   }catch(err){}
   return safeSrc;
+}
+
+function compactShellNotificationAvatarDataUrl(src){
+  return new Promise(function(resolve){
+    try{
+      var img = new Image();
+      img.onload = function(){
+        try{
+          var size = 192;
+          var canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          var ctx = canvas.getContext('2d');
+          if(!ctx){
+            resolve('');
+            return;
+          }
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, size, size);
+          var w = Number(img.naturalWidth || img.width || 0) || size;
+          var h = Number(img.naturalHeight || img.height || 0) || size;
+          var scale = Math.max(size / w, size / h);
+          var dw = w * scale;
+          var dh = h * scale;
+          ctx.drawImage(img, (size - dw) / 2, (size - dh) / 2, dw, dh);
+          resolve(canvas.toDataURL('image/png'));
+        }catch(drawErr){
+          resolve('');
+        }
+      };
+      img.onerror = function(){ resolve(''); };
+      img.src = String(src || '');
+    }catch(err){
+      resolve('');
+    }
+  });
 }
 
 function getShellNotificationPermissionInfo(){
@@ -3743,7 +3784,7 @@ async function showSystemShellNotification(payload){
     };
     if(isRenderableShellAvatarSrc(heroAvatar)){
       var iconAvatar = absolutizeShellNotificationIconSrc(heroAvatar);
-      if(iconAvatar) options.icon = iconAvatar;
+      if(iconAvatar && !/^data:/i.test(iconAvatar)) options.icon = iconAvatar;
       if(String(heroAvatar).length < 1200000) options.image = iconAvatar || heroAvatar;
     }
     var shown = false;
