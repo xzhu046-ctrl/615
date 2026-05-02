@@ -10551,16 +10551,89 @@ function ensureChatBubblePreviewStyleNode(){
 
 function scopeChatThemeCssForPreview(cssText){
   var scope = '#csBubbleCssPreview';
-  return String(cssText || '').replace(/(^|[{}])\s*([^@{}][^{}]*)\{/g, function(match, prefix, selectorText){
-    var selectors = String(selectorText || '').split(',').map(function(part){
+  function splitSelectors(selectorText){
+    var text = String(selectorText || '');
+    var out = [];
+    var buf = '';
+    var depth = 0;
+    for(var i = 0; i < text.length; i += 1){
+      var ch = text.charAt(i);
+      if(ch === '(' || ch === '[') depth += 1;
+      else if((ch === ')' || ch === ']') && depth > 0) depth -= 1;
+      if(ch === ',' && depth === 0){
+        out.push(buf);
+        buf = '';
+      }else{
+        buf += ch;
+      }
+    }
+    out.push(buf);
+    return out;
+  }
+  function scopeSelectorList(selectorText){
+    return splitSelectors(selectorText).map(function(part){
       var sel = String(part || '').trim();
       if(!sel) return '';
       if(sel === ':root' || sel === 'html' || sel === 'body') return scope;
       if(sel.indexOf(scope) === 0) return sel;
       return scope + ' ' + sel;
     }).filter(Boolean).join(', ');
-    return prefix + '\n' + selectors + '{';
-  });
+  }
+  function findRuleEnd(text, openIndex){
+    var depth = 0;
+    var quote = '';
+    for(var i = openIndex; i < text.length; i += 1){
+      var ch = text.charAt(i);
+      var prev = i > 0 ? text.charAt(i - 1) : '';
+      if(quote){
+        if(ch === quote && prev !== '\\') quote = '';
+        continue;
+      }
+      if(ch === '"' || ch === "'"){
+        quote = ch;
+        continue;
+      }
+      if(ch === '{') depth += 1;
+      else if(ch === '}'){
+        depth -= 1;
+        if(depth === 0) return i;
+      }
+    }
+    return -1;
+  }
+  function scopeBlock(text){
+    var raw = String(text || '').replace(/\/\*[\s\S]*?\*\//g, '');
+    var out = '';
+    var pos = 0;
+    while(pos < raw.length){
+      var open = raw.indexOf('{', pos);
+      if(open < 0){
+        out += raw.slice(pos);
+        break;
+      }
+      var selector = raw.slice(pos, open).trim();
+      var close = findRuleEnd(raw, open);
+      if(close < 0){
+        out += raw.slice(pos);
+        break;
+      }
+      var body = raw.slice(open + 1, close);
+      if(!selector){
+        out += raw.slice(pos, close + 1);
+      }else if(/^@(media|supports|container|layer)\b/i.test(selector)){
+        out += selector + '{' + scopeBlock(body) + '}';
+      }else if(/^@(keyframes|-webkit-keyframes|font-face|import|charset|property|page)\b/i.test(selector)){
+        out += selector + '{' + body + '}';
+      }else if(selector.charAt(0) === '@'){
+        out += selector + '{' + body + '}';
+      }else{
+        out += scopeSelectorList(selector) + '{' + body + '}';
+      }
+      pos = close + 1;
+    }
+    return out;
+  }
+  return scopeBlock(cssText);
 }
 
 function composeChatThemePartCss(){
@@ -10573,6 +10646,15 @@ function normalizeChatThemeCssText(cssText){
   var text = String(cssText || '').replace(/\r\n?/g, '\n').trim();
   if(!text) return '';
   text = text.replace(/^\uFEFF/, '').trim();
+  text = text.replace(/^```(?:css)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  text = text.replace(/^(?:css|CSS)\s*[:：]\s*/, '').trim();
+  if((text.charAt(0) === '【' && text.charAt(text.length - 1) === '】')
+    || (text.charAt(0) === '[' && text.charAt(text.length - 1) === ']')
+    || (text.charAt(0) === '(' && text.charAt(text.length - 1) === ')')
+    || (text.charAt(0) === '（' && text.charAt(text.length - 1) === '）')){
+    text = text.slice(1, -1).trim();
+  }
+  text = text.replace(/^(?:css|CSS)\s*[:：]\s*/, '').trim();
   if(text.charAt(0) === '（' && text.charAt(text.length - 1) === '）'){
     text = text.slice(1, -1).trim();
   }
