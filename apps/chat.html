@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T07:51:44Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T07:51:44Z"></script>
-<script src="../assetStore.js?v=2026-05-02T07:51:44Z"></script>
-<script src="../accountManager.js?v=2026-05-02T07:51:44Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T07:51:44Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T07:51:44Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T07:51:44Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T07:51:44Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T07:51:44Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T07:51:44Z"></script>
+<script src="../promptManager.js?v=2026-05-02T08:14:08Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T08:14:08Z"></script>
+<script src="../assetStore.js?v=2026-05-02T08:14:08Z"></script>
+<script src="../accountManager.js?v=2026-05-02T08:14:08Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T08:14:08Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T08:14:08Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T08:14:08Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T08:14:08Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T08:14:08Z"></script>
+<script src="offlineInvite.js?v=2026-05-02T08:14:08Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -10528,9 +10528,10 @@ function ensureGlobalChatThemeStyleNode(){
 
 function ensureBubbleChatThemeStyleNode(){
   var node = document.getElementById('chatBubbleThemeStyle');
-  if(node) return node;
-  node = document.createElement('style');
-  node.id = 'chatBubbleThemeStyle';
+  if(!node){
+    node = document.createElement('style');
+    node.id = 'chatBubbleThemeStyle';
+  }
   document.head.appendChild(node);
   return node;
 }
@@ -16429,23 +16430,35 @@ function openMessageActions(msgId){
   if(recallBtn) recallBtn.style.display = canRecallMessage(msg) ? '' : 'none';
   document.getElementById('msgActionsOverlay')?.classList.add('open');
 }
+function syncMultiSelectDom(){
+  var selected = new Set((selectedMessageIds || []).map(function(id){ return String(id || ''); }));
+  var msgs = document.getElementById('messages');
+  if(msgs){
+    Array.prototype.forEach.call(msgs.querySelectorAll('.msg[data-msg-id]'), function(node){
+      var id = String(node.dataset.msgId || '');
+      node.classList.toggle('select-mode', !!multiSelectMode);
+      node.classList.toggle('selected', !!multiSelectMode && selected.has(id));
+    });
+  }
+  updateFloatingUi();
+}
 function exitMultiSelectMode(){
   multiSelectMode = false;
   selectedMessageIds = [];
-  rerenderChatLogPreserveViewport();
+  syncMultiSelectDom();
 }
 function toggleMessageSelection(msgId){
   if(!multiSelectMode) return;
   var idx = selectedMessageIds.indexOf(msgId);
   if(idx >= 0) selectedMessageIds.splice(idx, 1);
   else selectedMessageIds.push(msgId);
-  rerenderChatLogPreserveViewport();
+  syncMultiSelectDom();
 }
 function enterMultiSelectMode(){
   multiSelectMode = true;
   selectedMessageIds = activeActionMessageId ? [activeActionMessageId] : [];
   closeMessageActions();
-  rerenderChatLogPreserveViewport();
+  syncMultiSelectDom();
 }
 async function removeMessagesByIds(ids){
   if(!ids || !ids.length) return 0;
@@ -32594,6 +32607,30 @@ async function deliverAiReply(text, limitOverride, options){
     };
     return (candidate.headline || candidate.body || candidate.strike) ? candidate : null;
   };
+  var consumeInnerVoiceFromRawText = function(raw){
+    var source = String(raw || '');
+    var kept = source;
+    extractLooseJsonishObjects(source).forEach(function(fragment){
+      var loose = parseLooseJsonishObject(fragment);
+      if(!loose || normalizeMessageType(loose.type || '') !== 'innervoice') return;
+      appendRawPart(loose);
+      kept = kept.split(fragment).join('\n');
+    });
+    var fallback = extractLooseInnerVoiceCandidate(kept);
+    if(fallback){
+      inlineInnerVoiceCandidates.push(fallback);
+      hiddenInnerVoiceConsumed = true;
+      var keys = ['type', 'headline', 'body', 'strike'];
+      var lines = kept.split(/\n+/);
+      kept = lines.filter(function(line){
+        var normalized = normalizeJsonishReplyText(line).trim();
+        return !keys.some(function(key){
+          return new RegExp('^["\\\']?' + key + '["\\\']?\\s*[:.]', 'i').test(normalized);
+        }) && !/^["']?inner[_\s-]*voice["']?\s*[,}]?$/i.test(normalized) && normalized !== '{' && normalized !== '}';
+      }).join('\n');
+    }
+    return kept.trim();
+  };
 
   // If API already returned structured content
   if(Array.isArray(text)) {
@@ -32602,6 +32639,7 @@ async function deliverAiReply(text, limitOverride, options){
     parsed = [text];
   } else {
     text = clean(text);
+    text = consumeInnerVoiceFromRawText(text);
     // Try JSON array first
     try{
       var trimmed = (text||'').trim();
