@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T20:13:00Z';
+const APP_BUILD_ID = '2026-05-02T20:23:00Z';
 const APP_UPDATE_NOTES = [
-  'iOS 输入框补上漏报高度',
-  '线下输入框减少忽上忽下',
-  '页面切换减少白屏',
-  '朋友圈分享显示更多角色'
+  '加载页恢复原来的白底和停留节奏',
+  '朋友圈分享改用统一聊天写入',
+  'iOS 输入框聚焦时减少忽高忽低',
+  '自定义 CSS 输入后立即同步保存'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -4887,6 +4887,48 @@ async function sendScheduleQuote(payload){
   return true;
 }
 
+async function sendMomentCard(payload){
+  payload = payload && typeof payload === 'object' ? payload : {};
+  var charId = String(payload.charId || '').trim();
+  if(!charId) return false;
+  var now = Date.now();
+  var accountIds = [];
+  function pushAccountId(id){
+    id = String(id || '').trim();
+    if(!id) return;
+    if(accountIds.indexOf(id) === -1) accountIds.push(id);
+  }
+  pushAccountId(getActiveAccountId());
+  pushAccountId(getDefaultAccountId());
+  if(!accountIds.length) return false;
+  var card = payload.card && typeof payload.card === 'object' ? payload.card : {};
+  var entry = {
+    id: 'm_' + now.toString(36) + '_' + Math.random().toString(36).slice(2,8),
+    role: 'user',
+    content: JSON.stringify(Object.assign({}, card, {
+      sentAt: now,
+      targetCharId: charId
+    })),
+    type: 'moment_card',
+    replyToId: null,
+    sentAt: now,
+    readAt: null
+  };
+  for(var i = 0; i < accountIds.length; i++){
+    var history = await readBackgroundChatHistory(charId, accountIds[i]);
+    history.push(Object.assign({}, entry));
+    await writeBackgroundChatHistory(charId, accountIds[i], history);
+  }
+  renderHomeDockBadges();
+  try{
+    var f = document.getElementById('app-iframe');
+    if(f && f.contentWindow){
+      f.contentWindow.postMessage({ type:'BACKGROUND_AI_MESSAGE', payload:{ charId: charId, entry: entry } }, '*');
+    }
+  }catch(err){}
+  return true;
+}
+
 async function appendScheduleSystemNotice(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
@@ -5986,6 +6028,7 @@ async function syncScheduleActivityFromChat(payload){
 window.ScheduleShell = {
   generateDayPlan: generateScheduleDayPlan,
   sendScheduleQuote: sendScheduleQuote,
+  sendMomentCard: sendMomentCard,
   appendSystemNotice: appendScheduleSystemNotice,
   generateChatBurst: generateScheduleChatBurst,
   appendChatMessage: appendScheduleChatMessage,
@@ -12415,7 +12458,7 @@ window.addEventListener('load', ()=>{
         message: '页面已加载'
       });
       setTimeout(applyIframeSafeAreaOverrides, 120);
-      hideShellLoadingOverlay(currentApp === 'chat' ? 160 : (currentApp ? 80 : 1200));
+      hideShellLoadingOverlay(currentApp === 'chat' ? 360 : (currentApp ? 260 : 2000));
     });
     frame.addEventListener('error', function(){
       clearAppFrameLoadWatchdog();
