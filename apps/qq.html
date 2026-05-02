@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>QQ</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Cormorant+Garamond:wght@600;700&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-01T18:22:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T18:22:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T18:22:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T18:22:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-01T18:22:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T03:15:00Z"></script>
+<script src="../assetStore.js?v=2026-05-02T03:15:00Z"></script>
+<script src="../accountManager.js?v=2026-05-02T03:15:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T03:15:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T03:15:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1476,7 +1476,7 @@ body{
   <input id="contactsImportInput" class="native-file-input-hidden" type="file" accept=".png,.json,application/json,image/png" multiple onchange="handleContactsImportFiles(this.files)">
   <input id="contactsCreateAvatarInput" type="file" accept="image/*" style="display:none" onchange="handleContactsCreateAvatarFile(this.files[0])">
   <input id="qqHeroPhotoInput" type="file" accept="image/*,.png,.jpg,.jpeg,.webp,.gif,.bmp,.svg" style="display:none" onchange="handleQqHeroPhotoFile(this.files[0])">
-  <iframe id="contactsHelperFrame" class="contacts-helper-frame" src="characters.html?helper=1&__appBuild=2026-05-01T18:22:00Z" tabindex="-1" aria-hidden="true"></iframe>
+  <iframe id="contactsHelperFrame" class="contacts-helper-frame" src="characters.html?helper=1&__appBuild=2026-05-02T03:15:00Z" tabindex="-1" aria-hidden="true"></iframe>
   <div class="toast" id="toast"></div>
 
 <script>
@@ -3385,16 +3385,16 @@ function getContactsFrameWindow(){
 function getQqPageBuildId(){
   try{
     var build = String(new URL(window.location.href).searchParams.get('__appBuild') || '').trim();
-    return build;
+    return build || '2026-05-02T03:15:00Z';
   }catch(err){
-    return '';
+    return '2026-05-02T03:15:00Z';
   }
 }
 function buildContactsHelperSrc(cacheBust){
   var build = getQqPageBuildId();
   var url = new URL('characters.html', window.location.href);
   url.searchParams.set('helper', '1');
-  url.searchParams.set('__appBuild', build || '2026-05-01T18:22:00Z');
+  url.searchParams.set('__appBuild', build || '2026-05-02T03:15:00Z');
   if(cacheBust) url.searchParams.set('__ts', String(Date.now()));
   return url.toString();
 }
@@ -3501,6 +3501,16 @@ async function readContactsTavernSessionStored(){
   }catch(err){}
   return null;
 }
+async function getBestContactsTavernSession(){
+  var local = readContactsTavernSessionLocal();
+  if(isContactsTavernSessionFresh(local)) return local;
+  var stored = await readContactsTavernSessionStored();
+  if(isContactsTavernSessionFresh(stored)){
+    saveContactsTavernSession(stored);
+    return stored;
+  }
+  return null;
+}
 function saveContactsTavernSession(session){
   var safe = session && typeof session === 'object' ? Object.assign({}, session, { kind:'tavern', checkedAt:Date.now(), serverConfirmedAt:Date.now() }) : null;
   if(!safe || !safe.token) return;
@@ -3565,6 +3575,14 @@ function contactsTavernHelperReady(){
     return cw;
   });
 }
+async function seedContactsTavernHelperSession(cw){
+  if(!(cw && typeof cw.saveTavernGateSession === 'function')) return null;
+  var session = await getBestContactsTavernSession();
+  if(session){
+    try{ cw.saveTavernGateSession(session); }catch(seedErr){}
+  }
+  return session;
+}
 async function hasContactsTavernPermission(){
   var localSession = readContactsTavernSessionLocal();
   var storedSession = await readContactsTavernSessionStored();
@@ -3589,6 +3607,10 @@ async function hasContactsTavernPermission(){
   return false;
 }
 function clickContactsImportAfterVerified(){
+  if(!hasLocalContactsTavernSession()){
+    setContactsTavernGateStatus('请先验证酒馆邀请码', 'error');
+    return;
+  }
   clickContactsImportInput();
   setTimeout(function(){
     closeContactsTavernGate();
@@ -3619,7 +3641,8 @@ if(_contactsTavernForm){
       return cw.verifyTavernGateCode(code).then(function(session){
         cw.saveTavernGateSession(session);
         saveContactsTavernSession(session);
-        setContactsTavernGateStatus('验证成功，请点下面按钮导入。', 'ok');
+        contactsTavernVerifiedAt = Date.now();
+        setContactsTavernGateStatus('验证成功', 'ok');
         var pending = contactsTavernPendingImportFiles ? contactsTavernPendingImportFiles.slice() : null;
         if(pending && pending.length){
           setTimeout(function(){
@@ -3628,9 +3651,10 @@ if(_contactsTavernForm){
           }, 80);
           return;
         }
-        contactsTavernVerifiedAt = Date.now();
-        closeContactsTavernGate();
-        showToast('酒馆权限已开启，可以导入角色卡');
+        setTimeout(function(){
+          closeContactsTavernGate();
+          showToast('验证成功，再点导入就能选择角色卡');
+        }, 120);
       });
     }).catch(function(err){
       setContactsTavernGateStatus(err && err.message ? err.message : '酒馆邀请码验证失败', 'error');
@@ -3660,6 +3684,12 @@ function openContactsImport(){
     return;
   }
   openContactsTavernGate(null);
+  getBestContactsTavernSession().then(function(session){
+    if(session){
+      closeContactsTavernGate();
+      showToast('酒馆权限已恢复，再点导入就能选择角色卡');
+    }
+  }).catch(function(){});
 }
 function openCharacterContact(charId){
   var targetId = String(charId || '').trim();
@@ -3938,7 +3968,9 @@ function handleContactsImportFiles(files, options){
       return null;
     }
     showToast(importFiles.length > 1 ? ('正在导入 ' + importFiles.length + ' 张角色卡') : '正在导入角色卡');
-    return cw.onFiles(importFiles, { skipTavernGate:true });
+    return seedContactsTavernHelperSession(cw).then(function(){
+      return cw.onFiles(importFiles, { skipTavernGate:true });
+    });
   }).then(function(){
     return loadChars();
   }).catch(function(err){
