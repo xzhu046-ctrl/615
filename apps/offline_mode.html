@@ -2445,6 +2445,13 @@ function normalizeOnlineMemorySummaryStore(store){
   }).filter(function(it){ return !!it.text; }) : [];
   next.covered = Math.max(0, Number(next.covered || 0) || 0);
   next.progress = Math.max(next.covered, Number(next.progress || 0) || 0);
+  next.updatedAt = Math.max(
+    Number(next.updatedAt || 0) || 0,
+    next.items.reduce(function(max, item){
+      return Math.max(max, Number(item && (item.updatedAt || item.createdAt) || 0) || 0);
+    }, 0),
+    Number(next.advancedMemory && next.advancedMemory.structured && next.advancedMemory.structured.lastUpdated || 0) || 0
+  );
   var advanced = normalizeOfflineAdvancedMemoryState(cloneOnlineMemoryAdvanced(next.advancedMemory));
   var legacyVectorItems = buildOfflineLegacyVectorDiaryItems(next.items, advanced.vector);
   if(legacyVectorItems.length) next.items = next.items.concat(legacyVectorItems);
@@ -2453,6 +2460,17 @@ function normalizeOnlineMemorySummaryStore(store){
     vector: { coreMemories:[], fragments:[], timelineSummaries:{}, settings:{} }
   });
   return next;
+}
+function getOfflineMemoryStoreUpdatedAt(store, recordUpdatedAt){
+  var safe = normalizeOnlineMemorySummaryStore(store || null);
+  return Math.max(
+    Number(recordUpdatedAt || 0) || 0,
+    Number(safe.updatedAt || 0) || 0,
+    (Array.isArray(safe.items) ? safe.items : []).reduce(function(max, item){
+      return Math.max(max, Number(item && (item.updatedAt || item.createdAt) || 0) || 0);
+    }, 0),
+    Number(safe.advancedMemory && safe.advancedMemory.structured && safe.advancedMemory.structured.lastUpdated || 0) || 0
+  );
 }
 function getOfflineMemorySourcePriority(item){
   var sourceType = String(item && item.sourceType || '').trim();
@@ -2507,6 +2525,7 @@ function buildOfflineStageSummaryMemoryRecord(item){
 async function loadOnlineMemorySummaryStoreByCharId(charId){
   var key = memorySummaryStorageKey(charId);
   var source = null;
+  var dbStore = null;
   try{
     if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.get === 'function'){
       source = await window.parent.PhoneStorage.get('memorySummaries', key);
@@ -2515,19 +2534,26 @@ async function loadOnlineMemorySummaryStoreByCharId(charId){
     }
   }catch(e){}
   if(source && source.data){
-    return normalizeOnlineMemorySummaryStore(source.data);
+    dbStore = normalizeOnlineMemorySummaryStore(Object.assign({}, source.data, {
+      updatedAt: Math.max(Number(source.data.updatedAt || 0) || 0, Number(source.updatedAt || 0) || 0)
+    }));
   }
+  var localStore = null;
   try{
     var raw = localStorage.getItem(key) || '';
     if(raw){
-      return normalizeOnlineMemorySummaryStore(JSON.parse(raw));
+      localStore = normalizeOnlineMemorySummaryStore(JSON.parse(raw));
     }
   }catch(e){}
-  return normalizeOnlineMemorySummaryStore(null);
+  if(dbStore && localStore){
+    return getOfflineMemoryStoreUpdatedAt(dbStore, source && source.updatedAt) >= getOfflineMemoryStoreUpdatedAt(localStore, 0) ? dbStore : localStore;
+  }
+  return dbStore || localStore || normalizeOnlineMemorySummaryStore(null);
 }
 async function persistOnlineMemorySummaryStoreByCharId(charId, store){
   var key = memorySummaryStorageKey(charId);
   var safeStore = normalizeOnlineMemorySummaryStore(store);
+  safeStore.updatedAt = Date.now();
   localStorage.setItem(key, JSON.stringify(safeStore));
   try{
     if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.put === 'function'){
@@ -8913,14 +8939,15 @@ async function hydrateOfflineMemorySnippet(){
 async function loadOfflineMemoryStore(){
   if(!character || !character.id) return { items: [] };
   var key = memorySummaryStorageKey(character.id);
+  var localParsed = null;
   try{
     var localRaw = localStorage.getItem(key) || '';
     if(localRaw){
-      var localParsed = normalizeOnlineMemorySummaryStore(JSON.parse(localRaw));
-      if(hasOfflineMemoryContent(localParsed)) return localParsed;
+      localParsed = normalizeOnlineMemorySummaryStore(JSON.parse(localRaw));
     }
   }catch(e){}
   var source = null;
+  var dbParsed = null;
   try{
     if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.get === 'function'){
       source = await window.parent.PhoneStorage.get('memorySummaries', key);
@@ -8928,7 +8955,15 @@ async function loadOfflineMemoryStore(){
       source = await window.PhoneStorage.get('memorySummaries', key);
     }
   }catch(e){}
-  return normalizeOnlineMemorySummaryStore(source && source.data ? source.data : null);
+  if(source && source.data){
+    dbParsed = normalizeOnlineMemorySummaryStore(Object.assign({}, source.data, {
+      updatedAt: Math.max(Number(source.data.updatedAt || 0) || 0, Number(source.updatedAt || 0) || 0)
+    }));
+  }
+  if(dbParsed && localParsed){
+    return getOfflineMemoryStoreUpdatedAt(dbParsed, source && source.updatedAt) >= getOfflineMemoryStoreUpdatedAt(localParsed, 0) ? dbParsed : localParsed;
+  }
+  return dbParsed || localParsed || normalizeOnlineMemorySummaryStore(null);
 }
 async function saveOfflineMemoryStore(store){
   if(!character || !character.id) return;
@@ -8942,6 +8977,7 @@ async function saveOfflineMemoryStore(store){
     merged.advancedMemory = cloneOnlineMemoryAdvanced(current && current.advancedMemory);
   }
   var safeStore = normalizeOnlineMemorySummaryStore(merged);
+  safeStore.updatedAt = Date.now();
   localStorage.setItem(key, JSON.stringify(safeStore));
   try{
     if(window.parent && window.parent !== window && window.parent.PhoneStorage && typeof window.parent.PhoneStorage.put === 'function'){
