@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T08:56:33Z';
+const APP_BUILD_ID = '2026-05-02T09:05:18Z';
 const APP_UPDATE_NOTES = [
-  '修复朋友圈删除按钮',
-  '确认删除弹窗稳定打开',
-  '避免安卓重复点击退出'
+  '优化日程进度轴样式',
+  '加快日程想法留言',
+  '修正无留言误回复'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -5306,10 +5306,7 @@ function scheduleItemNeedsCharReply(item){
   if(!(item && typeof item === 'object')) return false;
   var latestUser = getScheduleCommentLatestAt(item, 'user');
   var latestChar = getScheduleCommentLatestAt(item, 'char');
-  if(latestUser > latestChar) return true;
-  return !(Array.isArray(item.comments) && item.comments.some(function(comment){
-    return String(comment && comment.author || '').trim() === 'char';
-  }));
+  return latestUser > latestChar;
 }
 
 function buildSchedulePromptItemFromState(kind, item){
@@ -5635,7 +5632,7 @@ async function syncScheduleActivityFromChat(payload){
           '你现在是在聊天之余，顺手看了一眼日程 app。',
           (ref.kind === 'timeline' || ref.kind === 'chartodo')
             ? '这是你自己的一条安排或待办，但用户在上面留了话。你要像真人一样知道对方在看你的日程，并自然接住。'
-            : '这条安排属于用户，不是你自己。如果用户在这条安排上留过话，要像真人一样把它接住；如果只是他新写下来的安排或待办，也可以自然留一句。'
+            : '这条安排属于用户，不是你自己。用户确实在这条安排上留过话，你要像真人一样把它接住。'
         ].join('\n')
       }).catch(function(){ return ''; });
     noteText = String(noteText || '').trim();
