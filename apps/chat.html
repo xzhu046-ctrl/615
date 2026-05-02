@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T07:46:28Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T07:46:28Z"></script>
-<script src="../assetStore.js?v=2026-05-02T07:46:28Z"></script>
-<script src="../accountManager.js?v=2026-05-02T07:46:28Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T07:46:28Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T07:46:28Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T07:46:28Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T07:46:28Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T07:46:28Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T07:46:28Z"></script>
+<script src="../promptManager.js?v=2026-05-02T07:51:44Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T07:51:44Z"></script>
+<script src="../assetStore.js?v=2026-05-02T07:51:44Z"></script>
+<script src="../accountManager.js?v=2026-05-02T07:51:44Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T07:51:44Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T07:51:44Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T07:51:44Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T07:51:44Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T07:51:44Z"></script>
+<script src="offlineInvite.js?v=2026-05-02T07:51:44Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -10560,13 +10560,23 @@ function scopeChatThemeCssForPreview(cssText){
 
 function composeChatThemePartCss(){
   return getChatThemeParts().map(function(part){
-    return String(chatThemePartDrafts[part.id] || '').trim();
+    return normalizeChatThemeCssText(chatThemePartDrafts[part.id] || '');
   }).filter(Boolean).join('\n\n');
+}
+
+function normalizeChatThemeCssText(cssText){
+  var text = String(cssText || '').replace(/\r\n?/g, '\n').trim();
+  if(!text) return '';
+  text = text.replace(/^\uFEFF/, '').trim();
+  if(text.charAt(0) === '（' && text.charAt(text.length - 1) === '）'){
+    text = text.slice(1, -1).trim();
+  }
+  return text;
 }
 
 function syncActiveChatThemePartDraftFromInput(){
   var input = document.getElementById('csBubbleCss');
-  if(input) chatThemePartDrafts[activeChatThemePart || 'bubble'] = String(input.value || '');
+  if(input) chatThemePartDrafts[activeChatThemePart || 'bubble'] = normalizeChatThemeCssText(input.value || '');
 }
 
 function getActiveChatThemePartCss(){
@@ -10620,12 +10630,12 @@ function applyChatBubblePreviewCss(cssText){
 }
 
 function applyGlobalChatThemeCss(cssText){
-  globalThemeCssDraft = String(cssText || '').trim();
+  globalThemeCssDraft = normalizeChatThemeCssText(cssText);
   ensureGlobalChatThemeStyleNode().textContent = globalThemeCssDraft;
 }
 
 function applyBubbleChatThemeCss(cssText){
-  bubbleThemeCssDraft = String(cssText || '').trim();
+  bubbleThemeCssDraft = normalizeChatThemeCssText(cssText);
   chatThemePartDrafts.bubble = bubbleThemeCssDraft;
   ensureBubbleChatThemeStyleNode().textContent = composeChatThemePartCss();
   applyChatBubblePreviewCss(getActiveChatThemePartCss());
@@ -12956,9 +12966,11 @@ async function sendBlockedRequestCard(){
 }
 
 function normalizeMessageType(type){
+  type = String(type || '').trim().toLowerCase();
   if(type === 'voice_message' || type === 'voice') return 'voice';
   if(type === 'image_message' || type === 'image_card' || type === 'image') return 'image';
   if(type === 'rich_html' || type === 'richhtml' || type === 'html_card') return 'richhtml';
+  if(type === 'inner_voice' || type === 'innervoice' || type === 'inner voice') return 'innervoice';
   if(type === 'narrator' || type === 'aside' || type === 'narration') return 'narrator';
   if(type === 'change_avatar' || type === 'changeavatar') return 'changeavatar';
   if(type === 'change_user_avatar' || type === 'changeuseravatar') return 'changeuseravatar';
@@ -16420,20 +16432,20 @@ function openMessageActions(msgId){
 function exitMultiSelectMode(){
   multiSelectMode = false;
   selectedMessageIds = [];
-  renderChatLog(true);
+  rerenderChatLogPreserveViewport();
 }
 function toggleMessageSelection(msgId){
   if(!multiSelectMode) return;
   var idx = selectedMessageIds.indexOf(msgId);
   if(idx >= 0) selectedMessageIds.splice(idx, 1);
   else selectedMessageIds.push(msgId);
-  renderChatLog(true);
+  rerenderChatLogPreserveViewport();
 }
 function enterMultiSelectMode(){
   multiSelectMode = true;
   selectedMessageIds = activeActionMessageId ? [activeActionMessageId] : [];
   closeMessageActions();
-  renderChatLog(true);
+  rerenderChatLogPreserveViewport();
 }
 async function removeMessagesByIds(ids){
   if(!ids || !ids.length) return 0;
@@ -32173,6 +32185,7 @@ async function deliverAiReply(text, limitOverride, options){
   var parsed = null;
   var rawParts = [];
   var inlineInnerVoiceCandidates = [];
+  var hiddenInnerVoiceConsumed = false;
   var normalizeReplyTextField = function(value){
     if(value == null) return '';
     if(typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'){
@@ -32214,14 +32227,21 @@ async function deliverAiReply(text, limitOverride, options){
       return;
     }
     if(!item || typeof item !== 'object') return;
-    var rawType = String(item.type || '').trim().toLowerCase();
+    var rawType = normalizeMessageType(item.type || '');
     var innerVoiceCandidate = null;
     if(item.inner_voice && typeof item.inner_voice === 'object') innerVoiceCandidate = parseInnerVoiceResult(JSON.stringify(item.inner_voice));
     else if(item.innerVoice && typeof item.innerVoice === 'object') innerVoiceCandidate = parseInnerVoiceResult(JSON.stringify(item.innerVoice));
-    else if(rawType === 'inner_voice' || rawType === 'innervoice') innerVoiceCandidate = parseInnerVoiceResult(JSON.stringify(item));
+    else if(rawType === 'innervoice') innerVoiceCandidate = parseInnerVoiceResult(JSON.stringify(item));
     if(innerVoiceCandidate && (innerVoiceCandidate.headline || innerVoiceCandidate.body)){
       inlineInnerVoiceCandidates.push(innerVoiceCandidate);
-      if(rawType === 'inner_voice' || rawType === 'innervoice') return;
+      if(rawType === 'innervoice'){
+        hiddenInnerVoiceConsumed = true;
+        return;
+      }
+    }
+    if(rawType === 'innervoice'){
+      hiddenInnerVoiceConsumed = true;
+      return;
     }
     if(item.type === 'thought_chain') return;
     if(isReplyMetadataOnly(item)) return;
@@ -32507,6 +32527,9 @@ async function deliverAiReply(text, limitOverride, options){
     };
     var type = readField('type');
     var content = readField(['content', 'reply_content', 'description', 'text']);
+    var headline = readField(['headline', 'title', 'normal', 'thought']);
+    var body = readField(['body', 'copy', 'desire', 'dark']);
+    var strike = readField('strike');
     var summary = readField('summary');
     var html = readField('html');
     var css = readField('css');
@@ -32517,6 +32540,14 @@ async function deliverAiReply(text, limitOverride, options){
     var title = readField('title');
     var cover = readField(['cover', 'coverUrl']);
     var hasLooseRichFields = !!(html || css || js || summary || url || title || cover);
+    if(normalizeMessageType(type) === 'innervoice' || headline || body || strike){
+      return {
+        type: 'inner_voice',
+        headline: headline,
+        body: body,
+        strike: strike
+      };
+    }
     if(!type && !content && !hasLooseRichFields) return null;
     if((!type || normalizeMessageType(type) === 'text') && hasLooseRichFields){
       return {
@@ -32539,6 +32570,29 @@ async function deliverAiReply(text, limitOverride, options){
       reply_to: replyTo,
       reply_role: replyRole
     };
+  };
+  var extractLooseInnerVoiceCandidate = function(raw){
+    var s = normalizeJsonishReplyText(raw);
+    if(!s || !/inner[_\s-]*voice|["']?headline["']?\s*[:.]|["']?body["']?\s*[:.]/i.test(s)) return null;
+    var read = function(names){
+      var arr = Array.isArray(names) ? names : [names];
+      for(var i = 0; i < arr.length; i += 1){
+        var key = String(arr[i] || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var quoted = new RegExp('["\\\']?' + key + '["\\\']?\\s*[:.]\\s*["\\\u201c\u201d]([\\s\\S]*?)["\\\u201c\u201d]\\s*(?:,|}|$)', 'i');
+        var quotedMatch = s.match(quoted);
+        if(quotedMatch && quotedMatch[1] != null) return String(quotedMatch[1] || '').trim();
+        var loose = new RegExp('["\\\']?' + key + '["\\\']?\\s*[:.]\\s*([^\\n,}]+)', 'i');
+        var looseMatch = s.match(loose);
+        if(looseMatch && looseMatch[1] != null) return String(looseMatch[1] || '').replace(/^["'\u201c\u201d]+|["'\u201c\u201d]+$/g, '').trim();
+      }
+      return '';
+    };
+    var candidate = {
+      headline: read(['headline', 'title', 'normal', 'thought']),
+      body: read(['body', 'copy', 'desire', 'dark']),
+      strike: read('strike')
+    };
+    return (candidate.headline || candidate.body || candidate.strike) ? candidate : null;
   };
 
   // If API already returned structured content
@@ -32786,6 +32840,14 @@ async function deliverAiReply(text, limitOverride, options){
     });
   }
 
+  if(!rawParts.length && text){
+    var looseInnerVoice = extractLooseInnerVoiceCandidate(text);
+    if(looseInnerVoice){
+      inlineInnerVoiceCandidates.push(looseInnerVoice);
+      hiddenInnerVoiceConsumed = true;
+    }
+  }
+
   // Compatibility: consume legacy loose tags as structure instead of leaking them into bubbles.
   if(!rawParts.length && text){
     rawParts = parseLegacyTaggedReplyParts(text);
@@ -32848,8 +32910,14 @@ async function deliverAiReply(text, limitOverride, options){
     }
   }
 
-  if(!rawParts.length && text){
+  if(!rawParts.length && text && !hiddenInnerVoiceConsumed){
     rawParts = splitPlainTextToParts(text);
+  }
+  if(!rawParts.length && hiddenInnerVoiceConsumed){
+    if(getInnerVoiceGenerationMode() === 'together'){
+      saveInlineInnerVoiceCandidate(inlineInnerVoiceCandidates[inlineInnerVoiceCandidates.length - 1] || null);
+    }
+    return [];
   }
   if(!rawParts.length) rawParts = [{text:String(text||'(空消息)'), t:'text'}];
   var parts = [];
