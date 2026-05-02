@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T20:07:00Z';
+const APP_BUILD_ID = '2026-05-02T20:13:00Z';
 const APP_UPDATE_NOTES = [
-  '输入框弹起更稳定',
+  'iOS 输入框补上漏报高度',
+  '线下输入框减少忽上忽下',
   '页面切换减少白屏',
-  '朋友圈分享显示更多角色',
-  '手机 CSS 恢复更稳'
+  '朋友圈分享显示更多角色'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -902,12 +902,16 @@ function getTopLevelChatKeyboardShift(){
 }
 
 function getFallbackChatKeyboardShift(){
-  if(!isAndroidShell() || currentApp !== 'chat' || !chatInputFocusActive) return 0;
+  if(currentApp !== 'chat' || !chatInputFocusActive) return 0;
+  var ua = String(navigator && navigator.userAgent || '');
+  var isIosLike = /iPhone|iPad|iPod/i.test(ua) || (navigator && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if(!isAndroidShell() && !isIosLike) return 0;
   var focusedFor = Date.now() - (Number(chatInputFocusStartedAt) || 0);
   if(focusedFor < 70) return 0;
+  if(isIosLike && focusedFor > 2600 && getTopLevelChatKeyboardShift() <= 120 && chatReportedKeyboardShift <= 120) return 0;
   var h = Math.round(stableShellAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
   if(!h) return 0;
-  return Math.max(260, Math.min(430, Math.round(h * 0.42)));
+  return Math.max(260, Math.min(430, Math.round(h * (isIosLike ? 0.38 : 0.42))));
 }
 
 function syncChatKeyboardShift(){
@@ -1323,7 +1327,7 @@ function syncAppHeight(){
   const currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
   const androidViewportGap = isAndroid && visualHeight ? Math.max(0, currentHeight - visualHeight) : 0;
   const measuredKeyboardInset = Math.max(rawBottomOffset, androidViewportGap);
-  const fallbackKeyboardInset = isAndroid && currentApp === 'chat' && chatInputFocusActive ? getFallbackChatKeyboardShift() : 0;
+  const fallbackKeyboardInset = currentApp === 'chat' && chatInputFocusActive ? getFallbackChatKeyboardShift() : 0;
   const keyboardInset = Math.max(measuredKeyboardInset, fallbackKeyboardInset);
   const keyboardLikelyOpen = rawBottomOffset > 120 || (chatInputFocusActive && androidViewportGap > 220) || fallbackKeyboardInset > 120;
   postKeyboardInsetToCurrentApp(keyboardLikelyOpen ? keyboardInset : 0, keyboardLikelyOpen);
