@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T06:12:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T06:12:00Z"></script>
-<script src="../assetStore.js?v=2026-05-02T06:12:00Z"></script>
-<script src="../accountManager.js?v=2026-05-02T06:12:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T06:12:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T06:12:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T06:12:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T06:12:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T06:12:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T06:12:00Z"></script>
+<script src="../promptManager.js?v=2026-05-02T06:58:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-02T06:58:00Z"></script>
+<script src="../assetStore.js?v=2026-05-02T06:58:00Z"></script>
+<script src="../accountManager.js?v=2026-05-02T06:58:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-02T06:58:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-02T06:58:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-02T06:58:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-02T06:58:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-02T06:58:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-02T06:58:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -963,7 +963,7 @@ button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:
 .err-notice::after{content:'轻点一下关闭';display:block;margin-top:6px;font-size:10px;font-weight:800;opacity:.72}
 
 /* ── Input area ── */
-.chat-input-area{background:transparent;border:none;padding:0;display:flex;gap:8px;align-items:flex-end;flex-shrink:0;z-index:35;position:fixed;left:14px;right:14px;bottom:calc(var(--composer-bottom) + var(--keyboard-inset));transform:none}
+.chat-input-area{background:transparent;border:none;padding:0;display:flex;gap:8px;align-items:flex-end;flex-shrink:0;z-index:35;position:fixed;left:14px;right:14px;bottom:var(--composer-bottom);transform:translateY(calc(-1 * var(--composer-shift)))}
 .input-wrap{flex:1;position:relative;overflow:visible;background:rgba(255,255,255,.95);border:var(--bd);border-radius:16px;padding:7px 12px;display:flex;flex-direction:column;align-items:stretch;gap:6px;transition:none;box-shadow:var(--sh)}
 .input-wrap.has-reply{border-radius:16px !important}
 .input-wrap.narrator-mode{padding-top:7px;border-radius:16px}
@@ -10630,14 +10630,32 @@ function applyBubbleChatThemeCss(cssText){
   applyChatBubblePreviewCss(getActiveChatThemePartCss());
 }
 
+function extractStoredThemeCss(value){
+  if(typeof value === 'string') return value;
+  if(value && typeof value === 'object' && typeof value.css === 'string') return value.css;
+  return '';
+}
+
+function normalizeThemeCssForCompare(cssText){
+  return String(cssText || '').replace(/\s+/g, ' ').trim();
+}
+
+function isDefaultThemeCssForPart(cssText, partId){
+  var safePart = String(partId || 'bubble').trim() || 'bubble';
+  var fallback = safePart === 'global' ? getDefaultGlobalThemeCss() : getDefaultChatThemePartCss(safePart);
+  return !!cssText && normalizeThemeCssForCompare(cssText) === normalizeThemeCssForCompare(fallback);
+}
+
 async function loadGlobalChatThemeCss(charId){
   if(!charId) return '';
   var stored = await loadLatestJsonFromLargeStores(chatGlobalThemeStorageIdCandidates(charId));
   var bundle = await loadChatSettingsBundle(charId);
-  if(bundle && typeof bundle.globalCss === 'string' && Number(bundle.updatedAt || 0) >= Number(stored && stored.updatedAt || 0)) return bundle.globalCss;
-  if(typeof stored === 'string') return stored;
-  if(stored && typeof stored.css === 'string') return stored.css;
-  if(bundle && typeof bundle.globalCss === 'string') return bundle.globalCss;
+  var storedCss = extractStoredThemeCss(stored);
+  var bundleCss = bundle && typeof bundle.globalCss === 'string' ? bundle.globalCss : '';
+  if(bundleCss && storedCss && isDefaultThemeCssForPart(storedCss, 'global') && !isDefaultThemeCssForPart(bundleCss, 'global')) return bundleCss;
+  if(bundleCss && Number(bundle.updatedAt || 0) >= Number(stored && stored.updatedAt || 0)) return bundleCss;
+  if(storedCss) return storedCss;
+  if(bundleCss) return bundleCss;
   return '';
 }
 
@@ -10653,12 +10671,14 @@ async function loadBubbleChatThemeCss(charId){
   var stored = await loadLatestJsonFromLargeStores(chatBubbleThemeStorageIdCandidates(charId));
   var legacy = await loadJsonFromLargeStore(chatThemeStorageId(charId));
   var bundle = await loadChatSettingsBundle(charId);
-  if(bundle && bundle.themeParts && typeof bundle.themeParts.bubble === 'string' && Number(bundle.updatedAt || 0) >= Number(stored && stored.updatedAt || 0)) return bundle.themeParts.bubble;
-  if(typeof stored === 'string') return stored;
-  if(stored && typeof stored.css === 'string') return stored.css;
-  if(typeof legacy === 'string') return legacy;
-  if(legacy && typeof legacy.css === 'string') return legacy.css;
-  if(bundle && bundle.themeParts && typeof bundle.themeParts.bubble === 'string') return bundle.themeParts.bubble;
+  var storedCss = extractStoredThemeCss(stored);
+  var legacyCss = extractStoredThemeCss(legacy);
+  var bundleCss = bundle && bundle.themeParts && typeof bundle.themeParts.bubble === 'string' ? bundle.themeParts.bubble : '';
+  if(bundleCss && storedCss && isDefaultThemeCssForPart(storedCss, 'bubble') && !isDefaultThemeCssForPart(bundleCss, 'bubble')) return bundleCss;
+  if(bundleCss && Number(bundle.updatedAt || 0) >= Number(stored && stored.updatedAt || 0)) return bundleCss;
+  if(storedCss) return storedCss;
+  if(legacyCss) return legacyCss;
+  if(bundleCss) return bundleCss;
   return '';
 }
 
@@ -10675,10 +10695,12 @@ async function loadChatThemePartCss(charId, partId){
   if(!charId) return '';
   var stored = await loadLatestJsonFromLargeStores(chatThemePartStorageIdCandidates(charId, safePart));
   var bundle = await loadChatSettingsBundle(charId);
-  if(bundle && bundle.themeParts && typeof bundle.themeParts[safePart] === 'string' && Number(bundle.updatedAt || 0) >= Number(stored && stored.updatedAt || 0)) return bundle.themeParts[safePart];
-  if(typeof stored === 'string') return stored;
-  if(stored && typeof stored.css === 'string') return stored.css;
-  if(bundle && bundle.themeParts && typeof bundle.themeParts[safePart] === 'string') return bundle.themeParts[safePart];
+  var storedCss = extractStoredThemeCss(stored);
+  var bundleCss = bundle && bundle.themeParts && typeof bundle.themeParts[safePart] === 'string' ? bundle.themeParts[safePart] : '';
+  if(bundleCss && storedCss && isDefaultThemeCssForPart(storedCss, safePart) && !isDefaultThemeCssForPart(bundleCss, safePart)) return bundleCss;
+  if(bundleCss && Number(bundle.updatedAt || 0) >= Number(stored && stored.updatedAt || 0)) return bundleCss;
+  if(storedCss) return storedCss;
+  if(bundleCss) return bundleCss;
   return '';
 }
 
@@ -25944,10 +25966,6 @@ function isChatTextInputActive(){
   var tag = String(active.tagName || '').toUpperCase();
   return tag === 'TEXTAREA' || tag === 'INPUT';
 }
-function estimateChatKeyboardInset(){
-  var h = Math.round(stableChatAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
-  return Math.max(150, Math.min(210, Math.round(h * 0.23)));
-}
 function clampChatKeyboardInset(value){
   var raw = Math.max(0, Number(value) || 0);
   if(raw <= 120) return 0;
@@ -25959,6 +25977,7 @@ function clearChatKeyboardInset(){
   parentComposerShift = 0;
   appliedKeyboardInset = 0;
   document.documentElement.style.setProperty('--keyboard-inset', '0px');
+  document.documentElement.style.setProperty('--composer-shift', '0px');
   document.documentElement.style.setProperty('--composer-bottom', '12px');
 }
 function getChatViewportMetrics(){
@@ -25967,10 +25986,12 @@ function getChatViewportMetrics(){
   var viewportHeight = Math.round(vv && vv.height ? vv.height : innerHeight) || innerHeight;
   var vvTopOffset = Math.round(vv ? Math.max(0, vv.offsetTop || 0) : 0);
   var obscuredHeight = Math.max(0, innerHeight - viewportHeight - vvTopOffset);
+  var visibleHeight = Math.round(vv ? Math.max(0, viewportHeight + vvTopOffset) : innerHeight) || innerHeight;
   return {
     vvTopOffset: vvTopOffset,
     currentHeight: innerHeight,
     viewportHeight: viewportHeight,
+    visibleHeight: visibleHeight,
     obscuredHeight: obscuredHeight
   };
 }
@@ -25981,40 +26002,30 @@ function syncChatViewport(){
     stableChatAppHeight = metrics.currentHeight || 0;
   }
   var textInputFocused = isChatTextInputActive();
-  var resizedInset = textInputFocused ? Math.max(0, stableChatAppHeight - metrics.currentHeight) : 0;
-  var measuredKeyboardRaw = textInputFocused ? Math.max(metrics.obscuredHeight, resizedInset, parentComposerShift || 0) : 0;
-  var keyboardConfirmed = textInputFocused && measuredKeyboardRaw > 140;
-  var focusAge = chatKeyboardFocusStartedAt ? (Date.now() - chatKeyboardFocusStartedAt) : 9999;
-  var keyboardRaw = keyboardConfirmed ? measuredKeyboardRaw : 0;
-  if(textInputFocused && !keyboardConfirmed && focusAge >= 0 && focusAge < 520){
-    keyboardRaw = appliedKeyboardInset > 120 ? appliedKeyboardInset : estimateChatKeyboardInset();
-  }else if(textInputFocused && keyboardConfirmed && lastKnownKeyboardInset > 120 && keyboardRaw > 120 && keyboardRaw < (lastKnownKeyboardInset - 64)){
-    keyboardRaw = lastKnownKeyboardInset;
-  }
-  var keyboardInset = clampChatKeyboardInset(keyboardRaw);
-  if(textInputFocused && keyboardConfirmed && appliedKeyboardInset > 120 && keyboardInset > 120){
-    var delta = keyboardInset - appliedKeyboardInset;
-    if(delta > 44) keyboardInset = appliedKeyboardInset + 44;
-    else if(delta < -44) keyboardInset = Math.max(0, appliedKeyboardInset - 44);
-  }
-  if(!textInputFocused){
-    parentComposerShift = 0;
-    keyboardInset = 0;
-  }
-  if(keyboardConfirmed && measuredKeyboardRaw >= 180) lastKnownKeyboardInset = clampChatKeyboardInset(measuredKeyboardRaw);
-  appliedKeyboardInset = keyboardInset;
-  chatInputFocusActive = textInputFocused;
-  if(!keyboardInset && metrics.currentHeight > stableChatAppHeight){
+  if(metrics.currentHeight > stableChatAppHeight && !textInputFocused){
     stableChatAppHeight = metrics.currentHeight;
   }
+  var inferredInset = textInputFocused ? Math.max(0, stableChatAppHeight - metrics.visibleHeight) : 0;
+  var measuredKeyboardRaw = textInputFocused ? Math.max(metrics.obscuredHeight, inferredInset) : 0;
+  var keyboardInset = clampChatKeyboardInset(measuredKeyboardRaw);
+  if(!textInputFocused || keyboardInset <= 120){
+    keyboardInset = 0;
+    parentComposerShift = 0;
+  }
+  if(keyboardInset >= 180) lastKnownKeyboardInset = keyboardInset;
+  appliedKeyboardInset = keyboardInset;
+  chatInputFocusActive = textInputFocused;
   var vh = Math.max(stableChatAppHeight || 0, metrics.viewportHeight + vvTopOffset, metrics.currentHeight || 0) || metrics.currentHeight;
   document.documentElement.style.setProperty('--chat-app-height', vh + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', '0px');
   document.documentElement.style.setProperty('--keyboard-inset', keyboardInset + 'px');
-  document.documentElement.style.setProperty('--composer-bottom', keyboardInset ? '20px' : '12px');
+  document.documentElement.style.setProperty('--composer-bottom', '12px');
   syncComposerMetrics();
   applyComposerPlacement(metrics, keyboardInset);
+  try{
+    if(window.parent) window.parent.postMessage({ type:'SET_CHAT_KEYBOARD_SHIFT', payload: keyboardInset }, '*');
+  }catch(err){}
 }
 
 function syncComposerMetrics(){
@@ -26027,13 +26038,15 @@ function syncComposerMetrics(){
 function applyComposerPlacement(metrics, keyboardInset){
   var composer = document.querySelector('.chat-input-area');
   if(!composer) return;
-  document.documentElement.style.setProperty('--composer-shift', '0px');
+  var inset = Math.max(0, Number(keyboardInset) || 0);
+  var shift = inset > 120 ? inset + 18 : 0;
+  document.documentElement.style.setProperty('--composer-shift', shift + 'px');
   composer.style.top = '';
-  composer.style.bottom = '';
+  composer.style.bottom = 'var(--composer-bottom)';
 }
 
 function scheduleComposerPlacementSync(){
-  [0, 40, 90, 160, 260, 420, 700].forEach(function(delay){
+  [0, 80, 180, 320, 520, 760].forEach(function(delay){
     setTimeout(function(){
       syncChatViewport();
       keepComposerVisible();
@@ -33190,23 +33203,9 @@ window.addEventListener('message', async function(e) {
     }
   }
   if(d.type === 'PARENT_CHAT_COMPOSER_SHIFT'){
-    var shiftPayload = d && d.payload ? d.payload : {};
-    var shift = Number(shiftPayload.shift || 0) || 0;
-    var shiftOpen = shiftPayload.keyboardOpen !== false && shift > 120 && isChatTextInputActive();
-    parentComposerShift = shiftOpen ? clampChatKeyboardInset(shift) : 0;
-    if(parentComposerShift > 120) lastKnownKeyboardInset = parentComposerShift;
-    syncChatViewport();
-    keepComposerVisible();
     return;
   }
   if(d.type === 'PARENT_APP_KEYBOARD_INSET'){
-    var insetPayload = d && d.payload ? d.payload : {};
-    var inset = Number(insetPayload.inset || 0) || 0;
-    var insetOpen = insetPayload.keyboardOpen !== false && inset > 120 && isChatTextInputActive();
-    parentComposerShift = insetOpen ? clampChatKeyboardInset(inset) : 0;
-    if(parentComposerShift > 120) lastKnownKeyboardInset = parentComposerShift;
-    syncChatViewport();
-    keepComposerVisible();
     return;
   }
   if(d.type === 'SHELL_UNREAD_BADGE'){
@@ -33396,14 +33395,6 @@ window.addEventListener('focusin', function(e){
   if(e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.target.id === 'msg-input')){
     chatInputFocusActive = true;
     chatKeyboardFocusStartedAt = Date.now();
-    var currentInset = 0;
-    try{
-      currentInset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--keyboard-inset')) || 0;
-    }catch(err){}
-    if(currentInset <= 120){
-      appliedKeyboardInset = clampChatKeyboardInset(estimateChatKeyboardInset());
-      document.documentElement.style.setProperty('--keyboard-inset', appliedKeyboardInset + 'px');
-    }
     scheduleComposerPlacementSync();
     try{
       if(window.parent) window.parent.postMessage({ type:'CHAT_INPUT_FOCUS' }, '*');
