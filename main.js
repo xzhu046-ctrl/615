@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T20:23:00Z';
+const APP_BUILD_ID = '2026-05-02T20:34:00Z';
 const APP_UPDATE_NOTES = [
-  '加载页恢复原来的白底和停留节奏',
-  '朋友圈分享改用统一聊天写入',
-  'iOS 输入框聚焦时减少忽高忽低',
-  '自定义 CSS 输入后立即同步保存'
+  '朋友圈分享不再漏掉角色',
+  '加载页等页面加载后再退出',
+  'iOS 输入框取消估算顶起',
+  'CSS 美化增加导入导出'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -905,6 +905,7 @@ function getFallbackChatKeyboardShift(){
   if(currentApp !== 'chat' || !chatInputFocusActive) return 0;
   var ua = String(navigator && navigator.userAgent || '');
   var isIosLike = /iPhone|iPad|iPod/i.test(ua) || (navigator && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if(isIosLike) return 0;
   if(!isAndroidShell() && !isIosLike) return 0;
   var focusedFor = Date.now() - (Number(chatInputFocusStartedAt) || 0);
   if(focusedFor < 70) return 0;
@@ -10187,10 +10188,6 @@ function showShellLoadingOverlay(kind){
   }
   image.src = 'apps/assets/loading-cat.png';
   overlay.classList.add('show');
-  shellLoadingForceTimer = setTimeout(function(){
-    overlay.classList.remove('show');
-    shellLoadingForceTimer = 0;
-  }, 1800);
 }
 
 function hideShellLoadingOverlay(delay){
