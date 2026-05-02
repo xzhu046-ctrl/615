@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2026-05-02T00:20:00Z';
+const CACHE_VERSION = '2026-05-02T00:35:00Z';
 const CACHE_NAME = 'phone-shell-' + CACHE_VERSION;
 const CORE_URLS = [
   './',
@@ -16,6 +16,7 @@ const CORE_URLS = [
   './version.json',
   './apps/qq.html',
   './apps/chat.html',
+  './apps/offlineInvite.js',
   './apps/offline.html',
   './apps/offline_mode.html',
   './apps/map6.html',

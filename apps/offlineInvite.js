@@ -282,11 +282,59 @@ function ensureOfflineInviteRecordId(payload){
   if(!(payload && typeof payload === 'object')) return '';
   var existing = getOfflineInviteRecordId(payload);
   if(existing) return existing;
+  var semanticMatch = findRecentOfflineInviteRecordByPayload(payload, 90 * 1000);
+  if(semanticMatch && semanticMatch.id){
+    payload.recordId = String(semanticMatch.id || '').trim();
+    payload.inviteRecordId = String(payload.inviteRecordId || semanticMatch.id || '').trim();
+    return payload.recordId;
+  }
   var created = getOfflineInviteStoreApi() && typeof getOfflineInviteStoreApi().createId === 'function'
     ? getOfflineInviteStoreApi().createId('invite')
     : ('invite_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8));
   payload.recordId = created;
   return created;
+}
+
+function normalizeOfflineInviteSemanticText(value){
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function offlineInviteSemanticSignature(payload){
+  var p = payload && typeof payload === 'object' ? payload : {};
+  return [
+    normalizeOfflineInviteSemanticText(p.sourceRole || ''),
+    normalizeOfflineInviteSemanticText(p.charId || ''),
+    normalizeOfflineInviteSemanticText(p.location || ''),
+    normalizeOfflineInviteSemanticText(p.scheduledDate || ''),
+    normalizeOfflineInviteSemanticText(p.scheduledTime || ''),
+    normalizeOfflineInviteSemanticText(p.dateLabel || ''),
+    normalizeOfflineInviteSemanticText(p.timeLabel || ''),
+    p.immediate ? 'immediate' : ''
+  ].join('::').toLowerCase();
+}
+
+function findRecentOfflineInviteRecordByPayload(payload, windowMs){
+  var store = getOfflineInviteStoreApi();
+  if(!store || typeof store.listRecords !== 'function' || !(payload && typeof payload === 'object')) return null;
+  var signature = offlineInviteSemanticSignature(payload);
+  if(!signature || signature.replace(/:/g, '') === '') return null;
+  var now = Date.now();
+  var maxAge = Math.max(1000, Number(windowMs || 0) || 0);
+  var best = null;
+  try{
+    (store.listRecords() || []).forEach(function(item){
+      if(!(item && typeof item === 'object')) return;
+      var itemSignature = offlineInviteSemanticSignature(Object.assign({}, item, {
+        sourceRole: item.sourceRole || payload.sourceRole,
+        immediate: String(item.timeLabel || '').trim() === '现在' && !String(item.scheduledDate || '').trim() && !String(item.scheduledTime || '').trim()
+      }));
+      if(itemSignature !== signature) return;
+      var stamp = Number(item.updatedAt || item.createdAt || 0) || 0;
+      if(stamp && Math.abs(now - stamp) > maxAge) return;
+      if(!best || stamp >= (Number(best.updatedAt || best.createdAt || 0) || 0)) best = item;
+    });
+  }catch(err){}
+  return best;
 }
 
 function isOfflineInviteValidDateKey(value){
@@ -1552,10 +1600,45 @@ function notifyShellAboutOfflineInvite(text){
   }catch(err){}
 }
 
+function findRecentOfflineInviteChatEntry(role, payload, windowMs){
+  if(!Array.isArray(chatLog) || !(payload && typeof payload === 'object')) return null;
+  var safeRole = role === 'user' ? 'user' : 'assistant';
+  var signature = offlineInviteSemanticSignature(payload);
+  if(!signature || signature.replace(/:/g, '') === '') return null;
+  var now = Date.now();
+  var maxAge = Math.max(1000, Number(windowMs || 0) || 0);
+  for(var i = chatLog.length - 1; i >= 0 && i >= chatLog.length - 30; i -= 1){
+    var entry = chatLog[i];
+    if(!entry || String(entry.role || '') !== safeRole) continue;
+    if(normalizeMessageType(entry.type || 'text') !== 'offlineinvite') continue;
+    var existingPayload = parseOfflineInvitePayload(entry.content) || null;
+    if(!existingPayload) continue;
+    if(offlineInviteSemanticSignature(existingPayload) !== signature) continue;
+    var stamp = Number(entry.createdAt || existingPayload.createdAt || 0) || 0;
+    if(stamp && Math.abs(now - stamp) > maxAge) continue;
+    return entry;
+  }
+  return null;
+}
+
 async function appendOfflineInviteToChat(role, payload, doScroll, options){
   var safeOptions = options && typeof options === 'object' ? options : {};
   var noticeText = '';
   var safeRole = role === 'user' ? 'user' : 'assistant';
+  var safePayload = coerceOfflineInvitePayloadToThread(payload || {}, safeRole);
+  var finalPayload = buildOfflineInvitePayload(safeRole, safePayload || {});
+  var recentDuplicate = findRecentOfflineInviteChatEntry(safeRole, finalPayload, 20 * 1000);
+  if(recentDuplicate){
+    var duplicatePayload = parseOfflineInvitePayload(recentDuplicate.content) || finalPayload;
+    var duplicateRecordId = ensureOfflineInviteRecordId(duplicatePayload);
+    if(duplicateRecordId){
+      finalPayload.recordId = duplicateRecordId;
+      finalPayload.inviteRecordId = String(finalPayload.inviteRecordId || duplicateRecordId).trim();
+      try{ recentDuplicate.content = JSON.stringify(Object.assign({}, duplicatePayload, finalPayload, { recordId: duplicateRecordId })); }catch(err){}
+    }
+    await saveChat(true);
+    return recentDuplicate;
+  }
   if(safeOptions.skipNotice !== true){
     noticeText = String(safeOptions.noticeText || appendOfflineInviteNoticeText(safeRole)).trim();
   }
@@ -1564,8 +1647,6 @@ async function appendOfflineInviteToChat(role, payload, doScroll, options){
     chatLog.push(notice);
     addSystemNotice(notice.content, doScroll !== false, notice.id);
   }
-  var safePayload = coerceOfflineInvitePayloadToThread(payload || {}, safeRole);
-  var finalPayload = buildOfflineInvitePayload(safeRole, safePayload || {});
   var entry = makeChatEntry(safeRole === 'user' ? 'user' : 'assistant', JSON.stringify(finalPayload), 'offline_invite');
   chatLog.push(entry);
   addMessage(safeRole === 'user' ? 'user' : 'ai', entry.content, doScroll !== false, 'offline_invite', entry.id);
@@ -1816,6 +1897,7 @@ function getLatestPendingUserOfflineInviteThread(){
 }
 
 var pendingOfflineInviteReplyTimer = 0;
+var pendingOfflineInviteReplyInFlightKey = '';
 
 function clearPendingOfflineInviteReplyTimer(){
   if(!pendingOfflineInviteReplyTimer) return;
@@ -1931,12 +2013,20 @@ async function rerollPendingOfflineInviteReply(){
 async function handlePendingOfflineInviteReply(){
   var pending = getPendingUserOfflineInviteEntry();
   if(!pending) return false;
+  var pendingKey = String((pending.entry && pending.entry.id) || ensureOfflineInviteRecordId(pending.payload) || '').trim();
+  if(pendingKey && pendingOfflineInviteReplyInFlightKey === pendingKey){
+    return true;
+  }
+  pendingOfflineInviteReplyInFlightKey = pendingKey || '__pending__';
   var genBtn = document.getElementById('genBtn');
   var sendBtn = document.getElementById('sendBtn');
   if(genBtn) genBtn.disabled = true;
   if(sendBtn) sendBtn.disabled = true;
   clearPendingOfflineInviteReplyTimer();
   try{
+    var latestPayload = parseOfflineInvitePayload(pending.entry && pending.entry.content) || pending.payload || {};
+    if(String(latestPayload.status || 'pending') !== 'pending') return true;
+    pending.payload = latestPayload;
     var decision = await requestCharOfflineInviteDecision(pending.payload);
     if(decision && decision.accept){
       var schedule = deriveOfflineInviteAcceptedSchedule(pending.payload, decision);
@@ -2028,6 +2118,9 @@ async function handlePendingOfflineInviteReply(){
     console.error('offline invite reply error:', err);
     return true;
   } finally {
+    if(!pendingKey || pendingOfflineInviteReplyInFlightKey === pendingKey || pendingOfflineInviteReplyInFlightKey === '__pending__'){
+      pendingOfflineInviteReplyInFlightKey = '';
+    }
     if(genBtn) genBtn.disabled = false;
     if(sendBtn) sendBtn.disabled = false;
   }
