@@ -279,8 +279,9 @@ ${blockPolicy ? `【关系边界】\n${blockPolicy}` : ''}
       memory ? `最近记忆总结：\n${String(memory || '').slice(0, 1800)}` : '最近记忆总结：无',
       history ? `最近对话：\n${history}` : '最近对话：无',
       latestReply ? `本轮角色回复：${latestReply}` : '',
+      '输出只允许服务于 headline/body/strike 三个字段；字段名只是存储容器，字段里的文字必须完全服从当前心声提示词。',
       isCustomStyle
-        ? `用户自定义心声提示词（最高优先级，必须覆盖默认心声版式）：\n${userCustomPrompt}`
+        ? `用户自定义心声提示词（最高优先级，必须覆盖默认心声版式；不要混入默认报纸头条结构，除非这里明确要求）：\n${userCustomPrompt}`
         : String(styleGuide.prompt).trim()
     ].join('\n\n');
   }

@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T01:37:00Z';
+const APP_BUILD_ID = '2026-05-03T01:54:00Z';
 const APP_UPDATE_NOTES = [
-  '聊天正文优先级提高',
-  '心声不再抢走气泡',
-  '只输出隐藏内容会被拦住',
-  'CSS 手机自定义继续保留'
+  '聊天长句会拆成短气泡',
+  '心声每轮按设置刷新',
+  '线下总结写进记忆',
+  '手动总结同步到小脑瓜'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,

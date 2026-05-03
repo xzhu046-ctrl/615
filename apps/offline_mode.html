@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-05-03T01:28:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T01:28:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T01:28:00Z"></script>
-<script src="../promptManager.js?v=2026-05-03T01:28:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T01:28:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T01:28:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T01:28:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T01:28:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T01:54:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T01:54:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T01:54:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T01:54:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T01:54:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T01:54:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T01:54:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T01:54:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -4571,6 +4571,10 @@ async function generateOfflineSharedDiaryMemory(slice, fromIndex){
       '总结范围：',
       lines
     ].join('\n\n');
+  userPrompt = [
+    userPrompt,
+    '这是线下聊天记忆总结：用户消息必须按全文理解，角色消息只按摘要理解；不要把角色长正文整段塞进总结。'
+  ].join('\n\n');
   var raw = await callAIWithTimeout(systemPrompt, userPrompt, Math.min(getOfflineReplyTimeoutMs(), 30000));
   return String(raw || '').replace(/^```[a-zA-Z]*\s*/,'').replace(/```$/,'').trim();
 }
@@ -4598,12 +4602,15 @@ function buildOfflineSharedStructuredPrompt(slice, fromIndex, store){
   ].filter(Boolean).join('\n\n');
 }
 
-async function appendOfflineSharedMemorySummaries(){
+async function appendOfflineSharedMemorySummaries(options){
+  options = options && typeof options === 'object' ? options : {};
   if(!session || !character || !character.id) return null;
   var ui = getOfflineUiPrefs();
-  if(!ui.summaryAuto) return null;
-  var cadence = normalizeOfflineStageSummaryEvery(ui.summaryEvery);
-  var entries = (Array.isArray(session.entries) ? session.entries : []).filter(function(entry){
+  var force = !!options.force;
+  var manual = !!options.manual;
+  if(!ui.summaryAuto && !force) return null;
+  var cadence = normalizeOfflineStageSummaryEvery(options.overrideCount || ui.summaryEvery);
+  var entries = getOfflineStoryEntries().filter(function(entry){
     return entry && (entry.role === 'user' || entry.role === 'assistant') && String(entry.text || '').trim();
   });
   if(!entries.length) return null;
@@ -4614,10 +4621,22 @@ async function appendOfflineSharedMemorySummaries(){
   var covered = mode === 'structured'
     ? Math.max(0, Math.min(Number(store.advancedMemory.structured.covered || 0) || 0, entries.length))
     : Math.max(0, Math.min(Number(store.covered || 0) || 0, entries.length));
-  if(entries.length - covered < cadence) return null;
-  while(entries.length - covered >= cadence){
-    var from = covered;
-    var to = covered + cadence;
+  var ranges = [];
+  if(force){
+    var manualTo = entries.length;
+    var manualFrom = Math.max(0, manualTo - cadence);
+    if(manualTo > manualFrom) ranges.push({ from: manualFrom, to: manualTo });
+  }else{
+    if(entries.length - covered < cadence) return null;
+    while(entries.length - covered >= cadence){
+      ranges.push({ from: covered, to: covered + cadence });
+      covered += cadence;
+    }
+  }
+  if(!ranges.length) return null;
+  for(var r = 0; r < ranges.length; r += 1){
+    var from = ranges[r].from;
+    var to = ranges[r].to;
     var slice = entries.slice(from, to);
     var diaryText = await generateOfflineSharedDiaryMemory(slice, from);
     if(!diaryText) throw new Error('线下总结没有返回内容');
@@ -4631,10 +4650,10 @@ async function appendOfflineSharedMemorySummaries(){
       tokens: approxOfflineTokenCount(diaryText),
       createdAt: now,
       updatedAt: now,
-      manual: false,
-      pinned: false,
-      label: '线下聊天',
-      sourceType: 'offline_chat'
+      manual: manual,
+      pinned: manual,
+      label: manual ? '线下手动总结' : '线下聊天',
+      sourceType: manual ? 'offline_chat_manual' : 'offline_chat'
     });
     if(mode === 'structured'){
       var raw = await callAIWithTimeout(buildOfflineSharedStructuredPrompt(slice, from, store), '请沉淀小脑瓜记忆。', Math.min(getOfflineReplyTimeoutMs(), 30000));
@@ -4652,10 +4671,10 @@ async function appendOfflineSharedMemorySummaries(){
             tokens: approxOfflineTokenCount(text),
             createdAt: now,
             updatedAt: now,
-            manual: false,
+            manual: manual,
             pinned: true,
             label: offlineStructuredMemoryLabelForCategory(entry && entry.category, store),
-            sourceType: 'offline_chat',
+            sourceType: manual ? 'offline_chat_manual' : 'offline_chat',
             memoryCategory: offlineShortTermCategoryForStructuredCode(entry && entry.category)
           });
         });
@@ -4669,7 +4688,6 @@ async function appendOfflineSharedMemorySummaries(){
       store.covered = to;
       store.progress = Math.max(Number(store.progress || 0) || 0, to);
     }
-    covered = to;
     await saveOfflineMemoryStore({ items: store.items, advancedMemory: store.advancedMemory, covered: store.covered, progress: store.progress });
   }
   refreshOfflineMemoryButton();
@@ -4700,9 +4718,10 @@ async function manualOfflineStageSummary(overrideCount){
   if(btn) btn.disabled = true;
   try{
     var result = await generateOfflineStageSummary(true, overrideCount);
-    if(result){
+    var memoryResult = await appendOfflineSharedMemorySummaries({ force:true, manual:true, overrideCount: overrideCount || (getOfflineUiPrefs().summaryEvery || 1) });
+    if(result || memoryResult){
       offlineStageSummaryPreviewOpen = true;
-      toast('阶段总结已经写好了');
+      toast('阶段总结已经写进记忆');
     }else{
       toast('再多聊几幕就能总结了');
     }
