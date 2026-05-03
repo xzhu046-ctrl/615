@@ -52,9 +52,9 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T05:03:00Z';
+const APP_BUILD_ID = '2026-05-03T05:06:00Z';
 const APP_UPDATE_NOTES = [
-  '短句提示改为自然条数规则',
+  '短句提示改为20字以内',
   '模型按情绪选择回复条数',
   '保留当前旁白长度'
 ];
