@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-03T04:27:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T04:27:00Z"></script>
-<script src="../assetStore.js?v=2026-05-03T04:27:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T04:27:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T04:27:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T04:27:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T04:27:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T04:27:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-03T04:27:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-03T04:27:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T04:41:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T04:41:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T04:41:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T04:41:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T04:41:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T04:41:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T04:41:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T04:41:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-03T04:41:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-03T04:41:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -10246,6 +10246,19 @@ function syncChatCssEditorsToLivePage(){
   }
 }
 
+function isChatSettingsPanelOpen(){
+  var panel = document.getElementById('chatSettings');
+  return !!(panel && panel.classList && panel.classList.contains('open'));
+}
+
+function hasDirtyChatThemeEditor(){
+  return !!(chatThemeEditorDirty && (
+    chatThemeEditorDirty.global ||
+    chatThemeEditorDirty.bubble ||
+    chatThemeEditorDirty.innerVoice
+  ));
+}
+
 function applyBubbleCharmSettings(source){
   var settings = getBubbleCharmSettings(source);
   bubbleCharmEnabled = settings.enabled !== false;
@@ -10997,7 +11010,15 @@ async function loadAllChatThemePartCss(charId){
 
 function refreshChatThemeCssFromStorage(){
   if(!character || !character.id) return;
+  if(isChatSettingsPanelOpen() && hasDirtyChatThemeEditor()){
+    syncChatCssEditorsToLivePage();
+    return;
+  }
   loadGlobalChatThemeCss(character.id).then(function(savedCss){
+    if(isChatSettingsPanelOpen() && hasDirtyChatThemeEditor()){
+      syncChatCssEditorsToLivePage();
+      return;
+    }
     var css = String(savedCss || '').trim() || getDefaultGlobalThemeCss();
     globalThemeCssDraft = css;
     applyGlobalChatThemeCss(css);
@@ -11005,6 +11026,10 @@ function refreshChatThemeCssFromStorage(){
     if(globalInput && document.activeElement !== globalInput) globalInput.value = css;
   }).catch(function(){});
   loadAllChatThemePartCss(character.id).then(function(parts){
+    if(isChatSettingsPanelOpen() && hasDirtyChatThemeEditor()){
+      syncChatCssEditorsToLivePage();
+      return;
+    }
     var input = document.getElementById('csBubbleCss');
     if(input && document.activeElement !== input){
       input.value = String(parts && parts[activeChatThemePart || 'bubble'] || getDefaultChatThemePartCss(activeChatThemePart || 'bubble'));
@@ -33164,6 +33189,8 @@ async function deliverAiReply(text, limitOverride, options){
       return;
     }
     if(!item || typeof item !== 'object') return;
+    var explicitKind = String(item.type || item.action || item.kind || '').trim().toLowerCase();
+    if(/^(status|header_status|chat_status|state|reaction|char_reaction)$/i.test(explicitKind)) return;
     var rawType = normalizeMessageType(item.type || '');
     var innerVoiceCandidate = null;
     if(item.inner_voice && typeof item.inner_voice === 'object') innerVoiceCandidate = parseInnerVoiceResult(JSON.stringify(item.inner_voice));
@@ -33200,6 +33227,10 @@ async function deliverAiReply(text, limitOverride, options){
     else if(typeof item.reply_content === 'string' || Array.isArray(item.reply_content)) c = normalizeReplyTextField(item.reply_content);
     else if(typeof item.description === 'string' || Array.isArray(item.description)) c = normalizeReplyTextField(item.description);
     else if(typeof item.text === 'string' || Array.isArray(item.text)) c = normalizeReplyTextField(item.text);
+    else if(typeof item.reply === 'string' || typeof item.reply === 'number' || typeof item.reply === 'boolean' || Array.isArray(item.reply)) c = normalizeReplyTextField(item.reply);
+    else if(typeof item.message === 'string' || typeof item.message === 'number' || typeof item.message === 'boolean' || Array.isArray(item.message)) c = normalizeReplyTextField(item.message);
+    else if(typeof item.answer === 'string' || typeof item.answer === 'number' || typeof item.answer === 'boolean' || Array.isArray(item.answer)) c = normalizeReplyTextField(item.answer);
+    else if(typeof item.output === 'string' || typeof item.output === 'number' || typeof item.output === 'boolean' || Array.isArray(item.output)) c = normalizeReplyTextField(item.output);
     if(!c){
       if(item.voice_message && typeof item.voice_message === 'object'){
         c = normalizeReplyTextField(item.voice_message.content || item.voice_message.text || '');
@@ -33406,6 +33437,17 @@ async function deliverAiReply(text, limitOverride, options){
     var beforeCount = rawParts.length;
     if(obj.inner_voice && typeof obj.inner_voice === 'object') appendRawPart({ type: 'inner_voice', inner_voice: obj.inner_voice });
     if(obj.innerVoice && typeof obj.innerVoice === 'object') appendRawPart({ type: 'inner_voice', innerVoice: obj.innerVoice });
+    if(typeof obj.narrator === 'string') appendRawPart({ type: 'narrator', content: obj.narrator });
+    if(typeof obj.narration === 'string') appendRawPart({ type: 'narrator', content: obj.narration });
+    ['reply', 'message', 'answer', 'output', 'assistant'].forEach(function(key){
+      var value = obj[key];
+      if(value == null) return;
+      if(typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'){
+        appendRawPart({ type: 'text', content: value });
+      }else if(value && typeof value === 'object' && !Array.isArray(value)){
+        appendRawPart(value);
+      }
+    });
     var list = null;
     if(Array.isArray(obj)) list = obj;
     else if(Array.isArray(obj.messages)) list = obj.messages;
