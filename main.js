@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T01:19:00Z';
+const APP_BUILD_ID = '2026-05-03T01:28:00Z';
 const APP_UPDATE_NOTES = [
-  '线上回复不再只吞状态',
-  '只返回心声会自动补正文',
-  '没有可见气泡会报真实错误',
-  '聊天投递成功才算回复成功'
+  '状态指令恢复为可选',
+  '线上回复不再额外补写',
+  'CSS 保存增加手机镜像',
+  'CSS 打开优先读取最新自定义'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
