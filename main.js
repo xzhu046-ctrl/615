@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T11:07:17Z';
+const APP_BUILD_ID = '2026-05-03T11:15:39Z';
 const APP_UPDATE_NOTES = [
+  '修复邀请码输入框点不动',
   '主屏底栏稍微上移',
-  '减淡底栏白雾',
-  '文案编辑后底栏保持稳定'
+  '减淡底栏白雾'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -189,15 +189,23 @@ function setInviteGateStatus(message, kind){
   el.classList.toggle('ok', kind === 'ok');
 }
 
+function focusInviteGateInput(){
+  var input = document.getElementById('invite-gate-input');
+  if(!input || input.disabled || input.readOnly) return false;
+  try{ input.focus({ preventScroll:true }); }catch(err){ try{ input.focus(); }catch(err2){} }
+  try{
+    var length = String(input.value || '').length;
+    input.setSelectionRange(length, length);
+  }catch(err3){}
+  return document.activeElement === input;
+}
+
 function setInviteGateVisible(visible){
   var shell = document.getElementById('invite-gate-shell');
   if(!shell) return;
   shell.hidden = !visible;
   if(visible){
-    setTimeout(function(){
-      var input = document.getElementById('invite-gate-input');
-      if(input) input.focus();
-    }, 60);
+    setTimeout(focusInviteGateInput, 60);
   }
 }
 
@@ -553,6 +561,22 @@ function bindInviteGateForm(){
   var form = document.getElementById('invite-gate-form');
   if(!form || form.dataset.bound === '1') return;
   form.dataset.bound = '1';
+  var input = document.getElementById('invite-gate-input');
+  var inputWrap = form.querySelector('.invite-gate-input-wrap');
+  function requestInputFocus(evt){
+    if(evt && evt.target && evt.target.closest && evt.target.closest('#invite-gate-submit')) return;
+    focusInviteGateInput();
+  }
+  if(input){
+    ['pointerdown','touchstart','mousedown','click'].forEach(function(name){
+      input.addEventListener(name, requestInputFocus, { passive:true });
+    });
+  }
+  if(inputWrap){
+    ['pointerdown','touchstart','mousedown','click'].forEach(function(name){
+      inputWrap.addEventListener(name, requestInputFocus, { passive:true });
+    });
+  }
   form.addEventListener('submit', function(evt){
     evt.preventDefault();
     var input = document.getElementById('invite-gate-input');
