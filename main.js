@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T11:53:38Z';
+const APP_BUILD_ID = '2026-05-03T12:21:38Z';
 const APP_UPDATE_NOTES = [
-  '失效头像框不再显示',
-  '第二页头像框更干净',
-  '旧头像框数据自动忽略'
+  '主屏底栏改用真实屏幕定位',
+  'App 页面跟随真实屏幕高度',
+  '失效头像框直接隐藏'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1180,6 +1180,7 @@ function applyPhoneFrameVisibility(visible, persist){
   const outer = document.querySelector('.phone-outer');
   if(!outer) return;
   outer.classList.toggle('frame-off', !visible);
+  syncHomeDockViewportLayer();
   if(persist){
     localStorage.setItem(PHONE_FRAME_STORAGE_KEY, visible ? '1' : '0');
   }
@@ -1213,7 +1214,10 @@ function isAndroidShell(){
 
 function isIOSShell(){
   try{
-    return /iPad|iPhone|iPod/i.test(String((window.navigator && window.navigator.userAgent) || '')) || window.navigator.standalone === true;
+    var nav = window.navigator || {};
+    var ua = String(nav.userAgent || '');
+    var platform = String(nav.platform || '');
+    return /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && Number(nav.maxTouchPoints || 0) > 1) || nav.standalone === true;
   }catch(e){
     return false;
   }
@@ -1254,7 +1258,36 @@ function postShellMetadataDirtyToCurrentApp(topic){
 }
 
 let stableShellAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
-let homeDockLayoutAdjustQueued = false;
+let homeDockPlaceholder = null;
+
+function ensureHomeDockPlaceholder(dock){
+  if(homeDockPlaceholder && homeDockPlaceholder.parentNode) return homeDockPlaceholder;
+  if(!dock || !dock.parentNode) return null;
+  homeDockPlaceholder = document.createElement('div');
+  homeDockPlaceholder.className = 'app-grid-dock-placeholder';
+  homeDockPlaceholder.setAttribute('aria-hidden', 'true');
+  dock.parentNode.insertBefore(homeDockPlaceholder, dock);
+  return homeDockPlaceholder;
+}
+
+function syncHomeDockViewportLayer(){
+  var dock = document.getElementById('app-grid');
+  var outer = document.querySelector('.phone-outer');
+  if(!dock || !outer) return;
+  var shouldPortal = outer.classList.contains('frame-off') && !outer.classList.contains('app-open') && (isIOSShell() || isAndroidShell());
+  var placeholder = ensureHomeDockPlaceholder(dock);
+  if(shouldPortal){
+    if(placeholder) placeholder.classList.add('active');
+    if(dock.parentNode !== outer) outer.appendChild(dock);
+    dock.classList.add('home-dock-portal');
+  }else{
+    if(placeholder && placeholder.parentNode && dock.parentNode !== placeholder.parentNode){
+      placeholder.parentNode.insertBefore(dock, placeholder.nextSibling);
+    }
+    if(placeholder) placeholder.classList.remove('active');
+    dock.classList.remove('home-dock-portal');
+  }
+}
 
 function getCurrentShellKeyboardInset(){
   const vv = window.visualViewport;
@@ -1276,38 +1309,6 @@ function postKeyboardInsetToCurrentApp(value, keyboardOpen){
       frame.contentWindow.postMessage({ type:'PARENT_APP_KEYBOARD_INSET', payload:{ inset:safeInset, keyboardOpen:open, app:currentApp || '' } }, '*');
     }
   }catch(err){}
-}
-
-function adjustHomeDockBottomFromLayout(){
-  homeDockLayoutAdjustQueued = false;
-  if(!isIOSShell() || isAndroidShell()) return;
-  try{
-    const outer = document.querySelector('.phone-outer.frame-off');
-    const dock = document.querySelector('.app-grid-dock');
-    const frame = document.querySelector('.phone-frame');
-    if(!outer || !dock || !frame || outer.classList.contains('app-open')) return;
-    const dockRect = dock.getBoundingClientRect();
-    const frameRect = frame.getBoundingClientRect();
-    const scale = Math.max(0.5, Math.min(3, (frameRect.height || 780) / 780));
-    const desiredGap = 18;
-    const maxBottom = Math.max(1, (window.innerHeight || document.documentElement.clientHeight || 0) - desiredGap);
-    const overflow = dockRect.bottom - maxBottom;
-    if(overflow <= 0) return;
-    const current = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--home-dock-bottom')) || 12;
-    const next = Math.max(12, Math.min(720, Math.ceil(current + (overflow / scale) + 4)));
-    document.documentElement.style.setProperty('--home-dock-bottom', next + 'px');
-  }catch(err){}
-}
-
-function queueHomeDockLayoutAdjust(){
-  if(homeDockLayoutAdjustQueued) return;
-  homeDockLayoutAdjustQueued = true;
-  requestAnimationFrame(function runHomeDockAdjust(){
-    adjustHomeDockBottomFromLayout();
-    [80, 180, 320, 520, 760].forEach(function(delay){
-      setTimeout(adjustHomeDockBottomFromLayout, delay);
-    });
-  });
 }
 
 function syncAppHeight(){
@@ -1351,6 +1352,7 @@ function syncAppHeight(){
   }
   const viewportHeight = isAndroid && !keyboardLikelyOpen ? (visualHeight || currentHeight || stableShellAppHeight) : (stableShellAppHeight || currentHeight);
   document.documentElement.style.setProperty('--app-height', viewportHeight + 'px');
+  document.documentElement.style.setProperty('--shell-viewport-height', (currentHeight || visualHeight || viewportHeight) + 'px');
   document.documentElement.style.setProperty('--vv-top-offset', vvTopOffset + 'px');
   document.documentElement.style.setProperty('--vv-bottom-offset', vvBottomOffset + 'px');
   const contentTopInset = isStandalone ? 6 : vvTopOffset;
@@ -1358,18 +1360,12 @@ function syncAppHeight(){
   const mobileFrameDrop = isStandalone ? 18 : 0;
   const usableHeight = Math.max(1, viewportHeight - contentTopInset - contentBottomInset - mobileFrameDrop);
   const frameScale = Math.min(viewportWidth / 375, usableHeight / 780);
-  let homeDockBottom = 12;
-  if(isIos && frameScale > 0){
-    const desiredVisualGap = 18;
-    const frameTop = contentTopInset + mobileFrameDrop;
-    const dockBottomInFrame = 780 - ((viewportHeight - frameTop - desiredVisualGap) / frameScale);
-    homeDockBottom = Math.max(12, Math.min(180, Math.ceil(dockBottomInFrame)));
-  }
+  let homeDockBottom = 14;
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
   document.documentElement.style.setProperty('--mobile-frame-drop', mobileFrameDrop + 'px');
   document.documentElement.style.setProperty('--frameoff-scale', String(frameScale > 0 ? frameScale : 1));
   document.documentElement.style.setProperty('--home-dock-bottom', homeDockBottom + 'px');
-  if(isIos) queueHomeDockLayoutAdjust();
+  syncHomeDockViewportLayer();
 }
 
 function isGifDataUrl(dataUrl){
@@ -6988,8 +6984,6 @@ function buildAvatarFrameFallbackDataUrl(url){
 function getAvatarFrameRenderSrc(url){
   var safeUrl = normalizeAvatarFrameUrl(url);
   if(!safeUrl) return '';
-  if(/^data:/i.test(safeUrl)) return safeUrl;
-  if(/^https?:\/\/i\.postimg\.cc\//i.test(safeUrl)) return buildAvatarFrameFallbackDataUrl(safeUrl);
   return safeUrl;
 }
 
@@ -10236,6 +10230,7 @@ async function performCloseApp(){
     outer.style.removeProperty('--chat-shell-bg-image');
     outer.style.removeProperty('--chat-shell-bg-color');
   }
+  syncHomeDockViewportLayer();
   document.documentElement.classList.remove('app-open-mode');
   document.body.classList.remove('app-open-mode');
   document.body.classList.remove('chat-shell-open');
@@ -10395,6 +10390,7 @@ function renderApp(id){
       outer.style.removeProperty('--chat-shell-bg-color');
     }
   }
+  syncHomeDockViewportLayer();
   document.documentElement.classList.add('app-open-mode');
   document.body.classList.add('app-open-mode');
   document.body.classList.toggle('chat-shell-open', id === 'chat');
