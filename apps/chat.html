@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-03T01:08:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T01:08:00Z"></script>
-<script src="../assetStore.js?v=2026-05-03T01:08:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T01:08:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T01:08:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T01:08:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T01:08:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T01:08:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-03T01:08:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-03T01:08:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T01:19:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T01:19:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T01:19:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T01:19:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T01:19:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T01:19:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T01:19:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T01:19:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-03T01:19:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-03T01:19:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -21532,7 +21532,10 @@ async function requestAndDeliverAiReply(provider, key){
     var typingElapsed = Date.now() - typingStartedAt;
     if(typingElapsed < 120) await sleep(120 - typingElapsed);
     hideTyping();
-    await deliverAiReply(reply, undefined, { reactionEmoji: chosenReactionEmoji });
+    var deliveredIds = await deliverAiReply(reply, undefined, { reactionEmoji: chosenReactionEmoji });
+    if(!Array.isArray(deliveredIds) || !deliveredIds.length){
+      throw new Error('AI 没有返回可显示的聊天内容');
+    }
     clearPresenceNudgeState(character && character.id);
     await saveChat(true);
     pendingMomentsChatCue = '';
@@ -21778,6 +21781,11 @@ function detectNonDisplayableReply(rawReply){
   var raw = String(rawReply || '').trim();
   var parsed = maybeParseReplyJson(rawReply);
   if(!parsed || (typeof parsed !== 'object' && !Array.isArray(parsed))){
+    var stripped = raw
+      .replace(/\[\[\s*状态\s*[:：][^[\]]+?\s*\]\]/ig, '')
+      .replace(/\[\[\s*(?:表情|反应|reaction)\s*[:：][^[\]]+?\s*\]\]/ig, '')
+      .trim();
+    if(raw && !stripped) return { nonDisplayable:true };
     return { nonDisplayable:false };
   }
   var visible = collectVisibleMessageCandidatesFromReplyNode(parsed, []);
@@ -21788,6 +21796,31 @@ function detectNonDisplayableReply(rawReply){
     return isChatDisplayableReplyType(item && item.type || 'text');
   });
   return { nonDisplayable: !hasDisplayable };
+}
+
+async function maybeRepairNonDisplayableReply(reply, provider, key, model, temperature, sys, msgs){
+  var issue = detectNonDisplayableReply(reply);
+  if(!issue.nonDisplayable) return String(reply || '');
+  var repairSys = [
+    sys,
+    '【返工】上一条 assistant 回复没有任何可显示的聊天气泡。',
+    '可能只返回了状态、reaction、inner_voice、空操作或不可显示结构。',
+    '请基于同一轮上下文重写上一条 assistant 回复：必须至少包含 1 条角色真正会发出来的 text 聊天气泡。',
+    '如果需要 inner_voice，可以附在 text 后面，但 inner_voice 不能替代聊天正文。不要解释返工原因。'
+  ].join('\n\n');
+  var repairMsgs = msgs.concat([
+    { role:'assistant', content:String(reply || '') },
+    { role:'user', content:'上一条没有任何可显示聊天内容。请按角色设定补成至少一条真正会发出来的聊天气泡。' }
+  ]);
+  try{
+    var repaired = await callAIChat(provider, key, model, temperature, repairSys, repairMsgs);
+    if(repaired && !detectNonDisplayableReply(repaired).nonDisplayable){
+      return String(repaired || '');
+    }
+  }catch(err){
+    console.warn('repair non-displayable reply failed', err);
+  }
+  return String(reply || '');
 }
 
 function detectBrokenRichHtmlReply(rawReply){
@@ -22054,6 +22087,7 @@ async function callAI(provider, key) {
   if(narratorSettingEnabled() === false && /"type"\s*:\s*"narrator"|narrator_message/i.test(String(reply || ''))){
     reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, sys, msgs);
   }
+  reply = await maybeRepairNonDisplayableReply(reply, provider, key, model, temperature, sys, msgs);
   if(shouldEnforceForeignReplyLanguage()){
     var lang = getCharacterReplyLanguage();
     var option = getReplyLanguageOption(lang);
@@ -22076,6 +22110,7 @@ async function callAI(provider, key) {
       if(narratorSettingEnabled() === false && /"type"\s*:\s*"narrator"|narrator_message/i.test(String(reply || ''))){
         reply = await maybeRepairForbiddenNarratorReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
       }
+      reply = await maybeRepairNonDisplayableReply(reply, provider, key, model, temperature, repairSys, repairMsgs);
     }
   }
   return reply;
