@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T12:54:19Z';
+const APP_BUILD_ID = '2026-05-03T13:16:40Z';
 const APP_UPDATE_NOTES = [
-  '修复安卓主屏被挤出滚动',
-  '分页点回到底栏上方',
-  '聊天返回不再被保存卡住'
+  '关闭后台活动后不再自动改日程',
+  '关闭后台活动后不再自动加待办',
+  '关闭后台活动后不再自动补消息'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -2876,6 +2876,11 @@ async function resolveShellSelectedAvatarFromBundle(charId, role, bundle, accoun
 
 function isGlobalAiBgEnabled(){
   try{
+    if(shellApiSettingsCache && Object.prototype.hasOwnProperty.call(shellApiSettingsCache, 'aiBgEnabled')){
+      return !!shellApiSettingsCache.aiBgEnabled;
+    }
+  }catch(e){}
+  try{
     return localStorage.getItem(AI_BG_ENABLED_KEY) === '1';
   }catch(e){}
   return false;
@@ -2914,6 +2919,12 @@ function hasAnyAiBgActivityEnabled(accountId){
     var override = c && c.id ? getCharBgOverride(c.id, accountId) : null;
     return !!(c && c.id && ownerId === accountId && override !== false);
   });
+}
+
+function isAiBgActivityGloballyEnabled(){
+  var defaultId = getDefaultAccountId();
+  if(!defaultId) return isGlobalAiBgEnabled();
+  return hasAnyAiBgActivityEnabled(defaultId);
 }
 
 function getDefaultAccountId(){
@@ -3225,18 +3236,26 @@ function normalizeApiSettingsRecord(raw){
   };
 }
 
+function mirrorShellApiSettingsToLegacyStorage(record){
+  if(!record || typeof record !== 'object') return;
+  try{ localStorage.setItem(AI_BG_ENABLED_KEY, record.aiBgEnabled ? '1' : '0'); }catch(e){}
+  try{ localStorage.setItem(AI_BG_INTERVAL_KEY, String(record.aiBgIntervalMin || '6')); }catch(e2){}
+}
+
 async function hydrateShellApiSettingsFromStorage(){
   if(!(window.PhoneStorage && typeof window.PhoneStorage.get === 'function')) return shellApiSettingsCache;
   var record = await window.PhoneStorage.get('kv', API_SETTINGS_KV_ID).catch(function(){ return null; });
   var value = record && (record.value || record.data || record.settings);
   if(value && typeof value === 'object'){
     shellApiSettingsCache = normalizeApiSettingsRecord(value);
+    mirrorShellApiSettingsToLegacyStorage(shellApiSettingsCache);
   }
   return shellApiSettingsCache;
 }
 
 function applyShellApiSettingsRecord(record){
   shellApiSettingsCache = normalizeApiSettingsRecord(record);
+  mirrorShellApiSettingsToLegacyStorage(shellApiSettingsCache);
   if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
     return window.PhoneStorage.put('kv', {
       id: API_SETTINGS_KV_ID,
@@ -5821,6 +5840,7 @@ async function syncScheduleActivityFromChat(payload){
   if(!charId || !userText) return { changed:false, messages:0 };
   var accountId = getActiveAccountId() || getDefaultAccountId();
   await loadShellChatSettingsBundleForChar(charId, accountId);
+  if(!isAiBgActivityGloballyEnabled()) return { changed:false, messages:0, disabled:true };
   if(!isCharBgEnabled(charId, accountId)) return { changed:false, messages:0 };
   var shared = getScheduleSharedApi();
   if(!shared) return { changed:false, messages:0 };
@@ -6099,6 +6119,7 @@ window.ScheduleShell = {
   appendChatMessage: appendScheduleChatMessage,
   generateInlineComment: generateScheduleInlineComment,
   generateThoughtActions: generateScheduleThoughtActions,
+  isAiBgActivityEnabled: isAiBgActivityGloballyEnabled,
   syncChatBackground: syncScheduleActivityFromChat
 };
 
@@ -12364,7 +12385,11 @@ let aiBgRunning = false;
 let scheduleReminderRunning = false;
 
 function getAiBgIntervalMs(){
-  var min = parseInt(localStorage.getItem(AI_BG_INTERVAL_KEY) || '6', 10);
+  var raw = shellApiSettingsCache && shellApiSettingsCache.aiBgIntervalMin ? shellApiSettingsCache.aiBgIntervalMin : '';
+  if(!raw){
+    try{ raw = localStorage.getItem(AI_BG_INTERVAL_KEY) || '6'; }catch(e){ raw = '6'; }
+  }
+  var min = parseInt(raw || '6', 10);
   if(Number.isNaN(min)) min = 6;
   min = Math.max(1, Math.min(120, min));
   return min * 60 * 1000;
@@ -12386,6 +12411,7 @@ async function maybeRunOfflineInviteReminders(){
 }
 
 async function maybeRunScheduleTodoReminders(){
+  if(!isAiBgActivityGloballyEnabled()) return;
   if(scheduleReminderRunning) return;
   var shared = getScheduleSharedApi();
   if(!shared) return;
