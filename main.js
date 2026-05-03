@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T10:08:00Z';
+const APP_BUILD_ID = '2026-05-03T10:42:23Z';
 const APP_UPDATE_NOTES = [
-  '修复多款iOS设备底栏消失',
-  '邀请码昵称不再沿用本地重复名',
-  '后台同名用户分开显示'
+  '主屏滑动更顺手',
+  '后台支持一键删除全部邀请码',
+  '邀请码弹窗只保留输入框'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -67,7 +67,6 @@ const INVITE_GATE_CONFIG = {
   deviceKey: 'invite_gate_device_v1',
   installKey: 'invite_gate_install_id_v2',
   installKvId: 'invite_gate_install_id_v2',
-  publicNameKey: 'invite_gate_public_name_v1',
   cacheMs: 12 * 60 * 60 * 1000,
   sessionWatchMs: 10 * 1000
 };
@@ -182,59 +181,6 @@ function inviteGateApiBase(){
   return String(INVITE_GATE_CONFIG.apiBase || '').replace(/\/+$/, '');
 }
 
-function randomInviteGatePublicName(){
-  var adjectives = ['开心','难受','温柔','勇敢','发呆','闪亮','安静','热烈','迷路','清醒','浪漫','倔强','圆滚滚','慢吞吞','亮晶晶','会唱歌','不睡觉','爱冒险','软乎乎','认真'];
-  var nouns = ['水母','小红','月亮','黑猫','云朵','鲸鱼','玫瑰','星星','橘子','小狗','邮票','纸船','雨伞','贝壳','蝴蝶','玻璃糖','小煤球','蒲公英','小行星','胶片'];
-  return adjectives[Math.floor(Math.random() * adjectives.length)] + '的' + nouns[Math.floor(Math.random() * nouns.length)];
-}
-
-function setInviteGatePublicName(value){
-  var el = document.getElementById('invite-gate-public-name');
-  if(!el) return;
-  var next = String(value || randomInviteGatePublicName()).trim() || randomInviteGatePublicName();
-  el.value = next;
-  if(next && next !== '生成中...'){
-    try{ localStorage.setItem(INVITE_GATE_CONFIG.publicNameKey, next); }catch(e){}
-  }
-}
-
-function readInviteGatePublicNameCache(){
-  try{ return String(localStorage.getItem(INVITE_GATE_CONFIG.publicNameKey) || '').trim(); }catch(e){ return ''; }
-}
-
-async function copyInviteGatePublicName(){
-  var el = document.getElementById('invite-gate-public-name');
-  var value = String(el && el.value || '').trim();
-  if(!value || value === '生成中...') return;
-  try{
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      await navigator.clipboard.writeText(value);
-      setInviteGateStatus('USERNAME 已复制。', 'ok');
-    }
-  }catch(err){
-    setInviteGateStatus('复制失败，请长按 USERNAME 手动复制。', 'error');
-  }
-}
-
-async function loadInviteGatePublicName(){
-  var cachedName = readInviteGatePublicNameCache();
-  setInviteGatePublicName(cachedName || randomInviteGatePublicName());
-  var base = inviteGateApiBase();
-  if(!base) return;
-  try{
-    var deviceHash = await inviteGateDeviceHash();
-    var res = await fetch(base + '/public-name', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceHash: deviceHash, deviceHashes: await inviteGateDeviceHashes(deviceHash) })
-    });
-    var data = await res.json().catch(function(){ return null; });
-    if(res.ok && data && data.ok && data.publicName){
-      setInviteGatePublicName(data.publicName);
-    }
-  }catch(err){}
-}
-
 function setInviteGateStatus(message, kind){
   var el = document.getElementById('invite-gate-status');
   if(!el) return;
@@ -248,7 +194,6 @@ function setInviteGateVisible(visible){
   if(!shell) return;
   shell.hidden = !visible;
   if(visible){
-    loadInviteGatePublicName();
     setTimeout(function(){
       var input = document.getElementById('invite-gate-input');
       if(input) input.focus();
@@ -608,12 +553,6 @@ function bindInviteGateForm(){
   var form = document.getElementById('invite-gate-form');
   if(!form || form.dataset.bound === '1') return;
   form.dataset.bound = '1';
-  var copyNameButton = document.getElementById('invite-gate-copy-name');
-  if(copyNameButton){
-    copyNameButton.addEventListener('click', function(){
-      copyInviteGatePublicName();
-    });
-  }
   form.addEventListener('submit', function(evt){
     evt.preventDefault();
     var input = document.getElementById('invite-gate-input');
@@ -1292,6 +1231,8 @@ function postShellMetadataDirtyToCurrentApp(topic){
 
 let stableShellAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
 let homeDockLayoutAdjustQueued = false;
+let homeDockLayoutKey = '';
+let homeDockAdjustedBottom = 0;
 
 function getCurrentShellKeyboardInset(){
   const vv = window.visualViewport;
@@ -1329,21 +1270,30 @@ function adjustHomeDockBottomFromLayout(){
     const desiredGap = 18;
     const maxBottom = Math.max(1, (window.innerHeight || document.documentElement.clientHeight || 0) - desiredGap);
     const overflow = dockRect.bottom - maxBottom;
-    if(overflow <= 0) return;
     const current = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--home-dock-bottom')) || 12;
+    if(overflow <= 0){
+      homeDockAdjustedBottom = current;
+      return;
+    }
     const next = Math.max(12, Math.min(720, Math.ceil(current + (overflow / scale) + 4)));
     document.documentElement.style.setProperty('--home-dock-bottom', next + 'px');
+    homeDockAdjustedBottom = next;
   }catch(err){}
 }
 
 function queueHomeDockLayoutAdjust(){
   if(homeDockLayoutAdjustQueued) return;
   homeDockLayoutAdjustQueued = true;
+  document.documentElement.classList.add('home-dock-adjusting');
   requestAnimationFrame(function runHomeDockAdjust(){
     adjustHomeDockBottomFromLayout();
     [80, 180, 320, 520, 760].forEach(function(delay){
       setTimeout(adjustHomeDockBottomFromLayout, delay);
     });
+    setTimeout(function(){
+      adjustHomeDockBottomFromLayout();
+      document.documentElement.classList.remove('home-dock-adjusting');
+    }, 860);
   });
 }
 
@@ -1401,6 +1351,13 @@ function syncAppHeight(){
     const frameTop = contentTopInset + mobileFrameDrop;
     const dockBottomInFrame = 780 - ((viewportHeight - frameTop - desiredVisualGap) / frameScale);
     homeDockBottom = Math.max(12, Math.min(180, Math.ceil(dockBottomInFrame)));
+    const nextDockKey = [viewportWidth, viewportHeight, contentTopInset, mobileFrameDrop, frameScale.toFixed(4)].join(':');
+    if(homeDockLayoutKey === nextDockKey && homeDockAdjustedBottom > 0){
+      homeDockBottom = homeDockAdjustedBottom;
+    }else{
+      homeDockLayoutKey = nextDockKey;
+      homeDockAdjustedBottom = 0;
+    }
   }
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
   document.documentElement.style.setProperty('--mobile-frame-drop', mobileFrameDrop + 'px');
@@ -6167,8 +6124,8 @@ function getHomePageStep(){
 function setHomePagesOffset(pages, offsetPx){
   if(!pages) return;
   var snapped = Math.round(Number(offsetPx) || 0);
-  pages.style.transform = 'none';
-  pages.style.marginLeft = snapped + 'px';
+  pages.style.marginLeft = '0px';
+  pages.style.transform = 'translate3d(' + snapped + 'px, 0, 0)';
 }
 
 function inferHomeToastKind(text){
@@ -7106,7 +7063,9 @@ function bindHomePager(){
     if(!pagerDragging){
       if(Math.abs(dx) < 12 || Math.abs(dx) <= Math.abs(dy)) return;
       setPagerDraggingState(true);
-      surface.setPointerCapture(evt.pointerId);
+      try{
+        if(surface.setPointerCapture) surface.setPointerCapture(evt.pointerId);
+      }catch(err){}
     }
     evt.preventDefault();
     const offset = -(homePageIndex * getHomePageStep()) + dx;

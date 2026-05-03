@@ -86,8 +86,8 @@ const ADMIN_HTML = `<!doctype html>
   <section class="panel">
     <div class="grid">
       <div>
-        <label for="label">用户名（必填）</label>
-        <input id="label" placeholder="例如：呆呆的水星" required>
+        <label for="label">QQ号（必填）</label>
+        <input id="label" placeholder="例如：123456789" inputmode="numeric" required>
       </div>
       <div>
         <label for="maxDevices">设备数</label>
@@ -101,8 +101,7 @@ const ADMIN_HTML = `<!doctype html>
     <div class="toolbar">
       <button id="createBtn">生成邀请码</button>
       <button class="secondary" id="refreshBtn">刷新记录</button>
-      <button class="danger" id="resetLoginBtn">清空所有登录</button>
-      <button class="danger" id="resetTavernBtn">清空酒馆权限</button>
+      <button class="danger" id="deleteAllInviteBtn">一键删除全部邀请码</button>
     </div>
     <div class="result" id="result">
       <div class="code" id="newCode"></div>
@@ -113,8 +112,8 @@ const ADMIN_HTML = `<!doctype html>
   <section class="panel">
     <div class="kicker">records</div>
     <div class="search-row">
-      <label for="searchBox">搜索用户名 / 邀请码</label>
-      <input id="searchBox" placeholder="输入用户名或邀请码">
+      <label for="searchBox">搜索QQ号 / 邀请码</label>
+      <input id="searchBox" placeholder="输入QQ号或邀请码">
     </div>
     <div id="list" class="list"><div class="empty">输入管理员口令后点击刷新记录</div></div>
   </section>
@@ -200,12 +199,12 @@ function codeKindLabel(kind){
 function groupRowsByLabel(rows){
   const labelCounts = new Map();
   rows.forEach((row)=>{
-    const label = String(row.label || '未填写用户名');
+    const label = String(row.label || '未填写QQ号');
     labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
   });
   const map = new Map();
   rows.forEach((row)=>{
-    const label = String(row.label || '未填写用户名');
+    const label = String(row.label || '未填写QQ号');
     const createdAt = Number(row.createdAt || 0);
     const key = label + '::' + String(createdAt || row.code || '');
     if(!map.has(key)){
@@ -226,7 +225,7 @@ function renderRows(rows){
   listEl.innerHTML = groupRowsByLabel(rows).map((group)=>\`
     <article class="card">
       <div>
-        <div class="card-name">\${escapeHtml((group.label || '未填写用户名') + (group.showTime ? ' · ' + fmtTime(group.createdAt) : ''))}</div>
+        <div class="card-name">\${escapeHtml((group.label || '未填写QQ号') + (group.showTime ? ' · ' + fmtTime(group.createdAt) : ''))}</div>
         \${group.rows.map((row)=>\`
           <div class="code-row \${Number(row.revoked || 0) ? 'revoked' : ''}">
             <span class="code-kind">\${codeKindLabel(row.codeKind)}</span>
@@ -302,7 +301,7 @@ document.getElementById('createBtn').addEventListener('click', async ()=>{
     const label = labelEl.value.trim();
     if(!label){
       labelEl.focus();
-      toast('请先填写用户名');
+      toast('请先填写QQ号');
       return;
     }
     const data = await api('/admin/create', { label, maxDevices: Number(maxEl.value || 2) });
@@ -318,21 +317,11 @@ document.getElementById('createBtn').addEventListener('click', async ()=>{
 
 document.getElementById('refreshBtn').addEventListener('click', refresh);
 searchEl.addEventListener('input', renderFiltered);
-document.getElementById('resetLoginBtn').addEventListener('click', async ()=>{
+document.getElementById('deleteAllInviteBtn').addEventListener('click', async ()=>{
   try{
-    if(!confirm('确认清空所有登录设备吗？\\n\\n登入码会保留，所有用户需要重新输入登入邀请码。')) return;
-    await api('/admin/reset-all-devices', { kind:'login' });
-    toast('所有登录已清空');
-    return refresh();
-  }catch(err){
-    toast(err.message);
-  }
-});
-document.getElementById('resetTavernBtn').addEventListener('click', async ()=>{
-  try{
-    if(!confirm('确认清空所有酒馆权限吗？\\n\\n酒馆码会保留，用户导入酒馆角色卡前需要重新验证。')) return;
-    await api('/admin/reset-all-devices', { kind:'tavern' });
-    toast('酒馆权限已清空');
+    if(!confirm('确认永久删除全部邀请码吗？\\n\\n登入邀请码、酒馆邀请码、绑定设备和使用记录都会一起删除，此操作不可撤销。')) return;
+    const data = await api('/admin/delete-all', { kind:'all' });
+    toast('已删除全部邀请码：' + Number(data.count || 0) + ' 个');
     return refresh();
   }catch(err){
     toast(err.message);
@@ -768,7 +757,7 @@ async function handleAdminCreate(request, env){
   const error = assertAdmin(request, env, body);
   if(error) return json({ ok:false, message:error }, 403, env);
   const label = String(body.label || '').trim().slice(0, 80);
-  if(!label) return json({ ok:false, message:'请先填写用户名' }, 400, env);
+  if(!label) return json({ ok:false, message:'请先填写QQ号' }, 400, env);
   const maxDevices = Math.max(1, Math.min(6, Number(body.maxDevices || 2) || 2));
   const stamp = nowMs();
   await ensureAdminSchema(env);
@@ -861,6 +850,34 @@ async function handleAdminDelete(request, env){
   ]);
   const stillExists = await env.DB.prepare('SELECT code FROM invite_codes WHERE code = ?').bind(code).first();
   return json({ ok:true, code, deleted:1, hidden:Number(!!stillExists) }, 200, env);
+}
+
+async function handleAdminDeleteAll(request, env){
+  const body = await readJson(request);
+  const error = assertAdmin(request, env, body);
+  if(error) return json({ ok:false, message:error }, 403, env);
+  await ensureAdminSchema(env);
+  const rawKind = String(body.kind || '').trim().toLowerCase();
+  const deleteAllKinds = rawKind === 'all' || rawKind === '*';
+  const requestedKind = deleteAllKinds ? 'all' : normalizeInviteKind(rawKind);
+  const stamp = nowMs();
+  const rows = deleteAllKinds
+    ? await env.DB.prepare("SELECT code FROM invite_codes").all()
+    : await env.DB.prepare(
+      "SELECT code FROM invite_codes WHERE COALESCE(code_kind, 'login') = ?"
+    ).bind(requestedKind).all();
+  const codes = (rows.results || []).map((row)=>normalizeCode(row.code)).filter(Boolean);
+  for(const code of codes){
+    await env.DB.prepare(
+      'INSERT OR REPLACE INTO invite_deleted_codes (code, deleted_at) VALUES (?, ?)'
+    ).bind(code, stamp).run();
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM invite_devices WHERE code = ?').bind(code),
+      env.DB.prepare('DELETE FROM invite_access_logs WHERE code = ?').bind(code),
+      env.DB.prepare('DELETE FROM invite_codes WHERE code = ?').bind(code)
+    ]);
+  }
+  return json({ ok:true, kind:requestedKind, count:codes.length, deletedAt:stamp }, 200, env);
 }
 
 async function handleVerify(request, env){
@@ -988,6 +1005,7 @@ export default {
     if(url.pathname === '/admin/reset-devices') return handleAdminResetDevices(request, env);
     if(url.pathname === '/admin/reset-all-devices') return handleAdminResetAllDevices(request, env);
     if(url.pathname === '/admin/delete') return handleAdminDelete(request, env);
+    if(url.pathname === '/admin/delete-all') return handleAdminDeleteAll(request, env);
     return json({ ok:false, message:'Not found' }, 404, env);
   }
 };
