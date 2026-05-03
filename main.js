@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T00:32:00Z';
+const APP_BUILD_ID = '2026-05-03T00:54:00Z';
 const APP_UPDATE_NOTES = [
-  '角色缓存改成轻量镜像',
-  '减少 localStorage 容量报错',
-  '大角色数据继续走 PhoneStorage',
-  '聊天回复不再被缓存写入拖住'
+  '聊天打开先恢复完整角色',
+  '角色镜像延后压缩',
+  '线上回复恢复读取完整设定',
+  '缓存清理不影响当前聊天'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,

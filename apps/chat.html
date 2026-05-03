@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-03T00:32:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T00:32:00Z"></script>
-<script src="../assetStore.js?v=2026-05-03T00:32:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T00:32:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T00:32:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T00:32:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T00:32:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T00:32:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-03T00:32:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-03T00:32:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T00:54:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T00:54:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T00:54:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T00:54:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T00:54:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T00:54:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T00:54:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T00:54:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-03T00:54:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-03T00:54:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -17795,7 +17795,35 @@ async function resolveCharacterFromRosterFresh(charId, fallback){
   if(window.MetadataStore && typeof window.MetadataStore.loadCharacters === 'function'){
     try{ await window.MetadataStore.loadCharacters(true); }catch(err){}
   }
-  return resolveCharacterFromRoster(charId, fallback);
+  var localResolved = resolveCharacterFromRoster(charId, null);
+  if(localResolved && localResolved.id) return localResolved;
+  try{
+    var shell = window.parent && window.parent !== window ? window.parent : null;
+    if(shell && shell.MetadataStore && typeof shell.MetadataStore.loadCharacters === 'function'){
+      await shell.MetadataStore.loadCharacters(true).catch(function(){ return []; });
+    }
+    if(shell && typeof shell.getStoredCharactersSnapshot === 'function'){
+      var shellList = shell.getStoredCharactersSnapshot();
+      if(Array.isArray(shellList)){
+        var activeAcctId = '';
+        try{
+          activeAcctId = shell.AccountManager && shell.AccountManager.getActive ? String((shell.AccountManager.getActive() || {}).id || '').trim() : '';
+        }catch(accountErr){}
+        var found = shellList.find(function(item){
+          if(!item || String(item.id || '').trim() !== String(charId || '').trim()) return false;
+          if(!activeAcctId) return true;
+          var owner = String(item.ownerAccountId || '').trim();
+          return !owner || owner === activeAcctId;
+        }) || shellList.find(function(item){ return item && String(item.id || '').trim() === String(charId || '').trim(); });
+        if(found) return Object.assign({}, found);
+      }
+    }
+    if(shell && typeof shell.getActiveCharacterData === 'function'){
+      var active = shell.getActiveCharacterData();
+      if(active && String(active.id || '').trim() === String(charId || '').trim()) return Object.assign({}, active);
+    }
+  }catch(shellErr){}
+  return fallback || null;
 }
 
 function isSubAccountNeedFriend(charId){
@@ -17925,10 +17953,6 @@ async function init() {
       desiredChatCharId = String(localStorage.getItem('pendingChatCharId') || localStorage.getItem(accountScopedKey('activeChatCharacterId')) || localStorage.getItem('activeChatCharacterId') || '').trim();
     }catch(err){}
   }
-  compactActiveCharacterMirrorKey('activeCharacter');
-  compactActiveCharacterMirrorKey('pendingChatChar');
-  compactActiveCharacterMirrorKey(accountScopedKey('activeCharacter'));
-  compactActiveCharacterMirrorKey(accountScopedKey('pendingChatChar'));
   // 1. Try pendingChatChar (set when user clicks "Chat" in characters app)
   var pending = localStorage.getItem('pendingChatChar');
   if (pending) {
@@ -17994,6 +18018,10 @@ async function init() {
   try{ localStorage.removeItem('pendingChatCharId'); }catch(err){}
   if(character && character.id){
     syncActiveCharacterToShell();
+    compactActiveCharacterMirrorKey('activeCharacter');
+    compactActiveCharacterMirrorKey('pendingChatChar');
+    compactActiveCharacterMirrorKey(accountScopedKey('activeCharacter'));
+    compactActiveCharacterMirrorKey(accountScopedKey('pendingChatChar'));
   }
   await loadMemeLibrary();
   if(character && character.id){
