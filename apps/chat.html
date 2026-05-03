@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-02T20:34:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-02T20:34:00Z"></script>
-<script src="../assetStore.js?v=2026-05-02T20:34:00Z"></script>
-<script src="../accountManager.js?v=2026-05-02T20:34:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-02T20:34:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-02T20:34:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-02T20:34:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-02T20:34:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-02T20:34:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-02T20:34:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T00:32:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T00:32:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T00:32:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T00:32:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T00:32:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T00:32:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T00:32:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T00:32:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-03T00:32:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-03T00:32:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -12545,7 +12545,15 @@ function safeLocalStorageSet(key, value){
     localStorage.setItem(key, value);
     return true;
   }catch(err){
-    console.warn('localStorage mirror skipped for', key, err);
+    try{
+      localStorage.removeItem(key);
+      localStorage.setItem(key, value);
+      return true;
+    }catch(retryErr){
+      if(!/activeCharacter|pendingChatChar/i.test(String(key || ''))){
+        console.warn('localStorage mirror skipped for', key, retryErr);
+      }
+    }
     return false;
   }
 }
@@ -17717,6 +17725,41 @@ function compactChar(c){
   };
 }
 
+function activeCharacterLocalMirror(c){
+  if(!c) return null;
+  var id = String(c.id || '').trim();
+  if(!id) return null;
+  var imageData = normalizeAvatarSrc(c.imageData || c.avatarUrl || c.avatar || '');
+  if(/^data:/i.test(imageData)) imageData = '';
+  return {
+    id: id,
+    name: String(c.name || ''),
+    nickname: String(c.nickname || ''),
+    avatar: String(c.avatar || ''),
+    imageData: imageData,
+    avatarUrl: normalizeAvatarSrc(c.avatarUrl || ''),
+    userNameProfile: String(c.userNameProfile || ''),
+    userNicknameNote: String(c.userNicknameNote || ''),
+    msgMin: Number(c.msgMin) || 1,
+    msgMax: Number(c.msgMax) || Math.max(Number(c.msgMin) || 1, 3)
+  };
+}
+
+function compactActiveCharacterMirrorKey(key){
+  try{
+    var raw = localStorage.getItem(key);
+    if(!raw) return;
+    var parsed = JSON.parse(raw);
+    var light = activeCharacterLocalMirror(parsed);
+    if(light){
+      localStorage.removeItem(key);
+      localStorage.setItem(key, JSON.stringify(light));
+    }
+  }catch(err){
+    try{ localStorage.removeItem(key); }catch(removeErr){}
+  }
+}
+
 function resolveCharacterFromRoster(charId, fallback){
   var safeId = String(charId || '').trim();
   if(!safeId) return fallback || null;
@@ -17882,6 +17925,10 @@ async function init() {
       desiredChatCharId = String(localStorage.getItem('pendingChatCharId') || localStorage.getItem(accountScopedKey('activeChatCharacterId')) || localStorage.getItem('activeChatCharacterId') || '').trim();
     }catch(err){}
   }
+  compactActiveCharacterMirrorKey('activeCharacter');
+  compactActiveCharacterMirrorKey('pendingChatChar');
+  compactActiveCharacterMirrorKey(accountScopedKey('activeCharacter'));
+  compactActiveCharacterMirrorKey(accountScopedKey('pendingChatChar'));
   // 1. Try pendingChatChar (set when user clicks "Chat" in characters app)
   var pending = localStorage.getItem('pendingChatChar');
   if (pending) {
@@ -31309,8 +31356,8 @@ function postToShell(msg){
 
 function persistActiveCharacterSnapshot(slim){
   if(!slim) return;
-  var light = Object.assign({}, slim || {});
-  if(/^data:/i.test(String(light.imageData || '').trim())) light.imageData = '';
+  var light = activeCharacterLocalMirror(slim);
+  if(!light) return;
   if(isDefaultAccountContext()){
     safeLocalStorageSet('activeCharacter', JSON.stringify(light));
     safeLocalStorageSet('activeChatCharacterId', String((light && light.id) || ''));

@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-02T20:34:00Z';
+const APP_BUILD_ID = '2026-05-03T00:32:00Z';
 const APP_UPDATE_NOTES = [
-  '朋友圈分享不再漏掉角色',
-  '加载页等页面加载后再退出',
-  'iOS 输入框取消估算顶起',
-  'CSS 美化增加导入导出'
+  '角色缓存改成轻量镜像',
+  '减少 localStorage 容量报错',
+  '大角色数据继续走 PhoneStorage',
+  '聊天回复不再被缓存写入拖住'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -2672,6 +2672,26 @@ function slimChar(c){
     userNicknameNote:String(c.userNicknameNote||''),
     userAvatarProfile:userAvatarProfile,
     userPersonaProfile:userPersonaProfile
+  };
+}
+
+function activeCharacterLocalMirror(c){
+  if(!c) return null;
+  var id = String(c.id || '').trim();
+  if(!id) return null;
+  var imageData = normalizeShellAssetSrc(c.imageData || c.avatarUrl || c.avatar || '');
+  if(/^data:/i.test(imageData)) imageData = '';
+  return {
+    id: id,
+    name: String(c.name || ''),
+    nickname: String(c.nickname || ''),
+    avatar: String(c.avatar || ''),
+    imageData: imageData,
+    avatarUrl: normalizeShellAssetSrc(c.avatarUrl || ''),
+    userNameProfile: String(c.userNameProfile || ''),
+    userNicknameNote: String(c.userNicknameNote || ''),
+    msgMin: Number(c.msgMin) || 1,
+    msgMax: Number(c.msgMax) || Math.max(Number(c.msgMin) || 1, 3)
   };
 }
 
@@ -7136,6 +7156,7 @@ function persistShellActiveCharacter(character){
   if(!slim || !slim.id) return null;
   var resolvedAvatar = getCharacterAvatarForBg(character);
   if(resolvedAvatar) slim.imageData = resolvedAvatar;
+  var localMirror = activeCharacterLocalMirror(slim) || { id:String(slim.id || '') };
   var accountId = getActiveAccountId();
   var cacheKey = getShellAccountCacheKey(accountId);
   shellActiveCharacterCache[cacheKey] = slim;
@@ -7144,10 +7165,10 @@ function persistShellActiveCharacter(character){
   saveLargeState(shellActiveCharacterStorageId(accountId), slim).catch(function(){ return null; });
   saveLargeState(shellActiveChatIdStorageId(accountId), String((slim && slim.id) || '')).catch(function(){ return null; });
   if(isDefaultAccountActive()){
-    try{ localStorage.setItem('activeCharacter', JSON.stringify(slim)); }catch(e){}
+    try{ localStorage.removeItem('activeCharacter'); localStorage.setItem('activeCharacter', JSON.stringify(localMirror)); }catch(e){}
     try{ localStorage.setItem('activeChatCharacterId', String((slim && slim.id) || '')); }catch(e){}
   }
-  try{ localStorage.setItem(scopedKeyForAccount('activeCharacter', getActiveAccountId()), JSON.stringify(slim)); }catch(e){}
+  try{ var scopedActiveKey = scopedKeyForAccount('activeCharacter', getActiveAccountId()); localStorage.removeItem(scopedActiveKey); localStorage.setItem(scopedActiveKey, JSON.stringify(localMirror)); }catch(e){}
   try{ localStorage.setItem(scopedKeyForAccount('activeChatCharacterId', getActiveAccountId()), String((slim && slim.id) || '')); }catch(e){}
   return slim;
 }
@@ -10987,8 +11008,11 @@ function compactCharKey(key){
     var raw = localStorage.getItem(key);
     if(!raw) return;
     var obj = JSON.parse(raw);
-    var slim = slimChar(obj);
-    if(slim) localStorage.setItem(key, JSON.stringify(slim));
+    var slim = activeCharacterLocalMirror(obj);
+    if(slim){
+      localStorage.removeItem(key);
+      localStorage.setItem(key, JSON.stringify(slim));
+    }
   }catch(e){}
 }
 
@@ -11268,8 +11292,9 @@ function getWidgetLastChatCharKey(){
 }
 
 function persistWidgetLastChatCharacter(character){
-  var slim = slimChar(character);
+  var slim = activeCharacterLocalMirror(character);
   if(!slim || !slim.id) return null;
+  try{ localStorage.removeItem(getWidgetLastChatCharKey()); }catch(e){}
   try{ localStorage.setItem(getWidgetLastChatCharKey(), JSON.stringify(slim)); }catch(e){}
   return slim;
 }
