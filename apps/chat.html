@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-03T03:09:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T03:09:00Z"></script>
-<script src="../assetStore.js?v=2026-05-03T03:09:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T03:09:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T03:09:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T03:09:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T03:09:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T03:09:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-03T03:09:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-03T03:09:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T03:19:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T03:19:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T03:19:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T03:19:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T03:19:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T03:19:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T03:19:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T03:19:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-03T03:19:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-03T03:19:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -1909,8 +1909,8 @@ url('assets/%E5%B0%8F%E7%8B%97%E6%B5%B7%E9%B8%A5.jpg') center top / cover no-rep
 .cs-plain-btn:active{transform:none;box-shadow:none}
 
 /* toast */
-.toast{position:fixed;bottom:74px;left:50%;transform:translateX(-50%) translateY(16px);background:rgba(255,255,255,.96);color:#111;padding:9px 12px 9px 34px;border:1.5px solid #111;border-left:5px solid #111;border-radius:0;font-weight:900;font-size:11px;line-height:1.45;opacity:0;transition:all .28s;pointer-events:none;white-space:normal;z-index:999;max-width:min(82vw,420px);box-shadow:6px 6px 0 rgba(17,17,17,.18),0 14px 32px rgba(0,0,0,.14);text-align:left}
-.toast::before{content:'i';position:absolute;left:10px;top:50%;width:16px;height:16px;transform:translateY(-50%);border-radius:50%;display:flex;align-items:center;justify-content:center;background:currentColor;color:#fff;font-size:11px;font-weight:900}
+.toast{position:fixed;bottom:74px;left:50%;transform:translateX(-50%) translateY(16px);background:rgba(255,255,255,.96);color:#111;padding:9px 12px;border:1.5px solid #111;border-radius:0;font-weight:900;font-size:11px;line-height:1.45;opacity:0;transition:all .28s;pointer-events:none;white-space:normal;z-index:999;max-width:min(82vw,420px);box-shadow:6px 6px 0 rgba(17,17,17,.18),0 14px 32px rgba(0,0,0,.14);text-align:left}
+.toast::before{content:none}
 .toast.toast-success,.toast.toast-info,.toast.toast-warning,.toast.toast-error{background:rgba(255,255,255,.96);color:#111;border-left-color:#111}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.sticky{pointer-events:auto;cursor:pointer;max-width:min(82vw,420px)}
@@ -19869,7 +19869,18 @@ async function syncChatLogFromStorageForCurrentCharacter(){
   try{
     primeUserAvatarSourceNode().catch(function(){});
     var normalized = await loadPreferredStoredChatForCurrentCharacter();
-    if(!normalized.length) return false;
+    if(!normalized.length){
+      var clearAt = await readChatClearMarkerAt(character.id);
+      if(clearAt && chatLog.length && !chatHistoryHasEntryAfter(chatLog, clearAt)){
+        chatLog = [];
+        appendMoneyDebugLog('sync_clear_marker', { clearAt: clearAt });
+        renderChatLog(false);
+        renderReplyPreview();
+        updateFloatingUi();
+        return true;
+      }
+      return false;
+    }
     var currentSig = JSON.stringify(chatLog.map(function(item){ return [item.id, item.role, item.type, item.content, item.readAt || 0]; }));
     var nextSig = JSON.stringify(normalized.map(function(item){ return [item.id, item.role, item.type, item.content, item.readAt || 0]; }));
     if(currentSig === nextSig) return false;
@@ -29245,7 +29256,7 @@ function clearOfflineArchiveRecordsForChar(charId){
 }
 async function clearChatData(opts){
   var options = opts || {};
-  markChatClearTombstone(60000);
+  var clearAt = markChatClearTombstone(60000);
   resetPendingListenAlongInviteState();
   closeMessageActions();
   multiSelectMode = false;
@@ -29256,6 +29267,7 @@ async function clearChatData(opts){
   pendingFamilyFollowupCue = '';
   chatLog = [];
   if (character){
+    await persistChatClearMarker(character.id, clearAt);
     markOfflineInviteRecordsHiddenForChar(character.id);
     clearOfflineInviteRecordsForChar(character.id);
     clearOfflineArchiveRecordsForChar(character.id);
@@ -29322,6 +29334,7 @@ function markChatClearTombstone(ms){
   var ttl = Number(ms) || 60000;
   lastChatClearTombstoneAt = now;
   allowNextEmptyChatOverwrite(ttl);
+  return now;
 }
 
 function currentChatClearTombstone(){
@@ -29346,6 +29359,110 @@ function chatHistoryHasEntryAfter(list, cutoff){
     var ts = Number((entry && (entry.sentAt || entry.readAt || entry.createdAt || entry.updatedAt)) || 0) || 0;
     return ts > after;
   });
+}
+
+function chatClearMarkerStorageBase(charId){
+  return 'chat_clear_marker_' + String(charId || '').trim();
+}
+
+function getChatClearMarkerKeyCandidates(charId){
+  var base = chatClearMarkerStorageBase(charId);
+  if(!base || base === 'chat_clear_marker_') return [];
+  var keys = [accountScopedKey(base), base];
+  getAccountIdCandidates().forEach(function(accountId){
+    if(accountId) keys.push(accountScopedKeyForAccount(base, accountId));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+
+function getChatClearMarkerWriteKeyCandidates(charId){
+  var base = chatClearMarkerStorageBase(charId);
+  if(!base || base === 'chat_clear_marker_') return [];
+  var keys = [accountScopedKey(base), base];
+  getWriteAccountIdCandidates().forEach(function(accountId){
+    if(accountId) keys.push(accountScopedKeyForAccount(base, accountId));
+  });
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+
+function parseChatClearMarkerValue(raw){
+  if(raw === null || typeof raw === 'undefined' || raw === '') return 0;
+  if(typeof raw === 'number') return Number(raw) || 0;
+  if(typeof raw === 'string'){
+    var direct = Number(raw);
+    if(Number.isFinite(direct) && direct > 0) return direct;
+    try{ return parseChatClearMarkerValue(JSON.parse(raw)); }catch(err){ return 0; }
+  }
+  if(raw && typeof raw === 'object'){
+    return Number(raw.clearedAt || raw.clearTombstoneAt || raw.deletedAt || raw.updatedAt || 0) || 0;
+  }
+  return 0;
+}
+
+function rememberChatClearMarkerAt(value){
+  var clearAt = Number(value || 0) || 0;
+  if(clearAt) lastChatClearTombstoneAt = Math.max(Number(lastChatClearTombstoneAt || 0) || 0, clearAt);
+  return clearAt;
+}
+
+function readLocalChatClearMarkerAt(charId){
+  var best = 0;
+  getChatClearMarkerKeyCandidates(charId).forEach(function(key){
+    try{
+      best = Math.max(best, parseChatClearMarkerValue(localStorage.getItem(key)));
+    }catch(err){}
+  });
+  return rememberChatClearMarkerAt(best);
+}
+
+async function readChatClearMarkerAt(charId){
+  var best = readLocalChatClearMarkerAt(charId);
+  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+    var keys = getChatClearMarkerKeyCandidates(charId);
+    for(var i = 0; i < keys.length; i += 1){
+      try{
+        var record = await window.PhoneStorage.get('kv', keys[i]);
+        best = Math.max(best, parseChatClearMarkerValue(record && Object.prototype.hasOwnProperty.call(record, 'data') ? record.data : record));
+      }catch(err){}
+    }
+  }
+  return rememberChatClearMarkerAt(best);
+}
+
+async function persistChatClearMarker(charId, clearAt){
+  var safeAt = rememberChatClearMarkerAt(clearAt || Date.now());
+  if(!charId || !safeAt) return safeAt;
+  var keys = getChatClearMarkerWriteKeyCandidates(charId);
+  var payload = { charId:String(charId || ''), clearedAt:safeAt };
+  keys.forEach(function(key){
+    try{ localStorage.setItem(key, JSON.stringify(payload)); }catch(err){}
+  });
+  if(window.PhoneStorage && typeof window.PhoneStorage.put === 'function'){
+    await Promise.all(keys.map(function(key){
+      return window.PhoneStorage.put('kv', {
+        id: key,
+        charId: String(charId || ''),
+        clearedAt: safeAt,
+        updatedAt: safeAt,
+        data: payload
+      }).catch(function(){ return null; });
+    }));
+  }
+  return safeAt;
+}
+
+function makeChatClearTombstoneRecord(charId, clearAt){
+  var safeAt = Number(clearAt || 0) || 0;
+  if(!safeAt) return null;
+  return {
+    key: chatClearMarkerStorageBase(charId),
+    updatedAt: safeAt,
+    revision: safeAt,
+    deletedAt: safeAt,
+    clearTombstoneAt: safeAt,
+    reason: 'user_clear_chat',
+    history: []
+  };
 }
 
 function buildChatStorageRecord(key, storedHistory, revision){
@@ -29732,7 +29849,9 @@ function chooseBetterChatHistory(best, next){
 async function loadBestChatHistoryRecord(charId){
   await ensureAccountManagerReady();
   var candidates = getChatStorageKeyCandidates(charId);
+  var clearMarkerAt = await readChatClearMarkerAt(charId);
   var best = null;
+  best = chooseBetterChatHistory(best, makeChatClearTombstoneRecord(charId, clearMarkerAt));
   for(var i = 0; i < candidates.length; i += 1){
     var key = candidates[i];
     try{
@@ -29781,6 +29900,7 @@ async function loadBestChatHistoryRecord(charId){
       }
     }catch(e){}
   }
+  best = chooseBetterChatHistory(best, makeChatClearTombstoneRecord(charId, clearMarkerAt));
   if(best && best.history && best.key && best.key !== chatStorageKey(charId)){
     rememberStoredChatClearTombstone(best);
     persistRecordToIndexedDb('chats', {

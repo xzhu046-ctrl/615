@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T03:09:00Z';
+const APP_BUILD_ID = '2026-05-03T03:19:00Z';
 const APP_UPDATE_NOTES = [
-  '清空聊天会压住所有旧副本',
-  '退出返回不再捞回旧记录',
-  '聊天恢复顺序更准确'
+  '清空聊天会写入独立标记',
+  '旧聊天副本不会再被捞回',
+  '提示条去掉左侧空白'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -3049,10 +3049,13 @@ async function getBackgroundCharacter(){
 
 async function readBackgroundChatHistory(charId, accountId){
   var scoped = scopedKeyForAccount('chat_' + charId, accountId);
+  var clearMarkerAt = await getShellChatClearMarkerAtAsync(charId, accountId);
   try{
     if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
       var record = await window.PhoneStorage.get('chats', scoped);
       var list = record && Array.isArray(record.history) ? record.history : [];
+      var recordClearAt = Math.max(clearMarkerAt, Number((record && (record.deletedAt || record.clearTombstoneAt)) || 0) || 0);
+      if(recordClearAt && list.length && !shellChatHistoryHasEntryAfter(list, recordClearAt)) list = [];
       if(Array.isArray(list) && list.length) return list;
     }
   }catch(e){}
@@ -3062,6 +3065,8 @@ async function readBackgroundChatHistory(charId, accountId){
   try{
     var parsed = JSON.parse(raw);
     var fallbackList = (parsed && (parsed.history || parsed.messages)) || [];
+    var localClearAt = Math.max(clearMarkerAt, Number((parsed && (parsed.deletedAt || parsed.clearTombstoneAt)) || 0) || 0);
+    if(localClearAt && Array.isArray(fallbackList) && fallbackList.length && !shellChatHistoryHasEntryAfter(fallbackList, localClearAt)) return [];
     return Array.isArray(fallbackList) ? fallbackList : [];
   }catch(e3){
     return [];
@@ -7353,6 +7358,66 @@ function getImmediateChatUserAvatar(charId, character){
   return '';
 }
 
+function shellChatClearMarkerBase(charId){
+  return 'chat_clear_marker_' + String(charId || '').trim();
+}
+
+function getShellChatClearMarkerKeys(charId, accountId){
+  var base = shellChatClearMarkerBase(charId);
+  if(!base || base === 'chat_clear_marker_') return [];
+  var activeId = accountId || getActiveAccountId();
+  var keys = [mainScopedKey(base), base];
+  if(activeId) keys.push(scopedKeyForAccount(base, activeId));
+  var defaultId = getDefaultAccountId();
+  if(defaultId) keys.push(scopedKeyForAccount(base, defaultId));
+  return Array.from(new Set(keys.filter(Boolean)));
+}
+
+function parseShellChatClearMarker(raw){
+  if(raw === null || typeof raw === 'undefined' || raw === '') return 0;
+  if(typeof raw === 'number') return Number(raw) || 0;
+  if(typeof raw === 'string'){
+    var direct = Number(raw);
+    if(Number.isFinite(direct) && direct > 0) return direct;
+    try{ return parseShellChatClearMarker(JSON.parse(raw)); }catch(e){ return 0; }
+  }
+  if(raw && typeof raw === 'object'){
+    return Number(raw.clearedAt || raw.clearTombstoneAt || raw.deletedAt || raw.updatedAt || 0) || 0;
+  }
+  return 0;
+}
+
+function getLocalShellChatClearMarkerAt(charId, accountId){
+  var best = 0;
+  getShellChatClearMarkerKeys(charId, accountId).forEach(function(key){
+    try{ best = Math.max(best, parseShellChatClearMarker(localStorage.getItem(key))); }catch(e){}
+  });
+  return best;
+}
+
+async function getShellChatClearMarkerAtAsync(charId, accountId){
+  var best = getLocalShellChatClearMarkerAt(charId, accountId);
+  if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function'){
+    var keys = getShellChatClearMarkerKeys(charId, accountId);
+    for(var i = 0; i < keys.length; i += 1){
+      try{
+        var record = await window.PhoneStorage.get('kv', keys[i]);
+        best = Math.max(best, parseShellChatClearMarker(record && Object.prototype.hasOwnProperty.call(record, 'data') ? record.data : record));
+      }catch(e){}
+    }
+  }
+  return best;
+}
+
+function shellChatHistoryHasEntryAfter(list, cutoff){
+  var after = Number(cutoff || 0) || 0;
+  if(!after) return Array.isArray(list) && list.length > 0;
+  return (Array.isArray(list) ? list : []).some(function(entry){
+    var ts = Number((entry && (entry.sentAt || entry.readAt || entry.createdAt || entry.updatedAt)) || 0) || 0;
+    return ts > after;
+  });
+}
+
 function getStoredChatMessages(charId){
   if(!charId) return [];
   try{
@@ -7386,6 +7451,7 @@ function getStoredChatMessages(charId){
     function normalizeStoredHistory(list){
       return (Array.isArray(list) ? list : []).map(normalizeStoredMessage).filter(Boolean);
     }
+    var clearMarkerAt = getLocalShellChatClearMarkerAt(charId, getActiveAccountId());
     var scoped = scopedKeyForAccount('chat_' + charId, getActiveAccountId());
     var candidates = [
       localStorage.getItem(scoped) || '',
@@ -7424,6 +7490,8 @@ function getStoredChatMessages(charId){
       try{
         var parsed = JSON.parse(raw);
         var list = normalizeStoredHistory((parsed && (parsed.history || parsed.messages)) || []);
+        var recordClearAt = Math.max(clearMarkerAt, Number((parsed && (parsed.deletedAt || parsed.clearTombstoneAt)) || 0) || 0);
+        if(recordClearAt && list.length && !shellChatHistoryHasEntryAfter(list, recordClearAt)) return;
         if(Array.isArray(list) && list.length){
           best = chooseBetter(best, {
             history: list,
@@ -7440,6 +7508,7 @@ function getStoredChatMessages(charId){
 
 async function getStoredChatMessagesAsync(charId){
   var localList = getStoredChatMessages(charId);
+  var clearMarkerAt = await getShellChatClearMarkerAtAsync(charId, getActiveAccountId());
   if(window.PhoneStorage && typeof window.PhoneStorage.get === 'function' && charId){
     try{
       var scoped = scopedKeyForAccount('chat_' + charId, getActiveAccountId());
@@ -7459,6 +7528,10 @@ async function getStoredChatMessagesAsync(charId){
         }
         return entry && typeof entry === 'object' ? entry : null;
       }).filter(Boolean) : [];
+      var recordClearAt = Math.max(clearMarkerAt, Number((record && (record.deletedAt || record.clearTombstoneAt)) || 0) || 0);
+      if(recordClearAt && history.length && !shellChatHistoryHasEntryAfter(history, recordClearAt)){
+        history = [];
+      }
       if(history.length){
         var localLastTs = 0;
         localList.forEach(function(entry){
