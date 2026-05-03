@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T02:30:00Z';
+const APP_BUILD_ID = '2026-05-03T02:36:00Z';
 const APP_UPDATE_NOTES = [
-  '正文必须同轮返回',
-  '取消二次补正文',
-  '心声不能替代正文',
-  '旁白不能替代正文'
+  '旁白不再强制每轮',
+  '正文仍然必须返回',
+  '心声不能单独占用回复',
+  '状态不能替代聊天正文'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
