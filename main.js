@@ -52,12 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T02:53:00Z';
+const APP_BUILD_ID = '2026-05-03T03:01:00Z';
 const APP_UPDATE_NOTES = [
-  '旁白会和正文一起出现',
-  '自定义心声提示优先',
-  '线下及时检查自动总结',
-  'iOS首次聚焦更稳'
+  '清空聊天后不会再恢复旧记录',
+  '退出返回会尊重已删除状态',
+  '聊天保存记录更稳定'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
