@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T11:42:50Z';
+const APP_BUILD_ID = '2026-05-03T11:53:38Z';
 const APP_UPDATE_NOTES = [
-  '底栏恢复到稳定位置',
-  '第二页头像框恢复旧版显示',
-  '主屏翻页恢复旧版手感'
+  '失效头像框不再显示',
+  '第二页头像框更干净',
+  '旧头像框数据自动忽略'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -6823,7 +6823,7 @@ function bindBondLinkInputs(){
 
 function getTopAvatarFrameUrl(){
   try{
-    return String(localStorage.getItem('home_top_frame_url') || '').trim();
+    return normalizeAvatarFrameUrl(localStorage.getItem('home_top_frame_url') || '');
   }catch(e){
     return '';
   }
@@ -6860,6 +6860,20 @@ function getTopFrameVisual(url){
   cfg.offsetX += BOND_FRAME_SHIFT_X;
   cfg.offsetY += BOND_FRAME_SHIFT_Y;
   return cfg;
+}
+
+function normalizeAvatarFrameUrl(url){
+  var safeUrl = String(url || '').trim();
+  if(!safeUrl) return '';
+  try{
+    if(typeof avatarFrames !== 'undefined' && Array.isArray(avatarFrames)){
+      var found = avatarFrames.find(function(frame){
+        return frame && String(frame.url || '').trim() === safeUrl;
+      });
+      return found && found.url ? String(found.url || '').trim() : '';
+    }
+  }catch(e){}
+  return '';
 }
 
 function hashAvatarFrameSeed(input){
@@ -6972,7 +6986,7 @@ function buildAvatarFrameFallbackDataUrl(url){
 }
 
 function getAvatarFrameRenderSrc(url){
-  var safeUrl = String(url || '').trim();
+  var safeUrl = normalizeAvatarFrameUrl(url);
   if(!safeUrl) return '';
   if(/^data:/i.test(safeUrl)) return safeUrl;
   if(/^https?:\/\/i\.postimg\.cc\//i.test(safeUrl)) return buildAvatarFrameFallbackDataUrl(safeUrl);
@@ -6980,7 +6994,7 @@ function getAvatarFrameRenderSrc(url){
 }
 
 function buildAvatarFrameImg(className, url, styleText){
-  var safeUrl = String(url || '').trim();
+  var safeUrl = normalizeAvatarFrameUrl(url);
   if(!safeUrl) return '';
   var renderSrc = getAvatarFrameRenderSrc(safeUrl);
   if(!renderSrc) return '';
@@ -7004,7 +7018,7 @@ function getBondAvatarFrameStorageKey(role){
 
 function getBondAvatarFrameUrl(role){
   try{
-    return String(localStorage.getItem(getBondAvatarFrameStorageKey(role)) || '').trim();
+    return normalizeAvatarFrameUrl(localStorage.getItem(getBondAvatarFrameStorageKey(role)) || '');
   }catch(e){
     return '';
   }
