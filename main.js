@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T12:21:38Z';
+const APP_BUILD_ID = '2026-05-03T12:40:21Z';
 const APP_UPDATE_NOTES = [
-  '主屏底栏改用真实屏幕定位',
-  'App 页面跟随真实屏幕高度',
-  '失效头像框直接隐藏'
+  '底栏不再遮住分页点',
+  '主屏底栏位置更贴底',
+  '移动端主屏滑动更稳'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1259,6 +1259,7 @@ function postShellMetadataDirtyToCurrentApp(topic){
 
 let stableShellAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
 let homeDockPlaceholder = null;
+let homeIndicatorPlaceholder = null;
 
 function ensureHomeDockPlaceholder(dock){
   if(homeDockPlaceholder && homeDockPlaceholder.parentNode) return homeDockPlaceholder;
@@ -1270,22 +1271,46 @@ function ensureHomeDockPlaceholder(dock){
   return homeDockPlaceholder;
 }
 
+function ensureHomeIndicatorPlaceholder(indicator){
+  if(homeIndicatorPlaceholder && homeIndicatorPlaceholder.parentNode) return homeIndicatorPlaceholder;
+  if(!indicator || !indicator.parentNode) return null;
+  homeIndicatorPlaceholder = document.createElement('div');
+  homeIndicatorPlaceholder.className = 'home-page-indicator-placeholder';
+  homeIndicatorPlaceholder.setAttribute('aria-hidden', 'true');
+  indicator.parentNode.insertBefore(homeIndicatorPlaceholder, indicator);
+  return homeIndicatorPlaceholder;
+}
+
 function syncHomeDockViewportLayer(){
   var dock = document.getElementById('app-grid');
+  var indicator = document.getElementById('home-page-indicator');
   var outer = document.querySelector('.phone-outer');
   if(!dock || !outer) return;
   var shouldPortal = outer.classList.contains('frame-off') && !outer.classList.contains('app-open') && (isIOSShell() || isAndroidShell());
   var placeholder = ensureHomeDockPlaceholder(dock);
+  var indicatorPlaceholder = indicator ? ensureHomeIndicatorPlaceholder(indicator) : null;
   if(shouldPortal){
     if(placeholder) placeholder.classList.add('active');
     if(dock.parentNode !== outer) outer.appendChild(dock);
     dock.classList.add('home-dock-portal');
+    if(indicator){
+      if(indicatorPlaceholder) indicatorPlaceholder.classList.add('active');
+      if(indicator.parentNode !== outer) outer.appendChild(indicator);
+      indicator.classList.add('home-indicator-portal');
+    }
   }else{
     if(placeholder && placeholder.parentNode && dock.parentNode !== placeholder.parentNode){
       placeholder.parentNode.insertBefore(dock, placeholder.nextSibling);
     }
     if(placeholder) placeholder.classList.remove('active');
     dock.classList.remove('home-dock-portal');
+    if(indicator){
+      if(indicatorPlaceholder && indicatorPlaceholder.parentNode && indicator.parentNode !== indicatorPlaceholder.parentNode){
+        indicatorPlaceholder.parentNode.insertBefore(indicator, indicatorPlaceholder.nextSibling);
+      }
+      if(indicatorPlaceholder) indicatorPlaceholder.classList.remove('active');
+      indicator.classList.remove('home-indicator-portal');
+    }
   }
 }
 
@@ -1360,7 +1385,7 @@ function syncAppHeight(){
   const mobileFrameDrop = isStandalone ? 18 : 0;
   const usableHeight = Math.max(1, viewportHeight - contentTopInset - contentBottomInset - mobileFrameDrop);
   const frameScale = Math.min(viewportWidth / 375, usableHeight / 780);
-  let homeDockBottom = 14;
+  let homeDockBottom = 8;
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
   document.documentElement.style.setProperty('--mobile-frame-drop', mobileFrameDrop + 'px');
   document.documentElement.style.setProperty('--frameoff-scale', String(frameScale > 0 ? frameScale : 1));
