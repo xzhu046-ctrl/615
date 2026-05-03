@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T02:21:00Z';
+const APP_BUILD_ID = '2026-05-03T02:30:00Z';
 const APP_UPDATE_NOTES = [
-  '空回会自动补正文',
-  '状态对象可正常更新',
-  '真实图片可发到聊天',
-  'iOS 首次聚焦更稳'
+  '正文必须同轮返回',
+  '取消二次补正文',
+  '心声不能替代正文',
+  '旁白不能替代正文'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
