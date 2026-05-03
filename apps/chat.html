@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-03T06:24:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T06:24:00Z"></script>
-<script src="../assetStore.js?v=2026-05-03T06:24:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T06:24:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T06:24:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T06:24:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T06:24:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T06:24:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-03T06:24:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-03T06:24:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T07:45:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T07:45:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T07:45:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T07:45:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T07:45:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T07:45:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T07:45:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T07:45:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-03T07:45:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-03T07:45:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -10249,7 +10249,7 @@ function syncChatCssEditorsToLivePage(){
     applyActiveChatThemeEditorValue();
   }else{
     setLiveStyleText(ensureBubbleChatThemeStyleNode(), composeChatThemePartCss());
-    syncChatThemeStyleOrder();
+    refreshEffectiveChatThemeStyle();
   }
   if(innerVoiceInput){
     var innerCss = normalizeInnerVoicePromptText(innerVoiceInput.value || '');
@@ -10653,6 +10653,16 @@ function ensureBubbleChatThemeStyleNode(){
   return node;
 }
 
+function ensureEffectiveChatThemeStyleNode(){
+  var node = document.getElementById('chatEffectiveThemeStyle');
+  if(!node){
+    node = document.createElement('style');
+    node.id = 'chatEffectiveThemeStyle';
+  }
+  document.head.appendChild(node);
+  return node;
+}
+
 function ensureChatBubblePreviewStyleNode(){
   var node = document.getElementById('chatBubblePreviewStyle');
   if(node) return node;
@@ -10668,8 +10678,10 @@ function syncChatThemeStyleOrder(){
     if(!head) return;
     var bubble = document.getElementById('chatBubbleThemeStyle');
     var global = document.getElementById('chatCustomThemeStyle');
+    var effective = document.getElementById('chatEffectiveThemeStyle');
     if(bubble) head.appendChild(bubble);
     if(global) head.appendChild(global);
+    if(effective) head.appendChild(effective);
   }catch(err){}
 }
 
@@ -10766,6 +10778,18 @@ function composeChatThemePartCss(){
   }).filter(Boolean).join('\n\n');
 }
 
+function composeEffectiveChatThemeCss(){
+  return [
+    composeChatThemePartCss(),
+    normalizeChatThemeCssText(globalThemeCssDraft || '')
+  ].filter(Boolean).join('\n\n');
+}
+
+function refreshEffectiveChatThemeStyle(){
+  setLiveStyleText(ensureEffectiveChatThemeStyleNode(), composeEffectiveChatThemeCss());
+  syncChatThemeStyleOrder();
+}
+
 function normalizeChatThemeCssText(cssText){
   var text = String(cssText || '').replace(/\r\n?/g, '\n').trim();
   if(!text) return '';
@@ -10799,7 +10823,7 @@ function applyActiveChatThemeEditorValue(){
   renderChatBubbleCssPreview();
   setLiveStyleText(ensureChatBubblePreviewStyleNode(), scopeChatThemeCssForPreview(css));
   setLiveStyleText(ensureBubbleChatThemeStyleNode(), composeChatThemePartCss());
-  syncChatThemeStyleOrder();
+  refreshEffectiveChatThemeStyle();
   return css;
 }
 
@@ -10856,20 +10880,20 @@ function applyChatBubblePreviewCss(cssText){
   renderChatBubbleCssPreview();
   setLiveStyleText(ensureChatBubblePreviewStyleNode(), scopeChatThemeCssForPreview(css));
   setLiveStyleText(ensureBubbleChatThemeStyleNode(), composeChatThemePartCss());
-  syncChatThemeStyleOrder();
+  refreshEffectiveChatThemeStyle();
 }
 
 function applyGlobalChatThemeCss(cssText){
   globalThemeCssDraft = normalizeChatThemeCssText(cssText);
   setLiveStyleText(ensureGlobalChatThemeStyleNode(), globalThemeCssDraft);
-  syncChatThemeStyleOrder();
+  refreshEffectiveChatThemeStyle();
 }
 
 function applyBubbleChatThemeCss(cssText){
   bubbleThemeCssDraft = normalizeChatThemeCssText(cssText);
   chatThemePartDrafts.bubble = bubbleThemeCssDraft;
   setLiveStyleText(ensureBubbleChatThemeStyleNode(), composeChatThemePartCss());
-  syncChatThemeStyleOrder();
+  refreshEffectiveChatThemeStyle();
   applyChatBubblePreviewCss(getActiveChatThemePartCss());
 }
 
@@ -11032,7 +11056,7 @@ async function loadAllChatThemePartCss(charId){
   chatThemePartDrafts = next;
   bubbleThemeCssDraft = String(next.bubble || '');
   setLiveStyleText(ensureBubbleChatThemeStyleNode(), composeChatThemePartCss());
-  syncChatThemeStyleOrder();
+  refreshEffectiveChatThemeStyle();
   return next;
 }
 
