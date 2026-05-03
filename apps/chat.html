@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-03T05:06:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T05:06:00Z"></script>
-<script src="../assetStore.js?v=2026-05-03T05:06:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T05:06:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T05:06:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T05:06:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T05:06:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T05:06:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-03T05:06:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-03T05:06:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T05:18:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T05:18:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T05:18:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T05:18:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T05:18:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T05:18:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T05:18:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T05:18:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-03T05:18:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-03T05:18:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -33210,6 +33210,24 @@ async function deliverAiReply(text, limitOverride, options){
       inlineInnerVoiceCandidates.push(innerVoiceCandidate);
       if(rawType === 'innervoice' || String(item.type || '').trim() === 'thought_chain'){
         hiddenInnerVoiceConsumed = true;
+        ['reply', 'message', 'answer', 'output', 'assistant'].forEach(function(key){
+          var value = item[key];
+          if(value == null) return;
+          if(typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || Array.isArray(value)){
+            var visible = normalizeReplyTextField(value);
+            if(visible) rawParts.push({
+              text: visible,
+              t: 'text',
+              replyTo: item.reply_to || item.replyTo || '',
+              replyRole: item.reply_role || item.replyRole || '',
+              translationText: extractInlineTranslationText(item)
+            });
+          }else if(value && typeof value === 'object'){
+            appendRawPart(value);
+          }
+        });
+        if(typeof item.narrator === 'string') appendRawPart({ type: 'narrator', content: item.narrator });
+        if(typeof item.narration === 'string') appendRawPart({ type: 'narrator', content: item.narration });
         return;
       }
     }
@@ -33557,12 +33575,14 @@ async function deliverAiReply(text, limitOverride, options){
     var cover = readField(['cover', 'coverUrl']);
     var hasLooseRichFields = !!(html || css || js || summary || url || title || cover);
     if(normalizeMessageType(type) === 'innervoice' || headline || body || strike){
-      return {
+      var looseInner = {
         type: 'inner_voice',
         headline: headline,
         body: body,
         strike: strike
       };
+      if(content) looseInner.reply = content;
+      return looseInner;
     }
     if(!type && !content && !hasLooseRichFields) return null;
     if((!type || normalizeMessageType(type) === 'text') && hasLooseRichFields){
@@ -33642,12 +33662,20 @@ async function deliverAiReply(text, limitOverride, options){
     parsed = [text];
   } else {
     text = clean(text);
-    text = consumeInnerVoiceFromRawText(text);
-    // Try JSON array first
+    // Try strict JSON before loose inner-voice extraction so valid arrays are not broken.
     try{
       var trimmed = (text||'').trim();
       if(trimmed.startsWith('[')) parsed = JSON.parse(trimmed);
+      else if(trimmed.startsWith('{')) parsed = [JSON.parse(trimmed)];
     }catch(e){}
+    if(!parsed){
+      text = consumeInnerVoiceFromRawText(text);
+      try{
+        var trimmedAfterInnerVoice = (text||'').trim();
+        if(trimmedAfterInnerVoice.startsWith('[')) parsed = JSON.parse(trimmedAfterInnerVoice);
+        else if(trimmedAfterInnerVoice.startsWith('{')) parsed = [JSON.parse(trimmedAfterInnerVoice)];
+      }catch(e2){}
+    }
   }
 
   if(Array.isArray(parsed)){
@@ -33951,8 +33979,17 @@ async function deliverAiReply(text, limitOverride, options){
     }
   }
 
-  if(!rawParts.length && text && !hiddenInnerVoiceConsumed){
-    rawParts = splitPlainTextToParts(text);
+  if(!rawParts.length && text){
+    if(!hiddenInnerVoiceConsumed){
+      rawParts = splitPlainTextToParts(text);
+    }else{
+      var residualText = String(text || '').replace(/^[\s,\[\]\{\}]+|[\s,\[\]\{\}]+$/g, '').trim();
+      var residualLooksJson = /["']?\s*(type|content|text|reply|message|headline|body|inner[_\s-]*voice|narrator)["']?\s*[:：]/i.test(residualText)
+        || /[{}\[\]]/.test(residualText);
+      if(residualText && !residualLooksJson){
+        rawParts = splitPlainTextToParts(residualText);
+      }
+    }
   }
   if(!rawParts.length && hiddenInnerVoiceConsumed){
     if(getInnerVoiceGenerationMode() === 'together'){
