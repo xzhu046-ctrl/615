@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T01:54:00Z';
+const APP_BUILD_ID = '2026-05-03T02:00:00Z';
 const APP_UPDATE_NOTES = [
-  '聊天长句会拆成短气泡',
-  '心声每轮按设置刷新',
-  '线下总结写进记忆',
-  '手动总结同步到小脑瓜'
+  '短句改由模型自己输出',
+  '心声跟聊天同轮返回',
+  '心声作为数组第一项',
+  '兼容隐藏思考格式'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
