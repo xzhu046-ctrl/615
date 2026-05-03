@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-03T05:18:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T05:18:00Z"></script>
-<script src="../assetStore.js?v=2026-05-03T05:18:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T05:18:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T05:18:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T05:18:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T05:18:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T05:18:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-03T05:18:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-03T05:18:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T06:02:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T06:02:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T06:02:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T06:02:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T06:02:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T06:02:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T06:02:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T06:02:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-03T06:02:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-03T06:02:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -3695,6 +3695,8 @@ var bubbleThemeCssDraft = '';
 var chatThemePartDrafts = {};
 var activeChatThemePart = 'bubble';
 var chatThemeEditorDirty = { global:false, bubble:false, innerVoice:false };
+var chatCssEditorPollTimer = 0;
+var chatCssEditorPollSnapshot = { global:null, bubble:null, innerVoice:null };
 var MOMENTS_POSTS_KEY = 'qq_moments_posts';
 var MOMENTS_POSTS_BRIDGE_KEY = 'qq_moments_bridge_posts';
 var MOMENTS_POST_RECORD_PREFIX = 'qq_moments_post_record_';
@@ -11393,6 +11395,58 @@ function queueChatThemeDraftAutosave(){
       console.warn('chat css patch autosave failed', err);
     });
   }, 520);
+}
+
+function readChatCssEditorValues(){
+  return {
+    global: String((document.getElementById('csGlobalCss') || {}).value || ''),
+    bubble: String((document.getElementById('csBubbleCss') || {}).value || ''),
+    innerVoice: String((document.getElementById('csInnerVoiceCss') || {}).value || '')
+  };
+}
+
+function resetChatCssEditorPollSnapshot(){
+  chatCssEditorPollSnapshot = readChatCssEditorValues();
+}
+
+function stopChatCssEditorPolling(){
+  if(chatCssEditorPollTimer){
+    clearInterval(chatCssEditorPollTimer);
+    chatCssEditorPollTimer = 0;
+  }
+}
+
+function startChatCssEditorPolling(){
+  resetChatCssEditorPollSnapshot();
+  if(chatCssEditorPollTimer) return;
+  chatCssEditorPollTimer = setInterval(function(){
+    if(!isChatSettingsPanelOpen()){
+      stopChatCssEditorPolling();
+      return;
+    }
+    var current = readChatCssEditorValues();
+    var globalInput = document.getElementById('csGlobalCss');
+    var bubbleInput = document.getElementById('csBubbleCss');
+    var innerInput = document.getElementById('csInnerVoiceCss');
+    if(current.global !== chatCssEditorPollSnapshot.global){
+      if(chatThemeEditorDirty && document.activeElement === globalInput) chatThemeEditorDirty.global = true;
+      applyGlobalChatThemeCss(current.global);
+      renderGlobalThemePresetList();
+      queueChatThemeDraftAutosave();
+    }
+    if(current.bubble !== chatCssEditorPollSnapshot.bubble){
+      if(chatThemeEditorDirty && document.activeElement === bubbleInput) chatThemeEditorDirty.bubble = true;
+      applyActiveChatThemeEditorValue();
+      renderBubbleThemePresetList();
+      queueChatThemeDraftAutosave();
+    }
+    if(current.innerVoice !== chatCssEditorPollSnapshot.innerVoice){
+      if(chatThemeEditorDirty && document.activeElement === innerInput) chatThemeEditorDirty.innerVoice = true;
+      syncChatCssEditorsToLivePage();
+      queueChatThemeDraftAutosave();
+    }
+    chatCssEditorPollSnapshot = current;
+  }, 360);
 }
 
 function bindThemeDraftInputs(){
@@ -23999,25 +24053,52 @@ async function persistCustomCssDraftNow(){
   return true;
 }
 
-function exportCustomCssDraft(kind){
+async function shareOrDownloadTextFile(filename, text, mimeType){
+  var safeName = String(filename || 'export.txt').trim() || 'export.txt';
+  var body = String(text || '');
+  var type = String(mimeType || 'text/plain;charset=utf-8');
+  var blob = new Blob([body], { type:type });
+  try{
+    var file = new File([blob], safeName, { type:type });
+    if(navigator && typeof navigator.canShare === 'function' && typeof navigator.share === 'function' && navigator.canShare({ files:[file] })){
+      await navigator.share({ files:[file], title:safeName });
+      return 'shared';
+    }
+  }catch(shareErr){}
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = safeName;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){
+    URL.revokeObjectURL(url);
+    if(a && a.parentNode) a.parentNode.removeChild(a);
+  }, 1600);
+  return 'download';
+}
+
+async function exportCustomCssDraft(kind){
   var target = getCustomCssDraftTarget(kind);
   var input = document.getElementById(target.id);
   if(!input){
     toast('没有找到' + target.label);
     return;
   }
+  syncChatCssEditorsToLivePage();
+  await persistCustomCssDraftNow().catch(function(err){
+    console.warn('export custom css persist skipped', err);
+  });
   var css = String(input.value || '');
-  var blob = new Blob([css], { type:'text/css;charset=utf-8' });
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a');
-  a.href = url;
-  a.download = target.file;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(function(){
-    URL.revokeObjectURL(url);
-    if(a && a.parentNode) a.parentNode.removeChild(a);
-  }, 1200);
+  shareOrDownloadTextFile(target.file, css, 'text/css;charset=utf-8').then(function(mode){
+    toast(mode === 'shared' ? '已打开导出分享' : target.label + '已导出');
+  }).catch(function(err){
+    console.warn('custom css export failed', err);
+    toast('导出失败');
+  });
 }
 
 function importCustomCssDraft(kind){
@@ -31445,6 +31526,7 @@ async function openChatSettings() {
     bindChatHeaderBackgroundUrlInput();
     bindBubbleCharmUrlInput();
     bindThemeDraftInputs();
+    startChatCssEditorPolling();
     bindChatReplyLanguageButtons();
     bindChatTranslationModeButtons();
     bindChatInnerVoiceGenerationModeButtons();
@@ -31685,6 +31767,7 @@ async function openChatSettings() {
 
 function closeChatSettings() {
   document.getElementById('chatSettings').classList.remove('open');
+  stopChatCssEditorPolling();
   restoreParentTopbarForSettings();
   parentComposerShift = 0;
   try{

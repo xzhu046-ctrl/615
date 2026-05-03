@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
 <title>设置</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
-<script src="../chatStorage.js?v=2026-05-01T18:22:00Z"></script>
-<script src="../assetStore.js?v=2026-05-01T18:22:00Z"></script>
-<script src="../accountManager.js?v=2026-05-01T18:22:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-01T18:22:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T06:02:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T06:02:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T06:02:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T06:02:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 button{-webkit-appearance:none;appearance:none;-webkit-touch-callout:none;color:inherit;-webkit-text-fill-color:currentColor}
@@ -1092,6 +1092,34 @@ function showToast(msg) {
   setTimeout(function(){ t.classList.remove('show'); }, 2200);
 }
 
+async function shareOrDownloadSettingsFile(filename, text, mimeType){
+  var safeName = String(filename || 'backup.json').trim() || 'backup.json';
+  var body = String(text || '');
+  var type = String(mimeType || 'application/json');
+  var blob = new Blob([body], { type:type });
+  try{
+    var file = new File([blob], safeName, { type:type });
+    if(navigator && typeof navigator.canShare === 'function' && typeof navigator.share === 'function' && navigator.canShare({ files:[file] })){
+      await navigator.share({ files:[file], title:safeName });
+      return 'shared';
+    }
+  }catch(shareErr){}
+  var url = URL.createObjectURL(blob);
+  var link = document.createElement('a');
+  link.href = url;
+  link.download = safeName;
+  link.target = '_blank';
+  link.rel = 'noopener';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(function(){
+    URL.revokeObjectURL(url);
+    if(link && link.parentNode) link.parentNode.removeChild(link);
+  }, 1600);
+  return 'download';
+}
+
 function getParentShellNotificationSettings(){
   try{
     if(window.parent && window.parent !== window && typeof window.parent.getShellNotificationSettings === 'function'){
@@ -2006,16 +2034,8 @@ async function exportAllData(){
     };
     payload = await serializeBackupValue(payload);
     var stamp = new Date().toISOString().replace(/[:T]/g, '-').replace(/\..+$/, '');
-    var blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
-    var url = URL.createObjectURL(blob);
-    var link = document.createElement('a');
-    link.href = url;
-    link.download = 'ephone-backup-' + stamp + '.json';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(function(){ URL.revokeObjectURL(url); }, 1200);
-    showToast('已导出全部数据');
+    var mode = await shareOrDownloadSettingsFile('ephone-backup-' + stamp + '.json', JSON.stringify(payload, null, 2), 'application/json');
+    showToast(mode === 'shared' ? '已打开导出分享' : '已导出全部数据');
   }catch(err){
     console.error(err);
     showToast('导出失败，请重试');
