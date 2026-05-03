@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T07:45:00Z';
+const APP_BUILD_ID = '2026-05-03T09:38:00Z';
 const APP_UPDATE_NOTES = [
-  '修复手机气泡CSS只变圆角的问题',
-  '合并最终美化样式层',
-  '让预览和正式聊天完整吃到自定义样式'
+  '修复iOS桌面底栏消失',
+  '气泡变量完整覆盖颜色和阴影',
+  '让手机预览同步显示美化样式'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
