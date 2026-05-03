@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T03:19:00Z';
+const APP_BUILD_ID = '2026-05-03T03:37:00Z';
 const APP_UPDATE_NOTES = [
-  '清空聊天会写入独立标记',
-  '旧聊天副本不会再被捞回',
-  '提示条去掉左侧空白'
+  '清空聊天只按发送时间判断',
+  '已读时间不会让旧记录复活',
+  '聊天删除状态更稳'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -7413,7 +7413,9 @@ function shellChatHistoryHasEntryAfter(list, cutoff){
   var after = Number(cutoff || 0) || 0;
   if(!after) return Array.isArray(list) && list.length > 0;
   return (Array.isArray(list) ? list : []).some(function(entry){
-    var ts = Number((entry && (entry.sentAt || entry.readAt || entry.createdAt || entry.updatedAt)) || 0) || 0;
+    var ts = Array.isArray(entry)
+      ? (Number(entry[4] || 0) || 0)
+      : (Number((entry && (entry.sentAt || entry.createdAt)) || 0) || 0);
     return ts > after;
   });
 }
