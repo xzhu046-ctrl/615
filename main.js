@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T10:50:43Z';
+const APP_BUILD_ID = '2026-05-03T10:58:26Z';
 const APP_UPDATE_NOTES = [
-  '修正主屏底栏位置',
-  '主屏滑动更顺手',
-  '后台支持一键删除全部邀请码'
+  '调稳主屏底栏位置',
+  '修复主屏翻页闪雾',
+  '文案编辑后底栏不再乱跳'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1302,11 +1302,8 @@ function syncAppHeight(){
   const usableHeight = Math.max(1, viewportHeight - contentTopInset - contentBottomInset - mobileFrameDrop);
   const frameScale = Math.min(viewportWidth / 375, usableHeight / 780);
   let homeDockBottom = 12;
-  if(isIos && frameScale > 0){
-    const desiredVisualGap = 18;
-    const frameTop = contentTopInset + mobileFrameDrop;
-    const dockBottomInFrame = 780 - ((viewportHeight - frameTop - desiredVisualGap) / frameScale);
-    homeDockBottom = Math.max(12, Math.min(220, Math.ceil(dockBottomInFrame)));
+  if(isIos){
+    homeDockBottom = Math.max(28, Math.min(58, Math.round(viewportHeight * 0.048)));
   }
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
   document.documentElement.style.setProperty('--mobile-frame-drop', mobileFrameDrop + 'px');
@@ -11623,6 +11620,9 @@ function closeWidgetTextEditorOverlay(save){
   }else if(input){
     setWidgetTextOverride(role, input.value);
   }
+  if(input){
+    try{ input.blur(); }catch(err){}
+  }
   overlay.classList.remove('open');
   overlay.dataset.role = '';
   overlay.dataset.original = '';
@@ -11634,6 +11634,12 @@ function closeWidgetTextEditorOverlay(save){
   }else{
     setWidgetCharacter({ name:'No companion yet' });
   }
+  [80, 260, 620].forEach(function(delay){
+    setTimeout(function(){
+      syncAppHeight();
+      renderHomePages(true);
+    }, delay);
+  });
 }
 
 function openWidgetTextEditorOverlay(role){
