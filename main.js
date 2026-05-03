@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T10:42:23Z';
+const APP_BUILD_ID = '2026-05-03T10:50:43Z';
 const APP_UPDATE_NOTES = [
+  '修正主屏底栏位置',
   '主屏滑动更顺手',
-  '后台支持一键删除全部邀请码',
-  '邀请码弹窗只保留输入框'
+  '后台支持一键删除全部邀请码'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1230,9 +1230,6 @@ function postShellMetadataDirtyToCurrentApp(topic){
 }
 
 let stableShellAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
-let homeDockLayoutAdjustQueued = false;
-let homeDockLayoutKey = '';
-let homeDockAdjustedBottom = 0;
 
 function getCurrentShellKeyboardInset(){
   const vv = window.visualViewport;
@@ -1254,47 +1251,6 @@ function postKeyboardInsetToCurrentApp(value, keyboardOpen){
       frame.contentWindow.postMessage({ type:'PARENT_APP_KEYBOARD_INSET', payload:{ inset:safeInset, keyboardOpen:open, app:currentApp || '' } }, '*');
     }
   }catch(err){}
-}
-
-function adjustHomeDockBottomFromLayout(){
-  homeDockLayoutAdjustQueued = false;
-  if(!isIOSShell() || isAndroidShell()) return;
-  try{
-    const outer = document.querySelector('.phone-outer.frame-off');
-    const dock = document.querySelector('.app-grid-dock');
-    const frame = document.querySelector('.phone-frame');
-    if(!outer || !dock || !frame || outer.classList.contains('app-open')) return;
-    const dockRect = dock.getBoundingClientRect();
-    const frameRect = frame.getBoundingClientRect();
-    const scale = Math.max(0.5, Math.min(3, (frameRect.height || 780) / 780));
-    const desiredGap = 18;
-    const maxBottom = Math.max(1, (window.innerHeight || document.documentElement.clientHeight || 0) - desiredGap);
-    const overflow = dockRect.bottom - maxBottom;
-    const current = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--home-dock-bottom')) || 12;
-    if(overflow <= 0){
-      homeDockAdjustedBottom = current;
-      return;
-    }
-    const next = Math.max(12, Math.min(720, Math.ceil(current + (overflow / scale) + 4)));
-    document.documentElement.style.setProperty('--home-dock-bottom', next + 'px');
-    homeDockAdjustedBottom = next;
-  }catch(err){}
-}
-
-function queueHomeDockLayoutAdjust(){
-  if(homeDockLayoutAdjustQueued) return;
-  homeDockLayoutAdjustQueued = true;
-  document.documentElement.classList.add('home-dock-adjusting');
-  requestAnimationFrame(function runHomeDockAdjust(){
-    adjustHomeDockBottomFromLayout();
-    [80, 180, 320, 520, 760].forEach(function(delay){
-      setTimeout(adjustHomeDockBottomFromLayout, delay);
-    });
-    setTimeout(function(){
-      adjustHomeDockBottomFromLayout();
-      document.documentElement.classList.remove('home-dock-adjusting');
-    }, 860);
-  });
 }
 
 function syncAppHeight(){
@@ -1350,20 +1306,12 @@ function syncAppHeight(){
     const desiredVisualGap = 18;
     const frameTop = contentTopInset + mobileFrameDrop;
     const dockBottomInFrame = 780 - ((viewportHeight - frameTop - desiredVisualGap) / frameScale);
-    homeDockBottom = Math.max(12, Math.min(180, Math.ceil(dockBottomInFrame)));
-    const nextDockKey = [viewportWidth, viewportHeight, contentTopInset, mobileFrameDrop, frameScale.toFixed(4)].join(':');
-    if(homeDockLayoutKey === nextDockKey && homeDockAdjustedBottom > 0){
-      homeDockBottom = homeDockAdjustedBottom;
-    }else{
-      homeDockLayoutKey = nextDockKey;
-      homeDockAdjustedBottom = 0;
-    }
+    homeDockBottom = Math.max(12, Math.min(220, Math.ceil(dockBottomInFrame)));
   }
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
   document.documentElement.style.setProperty('--mobile-frame-drop', mobileFrameDrop + 'px');
   document.documentElement.style.setProperty('--frameoff-scale', String(frameScale > 0 ? frameScale : 1));
   document.documentElement.style.setProperty('--home-dock-bottom', homeDockBottom + 'px');
-  if(isIos) queueHomeDockLayoutAdjust();
 }
 
 function isGifDataUrl(dataUrl){
