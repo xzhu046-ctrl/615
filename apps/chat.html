@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-03T00:54:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T00:54:00Z"></script>
-<script src="../assetStore.js?v=2026-05-03T00:54:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T00:54:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T00:54:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T00:54:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T00:54:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T00:54:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-03T00:54:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-03T00:54:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T01:08:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T01:08:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T01:08:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T01:08:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T01:08:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T01:08:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T01:08:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T01:08:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-03T01:08:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-03T01:08:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -9217,10 +9217,10 @@ async function callStandaloneVisionAPI(imageSrc, promptText, options){
           geminiEndpoint = cfg.customUrl + '/v1beta/models/' + cfg.model + ':generateContent';
         }
         if(geminiEndpoint.indexOf('?key=') === -1){
-          geminiEndpoint += (geminiEndpoint.indexOf('?') === -1 ? '?key=' : '&key=') + encodeURIComponent(cfg.key);
+          geminiEndpoint += (geminiEndpoint.indexOf('?') === -1 ? '?key=' : '&key=') + encodeURIComponent(pickApiCredential(cfg.key));
         }
       }else{
-        geminiEndpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' + cfg.model + ':generateContent?key=' + cfg.key;
+        geminiEndpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' + cfg.model + ':generateContent?key=' + encodeURIComponent(pickApiCredential(cfg.key));
       }
       var geminiPayload = {
         contents: [{
@@ -9249,20 +9249,21 @@ async function callStandaloneVisionAPI(imageSrc, promptText, options){
   }
   if(cfg.provider === 'openai' || cfg.provider === 'openrouter' || cfg.provider === 'custom'){
     try{
-      var endpoint = cfg.provider === 'openrouter'
-        ? 'https://openrouter.ai/api/v1/chat/completions'
+      var endpoint = buildOpenAiCompatibleChatUrl(cfg.provider === 'openrouter'
+        ? 'https://openrouter.ai/api'
         : (cfg.provider === 'custom'
-          ? String((cfg.customUrl || getChatApiSetting('custom_url', '') || '').replace(/\/$/, '') || '').trim() + '/chat/completions'
-          : 'https://api.openai.com/v1/chat/completions');
+          ? String(cfg.customUrl || getChatApiSetting('custom_url', '') || '').trim()
+          : getOpenAiCompatibleChatBase(cfg.provider)));
+      if(!endpoint) return '';
       var headers = { 'Content-Type': 'application/json' };
       if(cfg.provider === 'openrouter'){
-        headers.Authorization = 'Bearer ' + cfg.key;
+        headers.Authorization = 'Bearer ' + pickApiCredential(cfg.key);
         headers['HTTP-Referer'] = 'https://ephone.app';
         headers['X-Title'] = 'Ephone';
       }else if(cfg.provider === 'custom'){
-        if(cfg.key) headers.Authorization = 'Bearer ' + cfg.key;
+        if(cfg.key) headers.Authorization = 'Bearer ' + pickApiCredential(cfg.key);
       }else{
-        headers.Authorization = 'Bearer ' + cfg.key;
+        headers.Authorization = 'Bearer ' + pickApiCredential(cfg.key);
       }
       var openRes = await fetch(endpoint, {
         method: 'POST',
@@ -20029,11 +20030,22 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
     }
   }
 
-  if (provider === 'openai') {
-    var res = await fetch('https://api.openai.com/v1/chat/completions', {
+  if (provider === 'openai' || provider === 'openrouter' || provider === 'custom') {
+    var compatibleBase = getOpenAiCompatibleChatBase(provider);
+    var compatibleUrl = buildOpenAiCompatibleChatUrl(compatibleBase);
+    if (!compatibleUrl) throw new Error('未设置反代地址');
+    var compatibleKey = key;
+    if(provider === 'custom') compatibleKey = key || getChatApiSetting('key_custom', '');
+    var compatibleModel = provider === 'custom' ? (getChatApiSetting('model_custom_manual', model) || model) : model;
+    var res = await fetch(compatibleUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-      body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] })
+      headers: buildOpenAiCompatibleHeaders(provider, compatibleKey),
+      body: JSON.stringify({
+        model: compatibleModel,
+        temperature: temperature,
+        stream: false,
+        messages: [{ role: 'system', content: sys }, { role: 'user', content: user }]
+      })
     });
     var d = await readAiJsonResponse(res);
     return extractAiResponseText(d);
@@ -20055,7 +20067,7 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
   }
 
   if (provider === 'gemini') {
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(pickApiCredential(key));
     var resGemini = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -20072,37 +20084,52 @@ async function callAIWithCustomPrompts(systemPrompt, userPrompt){
     return extractAiResponseText(dGemini);
   }
 
-  if (provider === 'openrouter') {
-    var resOr = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + key,
-        'HTTP-Referer': 'https://ephone.app',
-        'X-Title': 'Ephone'
-      },
-      body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] })
-    });
-    var dOr = await readAiJsonResponse(resOr);
-    return extractAiResponseText(dOr);
-  }
-
-  if (provider === 'custom') {
-    var baseUrl = getChatApiSetting('custom_url', '').replace(/\/$/, '');
-    if (!baseUrl) throw new Error('未设置反代地址');
-    var headers = { 'Content-Type': 'application/json' };
-    if (key) headers['Authorization'] = 'Bearer ' + key;
-    var customModel = getChatApiSetting('model_custom_manual', model) || model;
-    var resCustom = await fetch(baseUrl + '/chat/completions', {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ model: customModel, temperature: temperature, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] })
-    });
-    var dCustom = await readAiJsonResponse(resCustom);
-    return extractAiResponseText(dCustom);
-  }
-
   return '';
+}
+
+function normalizeAiProxyBaseUrl(url){
+  var base = String(url || '').trim().replace(/\/+$/, '');
+  if(!base) return '';
+  base = base.replace(/\/v1\/chat\/completions$/i, '');
+  base = base.replace(/\/chat\/completions$/i, '');
+  base = base.replace(/\/v1$/i, '');
+  return base.replace(/\/+$/, '');
+}
+
+function buildOpenAiCompatibleChatUrl(baseUrl){
+  var base = normalizeAiProxyBaseUrl(baseUrl);
+  if(!base) return '';
+  return base + '/v1/chat/completions';
+}
+
+function getOpenAiCompatibleChatBase(provider){
+  var customBase = normalizeAiProxyBaseUrl(getChatApiSetting('custom_url', ''));
+  if(customBase && provider !== 'gemini' && provider !== 'claude'){
+    return customBase;
+  }
+  if(provider === 'openrouter') return 'https://openrouter.ai/api';
+  if(provider === 'openai') return 'https://api.openai.com';
+  if(provider === 'custom') return customBase;
+  return '';
+}
+
+function buildOpenAiCompatibleHeaders(provider, key){
+  var headers = { 'Content-Type': 'application/json' };
+  var pickedKey = pickApiCredential(key);
+  if(pickedKey) headers.Authorization = 'Bearer ' + pickedKey;
+  if(provider === 'openrouter'){
+    headers['HTTP-Referer'] = 'https://ephone.app';
+    headers['X-Title'] = 'Ephone';
+  }
+  return headers;
+}
+
+function pickApiCredential(value){
+  var raw = String(value || '').trim();
+  if(!raw) return '';
+  var list = raw.split(',').map(function(item){ return String(item || '').trim(); }).filter(Boolean);
+  if(list.length <= 1) return raw;
+  return list[Math.floor(Math.random() * list.length)] || list[0] || raw;
 }
 
 async function describeImageWithVision(imageSrc, options){
@@ -21514,12 +21541,13 @@ async function requestAndDeliverAiReply(provider, key){
   } catch(err) {
     var typingElapsedOnError = Date.now() - typingStartedAt;
     if(typingElapsedOnError < 120) await sleep(120 - typingElapsedOnError);
-    hideTyping();
     if(isAbortLikeError(err) && activeAiAbortReason === 'user-stop'){
+      hideTyping();
       toast('这句先停在这里');
       hideError();
       return false;
     }
+    hideTyping();
     var errMsg = humanizeAiError(err);
     showError('AI 回复失败: ' + errMsg);
     toast(errMsg, { sticky:true });
@@ -22055,12 +22083,23 @@ async function callAI(provider, key) {
 
 async function callAIChat(provider, key, model, temperature, sys, msgs) {
   var abortSignal = activeAiAbortController && activeAiAbortController.signal ? activeAiAbortController.signal : undefined;
-  if (provider === 'openai') {
-    var resOpenAi = await fetch('https://api.openai.com/v1/chat/completions', {
+  if (provider === 'openai' || provider === 'openrouter' || provider === 'custom') {
+    var compatibleBase = getOpenAiCompatibleChatBase(provider);
+    var compatibleUrl = buildOpenAiCompatibleChatUrl(compatibleBase);
+    if (!compatibleUrl) throw new Error('未设置反代地址，请在设置中填写');
+    var compatibleKey = key;
+    if(provider === 'custom') compatibleKey = key || getChatApiSetting('key_custom', '');
+    var compatibleModel = provider === 'custom' ? (getChatApiSetting('model_custom_manual', model) || model) : model;
+    var resOpenAi = await fetch(compatibleUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      headers: buildOpenAiCompatibleHeaders(provider, compatibleKey),
       signal: abortSignal,
-      body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
+      body: JSON.stringify({
+        model: compatibleModel,
+        temperature: temperature,
+        stream: false,
+        messages: [{ role: 'system', content: sys }, ...msgs]
+      })
     });
     var dOpenAi = await readAiJsonResponse(resOpenAi);
     return extractAiResponseText(dOpenAi);
@@ -22083,7 +22122,7 @@ async function callAIChat(provider, key, model, temperature, sys, msgs) {
   }
 
   if (provider === 'gemini') {
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + key;
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(pickApiCredential(key));
     var contents = [];
     for(var mi = 0; mi < msgs.length; mi += 1){
       var m = msgs[mi];
@@ -22147,43 +22186,6 @@ async function callAIChat(provider, key, model, temperature, sys, msgs) {
     });
     var dGemini = await readAiJsonResponse(resGemini);
     return extractAiResponseText(dGemini);
-  }
-
-  if (provider === 'openrouter') {
-    var resOr = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + key,
-        'HTTP-Referer': 'https://ephone.app',
-        'X-Title': 'Ephone'
-      },
-      signal: abortSignal,
-      body: JSON.stringify({ model: model, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
-    });
-    var dOr = await readAiJsonResponse(resOr);
-    return extractAiResponseText(dOr);
-  }
-
-  if (provider === 'custom') {
-    var baseUrl = getChatApiSetting('custom_url', '').replace(/\/$/, '');
-    if (!baseUrl) throw new Error('未设置反代地址，请在设置中填写');
-    var headers = { 'Content-Type': 'application/json' };
-    if (key) headers['Authorization'] = 'Bearer ' + key;
-    var customModel = getChatApiSetting('model_custom_manual', model) || model;
-    var resCustom;
-    try{
-      resCustom = await fetch(baseUrl + '/chat/completions', {
-        method: 'POST',
-        headers: headers,
-        signal: abortSignal,
-        body: JSON.stringify({ model: customModel, temperature: temperature, messages: [{ role: 'system', content: sys }, ...msgs] })
-      });
-    }catch(err){
-      throw new Error('自定义接口请求失败：可能被浏览器跨域拦截。请在 ' + baseUrl + ' 开启 CORS（Allow-Origin / Allow-Headers / Allow-Methods，并正确响应 OPTIONS）。');
-    }
-    var dCustom = await readAiJsonResponse(resCustom);
-    return extractAiResponseText(dCustom);
   }
 
   throw new Error('未知 provider: ' + provider);

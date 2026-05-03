@@ -52,12 +52,12 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T00:54:00Z';
+const APP_BUILD_ID = '2026-05-03T01:08:00Z';
 const APP_UPDATE_NOTES = [
-  '聊天打开先恢复完整角色',
-  '角色镜像延后压缩',
-  '线上回复恢复读取完整设定',
-  '缓存清理不影响当前聊天'
+  '线上 API 调用改成兼容接口',
+  '自定义接口统一走 v1 路径',
+  '移动端请求失败显示真实原因',
+  '聊天回复不再吞掉请求错误'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -5208,13 +5208,57 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
       throw new Error(humanizeShellApiMessage(err));
     }
   }
-  if(cfg.provider === 'openai'){
-    var d = await fetchShellAiJson('https://api.openai.com/v1/chat/completions', {
+
+  function normalizeShellAiProxyBaseUrl(url){
+    var base = String(url || '').trim().replace(/\/+$/, '');
+    if(!base) return '';
+    base = base.replace(/\/v1\/chat\/completions$/i, '');
+    base = base.replace(/\/chat\/completions$/i, '');
+    base = base.replace(/\/v1$/i, '');
+    return base.replace(/\/+$/, '');
+  }
+  function buildShellOpenAiCompatibleChatUrl(baseUrl){
+    var base = normalizeShellAiProxyBaseUrl(baseUrl);
+    return base ? base + '/v1/chat/completions' : '';
+  }
+  function getShellOpenAiCompatibleChatBase(provider, customUrl){
+    var customBase = normalizeShellAiProxyBaseUrl(customUrl || getShellApiSetting('custom_url', ''));
+    if(customBase && provider !== 'gemini' && provider !== 'claude') return customBase;
+    if(provider === 'openrouter') return 'https://openrouter.ai/api';
+    if(provider === 'openai') return 'https://api.openai.com';
+    if(provider === 'custom') return customBase;
+    return '';
+  }
+  function buildShellOpenAiCompatibleHeaders(provider, key){
+    var headers = { 'Content-Type':'application/json' };
+    var pickedKey = pickShellApiCredential(key);
+    if(pickedKey) headers.Authorization = 'Bearer ' + pickedKey;
+    if(provider === 'openrouter'){
+      headers['HTTP-Referer'] = 'https://ephone.app';
+      headers['X-Title'] = 'Ephone';
+    }
+    return headers;
+  }
+  function pickShellApiCredential(value){
+    var raw = String(value || '').trim();
+    if(!raw) return '';
+    var list = raw.split(',').map(function(item){ return String(item || '').trim(); }).filter(Boolean);
+    if(list.length <= 1) return raw;
+    return list[Math.floor(Math.random() * list.length)] || list[0] || raw;
+  }
+
+  if(cfg.provider === 'openai' || cfg.provider === 'openrouter' || cfg.provider === 'custom'){
+    var compatibleBase = getShellOpenAiCompatibleChatBase(cfg.provider, cfg.customUrl);
+    var compatibleUrl = buildShellOpenAiCompatibleChatUrl(compatibleBase);
+    if(!compatibleUrl) throw new Error('未设置反代地址');
+    var compatibleModel = cfg.provider === 'custom' ? (getShellApiSetting('model_custom_manual', cfg.model) || cfg.model) : cfg.model;
+    var d = await fetchShellAiJson(compatibleUrl, {
       method: 'POST',
-      headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + cfg.key },
+      headers: buildShellOpenAiCompatibleHeaders(cfg.provider, cfg.key),
       body: JSON.stringify({
-        model: cfg.model,
+        model: compatibleModel,
         temperature: cfg.temperature,
+        stream: false,
         messages: [{ role:'system', content: sysPrompt }, { role:'user', content: userPrompt }]
       })
     });
@@ -5239,7 +5283,7 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
     return dc.content && dc.content[0] ? dc.content[0].text : '';
   }
   if(cfg.provider === 'gemini'){
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + cfg.model + ':generateContent?key=' + cfg.key;
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + cfg.model + ':generateContent?key=' + encodeURIComponent(pickShellApiCredential(cfg.key));
     var dg = await fetchShellAiJson(url, {
       method: 'POST',
       headers: { 'Content-Type':'application/json' },
@@ -5254,37 +5298,6 @@ async function callAiForBackground(cfg, sysPrompt, userPrompt){
     });
     return dg.candidates && dg.candidates[0] && dg.candidates[0].content && dg.candidates[0].content.parts && dg.candidates[0].content.parts[0]
       ? dg.candidates[0].content.parts[0].text : '';
-  }
-  if(cfg.provider === 'openrouter'){
-    var dor = await fetchShellAiJson('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type':'application/json',
-        'Authorization':'Bearer ' + cfg.key,
-        'HTTP-Referer':'https://ephone.app',
-        'X-Title':'Ephone'
-      },
-      body: JSON.stringify({
-        model: cfg.model,
-        temperature: cfg.temperature,
-        messages: [{ role:'system', content: sysPrompt }, { role:'user', content: userPrompt }]
-      })
-    });
-    return dor.choices && dor.choices[0] && dor.choices[0].message ? dor.choices[0].message.content : '';
-  }
-  if(cfg.provider === 'custom'){
-    var headers = { 'Content-Type':'application/json' };
-    if(cfg.key) headers['Authorization'] = 'Bearer ' + cfg.key;
-    var dcustom = await fetchShellAiJson(cfg.customUrl + '/chat/completions', {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({
-        model: getShellApiSetting('model_custom_manual', cfg.model) || cfg.model,
-        temperature: cfg.temperature,
-        messages: [{ role:'system', content: sysPrompt }, { role:'user', content: userPrompt }]
-      })
-    });
-    return dcustom.choices && dcustom.choices[0] && dcustom.choices[0].message ? dcustom.choices[0].message.content : '';
   }
   return '';
 }
