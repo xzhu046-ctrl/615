@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-05-03T02:30:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T02:30:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T02:30:00Z"></script>
-<script src="../promptManager.js?v=2026-05-03T02:30:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T02:30:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T02:30:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T02:30:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T02:30:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T02:53:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T02:53:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T02:53:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T02:53:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T02:53:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T02:53:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T02:53:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T02:53:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -1122,6 +1122,8 @@ var offlineEditingIndex = -1;
 var offlineSummaryQueue = {};
 var offlineStageSummaryQueue = {};
 var offlineSharedMemorySummaryQueue = {};
+var offlineSharedMemoryCheckTimer = 0;
+var offlineSharedMemoryLastQueuedCount = 0;
 var offlineDrawerBound = false;
 var offlineDrawerDraft = null;
 var offlineDrawerPageBgPendingAsset = '';
@@ -4711,6 +4713,20 @@ function queueOfflineSharedMemorySummaryGeneration(){
   }).finally(function(){
     delete offlineSharedMemorySummaryQueue[key];
   });
+}
+
+function queueOfflineSharedMemorySummaryCheck(){
+  if(!session || !character || !character.id) return;
+  var count = getOfflineStoryEntries().filter(function(entry){
+    return entry && (entry.role === 'user' || entry.role === 'assistant') && String(entry.text || '').trim();
+  }).length;
+  if(!count || count === offlineSharedMemoryLastQueuedCount) return;
+  offlineSharedMemoryLastQueuedCount = count;
+  clearTimeout(offlineSharedMemoryCheckTimer);
+  offlineSharedMemoryCheckTimer = setTimeout(function(){
+    offlineSharedMemoryCheckTimer = 0;
+    queueOfflineSharedMemorySummaryGeneration();
+  }, 160);
 }
 
 async function manualOfflineStageSummary(overrideCount){
@@ -12239,6 +12255,7 @@ async function generateOpeningIfNeeded(){
         session.lastErrorDetail = null;
         session.pendingOpening = false;
         saveSession();
+        queueOfflineSharedMemorySummaryCheck();
         queueOfflineStageSummaryGeneration();
         renderStory();
         renderOfflineInviteDebugCard();
@@ -12419,6 +12436,7 @@ async function generateOpeningIfNeeded(){
       session.lastErrorDetail = null;
       session.pendingOpening = false;
       saveSession();
+      queueOfflineSharedMemorySummaryCheck();
       queueOfflineStageSummaryGeneration();
       renderOfflineInviteDebugCard();
       hideFlightOverlay();
@@ -12749,6 +12767,7 @@ async function generateOpeningIfNeeded(){
     session.lastErrorDetail = null;
     session.pendingOpening = false;
     saveSession();
+    queueOfflineSharedMemorySummaryCheck();
     queueOfflineInlineTranslationsPrefetch(openingEntry);
     queueOfflineSummaryGeneration(openingEntry);
     queueOfflineStageSummaryGeneration();
@@ -12798,6 +12817,7 @@ async function generateOpeningIfNeeded(){
         session.lastErrorDetail = null;
         session.pendingOpening = false;
         saveSession();
+        queueOfflineSharedMemorySummaryCheck();
         queueOfflineInlineTranslationsPrefetch(emergencyEntry);
         queueOfflineSummaryGeneration(emergencyEntry);
         queueOfflineStageSummaryGeneration();
@@ -12859,6 +12879,7 @@ async function sendOfflineTurn(){
   if(input) input.value = '';
   saveSession();
   queueOfflineStageSummaryGeneration();
+  queueOfflineSharedMemorySummaryCheck();
   renderStory();
   keepOfflineComposerVisible();
   setOfflineComposerBusy(false);
@@ -12972,6 +12993,7 @@ async function requestOfflineReply(options){
         session.lastReplyError = '';
         session.lastErrorDetail = null;
         saveSession();
+        queueOfflineSharedMemorySummaryCheck();
         queueOfflineStageSummaryGeneration();
         renderStory();
         renderOfflineInviteDebugCard();
@@ -13163,6 +13185,7 @@ async function requestOfflineReply(options){
       session.lastReplyError = '';
       session.lastErrorDetail = null;
       saveSession();
+      queueOfflineSharedMemorySummaryCheck();
       queueOfflineStageSummaryGeneration();
       renderStory();
       renderOfflineInviteDebugCard();
@@ -13419,6 +13442,7 @@ async function requestOfflineReply(options){
     session.lastReplyError = '';
     session.lastErrorDetail = null;
     saveSession();
+    queueOfflineSharedMemorySummaryCheck();
     queueOfflineInlineTranslationsPrefetch(replyEntry);
     queueOfflineSummaryGeneration(replyEntry);
     queueOfflineStageSummaryGeneration();
@@ -13465,6 +13489,7 @@ async function requestOfflineReply(options){
         session.lastReplyError = '';
         session.lastErrorDetail = null;
         saveSession();
+        queueOfflineSharedMemorySummaryCheck();
         queueOfflineInlineTranslationsPrefetch(emergencyEntry);
         queueOfflineSummaryGeneration(emergencyEntry);
         queueOfflineStatusCardGeneration(emergencyEntry);
