@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-03T03:01:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T03:01:00Z"></script>
-<script src="../assetStore.js?v=2026-05-03T03:01:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T03:01:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T03:01:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T03:01:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T03:01:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T03:01:00Z"></script>
-<script src="../sunnySupport.js?v=2026-05-03T03:01:00Z"></script>
-<script src="offlineInvite.js?v=2026-05-03T03:01:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T03:09:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T03:09:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T03:09:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T03:09:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T03:09:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T03:09:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T03:09:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T03:09:00Z"></script>
+<script src="../sunnySupport.js?v=2026-05-03T03:09:00Z"></script>
+<script src="offlineInvite.js?v=2026-05-03T03:09:00Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -4849,17 +4849,17 @@ async function hydrateCharacterStorageState(){
   var moneyRec = results[3];
   var callRec = results[4];
 
-  var hasPrimaryChatRecord = !!(chatRec && Array.isArray(chatRec.history));
-  var chatHistory = hasPrimaryChatRecord ? chatRec.history.map(normalizeChatEntry) : [];
-  if(hasPrimaryChatRecord && !chatHistory.length){
+  var primaryChatRecord = normalizeStoredChatRecord(chatRec, chatId);
+  var hasPrimaryChatRecord = !!(primaryChatRecord && Array.isArray(primaryChatRecord.history));
+  var bestChatRecord = await loadBestChatHistoryRecord(charId);
+  var chosenChatRecord = chooseBetterChatHistory(primaryChatRecord, bestChatRecord);
+  var chatHistory = Array.isArray(chosenChatRecord && chosenChatRecord.history) ? chosenChatRecord.history.slice() : [];
+  if(hasPrimaryChatRecord && !primaryChatRecord.history.length){
     chatStorageHadCanonicalEmpty = true;
   }
-  if(!hasPrimaryChatRecord || !chatHistory.length){
-    var bestChatRecord = await loadBestChatHistoryRecord(charId);
-    if(bestChatRecord && Array.isArray(bestChatRecord.history) && !bestChatRecord.history.length){
-      chatStorageHadCanonicalEmpty = true;
-    }
-    chatHistory = Array.isArray(bestChatRecord && bestChatRecord.history) ? bestChatRecord.history.slice() : [];
+  if(chosenChatRecord && Array.isArray(chosenChatRecord.history) && !chosenChatRecord.history.length){
+    chatStorageHadCanonicalEmpty = true;
+    rememberStoredChatClearTombstone(chosenChatRecord);
   }
 
   var nextMemoryStore = normalizeMemorySummaryStore(memoryRec && memoryRec.data ? memoryRec.data : parseLegacyMemorySummaryStore(localStorage.getItem(memorySummaryKey())));
@@ -29334,6 +29334,20 @@ function rememberStoredChatClearTombstone(record){
   if(clearAt) lastChatClearTombstoneAt = Math.max(Number(lastChatClearTombstoneAt || 0) || 0, clearAt);
 }
 
+function getChatRecordClearTombstoneAt(record){
+  if(!record || !Array.isArray(record.history) || record.history.length) return 0;
+  return Number(record.deletedAt || record.clearTombstoneAt || 0) || 0;
+}
+
+function chatHistoryHasEntryAfter(list, cutoff){
+  var after = Number(cutoff || 0) || 0;
+  if(!after) return Array.isArray(list) && list.length > 0;
+  return (Array.isArray(list) ? list : []).some(function(entry){
+    var ts = Number((entry && (entry.sentAt || entry.readAt || entry.createdAt || entry.updatedAt)) || 0) || 0;
+    return ts > after;
+  });
+}
+
 function buildChatStorageRecord(key, storedHistory, revision){
   var history = Array.isArray(storedHistory) ? storedHistory : [];
   if(history.length) lastChatClearTombstoneAt = 0;
@@ -29682,21 +29696,17 @@ function chooseBetterChatHistory(best, next){
   if(!best || !Array.isArray(best.history)) return next;
   var bestUpdatedAt = Number(best.updatedAt || best.revision || 0) || 0;
   var nextUpdatedAt = Number(next.updatedAt || next.revision || 0) || 0;
-  var bestDeletedAt = Number(best.deletedAt || best.clearTombstoneAt || 0) || 0;
-  var nextDeletedAt = Number(next.deletedAt || next.clearTombstoneAt || 0) || 0;
+  var bestDeletedAt = getChatRecordClearTombstoneAt(best);
+  var nextDeletedAt = getChatRecordClearTombstoneAt(next);
   if(!next.history.length && nextDeletedAt){
     if(best.history.length){
-      var bestDeleteCompareStamp = historySortStamp(best.history);
-      var bestLastAt = Math.max(bestUpdatedAt, bestDeleteCompareStamp.lastTs || 0);
-      return nextDeletedAt >= bestLastAt ? next : best;
+      return chatHistoryHasEntryAfter(best.history, nextDeletedAt) ? best : next;
     }
     return nextDeletedAt >= (bestDeletedAt || bestUpdatedAt) ? next : best;
   }
   if(!best.history.length && bestDeletedAt){
     if(next.history.length){
-      var nextDeleteCompareStamp = historySortStamp(next.history);
-      var nextLastAt = Math.max(nextUpdatedAt, nextDeleteCompareStamp.lastTs || 0);
-      return bestDeletedAt >= nextLastAt ? best : next;
+      return chatHistoryHasEntryAfter(next.history, bestDeletedAt) ? next : best;
     }
     return bestDeletedAt >= (nextDeletedAt || nextUpdatedAt) ? best : next;
   }
@@ -29754,7 +29764,7 @@ async function loadBestChatHistoryRecord(charId){
       }
     }
   }
-  if(!best && window.PhoneStorage && typeof window.PhoneStorage.list === 'function'){
+  if(window.PhoneStorage && typeof window.PhoneStorage.list === 'function'){
     try{
       var allRecords = await window.PhoneStorage.list('chats');
       var charIds = getChatCharacterIdCandidates(charId);

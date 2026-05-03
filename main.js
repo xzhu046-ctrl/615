@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T03:01:00Z';
+const APP_BUILD_ID = '2026-05-03T03:09:00Z';
 const APP_UPDATE_NOTES = [
-  '清空聊天后不会再恢复旧记录',
-  '退出返回会尊重已删除状态',
-  '聊天保存记录更稳定'
+  '清空聊天会压住所有旧副本',
+  '退出返回不再捞回旧记录',
+  '聊天恢复顺序更准确'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
