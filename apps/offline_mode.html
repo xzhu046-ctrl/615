@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=overlays-content">
 <title>线下模式</title>
 <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=Caveat:wght@600;700&family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../assetStore.js?v=2026-05-03T03:19:00Z"></script>
-<script src="../chatStorage.js?v=2026-05-03T03:19:00Z"></script>
-<script src="../metadataStore.js?v=2026-05-03T03:19:00Z"></script>
-<script src="../promptManager.js?v=2026-05-03T03:19:00Z"></script>
-<script src="../accountManager.js?v=2026-05-03T03:19:00Z"></script>
-<script src="../scheduleShared.js?v=2026-05-03T03:19:00Z"></script>
-<script src="../presenceShared.js?v=2026-05-03T03:19:00Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-03T03:19:00Z"></script>
+<script src="../assetStore.js?v=2026-05-03T05:36:00Z"></script>
+<script src="../chatStorage.js?v=2026-05-03T05:36:00Z"></script>
+<script src="../metadataStore.js?v=2026-05-03T05:36:00Z"></script>
+<script src="../promptManager.js?v=2026-05-03T05:36:00Z"></script>
+<script src="../accountManager.js?v=2026-05-03T05:36:00Z"></script>
+<script src="../scheduleShared.js?v=2026-05-03T05:36:00Z"></script>
+<script src="../presenceShared.js?v=2026-05-03T05:36:00Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-03T05:36:00Z"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -2406,7 +2406,7 @@ async function queueOfflineEndArtifacts(targetCharId, snapshot){
   }
 }
 function defaultOnlineMemorySummaryStore(){
-  return { covered: 0, progress: 0, items: [], advancedMemory: null };
+  return { covered: 0, progress: 0, offlineCovered: 0, offlineProgress: 0, items: [], advancedMemory: null };
 }
 function approxOfflineTokenCount(text){
   var src = String(text || '');
@@ -2451,6 +2451,8 @@ function normalizeOnlineMemorySummaryStore(store){
   }).filter(function(it){ return !!it.text; }) : [];
   next.covered = Math.max(0, Number(next.covered || 0) || 0);
   next.progress = Math.max(next.covered, Number(next.progress || 0) || 0);
+  next.offlineCovered = Math.max(0, Number(next.offlineCovered || 0) || 0);
+  next.offlineProgress = Math.max(next.offlineCovered, Number(next.offlineProgress || 0) || 0);
   next.updatedAt = Math.max(
     Number(next.updatedAt || 0) || 0,
     next.items.reduce(function(max, item){
@@ -4621,8 +4623,8 @@ async function appendOfflineSharedMemorySummaries(options){
   store.advancedMemory = normalizeOfflineAdvancedMemoryState(store.advancedMemory);
   var mode = getOfflineMemoryModeFromStore(store) === 'structured' ? 'structured' : 'diary';
   var covered = mode === 'structured'
-    ? Math.max(0, Math.min(Number(store.advancedMemory.structured.covered || 0) || 0, entries.length))
-    : Math.max(0, Math.min(Number(store.covered || 0) || 0, entries.length));
+    ? Math.max(0, Math.min(Number(store.advancedMemory.structured.offlineCovered || 0) || 0, entries.length))
+    : Math.max(0, Math.min(Number(store.offlineCovered || 0) || 0, entries.length));
   var ranges = [];
   if(force){
     var manualTo = entries.length;
@@ -4683,14 +4685,14 @@ async function appendOfflineSharedMemorySummaries(options){
         store.advancedMemory.structured.shortTerm = normalizeOfflineLittleBrainShortTermItems(shortTerm);
       }
       store.advancedMemory.mode = 'structured';
-      store.advancedMemory.structured.covered = to;
+      store.advancedMemory.structured.offlineCovered = to;
       store.advancedMemory.structured.lastUpdated = now;
     }else{
       store.advancedMemory.mode = 'diary';
-      store.covered = to;
-      store.progress = Math.max(Number(store.progress || 0) || 0, to);
+      store.offlineCovered = to;
+      store.offlineProgress = Math.max(Number(store.offlineProgress || 0) || 0, to);
     }
-    await saveOfflineMemoryStore({ items: store.items, advancedMemory: store.advancedMemory, covered: store.covered, progress: store.progress });
+    await saveOfflineMemoryStore({ items: store.items, advancedMemory: store.advancedMemory, covered: store.covered, progress: store.progress, offlineCovered: store.offlineCovered, offlineProgress: store.offlineProgress });
   }
   refreshOfflineMemoryButton();
   return store;
@@ -8885,7 +8887,8 @@ function defaultOfflineAdvancedMemoryState(){
       emotions:[],
       shortTerm:[],
       custom:{},
-      customCategories:{}
+      customCategories:{},
+      offlineCovered:0
     },
     vector:{
       coreMemories:[],
@@ -8966,6 +8969,7 @@ function normalizeOfflineAdvancedMemoryState(raw){
     custom: structured.custom && typeof structured.custom === 'object' ? structured.custom : {},
     customCategories: structured.customCategories && typeof structured.customCategories === 'object' ? structured.customCategories : {},
     covered: Math.max(0, Number(structured.covered || 0) || 0),
+    offlineCovered: Math.max(0, Number(structured.offlineCovered || 0) || 0),
     lastUpdated: Math.max(0, Number(structured.lastUpdated || 0) || 0)
   };
   var vector = source.vector && typeof source.vector === 'object' ? source.vector : {};

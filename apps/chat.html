@@ -4397,6 +4397,7 @@ function defaultStructuredMemoryState(){
     },
     custom: {},
     covered: 0,
+    offlineCovered: 0,
     lastUpdated: 0
   };
 }
@@ -4453,6 +4454,7 @@ function normalizeStructuredMemoryState(raw){
   );
   next.custom = src.custom && typeof src.custom === 'object' ? cloneJsonSafe(src.custom, {}) : {};
   next.covered = Math.max(0, Number(src.covered || 0) || 0);
+  next.offlineCovered = Math.max(0, Number(src.offlineCovered || 0) || 0);
   next.lastUpdated = Math.max(0, Number(src.lastUpdated || 0) || 0);
   return next;
 }
@@ -4597,6 +4599,8 @@ function parseLegacyMemorySummaryStore(rawText){
     return {
       covered: computeMemoryCoveredFromItems(items),
       progress: Math.max(computeMemoryCoveredFromItems(items), progressRaw),
+      offlineCovered: Math.max(0, Number(raw.offlineCovered || 0) || 0),
+      offlineProgress: Math.max(0, Number(raw.offlineProgress || raw.offlineCovered || 0) || 0),
       items: items,
       advancedMemory: Object.assign({}, advancedMemory, {
         mode: advancedMemory.mode === MEMORY_MODE_STRUCTURED ? MEMORY_MODE_STRUCTURED : MEMORY_MODE_DIARY,
@@ -4632,6 +4636,8 @@ function normalizeMemorySummaryStore(store){
   if(legacyVectorItems.length) next.items = next.items.concat(legacyVectorItems);
   next.covered = computeMemoryCoveredFromItems(next.items);
   next.progress = Math.max(next.covered, Number(next.progress || 0) || 0);
+  next.offlineCovered = Math.max(0, Number(next.offlineCovered || 0) || 0);
+  next.offlineProgress = Math.max(next.offlineCovered, Number(next.offlineProgress || 0) || 0);
   next.advancedMemory.mode = next.advancedMemory.mode === MEMORY_MODE_STRUCTURED ? MEMORY_MODE_STRUCTURED : MEMORY_MODE_DIARY;
   next.advancedMemory.vector = defaultVectorMemoryState();
   return next;
@@ -4991,7 +4997,10 @@ function isPinnedMemoryItem(it){
   return !!(it && (it.manual || it.pinned));
 }
 function computeMemoryCoveredFromItems(items){
-  var list = Array.isArray(items) ? items.filter(isMemoryRangeItem).slice() : [];
+  var list = Array.isArray(items) ? items.filter(function(item){
+    if(!isMemoryRangeItem(item)) return false;
+    return !/^offline_/.test(String(item && item.sourceType || '').trim());
+  }).slice() : [];
   list.sort(function(a, b){
     return (Number(a.from || 0) || 0) - (Number(b.from || 0) || 0);
   });
@@ -7883,7 +7892,7 @@ function cloneJsonSafe(value, fallback){
 }
 
 function defaultMemorySummaryStore(){
-  return { covered: 0, progress: 0, items: [], advancedMemory: defaultAdvancedMemoryState() };
+  return { covered: 0, progress: 0, offlineCovered: 0, offlineProgress: 0, items: [], advancedMemory: defaultAdvancedMemoryState() };
 }
 
 function defaultInnerVoiceStore(){

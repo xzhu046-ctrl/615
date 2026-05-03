@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T05:18:00Z';
+const APP_BUILD_ID = '2026-05-03T05:36:00Z';
 const APP_UPDATE_NOTES = [
-  '减少心声后偶发空回',
-  '先解析完整JSON再拆心声',
-  '保留当前旁白效果'
+  '线下总结进度单独记录',
+  '线下记忆不再挡住线上总结',
+  '修复已有线上记忆时线下不触发'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
