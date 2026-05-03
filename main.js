@@ -52,10 +52,10 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T06:02:00Z';
+const APP_BUILD_ID = '2026-05-03T06:08:00Z';
 const APP_UPDATE_NOTES = [
   '导出配置不再跳走页面',
-  '手机端CSS输入改为实时补捉',
+  '手机端CSS输入改为实时捕捉',
   '更新自定义样式缓存参数'
 ];
 const INVITE_GATE_CONFIG = {
