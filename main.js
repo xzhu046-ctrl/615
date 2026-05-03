@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T12:40:21Z';
+const APP_BUILD_ID = '2026-05-03T12:54:19Z';
 const APP_UPDATE_NOTES = [
-  '底栏不再遮住分页点',
-  '主屏底栏位置更贴底',
-  '移动端主屏滑动更稳'
+  '修复安卓主屏被挤出滚动',
+  '分页点回到底栏上方',
+  '聊天返回不再被保存卡住'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -10209,27 +10209,45 @@ function runAppTransition(task){
   return appTransitionPromise;
 }
 
+function waitForAppPersistWithTimeout(promise, label, timeoutMs){
+  if(!promise || typeof promise.then !== 'function') return Promise.resolve();
+  var done = false;
+  return Promise.race([
+    Promise.resolve(promise).catch(function(err){
+      console.warn((label || 'app persist') + ' failed', err);
+    }).then(function(){
+      done = true;
+    }),
+    new Promise(function(resolve){
+      setTimeout(function(){
+        if(!done) console.warn((label || 'app persist') + ' timed out');
+        resolve();
+      }, Math.max(250, Number(timeoutMs) || 900));
+    })
+  ]);
+}
+
 async function flushCurrentAppState(){
   try{
     const f = document.getElementById('app-iframe');
     if(!f || !f.contentWindow) return;
     try{
       if(typeof f.contentWindow.waitForPendingChatSave === 'function'){
-        await f.contentWindow.waitForPendingChatSave();
+        await waitForAppPersistWithTimeout(f.contentWindow.waitForPendingChatSave(), 'pending chat save', 900);
       }
     }catch(err){}
     try{
       if(typeof f.contentWindow.persistAppBeforeLeave === 'function'){
         var appPersistResult = f.contentWindow.persistAppBeforeLeave();
-        if(appPersistResult && typeof appPersistResult.then === 'function') await appPersistResult;
+        await waitForAppPersistWithTimeout(appPersistResult, 'app before leave', 900);
       }
     }catch(err){}
     try{
       if(typeof f.contentWindow.saveChat === 'function'){
-        await f.contentWindow.saveChat(true);
+        await waitForAppPersistWithTimeout(f.contentWindow.saveChat(true), 'chat save before leave', 900);
       }else if(typeof f.contentWindow.persistChatBeforeLeave === 'function'){
         var result = f.contentWindow.persistChatBeforeLeave();
-        if(result && typeof result.then === 'function') await result;
+        await waitForAppPersistWithTimeout(result, 'chat persist before leave', 900);
       }
     }catch(err){}
     try{
