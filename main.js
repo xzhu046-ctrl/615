@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T11:15:39Z';
+const APP_BUILD_ID = '2026-05-03T11:28:08Z';
 const APP_UPDATE_NOTES = [
-  '修复邀请码输入框点不动',
-  '主屏底栏稍微上移',
-  '减淡底栏白雾'
+  '修复大屏底栏消失',
+  '主屏底栏按真实视口校正',
+  'iPad 识别更稳定'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1180,6 +1180,7 @@ function applyPhoneFrameVisibility(visible, persist){
   const outer = document.querySelector('.phone-outer');
   if(!outer) return;
   outer.classList.toggle('frame-off', !visible);
+  syncHomeDockPortal();
   if(persist){
     localStorage.setItem(PHONE_FRAME_STORAGE_KEY, visible ? '1' : '0');
   }
@@ -1213,7 +1214,10 @@ function isAndroidShell(){
 
 function isIOSShell(){
   try{
-    return /iPad|iPhone|iPod/i.test(String((window.navigator && window.navigator.userAgent) || '')) || window.navigator.standalone === true;
+    var nav = window.navigator || {};
+    var ua = String(nav.userAgent || '');
+    var platform = String(nav.platform || '');
+    return /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && Number(nav.maxTouchPoints || 0) > 1) || nav.standalone === true;
   }catch(e){
     return false;
   }
@@ -1254,6 +1258,64 @@ function postShellMetadataDirtyToCurrentApp(topic){
 }
 
 let stableShellAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+let homeDockPlaceholder = null;
+
+function syncHomeDockPortal(){
+  const dock = document.getElementById('app-grid');
+  const outer = document.querySelector('.phone-outer');
+  if(!dock || !outer) return;
+  if(!homeDockPlaceholder && dock.parentNode){
+    homeDockPlaceholder = document.createComment('home dock anchor');
+    dock.parentNode.insertBefore(homeDockPlaceholder, dock);
+  }
+  const shouldPortal = outer.classList.contains('frame-off') && (isIOSShell() || isAndroidShell());
+  if(shouldPortal){
+    if(dock.parentNode !== outer){
+      outer.appendChild(dock);
+    }
+    dock.classList.add('home-dock-portal');
+    return;
+  }
+  if(homeDockPlaceholder && homeDockPlaceholder.parentNode && dock.parentNode !== homeDockPlaceholder.parentNode){
+    homeDockPlaceholder.parentNode.insertBefore(dock, homeDockPlaceholder.nextSibling);
+  }
+  dock.classList.remove('home-dock-portal');
+}
+
+function getShellViewportBottom(){
+  const vv = window.visualViewport;
+  const visualBottom = vv && vv.height ? (Number(vv.height) + Math.max(0, Number(vv.offsetTop) || 0)) : 0;
+  const layoutBottom = window.innerHeight || document.documentElement.clientHeight || 0;
+  return Math.round(visualBottom || layoutBottom || 0) || 0;
+}
+
+function adjustHomeDockIntoViewport(){
+  if(!(isIOSShell() && !isAndroidShell())) return;
+  syncHomeDockPortal();
+  const outer = document.querySelector('.phone-outer.frame-off');
+  const dock = document.getElementById('app-grid');
+  if(!outer || !dock || outer.classList.contains('app-open')) return;
+  const rect = dock.getBoundingClientRect();
+  const viewportBottom = getShellViewportBottom();
+  if(!viewportBottom || !rect.height || rect.bottom <= 0) return;
+  const wantedGap = Math.max(14, Math.min(32, Math.round(viewportBottom * 0.018)));
+  const overflow = rect.bottom - (viewportBottom - wantedGap);
+  if(overflow <= 1) return;
+  const current = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--home-dock-bottom')) || 46;
+  const next = Math.min(160, Math.ceil(current + Math.min(88, overflow + 8)));
+  document.documentElement.style.setProperty('--home-dock-bottom', next + 'px');
+}
+
+function queueHomeDockViewportCheck(){
+  if(!(isIOSShell() && !isAndroidShell())) return;
+  requestAnimationFrame(function(){
+    adjustHomeDockIntoViewport();
+    requestAnimationFrame(adjustHomeDockIntoViewport);
+  });
+  [120, 360, 720].forEach(function(delay){
+    setTimeout(adjustHomeDockIntoViewport, delay);
+  });
+}
 
 function getCurrentShellKeyboardInset(){
   const vv = window.visualViewport;
@@ -1333,6 +1395,10 @@ function syncAppHeight(){
   document.documentElement.style.setProperty('--mobile-frame-drop', mobileFrameDrop + 'px');
   document.documentElement.style.setProperty('--frameoff-scale', String(frameScale > 0 ? frameScale : 1));
   document.documentElement.style.setProperty('--home-dock-bottom', homeDockBottom + 'px');
+  syncHomeDockPortal();
+  if(isIos && !keyboardLikelyOpen){
+    queueHomeDockViewportCheck();
+  }
 }
 
 function isGifDataUrl(dataUrl){
