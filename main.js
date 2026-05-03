@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T10:00:00Z';
+const APP_BUILD_ID = '2026-05-03T10:08:00Z';
 const APP_UPDATE_NOTES = [
-  '主页小条编辑弹窗移到屏幕中央',
-  '减少编辑时被键盘遮挡',
-  '同步更新缓存版本'
+  '修复多款iOS设备底栏消失',
+  '邀请码昵称不再沿用本地重复名',
+  '后台同名用户分开显示'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -229,7 +229,7 @@ async function loadInviteGatePublicName(){
       body: JSON.stringify({ deviceHash: deviceHash, deviceHashes: await inviteGateDeviceHashes(deviceHash) })
     });
     var data = await res.json().catch(function(){ return null; });
-    if(!cachedName && res.ok && data && data.ok && data.publicName){
+    if(res.ok && data && data.ok && data.publicName){
       setInviteGatePublicName(data.publicName);
     }
   }catch(err){}
@@ -1291,6 +1291,7 @@ function postShellMetadataDirtyToCurrentApp(topic){
 }
 
 let stableShellAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
+let homeDockLayoutAdjustQueued = false;
 
 function getCurrentShellKeyboardInset(){
   const vv = window.visualViewport;
@@ -1314,10 +1315,43 @@ function postKeyboardInsetToCurrentApp(value, keyboardOpen){
   }catch(err){}
 }
 
+function adjustHomeDockBottomFromLayout(){
+  homeDockLayoutAdjustQueued = false;
+  if(!isIOSShell() || isAndroidShell()) return;
+  try{
+    const outer = document.querySelector('.phone-outer.frame-off');
+    const dock = document.querySelector('.app-grid-dock');
+    const frame = document.querySelector('.phone-frame');
+    if(!outer || !dock || !frame || outer.classList.contains('app-open')) return;
+    const dockRect = dock.getBoundingClientRect();
+    const frameRect = frame.getBoundingClientRect();
+    const scale = Math.max(0.5, Math.min(3, (frameRect.height || 780) / 780));
+    const desiredGap = 18;
+    const maxBottom = Math.max(1, (window.innerHeight || document.documentElement.clientHeight || 0) - desiredGap);
+    const overflow = dockRect.bottom - maxBottom;
+    if(overflow <= 0) return;
+    const current = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--home-dock-bottom')) || 12;
+    const next = Math.max(12, Math.min(720, Math.ceil(current + (overflow / scale) + 4)));
+    document.documentElement.style.setProperty('--home-dock-bottom', next + 'px');
+  }catch(err){}
+}
+
+function queueHomeDockLayoutAdjust(){
+  if(homeDockLayoutAdjustQueued) return;
+  homeDockLayoutAdjustQueued = true;
+  requestAnimationFrame(function runHomeDockAdjust(){
+    adjustHomeDockBottomFromLayout();
+    [80, 180, 320, 520, 760].forEach(function(delay){
+      setTimeout(adjustHomeDockBottomFromLayout, delay);
+    });
+  });
+}
+
 function syncAppHeight(){
   const vv = window.visualViewport;
   const isStandalone = isStandaloneMode();
   const isAndroid = isAndroidShell();
+  const isIos = isIOSShell() && !isAndroid;
   syncShellPlatformClasses();
   const visualWidth = Math.round(vv && vv.width ? vv.width : window.innerWidth);
   const viewportWidth = Math.round(isAndroid ? Math.min(window.innerWidth || visualWidth, visualWidth || window.innerWidth) : (isStandalone ? window.innerWidth : (vv ? vv.width : window.innerWidth)));
@@ -1361,9 +1395,18 @@ function syncAppHeight(){
   const mobileFrameDrop = isStandalone ? 18 : 0;
   const usableHeight = Math.max(1, viewportHeight - contentTopInset - contentBottomInset - mobileFrameDrop);
   const frameScale = Math.min(viewportWidth / 375, usableHeight / 780);
+  let homeDockBottom = 12;
+  if(isIos && frameScale > 0){
+    const desiredVisualGap = 18;
+    const frameTop = contentTopInset + mobileFrameDrop;
+    const dockBottomInFrame = 780 - ((viewportHeight - frameTop - desiredVisualGap) / frameScale);
+    homeDockBottom = Math.max(12, Math.min(180, Math.ceil(dockBottomInFrame)));
+  }
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
   document.documentElement.style.setProperty('--mobile-frame-drop', mobileFrameDrop + 'px');
   document.documentElement.style.setProperty('--frameoff-scale', String(frameScale > 0 ? frameScale : 1));
+  document.documentElement.style.setProperty('--home-dock-bottom', homeDockBottom + 'px');
+  if(isIos) queueHomeDockLayoutAdjust();
 }
 
 function isGifDataUrl(dataUrl){

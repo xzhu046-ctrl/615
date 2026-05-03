@@ -198,14 +198,21 @@ function codeKindLabel(kind){
 }
 
 function groupRowsByLabel(rows){
+  const labelCounts = new Map();
+  rows.forEach((row)=>{
+    const label = String(row.label || '未填写用户名');
+    labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
+  });
   const map = new Map();
   rows.forEach((row)=>{
     const label = String(row.label || '未填写用户名');
-    if(!map.has(label)){
-      map.set(label, { label, createdAt: Number(row.createdAt || 0), rows: [] });
+    const createdAt = Number(row.createdAt || 0);
+    const key = label + '::' + String(createdAt || row.code || '');
+    if(!map.has(key)){
+      map.set(key, { label, createdAt, showTime: (labelCounts.get(label) || 0) > 2, rows: [] });
     }
-    const group = map.get(label);
-    group.createdAt = Math.max(group.createdAt, Number(row.createdAt || 0));
+    const group = map.get(key);
+    group.createdAt = Math.max(group.createdAt, createdAt);
     group.rows.push(row);
   });
   return Array.from(map.values()).sort((a,b)=>b.createdAt - a.createdAt);
@@ -219,7 +226,7 @@ function renderRows(rows){
   listEl.innerHTML = groupRowsByLabel(rows).map((group)=>\`
     <article class="card">
       <div>
-        <div class="card-name">\${escapeHtml(group.label || '未填写用户名')}</div>
+        <div class="card-name">\${escapeHtml((group.label || '未填写用户名') + (group.showTime ? ' · ' + fmtTime(group.createdAt) : ''))}</div>
         \${group.rows.map((row)=>\`
           <div class="code-row \${Number(row.revoked || 0) ? 'revoked' : ''}">
             <span class="code-kind">\${codeKindLabel(row.codeKind)}</span>
