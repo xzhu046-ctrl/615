@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T10:58:26Z';
+const APP_BUILD_ID = '2026-05-03T11:07:17Z';
 const APP_UPDATE_NOTES = [
-  '调稳主屏底栏位置',
-  '修复主屏翻页闪雾',
-  '文案编辑后底栏不再乱跳'
+  '主屏底栏稍微上移',
+  '减淡底栏白雾',
+  '文案编辑后底栏保持稳定'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -1303,7 +1303,7 @@ function syncAppHeight(){
   const frameScale = Math.min(viewportWidth / 375, usableHeight / 780);
   let homeDockBottom = 12;
   if(isIos){
-    homeDockBottom = Math.max(28, Math.min(58, Math.round(viewportHeight * 0.048)));
+    homeDockBottom = Math.max(46, Math.min(78, Math.round(viewportHeight * 0.068)));
   }
   document.documentElement.style.setProperty('--frameoff-top', contentTopInset + 'px');
   document.documentElement.style.setProperty('--mobile-frame-drop', mobileFrameDrop + 'px');
