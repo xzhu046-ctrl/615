@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-04T03:16:21Z"></script>
-<script src="../chatStorage.js?v=2026-05-04T03:16:21Z"></script>
-<script src="../assetStore.js?v=2026-05-04T03:16:21Z"></script>
-<script src="../accountManager.js?v=2026-05-04T03:16:21Z"></script>
-<script src="../metadataStore.js?v=2026-05-04T03:16:21Z"></script>
-<script src="../scheduleShared.js?v=2026-05-04T03:16:21Z"></script>
-<script src="../presenceShared.js?v=2026-05-04T03:16:21Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-04T03:16:21Z"></script>
-<script src="../sunnySupport.js?v=2026-05-04T03:16:21Z"></script>
-<script src="offlineInvite.js?v=2026-05-04T03:16:21Z"></script>
+<script src="../promptManager.js?v=2026-05-04T03:35:53Z"></script>
+<script src="../chatStorage.js?v=2026-05-04T03:35:53Z"></script>
+<script src="../assetStore.js?v=2026-05-04T03:35:53Z"></script>
+<script src="../accountManager.js?v=2026-05-04T03:35:53Z"></script>
+<script src="../metadataStore.js?v=2026-05-04T03:35:53Z"></script>
+<script src="../scheduleShared.js?v=2026-05-04T03:35:53Z"></script>
+<script src="../presenceShared.js?v=2026-05-04T03:35:53Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-04T03:35:53Z"></script>
+<script src="../sunnySupport.js?v=2026-05-04T03:35:53Z"></script>
+<script src="offlineInvite.js?v=2026-05-04T03:35:53Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -23165,9 +23165,13 @@ function addMessage(role, content, doScroll, msgType, msgId) {
     });
   } else if (viewRole === 'user') {
     var userFallback = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
-    setAvatarNodeFromSource(av, '', userFallback, false);
+    var immediateUserSrc = getImmediateUserAvatarForChat(character && character.id);
+    setAvatarNodeFromSource(av, immediateUserSrc, userFallback, false);
     resolveChatUserAvatarAsync(character && character.id).then(function(uav){
-      setAvatarNodeFromSource(av, uav, userFallback, false);
+      var finalUserSrc = isRenderableAvatarSrc(uav) ? uav : immediateUserSrc;
+      if(finalUserSrc || !getAvatarSourceFromNode(av)){
+        setAvatarNodeFromSource(av, finalUserSrc, userFallback, false);
+      }
     });
   } else if(viewRole === 'system'){
     av.style.display = 'none';
@@ -27206,11 +27210,17 @@ function hideTyping() {
 
 function refreshUserAvatars(){
   var fallback = String(getChatUserName(character && character.id) || resolveDisplayUserName() || '你').trim() || '你';
+  var immediateUserSrc = getImmediateUserAvatarForChat(character && character.id);
+  var headerUser = document.getElementById('hdrUserAvatar');
+  if(headerUser) setAvatarNodeFromSource(headerUser, immediateUserSrc, fallback, false);
+  document.querySelectorAll('.msg.user .msg-avatar').forEach(function(el){
+    setAvatarNodeFromSource(el, immediateUserSrc, fallback, false);
+  });
   resolveChatUserAvatarAsync(character && character.id).then(function(uav){
-    var headerUser = document.getElementById('hdrUserAvatar');
-    if(headerUser) setAvatarNodeFromSource(headerUser, uav, fallback, false);
+    var finalUserSrc = isRenderableAvatarSrc(uav) ? uav : immediateUserSrc;
+    if(headerUser && (finalUserSrc || !getAvatarSourceFromNode(headerUser))) setAvatarNodeFromSource(headerUser, finalUserSrc, fallback, false);
     document.querySelectorAll('.msg.user .msg-avatar').forEach(function(el){
-      setAvatarNodeFromSource(el, uav, fallback, false);
+      if(finalUserSrc || !getAvatarSourceFromNode(el)) setAvatarNodeFromSource(el, finalUserSrc, fallback, false);
     });
   });
 }
@@ -30606,10 +30616,23 @@ function currentVisibleCharAvatarSrc(){
 }
 
 function currentVisibleUserAvatarSrc(){
-  var selectors = ['#csUserAvatar img'];
+  var selectors = ['#csUserAvatar img', '#hdrUserAvatar img', '.msg.user .msg-avatar img'];
   for(var i = 0; i < selectors.length; i++){
     var node = document.querySelector(selectors[i]);
     var src = String((node && node.getAttribute && node.getAttribute('src')) || (node && node.src) || '').trim();
+    if(isRenderableAvatarSrc(src)) return src;
+  }
+  return '';
+}
+
+function getImmediateUserAvatarForChat(charId){
+  var sources = [
+    currentVisibleUserAvatarSrc(),
+    currentUserAvatarForFamily(charId),
+    getActiveAccountProfileAvatar()
+  ];
+  for(var i = 0; i < sources.length; i += 1){
+    var src = String(sources[i] || '').trim();
     if(isRenderableAvatarSrc(src)) return src;
   }
   return '';
@@ -30769,6 +30792,13 @@ function setAvatarNodeFromSource(targetEl, src, fallbackText, includeHint){
       roleSelectors = ['#hdrUserAvatar img', '#csUserAvatar img'];
     }
   }catch(err){}
+  if(isRenderableAvatarSrc(text)){
+    var existingSrc = normalizeAvatarSrc(getAvatarSourceFromNode(targetEl));
+    if(existingSrc && existingSrc === text && targetEl.querySelector && targetEl.querySelector('img')){
+      targetEl.setAttribute('data-avatar-src', text);
+      return;
+    }
+  }
   targetEl.innerHTML = '';
   if(isRenderableAvatarSrc(text)){
     var clonedImg = getLoadedAvatarTemplate(text, roleSelectors);
