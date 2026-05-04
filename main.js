@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-04T02:43:54Z';
+const APP_BUILD_ID = '2026-05-04T02:57:43Z';
 const APP_UPDATE_NOTES = [
-  '优化主屏幕左右滑动',
-  '强化主屏幕更新接管',
-  '保留数据只刷新应用壳'
+  '修复 iPad 第二页显示',
+  '保留主屏幕顺滑翻页',
+  '同步更新公有版缓存'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
