@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-04T04:56:54Z';
+const APP_BUILD_ID = '2026-05-04T05:09:48Z';
 const APP_UPDATE_NOTES = [
-  '减少点击时的蓝色高亮',
-  '输入框重新贴住键盘上方',
-  '滑动聊天记录时输入框保持不动'
+  '减少聊天页全局重绘',
+  '滑动和点击更轻快',
+  '保留轻量点击高亮优化'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
