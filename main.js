@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-04T02:57:43Z';
+const APP_BUILD_ID = '2026-05-04T03:16:21Z';
 const APP_UPDATE_NOTES = [
-  '修复 iPad 第二页显示',
-  '保留主屏幕顺滑翻页',
-  '同步更新公有版缓存'
+  '收紧后台活动触发',
+  '后台消息遵守间隔',
+  '过滤无关聊天联动'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -5456,6 +5456,7 @@ async function runAiBackgroundActivity(){
 
   var history = (await readBackgroundChatHistory(character.id, defaultId)).slice(-8);
   var convoState = summarizeBgConversationState(history);
+  if(convoState.unreadAssistantCount > 0 && !convoState.waitingForReply) return false;
   var shortHistory = history.map(function(m){
     var role = m && m.role === 'user' ? 'User' : 'Char';
     var content = String((m && m.content) || '').replace(/\s+/g, ' ').trim();
@@ -5871,6 +5872,21 @@ async function generateScheduleThoughtActions(payload){
   return { actions: actions };
 }
 
+function hasScheduleChatContextCue(text, speaker){
+  var raw = String(text || '').replace(/\s+/g, ' ').trim();
+  if(!raw) return false;
+  var lower = raw.toLowerCase();
+  if(/(日程|待办|备忘|备忘录|行程|计划|安排|提醒|闹钟|时间表|calendar|schedule|todo|memo|留言|评论|进度|完成|做完|划掉|删除)/i.test(lower)) return true;
+  if(/(记一下|记一笔|帮我记|提醒我|别忘|放进|写进|加一条|补一条|删掉|推迟|提前|取消)/.test(raw)) return true;
+  var hasTimeCue = /(\d{1,2}[:：]\d{2}|早上|上午|中午|下午|傍晚|晚上|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天])/.test(raw);
+  var hasPlanVerb = /(要|得|准备|打算|可能|会|去|来|见|吃|上课|开会|考试|学习|工作|值班|复习|睡|起床|出门|回家|到|开始|结束)/.test(raw);
+  if(hasTimeCue && hasPlanVerb) return true;
+  if(String(speaker || '').toLowerCase() === 'assistant'){
+    return /(我(帮你|替你).{0,12}(记|安排|提醒|补|改|删)|我(记下|记住|安排好了|提醒你|补上了)|日程里|待办里|备忘录里)/.test(raw);
+  }
+  return false;
+}
+
 async function syncScheduleActivityFromChat(payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   var charId = String(payload.charId || '').trim();
@@ -5881,6 +5897,8 @@ async function syncScheduleActivityFromChat(payload){
   await loadShellChatSettingsBundleForChar(charId, accountId);
   if(!isAiBgActivityGloballyEnabled()) return { changed:false, messages:0, disabled:true };
   if(!isCharBgEnabled(charId, accountId)) return { changed:false, messages:0 };
+  if(!hasScheduleChatContextCue(userText, speaker)) return { changed:false, messages:0, skipped:true };
+  if(!canRunAiBgSideEffect(false)) return { changed:false, messages:0, throttled:true };
   var shared = getScheduleSharedApi();
   if(!shared) return { changed:false, messages:0 };
   var chars = getStoredCharactersSnapshot();
@@ -6137,7 +6155,7 @@ async function syncScheduleActivityFromChat(payload){
       targets: burstTargets,
       actions: actionNotes.concat(String(plan && plan.chatContext || '').trim() ? [String(plan.chatContext || '').trim()] : []).join('\n')
     }).catch(function(){ return []; });
-    burstMessages = Array.isArray(burstMessages) ? burstMessages.map(function(text){ return String(text || '').trim(); }).filter(Boolean) : [];
+    burstMessages = Array.isArray(burstMessages) ? burstMessages.map(function(text){ return String(text || '').trim(); }).filter(Boolean).slice(0, 1) : [];
   }
   for(var msgIndex = 0; msgIndex < burstMessages.length; msgIndex += 1){
     await appendScheduleChatMessage({
@@ -6145,6 +6163,9 @@ async function syncScheduleActivityFromChat(payload){
       role: 'assistant',
       text: burstMessages[msgIndex]
     }).catch(function(){});
+  }
+  if(changed || burstMessages.length){
+    markAiBgSideEffectRun();
   }
   return { changed: changed, messages: burstMessages.length };
 }
@@ -12455,6 +12476,22 @@ function getAiBgIntervalMs(){
   return min * 60 * 1000;
 }
 
+function getAiBgLastAt(){
+  try{
+    return parseInt(localStorage.getItem(AI_BG_LAST_AT_KEY) || '0', 10) || 0;
+  }catch(e){}
+  return 0;
+}
+
+function canRunAiBgSideEffect(force){
+  if(force) return true;
+  return Date.now() - getAiBgLastAt() >= getAiBgIntervalMs();
+}
+
+function markAiBgSideEffectRun(){
+  try{ localStorage.setItem(AI_BG_LAST_AT_KEY, String(Date.now())); }catch(e){}
+}
+
 function getScheduleSharedApi(){
   return window.ScheduleShared && typeof window.ScheduleShared.loadState === 'function' ? window.ScheduleShared : null;
 }
@@ -12473,6 +12510,7 @@ async function maybeRunOfflineInviteReminders(){
 async function maybeRunScheduleTodoReminders(){
   if(!isAiBgActivityGloballyEnabled()) return;
   if(scheduleReminderRunning) return;
+  if(!canRunAiBgSideEffect(false)) return;
   var shared = getScheduleSharedApi();
   if(!shared) return;
   scheduleReminderRunning = true;
@@ -12480,6 +12518,7 @@ async function maybeRunScheduleTodoReminders(){
     var state = await shared.loadState();
     state = shared.normalizeState(state || null);
     var changed = false;
+    var emitted = false;
     var chars = getStoredCharactersSnapshot();
     for(const charId of Object.keys(state.chars || {})){
       if(!shared.isTimeAwarenessEnabled(state, charId)) continue;
@@ -12529,6 +12568,7 @@ async function maybeRunScheduleTodoReminders(){
             role: 'assistant',
             text: text
           }).catch(function(){});
+          emitted = true;
         }
         todo.remindedAt = Date.now();
         todo.remindedDate = dateKey;
@@ -12544,6 +12584,9 @@ async function maybeRunScheduleTodoReminders(){
     if(changed){
       await shared.saveState(state);
     }
+    if(emitted){
+      markAiBgSideEffectRun();
+    }
   }catch(err){
     console.error('[schedule-reminder] failed:', err);
   }finally{
@@ -12556,14 +12599,12 @@ async function maybeRunAiBgTick(force){
   var defaultId = getDefaultAccountId();
   if(!defaultId) return;
   if(!hasAnyAiBgActivityEnabled(defaultId)) return;
-  var now = Date.now();
-  var lastAt = parseInt(localStorage.getItem(AI_BG_LAST_AT_KEY) || '0', 10);
-  if(!force && now - lastAt < getAiBgIntervalMs()) return;
+  if(!canRunAiBgSideEffect(force)) return;
   aiBgRunning = true;
   try{
     var ok = await runAiBackgroundActivity();
     if(ok){
-      localStorage.setItem(AI_BG_LAST_AT_KEY, String(Date.now()));
+      markAiBgSideEffectRun();
     }
   }catch(err){
     console.error('[ai-bg] run failed:', err);

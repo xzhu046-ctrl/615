@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-04T02:57:43Z"></script>
-<script src="../chatStorage.js?v=2026-05-04T02:57:43Z"></script>
-<script src="../assetStore.js?v=2026-05-04T02:57:43Z"></script>
-<script src="../accountManager.js?v=2026-05-04T02:57:43Z"></script>
-<script src="../metadataStore.js?v=2026-05-04T02:57:43Z"></script>
-<script src="../scheduleShared.js?v=2026-05-04T02:57:43Z"></script>
-<script src="../presenceShared.js?v=2026-05-04T02:57:43Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-04T02:57:43Z"></script>
-<script src="../sunnySupport.js?v=2026-05-04T02:57:43Z"></script>
-<script src="offlineInvite.js?v=2026-05-04T02:57:43Z"></script>
+<script src="../promptManager.js?v=2026-05-04T03:16:21Z"></script>
+<script src="../chatStorage.js?v=2026-05-04T03:16:21Z"></script>
+<script src="../assetStore.js?v=2026-05-04T03:16:21Z"></script>
+<script src="../accountManager.js?v=2026-05-04T03:16:21Z"></script>
+<script src="../metadataStore.js?v=2026-05-04T03:16:21Z"></script>
+<script src="../scheduleShared.js?v=2026-05-04T03:16:21Z"></script>
+<script src="../presenceShared.js?v=2026-05-04T03:16:21Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-04T03:16:21Z"></script>
+<script src="../sunnySupport.js?v=2026-05-04T03:16:21Z"></script>
+<script src="offlineInvite.js?v=2026-05-04T03:16:21Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -21788,6 +21788,20 @@ function getScheduleShellHost(){
 
 var scheduleChatSyncBusy = false;
 var scheduleChatSyncLatest = null;
+function hasScheduleBackgroundCue(text, speaker){
+  var raw = String(text || '').replace(/\s+/g, ' ').trim();
+  if(!raw) return false;
+  var lower = raw.toLowerCase();
+  if(/(日程|待办|备忘|备忘录|行程|计划|安排|提醒|闹钟|时间表|calendar|schedule|todo|memo|留言|评论|进度|完成|做完|划掉|删除)/i.test(lower)) return true;
+  if(/(记一下|记一笔|帮我记|提醒我|别忘|放进|写进|加一条|补一条|删掉|推迟|提前|取消)/.test(raw)) return true;
+  var hasTimeCue = /(\d{1,2}[:：]\d{2}|早上|上午|中午|下午|傍晚|晚上|今晚|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天])/.test(raw);
+  var hasPlanVerb = /(要|得|准备|打算|可能|会|去|来|见|吃|上课|开会|考试|学习|工作|值班|复习|睡|起床|出门|回家|到|开始|结束)/.test(raw);
+  if(hasTimeCue && hasPlanVerb) return true;
+  if(String(speaker || '').toLowerCase() === 'assistant'){
+    return /(我(帮你|替你).{0,12}(记|安排|提醒|补|改|删)|我(记下|记住|安排好了|提醒你|补上了)|日程里|待办里|备忘录里)/.test(raw);
+  }
+  return false;
+}
 function maybeQueueScheduleBackgroundSync(text, msgType, speaker){
   if(!(character && character.id)) return;
   if(!loadCharBgEnabled(character.id)) return;
@@ -21796,6 +21810,7 @@ function maybeQueueScheduleBackgroundSync(text, msgType, speaker){
   if(typeof shellHost.ScheduleShell.isAiBgActivityEnabled === 'function' && !shellHost.ScheduleShell.isAiBgActivityEnabled()) return;
   var safeText = String(text || '').trim();
   if(!safeText) return;
+  if(!hasScheduleBackgroundCue(safeText, speaker)) return;
   scheduleChatSyncLatest = {
     charId: character.id,
     userText: safeText,
