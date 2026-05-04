@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-03T13:16:40Z';
+const APP_BUILD_ID = '2026-05-04T02:43:54Z';
 const APP_UPDATE_NOTES = [
-  '关闭后台活动后不再自动改日程',
-  '关闭后台活动后不再自动加待办',
-  '关闭后台活动后不再自动补消息'
+  '优化主屏幕左右滑动',
+  '强化主屏幕更新接管',
+  '保留数据只刷新应用壳'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -2152,7 +2152,7 @@ async function buildHostedPagesFingerprint(){
 function getRequestedHostedBuild(){
   try{
     var url = new URL(window.location.href);
-    var asked = String(url.searchParams.get('__appBuild') || '').trim();
+    var asked = String(url.searchParams.get('__appBuild') || url.searchParams.get('refreshBuild') || '').trim();
     if(asked && compareHostedBuildIds(asked, APP_BUILD_ID) > 0){
       return asked;
     }
@@ -2241,6 +2241,17 @@ async function unregisterHostedServiceWorkers(){
   try{
     var registrations = await navigator.serviceWorker.getRegistrations();
     await Promise.all((Array.isArray(registrations) ? registrations : []).map(function(reg){
+      try{
+        if(reg && reg.waiting && reg.waiting.postMessage){
+          reg.waiting.postMessage({ type:'SKIP_WAITING' });
+        }
+        if(reg && reg.installing && reg.installing.postMessage){
+          reg.installing.postMessage({ type:'SKIP_WAITING' });
+        }
+      }catch(e){}
+      return reg && typeof reg.update === 'function' ? reg.update().catch(function(){ return null; }) : null;
+    }));
+    await Promise.all((Array.isArray(registrations) ? registrations : []).map(function(reg){
       return reg && typeof reg.unregister === 'function' ? reg.unregister().catch(function(){ return false; }) : false;
     }));
   }catch(e){}
@@ -2250,8 +2261,25 @@ async function clearHostedUpdateCaches(){
   if(typeof caches !== 'undefined' && caches && typeof caches.keys === 'function'){
     try{
       var names = await caches.keys();
-      await Promise.all(names.map(function(name){ return caches.delete(name).catch(function(){ return null; }); }));
+      await Promise.all(names.filter(function(name){
+        return String(name || '').indexOf('phone-shell') === 0;
+      }).map(function(name){ return caches.delete(name).catch(function(){ return null; }); }));
     }catch(e){}
+  }
+}
+
+function buildHostedHardRefreshUrl(targetBuild){
+  try{
+    var url = new URL(window.location.href);
+    var build = String(targetBuild || APP_BUILD_ID || '').trim() || APP_BUILD_ID;
+    var stamp = String(Date.now());
+    url.searchParams.set('__appBuild', build);
+    url.searchParams.set('refreshBuild', build);
+    url.searchParams.set('__force', stamp);
+    url.searchParams.set('__ts', stamp);
+    return url.toString();
+  }catch(err){
+    return '';
   }
 }
 
@@ -2320,13 +2348,16 @@ function bindHostedServiceWorker(){
         try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
         hideHostedUpdateCard();
         try{
-          var nextUrl = new URL(window.location.href);
-          nextUrl.searchParams.set('__appBuild', targetBuild);
-          nextUrl.searchParams.set('__ts', String(Date.now()));
-          window.location.replace(nextUrl.toString());
+          var nextUrl = buildHostedHardRefreshUrl(targetBuild);
+          if(nextUrl){
+            window.location.replace(nextUrl);
+            return;
+          }
+        }catch(err){}
+        try{
+          window.location.reload();
           return;
         }catch(err){}
-        window.location.reload();
       }
     });
     return reg;
@@ -2472,13 +2503,16 @@ function refreshInstalledApp(evt){
     try{ sessionStorage.setItem(REFRESH_RECALC_FLAG_KEY, '1'); }catch(e){}
     hideHostedUpdateCard();
     try{
-      var url = new URL(window.location.href);
-      url.searchParams.set('__appBuild', String(targetBuild || APP_BUILD_ID));
-      url.searchParams.set('__ts', String(Date.now()));
-      window.location.replace(url.toString());
+      var url = buildHostedHardRefreshUrl(targetBuild);
+      if(url){
+        window.location.replace(url);
+        return;
+      }
+    }catch(err){}
+    try{
+      window.location.reload();
       return;
     }catch(err){}
-    window.location.reload();
   };
   Promise.resolve()
     .then(function(){
@@ -2529,9 +2563,14 @@ window.checkForHostedUpdate = checkForHostedUpdate;
 function clearHostedRefreshParams(){
   try{
     var url = new URL(window.location.href);
-    var hadRefreshParams = url.searchParams.has('__appBuild') || url.searchParams.has('__ts');
+    var hadRefreshParams = url.searchParams.has('__appBuild')
+      || url.searchParams.has('refreshBuild')
+      || url.searchParams.has('__force')
+      || url.searchParams.has('__ts');
     if(!hadRefreshParams) return;
     url.searchParams.delete('__appBuild');
+    url.searchParams.delete('refreshBuild');
+    url.searchParams.delete('__force');
     url.searchParams.delete('__ts');
     window.history.replaceState({}, document.title, url.toString());
   }catch(err){}
@@ -6149,6 +6188,8 @@ let pagerStartX = 0;
 let pagerStartY = 0;
 let pagerDragging = false;
 let pagerPointerId = null;
+let pagerOffsetRaf = 0;
+let pagerPendingOffset = 0;
 let activeBondBubble = 1;
 
 function getHomePageWidth(){
@@ -6172,8 +6213,18 @@ function getHomePageStep(){
 function setHomePagesOffset(pages, offsetPx){
   if(!pages) return;
   var snapped = Math.round(Number(offsetPx) || 0);
-  pages.style.transform = 'none';
-  pages.style.marginLeft = snapped + 'px';
+  pages.style.marginLeft = '0px';
+  pages.style.transform = 'translate3d(' + snapped + 'px, 0, 0)';
+}
+
+function queueHomePagesOffset(pages, offsetPx){
+  if(!pages) return;
+  pagerPendingOffset = Number(offsetPx) || 0;
+  if(pagerOffsetRaf) return;
+  pagerOffsetRaf = requestAnimationFrame(function(){
+    pagerOffsetRaf = 0;
+    setHomePagesOffset(pages, pagerPendingOffset);
+  });
 }
 
 function inferHomeToastKind(text){
@@ -7076,6 +7127,10 @@ function renderHomePages(immediate){
   if(immediate){
     const prev = pages.style.transition;
     pages.style.transition = 'none';
+    if(pagerOffsetRaf){
+      cancelAnimationFrame(pagerOffsetRaf);
+      pagerOffsetRaf = 0;
+    }
     setHomePagesOffset(pages, -offsetPx);
     renderHomePageIndicator();
     pages.offsetHeight;
@@ -7128,15 +7183,20 @@ function bindHomePager(){
       }catch(err){}
     }
     evt.preventDefault();
-    const offset = -(homePageIndex * getHomePageStep()) + dx;
+    const edgeResistance = (homePageIndex === 0 && dx > 0) || (homePageIndex === 1 && dx < 0) ? 0.34 : 1;
+    const offset = -(homePageIndex * getHomePageStep()) + (dx * edgeResistance);
     pages.style.transition = 'none';
-    setHomePagesOffset(pages, offset);
+    queueHomePagesOffset(pages, offset);
   });
   const finish = (evt)=>{
     if(pagerPointerId !== evt.pointerId) return;
     const dx = evt.clientX - pagerStartX;
     const width = getHomePageWidth();
     if(pagerDragging){
+      if(pagerOffsetRaf){
+        cancelAnimationFrame(pagerOffsetRaf);
+        pagerOffsetRaf = 0;
+      }
       pages.style.transition = '';
       const passed = Math.abs(dx) > Math.min(90, width * 0.18);
       if(passed){
