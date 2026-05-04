@@ -5,16 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover,interactive-widget=resizes-content">
 <title>Chat</title>
 <link href="https://fonts.googleapis.com/css2?family=Zhi+Mang+Xing&family=Quicksand:wght@400;600;700&family=Nunito:wght@700;900&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
-<script src="../promptManager.js?v=2026-05-04T03:35:53Z"></script>
-<script src="../chatStorage.js?v=2026-05-04T03:35:53Z"></script>
-<script src="../assetStore.js?v=2026-05-04T03:35:53Z"></script>
-<script src="../accountManager.js?v=2026-05-04T03:35:53Z"></script>
-<script src="../metadataStore.js?v=2026-05-04T03:35:53Z"></script>
-<script src="../scheduleShared.js?v=2026-05-04T03:35:53Z"></script>
-<script src="../presenceShared.js?v=2026-05-04T03:35:53Z"></script>
-<script src="../offlineInviteStore.js?v=2026-05-04T03:35:53Z"></script>
-<script src="../sunnySupport.js?v=2026-05-04T03:35:53Z"></script>
-<script src="offlineInvite.js?v=2026-05-04T03:35:53Z"></script>
+<script src="../promptManager.js?v=2026-05-04T03:58:24Z"></script>
+<script src="../chatStorage.js?v=2026-05-04T03:58:24Z"></script>
+<script src="../assetStore.js?v=2026-05-04T03:58:24Z"></script>
+<script src="../accountManager.js?v=2026-05-04T03:58:24Z"></script>
+<script src="../metadataStore.js?v=2026-05-04T03:58:24Z"></script>
+<script src="../scheduleShared.js?v=2026-05-04T03:58:24Z"></script>
+<script src="../presenceShared.js?v=2026-05-04T03:58:24Z"></script>
+<script src="../offlineInviteStore.js?v=2026-05-04T03:58:24Z"></script>
+<script src="../sunnySupport.js?v=2026-05-04T03:58:24Z"></script>
+<script src="offlineInvite.js?v=2026-05-04T03:58:24Z"></script>
 <script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
 <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
@@ -26974,11 +26974,17 @@ function closeImageViewer(){
 var stableChatAppHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
 var parentComposerShift = 0;
 var parentKeyboardOpen = false;
+var parentKeyboardMeasuredOpen = false;
 var parentKeyboardUpdatedAt = 0;
 var lastKnownKeyboardInset = 0;
 var appliedKeyboardInset = 0;
 var chatInputFocusActive = false;
 var chatKeyboardFocusStartedAt = 0;
+var chatKeyboardStableCandidate = 0;
+var chatKeyboardStableCandidateAt = 0;
+var lockedChatKeyboardInset = 0;
+var chatKeyboardRealOpenSeen = false;
+var chatKeyboardCollapseStartedAt = 0;
 function isChatTextInputActive(){
   var active = document.activeElement;
   if(!active) return false;
@@ -27007,7 +27013,13 @@ function estimateChatKeyboardInset(){
 function clearChatKeyboardInset(){
   parentComposerShift = 0;
   parentKeyboardOpen = false;
+  parentKeyboardMeasuredOpen = false;
   parentKeyboardUpdatedAt = 0;
+  chatKeyboardStableCandidate = 0;
+  chatKeyboardStableCandidateAt = 0;
+  lockedChatKeyboardInset = 0;
+  chatKeyboardRealOpenSeen = false;
+  chatKeyboardCollapseStartedAt = 0;
   appliedKeyboardInset = 0;
   document.documentElement.style.setProperty('--keyboard-inset', '0px');
   document.documentElement.style.setProperty('--composer-shift', '0px');
@@ -27041,15 +27053,19 @@ function syncChatViewport(){
   var parentFresh = parentKeyboardOpen && parentKeyboardUpdatedAt && Date.now() - parentKeyboardUpdatedAt < 8000;
   var parentInset = (textInputFocused && parentFresh) ? Math.max(0, parentComposerShift || 0) : 0;
   var inferredInset = textInputFocused ? Math.max(0, stableChatAppHeight - metrics.visibleHeight) : 0;
-  var measuredKeyboardRaw = textInputFocused ? Math.max(metrics.obscuredHeight, inferredInset, parentInset) : 0;
-  if(textInputFocused && measuredKeyboardRaw <= 120 && isAndroidChatRuntime()){
+  var iframeMeasuredRaw = textInputFocused ? Math.max(metrics.obscuredHeight, inferredInset) : 0;
+  var measuredKeyboardRaw = textInputFocused ? Math.max(iframeMeasuredRaw, parentInset) : 0;
+  var measuredOpen = textInputFocused && (iframeMeasuredRaw > 120 || (parentInset > 120 && parentKeyboardMeasuredOpen));
+  var focusAge = chatKeyboardFocusStartedAt ? Date.now() - chatKeyboardFocusStartedAt : 0;
+  if(textInputFocused && measuredKeyboardRaw <= 120 && isAndroidChatRuntime() && !chatKeyboardRealOpenSeen && appliedKeyboardInset <= 120 && focusAge < 900){
     measuredKeyboardRaw = Math.max(measuredKeyboardRaw, appliedKeyboardInset, lastKnownKeyboardInset, estimateChatKeyboardInset());
   }
-  var keyboardInset = clampChatKeyboardInset(measuredKeyboardRaw);
+  var keyboardInset = resolveStableChatKeyboardInset(measuredKeyboardRaw, textInputFocused, measuredOpen);
   if(!textInputFocused || keyboardInset <= 120){
     keyboardInset = 0;
     parentComposerShift = 0;
     parentKeyboardOpen = false;
+    parentKeyboardMeasuredOpen = false;
     parentKeyboardUpdatedAt = 0;
   }
   if(keyboardInset >= 180) lastKnownKeyboardInset = keyboardInset;
@@ -27066,6 +27082,65 @@ function syncChatViewport(){
   try{
     if(window.parent) window.parent.postMessage({ type:'SET_CHAT_KEYBOARD_SHIFT', payload: keyboardInset }, '*');
   }catch(err){}
+}
+
+function resolveStableChatKeyboardInset(rawInset, textInputFocused, measuredOpen){
+  if(!textInputFocused){
+    chatKeyboardStableCandidate = 0;
+    chatKeyboardStableCandidateAt = 0;
+    lockedChatKeyboardInset = 0;
+    chatKeyboardRealOpenSeen = false;
+    chatKeyboardCollapseStartedAt = 0;
+    return 0;
+  }
+  var now = Date.now();
+  if(measuredOpen){
+    chatKeyboardRealOpenSeen = true;
+    chatKeyboardCollapseStartedAt = 0;
+  }
+  var next = clampChatKeyboardInset(rawInset);
+  if(next <= 120){
+    chatKeyboardStableCandidate = 0;
+    chatKeyboardStableCandidateAt = 0;
+    if(isAndroidChatRuntime() && chatKeyboardRealOpenSeen && appliedKeyboardInset > 120){
+      if(!chatKeyboardCollapseStartedAt){
+        chatKeyboardCollapseStartedAt = now;
+        setTimeout(syncChatViewport, 120);
+        return appliedKeyboardInset;
+      }
+      if(now - chatKeyboardCollapseStartedAt < 110){
+        return appliedKeyboardInset;
+      }
+    }
+    lockedChatKeyboardInset = 0;
+    chatKeyboardRealOpenSeen = false;
+    chatKeyboardCollapseStartedAt = 0;
+    return 0;
+  }
+  var focusAge = chatKeyboardFocusStartedAt ? (now - chatKeyboardFocusStartedAt) : 9999;
+  if(lockedChatKeyboardInset > 120 && focusAge > 160){
+    if(Math.abs(next - lockedChatKeyboardInset) < 92) return lockedChatKeyboardInset;
+    lockedChatKeyboardInset = next;
+    return next;
+  }
+  if(!isIOSChatRuntime() || focusAge > 460){
+    chatKeyboardStableCandidate = next;
+    chatKeyboardStableCandidateAt = now;
+    lockedChatKeyboardInset = next;
+    return next;
+  }
+  if(focusAge < 36){
+    return appliedKeyboardInset > 120 ? appliedKeyboardInset : 0;
+  }
+  if(!chatKeyboardStableCandidate || Math.abs(next - chatKeyboardStableCandidate) > 34){
+    chatKeyboardStableCandidate = next;
+    chatKeyboardStableCandidateAt = now;
+    lockedChatKeyboardInset = next;
+    return next;
+  }
+  chatKeyboardStableCandidate = Math.round((chatKeyboardStableCandidate + next) / 2);
+  lockedChatKeyboardInset = chatKeyboardStableCandidate;
+  return chatKeyboardStableCandidate;
 }
 
 function syncComposerMetrics(){
@@ -34668,11 +34743,13 @@ window.addEventListener('message', async function(e) {
     if(isChatTextInputActive() && isOpen){
       parentComposerShift = clampChatKeyboardInset(shiftValue);
       parentKeyboardOpen = parentComposerShift > 120;
+      parentKeyboardMeasuredOpen = !!shiftPayload.measuredOpen;
       parentKeyboardUpdatedAt = Date.now();
       syncChatViewport();
     }else{
       parentComposerShift = 0;
       parentKeyboardOpen = false;
+      parentKeyboardMeasuredOpen = false;
       parentKeyboardUpdatedAt = 0;
       syncChatViewport();
     }
@@ -34685,11 +34762,13 @@ window.addEventListener('message', async function(e) {
     if(isChatTextInputActive() && insetOpen){
       parentComposerShift = clampChatKeyboardInset(insetValue);
       parentKeyboardOpen = parentComposerShift > 120;
+      parentKeyboardMeasuredOpen = !!insetPayload.measuredOpen;
       parentKeyboardUpdatedAt = Date.now();
       syncChatViewport();
     }else{
       parentComposerShift = 0;
       parentKeyboardOpen = false;
+      parentKeyboardMeasuredOpen = false;
       parentKeyboardUpdatedAt = 0;
       syncChatViewport();
     }
@@ -34943,8 +35022,17 @@ if(window.visualViewport){
     keepComposerVisible();
   });
   window.visualViewport.addEventListener('scroll', function(){
+    if(isChatTextInputActive()){
+      if(isAndroidChatRuntime() && appliedKeyboardInset > 120){
+        var metrics = getChatViewportMetrics();
+        var inferredInset = Math.max(0, stableChatAppHeight - metrics.visibleHeight);
+        if(Math.max(metrics.obscuredHeight, inferredInset) <= 120){
+          syncChatViewport();
+        }
+      }
+      return;
+    }
     syncChatViewport();
-    keepComposerVisible();
   });
 }
 window.addEventListener('beforeunload', restoreParentTopbarForSettings);

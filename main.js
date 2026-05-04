@@ -52,11 +52,11 @@ const OFFLINE_INVITE_FOCUS_KEY = 'offline_invite_focus_id_v1';
 const OFFLINE_INVITE_REMINDER_SNOOZE_MS = 15 * 60 * 1000;
 const BACKEND_LOG_STORAGE_KEY = 'backend_runtime_logs_v1';
 const BACKEND_LOG_MAX = 1000;
-const APP_BUILD_ID = '2026-05-04T03:35:53Z';
+const APP_BUILD_ID = '2026-05-04T03:58:24Z';
 const APP_UPDATE_NOTES = [
-  '修复 iPad 第二页雾感',
-  '发送头像不再闪空',
-  '减少头像重复刷新'
+  '滑动聊天记录时输入框不再乱动',
+  '安卓收起键盘后输入栏自动回到底部',
+  '稳定聊天键盘高度同步'
 ];
 const INVITE_GATE_CONFIG = {
   enabled: true,
@@ -162,6 +162,7 @@ let installedUpdateNoticeChecked = false;
 let chatInputFocusActive = false;
 let chatInputFocusStartedAt = 0;
 let chatReportedKeyboardShift = 0;
+let chatMeasuredKeyboardOpenSeen = false;
 var shellActiveCharacterCache = {};
 var shellActiveChatIdCache = {};
 var persistedShellActiveCharacter = null;
@@ -871,6 +872,9 @@ function getFallbackChatKeyboardShift(){
   if(!isAndroidShell() && !isIosLike) return 0;
   var focusedFor = Date.now() - (Number(chatInputFocusStartedAt) || 0);
   if(focusedFor < 70) return 0;
+  if(chatReportedKeyboardShift > 120) return 0;
+  if(chatMeasuredKeyboardOpenSeen && getTopLevelChatKeyboardShift() <= 120) return 0;
+  if(focusedFor > 900) return 0;
   if(isIosLike && focusedFor > 2600 && getTopLevelChatKeyboardShift() <= 120 && chatReportedKeyboardShift <= 120) return 0;
   var h = Math.round(stableShellAppHeight || window.innerHeight || document.documentElement.clientHeight || 0) || 0;
   if(!h) return 0;
@@ -879,9 +883,12 @@ function getFallbackChatKeyboardShift(){
 
 function syncChatKeyboardShift(){
   var measured = getTopLevelChatKeyboardShift();
+  if(currentApp === 'chat' && chatInputFocusActive && measured > 120){
+    chatMeasuredKeyboardOpenSeen = true;
+  }
   var fallback = getFallbackChatKeyboardShift();
   var shift = Math.max(measured, fallback);
-  postKeyboardInsetToCurrentApp(shift, shift > 120);
+  postKeyboardInsetToCurrentApp(shift, shift > 120, measured > 120);
   setChatKeyboardShift(0);
 }
 
@@ -889,6 +896,7 @@ function resetShellViewportAfterChatInput(){
   chatInputFocusActive = false;
   chatInputFocusStartedAt = 0;
   chatReportedKeyboardShift = 0;
+  chatMeasuredKeyboardOpenSeen = false;
   setChatKeyboardShift(0);
   try{ window.scrollTo(0, 0); }catch(err){}
   try{
@@ -1324,14 +1332,14 @@ function getCurrentShellKeyboardInset(){
   return inset > 120 ? Math.min(520, inset) : 0;
 }
 
-function postKeyboardInsetToCurrentApp(value, keyboardOpen){
+function postKeyboardInsetToCurrentApp(value, keyboardOpen, measuredOpen){
   const inset = Math.max(0, Math.min(520, Number(value) || 0));
   const open = !!keyboardOpen && inset > 120;
   const safeInset = open ? inset : 0;
   try{
     const frame = document.getElementById('app-iframe');
     if(frame && frame.contentWindow){
-      frame.contentWindow.postMessage({ type:'PARENT_APP_KEYBOARD_INSET', payload:{ inset:safeInset, keyboardOpen:open, app:currentApp || '' } }, '*');
+      frame.contentWindow.postMessage({ type:'PARENT_APP_KEYBOARD_INSET', payload:{ inset:safeInset, keyboardOpen:open, measuredOpen:!!measuredOpen && open, app:currentApp || '' } }, '*');
     }
   }catch(err){}
 }
@@ -1350,10 +1358,16 @@ function syncAppHeight(){
   const currentHeight = Math.round(window.innerHeight || document.documentElement.clientHeight || 0) || 0;
   const androidViewportGap = isAndroid && visualHeight ? Math.max(0, currentHeight - visualHeight) : 0;
   const measuredKeyboardInset = Math.max(rawBottomOffset, androidViewportGap);
+  const measuredKeyboardOpen = measuredKeyboardInset > 120;
+  if(currentApp === 'chat' && chatInputFocusActive && measuredKeyboardOpen){
+    chatMeasuredKeyboardOpenSeen = true;
+  }else if(!chatInputFocusActive){
+    chatMeasuredKeyboardOpenSeen = false;
+  }
   const fallbackKeyboardInset = currentApp === 'chat' && chatInputFocusActive ? getFallbackChatKeyboardShift() : 0;
   const keyboardInset = Math.max(measuredKeyboardInset, fallbackKeyboardInset);
-  const keyboardLikelyOpen = rawBottomOffset > 120 || (chatInputFocusActive && androidViewportGap > 220) || fallbackKeyboardInset > 120;
-  postKeyboardInsetToCurrentApp(keyboardLikelyOpen ? keyboardInset : 0, keyboardLikelyOpen);
+  const keyboardLikelyOpen = rawBottomOffset > 120 || (chatInputFocusActive && androidViewportGap > 120) || fallbackKeyboardInset > 120;
+  postKeyboardInsetToCurrentApp(keyboardLikelyOpen ? keyboardInset : 0, keyboardLikelyOpen, measuredKeyboardOpen);
   if(keyboardLikelyOpen && document.documentElement.classList.contains('home-widget-text-editing')){
     return;
   }
@@ -10387,6 +10401,7 @@ async function performCloseApp(){
   }
   chatInputFocusActive = false;
   chatReportedKeyboardShift = 0;
+  chatMeasuredKeyboardOpenSeen = false;
   document.getElementById('home-screen').classList.remove('hidden');
   try{
     const c = foregroundChar && foregroundChar.id ? foregroundChar : getActiveCharacterData();
@@ -10557,6 +10572,7 @@ function renderApp(id){
       container.style.removeProperty('--chat-keyboard-shift');
       chatInputFocusActive = false;
       chatReportedKeyboardShift = 0;
+      chatMeasuredKeyboardOpenSeen = false;
     }
   }
   showShellLoadingOverlay('app');
@@ -11088,6 +11104,7 @@ window.addEventListener('message',(e)=>{
   if(type==='CHAT_INPUT_FOCUS'){
     chatInputFocusActive = true;
     chatInputFocusStartedAt = Date.now();
+    chatMeasuredKeyboardOpenSeen = false;
     syncAppHeight();
     syncChatKeyboardShift();
     [80, 180, 320, 480, 720].forEach(function(delay){
@@ -11100,6 +11117,7 @@ window.addEventListener('message',(e)=>{
   if(type==='CHAT_INPUT_BLUR'){
     chatInputFocusActive = false;
     chatInputFocusStartedAt = 0;
+    chatMeasuredKeyboardOpenSeen = false;
     scheduleShellViewportResetAfterTextInput();
   }
   if(type==='APP_TEXT_INPUT_BLUR'){
@@ -12872,6 +12890,9 @@ if(window.visualViewport){
     renderHomePages(true);
   });
   window.visualViewport.addEventListener('scroll', function(){
+    if(currentApp === 'chat' && chatInputFocusActive && getCurrentShellKeyboardInset() > 120){
+      return;
+    }
     syncAppHeight();
     syncChatKeyboardShift();
   });
